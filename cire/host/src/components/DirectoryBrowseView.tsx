@@ -1,4 +1,10 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -7,10 +13,6 @@ import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
-import Button from "./ui/Button";
-import Field, { Input, Select } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 interface BrowseListing {
   id: string;
   name: string;
@@ -54,6 +56,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   // Detail modal state
   const [modalListing, setModalListing] = createSignal<BrowseListing | null>(null);
+  const shownListing = heldWhileClosing(modalListing);
 
   // Add flow state
   const [addingId, setAddingId] = createSignal<string | null>(null);
@@ -219,10 +222,6 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     modalOpener = null;
   };
 
-  const handleModalKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") closeModal();
-  };
-
   return (
     <div class="flex flex-col gap-6">
       {/* Filter bar */}
@@ -278,28 +277,28 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
       {/* Global error */}
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>
 
       {/* Add error */}
       <Show when={addError()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {addError()}
         </Notice>
       </Show>
 
       {/* Loading */}
       <Show when={loading() && listings().length === 0}>
-        <p role="status" class="text-text-muted text-[0.85rem] italic">
+        <p role="status" class="text-text-muted text-ui-sm italic">
           Loading vendors…
         </p>
       </Show>
 
       {/* Empty state */}
       <Show when={!loading() && listings().length === 0 && !error()}>
-        <p role="status" class="text-text-muted text-[0.85rem] italic">
+        <p role="status" class="text-text-muted text-ui-sm italic">
           No vendors match your filters.
         </p>
       </Show>
@@ -311,13 +310,13 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             {(item) => (
               <li class="border-border bg-surface/10 flex flex-col gap-3 rounded-sm border p-4">
                 <div class="flex flex-col gap-1">
-                  <span class="text-text text-[0.95rem] font-medium">{item.name}</span>
+                  <span class="text-text text-ui-base font-medium">{item.name}</span>
 
                   {/* Category chips */}
                   <div class="flex flex-wrap gap-1">
                     <For each={item.categories}>
                       {(cat) => (
-                        <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
+                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
                           {categoryLabel(cat)}
                         </span>
                       )}
@@ -325,42 +324,43 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                   </div>
 
                   <Show when={item.locationText}>
-                    <span class="text-text-muted text-[0.82rem]">{item.locationText}</span>
+                    <span class="text-text-muted text-ui-sm">{item.locationText}</span>
                   </Show>
 
                   <Show when={item.priceBand}>
-                    <span class="text-text-muted text-[0.82rem]">{item.priceBand}</span>
+                    <span class="text-text-muted text-ui-sm">{item.priceBand}</span>
                   </Show>
 
                   <Show when={item.description}>
-                    <p class="text-text-muted line-clamp-2 text-[0.82rem]">{item.description}</p>
+                    <p class="text-text-muted text-ui-sm line-clamp-2">{item.description}</p>
                   </Show>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2 pt-1">
-                  <button
+                  <Button
+                    variant="link"
                     type="button"
                     onClick={(e) => {
                       modalOpener = e.currentTarget;
                       setModalListing(item);
                     }}
-                    class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
                   >
                     View
-                  </button>
+                  </Button>
 
                   <Show when={props.canEdit}>
                     <Show
                       when={!item.inWedding}
                       fallback={
-                        <button
+                        <Button
+                          variant="bare"
                           type="button"
                           disabled
                           aria-label="Already added to this wedding"
-                          class="text-text-muted text-[0.78rem] opacity-60"
+                          class="opacity-60"
                         >
                           Added ✓
-                        </button>
+                        </Button>
                       }
                     >
                       {/* Category picker (shown inline when multi-category) */}
@@ -376,25 +376,25 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                             >
                               {addingId() === item.id ? "Adding…" : "Add to wedding"}
                             </Button>
-                            <button
+                            <Button
+                              variant="link"
                               type="button"
                               aria-label={`Enquire with ${item.name}`}
                               onClick={() => setEnquireListing(item)}
-                              class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
                             >
                               Enquire
-                            </button>
+                            </Button>
                           </div>
                         }
                       >
                         <div class="flex flex-col gap-2">
                           <fieldset class="flex flex-wrap gap-2">
-                            <legend class="text-gold-dim font-body sr-only text-[0.68rem] uppercase">
+                            <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
                               Pick a category
                             </legend>
                             <For each={item.categories}>
                               {(cat) => (
-                                <label class="flex items-center gap-1 text-[0.82rem]">
+                                <label class="text-ui-sm flex items-center gap-1">
                                   <input
                                     type="radio"
                                     name={`add-cat-${item.id}`}
@@ -454,188 +454,188 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
       </Show>
 
       {/* Detail modal */}
-      <Show when={modalListing()}>
-        {(ml) => (
-          /* Portalled to document.body: the dashboard shell sets `container-type`
-             on its layout boxes, which brings `contain: layout` with it and makes
-             them the containing block for `position: fixed` descendants. */
-          <Portal>
-            <div
-              class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-              onClick={(e) => {
-                if (e.target === e.currentTarget) closeModal();
-              }}
-            >
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label={ml().name}
-                tabIndex={-1}
-                ref={(el) => el?.focus()}
-                onKeyDown={handleModalKeyDown}
-                class="border-border bg-bg flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-sm border p-6"
-              >
-                <div class="flex items-start justify-between gap-4">
-                  <h2 class="text-text text-[1.1rem] font-medium">{ml().name}</h2>
-                  <button
-                    type="button"
-                    aria-label="Close"
-                    onClick={closeModal}
-                    class="text-text-muted hover:text-text shrink-0"
-                  >
-                    ✕
-                  </button>
-                </div>
+      {/* Was a `fixed inset-0 z-50` scrim in a `<Portal>`, portalled because the
+          dashboard shell sets `container-type` on its layout boxes, which brings
+          `contain: layout` and makes them the containing block for
+          `position: fixed` descendants. A top-layer dialog needs neither.
 
-                {/* Category chips */}
-                <div class="flex flex-wrap gap-1">
-                  <For each={ml().categories}>
-                    {(cat) => (
-                      <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
-                        {categoryLabel(cat)}
-                      </span>
-                    )}
-                  </For>
-                </div>
+          It also deletes the hand-rolled half of a focus trap: a `tabIndex={-1}`
+          with a `ref` that focused the panel, and a keydown handler whose only
+          job was Escape. Both come from `showModal()` now.
 
-                <Show when={ml().locationText}>
-                  <p class="text-text-muted text-[0.85rem]">{ml().locationText}</p>
-                </Show>
+          `heldWhileClosing` because the body is built from the listing, and
+          closing sets it null — without it the dialog would fade out empty. */}
+      <Modal
+        open={modalListing() !== null}
+        onClose={closeModal}
+        label={shownListing()?.name ?? "Vendor"}
+        class="flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-y-auto"
+      >
+        <Show when={shownListing()}>
+          {(ml) => (
+            <>
+              <div class="flex items-start justify-between gap-4">
+                <h2 class="text-text text-ui-md font-medium">{ml().name}</h2>
+                <Button
+                  variant="bare"
+                  type="button"
+                  aria-label="Close"
+                  onClick={closeModal}
+                  class="shrink-0"
+                >
+                  ✕
+                </Button>
+              </div>
 
-                <Show when={ml().priceBand}>
-                  <p class="text-text-muted text-[0.85rem]">
-                    {ml().priceBand}
-                    <Show when={ml().priceMinMinor != null || ml().priceMaxMinor != null}>
-                      {" "}
-                      <span class="text-text-muted text-[0.82rem]">
-                        {ml().priceMinMinor != null
-                          ? `from $${(ml().priceMinMinor! / 100).toFixed(0)}`
-                          : ""}
-                        {ml().priceMinMinor != null && ml().priceMaxMinor != null ? " – " : ""}
-                        {ml().priceMaxMinor != null
-                          ? `to $${(ml().priceMaxMinor! / 100).toFixed(0)}`
-                          : ""}
-                      </span>
-                    </Show>
-                  </p>
-                </Show>
+              {/* Category chips */}
+              <div class="flex flex-wrap gap-1">
+                <For each={ml().categories}>
+                  {(cat) => (
+                    <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
+                      {categoryLabel(cat)}
+                    </span>
+                  )}
+                </For>
+              </div>
 
-                <Show when={ml().description}>
-                  <p class="text-text text-[0.88rem]">{ml().description}</p>
-                </Show>
+              <Show when={ml().locationText}>
+                <p class="text-text-muted text-ui-sm">{ml().locationText}</p>
+              </Show>
 
-                {/* Contact details */}
-                <div class="flex flex-col gap-1">
-                  <Show when={safeHref(ml().website)}>
-                    {(href) => (
-                      <a
-                        href={href()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-gold-dim hover:text-gold text-[0.82rem] underline-offset-2 hover:underline"
-                      >
-                        Website
-                      </a>
-                    )}
+              <Show when={ml().priceBand}>
+                <p class="text-text-muted text-ui-sm">
+                  {ml().priceBand}
+                  <Show when={ml().priceMinMinor != null || ml().priceMaxMinor != null}>
+                    {" "}
+                    <span class="text-text-muted text-ui-sm">
+                      {ml().priceMinMinor != null
+                        ? `from $${(ml().priceMinMinor! / 100).toFixed(0)}`
+                        : ""}
+                      {ml().priceMinMinor != null && ml().priceMaxMinor != null ? " – " : ""}
+                      {ml().priceMaxMinor != null
+                        ? `to $${(ml().priceMaxMinor! / 100).toFixed(0)}`
+                        : ""}
+                    </span>
                   </Show>
-                  <Show when={safeInstagramHref(ml().instagram)}>
-                    {(href) => (
-                      <a
-                        href={href()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-gold-dim hover:text-gold text-[0.82rem] underline-offset-2 hover:underline"
-                      >
-                        Instagram
-                      </a>
-                    )}
-                  </Show>
-                  <Show when={ml().email}>
-                    <span class="text-text-muted text-[0.82rem]">{ml().email}</span>
-                  </Show>
-                  <Show when={ml().phone}>
-                    <span class="text-text-muted text-[0.82rem]">{ml().phone}</span>
-                  </Show>
-                </div>
+                </p>
+              </Show>
 
-                {/* Add CTA in modal */}
-                <Show when={props.canEdit}>
-                  <Show
-                    when={!ml().inWedding}
-                    fallback={
-                      <button
-                        type="button"
-                        disabled
-                        aria-label="Already added to this wedding"
-                        class="text-text-muted text-[0.82rem] opacity-60"
-                      >
-                        Added ✓
-                      </button>
-                    }
-                  >
-                    <Show
-                      when={pickerListingId() === ml().id}
-                      fallback={
-                        <Button
-                          variant="primary"
-                          class="self-start"
-                          disabled={addingId() === ml().id}
-                          onClick={() => handleAddClick(ml())}
-                        >
-                          {addingId() === ml().id ? "Adding…" : "Add to wedding"}
-                        </Button>
-                      }
+              <Show when={ml().description}>
+                <p class="text-text text-ui-base">{ml().description}</p>
+              </Show>
+
+              {/* Contact details */}
+              <div class="flex flex-col gap-1">
+                <Show when={safeHref(ml().website)}>
+                  {(href) => (
+                    <a
+                      href={href()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
                     >
-                      <div class="flex flex-col gap-2">
-                        <fieldset class="flex flex-wrap gap-2">
-                          <legend class="text-gold-dim font-body sr-only text-[0.68rem] uppercase">
-                            Pick a category
-                          </legend>
-                          <For each={ml().categories}>
-                            {(cat) => (
-                              <label class="flex items-center gap-1 text-[0.82rem]">
-                                <input
-                                  type="radio"
-                                  name={`modal-add-cat-${ml().id}`}
-                                  value={cat}
-                                  checked={pickerCategory() === cat}
-                                  onChange={() => setPickerCategory(cat)}
-                                />
-                                {categoryLabel(cat)}
-                              </label>
-                            )}
-                          </For>
-                        </fieldset>
-                        <div class="flex gap-2">
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            aria-label="Confirm add"
-                            onClick={() => handlePickerConfirm(ml().id)}
-                          >
-                            Confirm
-                          </Button>
-                          <Button
-                            variant="quiet"
-                            size="sm"
-                            aria-label="Cancel category selection"
-                            onClick={() => {
-                              setPickerListingId(null);
-                              setPickerCategory("");
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    </Show>
-                  </Show>
+                      Website
+                    </a>
+                  )}
+                </Show>
+                <Show when={safeInstagramHref(ml().instagram)}>
+                  {(href) => (
+                    <a
+                      href={href()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
+                    >
+                      Instagram
+                    </a>
+                  )}
+                </Show>
+                <Show when={ml().email}>
+                  <span class="text-text-muted text-ui-sm">{ml().email}</span>
+                </Show>
+                <Show when={ml().phone}>
+                  <span class="text-text-muted text-ui-sm">{ml().phone}</span>
                 </Show>
               </div>
-            </div>
-          </Portal>
-        )}
-      </Show>
+
+              {/* Add CTA in modal */}
+              <Show when={props.canEdit}>
+                <Show
+                  when={!ml().inWedding}
+                  fallback={
+                    <Button
+                      variant="bare"
+                      type="button"
+                      disabled
+                      aria-label="Already added to this wedding"
+                      class="opacity-60"
+                    >
+                      Added ✓
+                    </Button>
+                  }
+                >
+                  <Show
+                    when={pickerListingId() === ml().id}
+                    fallback={
+                      <Button
+                        variant="primary"
+                        class="self-start"
+                        disabled={addingId() === ml().id}
+                        onClick={() => handleAddClick(ml())}
+                      >
+                        {addingId() === ml().id ? "Adding…" : "Add to wedding"}
+                      </Button>
+                    }
+                  >
+                    <div class="flex flex-col gap-2">
+                      <fieldset class="flex flex-wrap gap-2">
+                        <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
+                          Pick a category
+                        </legend>
+                        <For each={ml().categories}>
+                          {(cat) => (
+                            <label class="text-ui-sm flex items-center gap-1">
+                              <input
+                                type="radio"
+                                name={`modal-add-cat-${ml().id}`}
+                                value={cat}
+                                checked={pickerCategory() === cat}
+                                onChange={() => setPickerCategory(cat)}
+                              />
+                              {categoryLabel(cat)}
+                            </label>
+                          )}
+                        </For>
+                      </fieldset>
+                      <div class="flex gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          aria-label="Confirm add"
+                          onClick={() => handlePickerConfirm(ml().id)}
+                        >
+                          Confirm
+                        </Button>
+                        <Button
+                          variant="quiet"
+                          size="sm"
+                          aria-label="Cancel category selection"
+                          onClick={() => {
+                            setPickerListingId(null);
+                            setPickerCategory("");
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </Show>
+                </Show>
+              </Show>
+            </>
+          )}
+        </Show>
+      </Modal>
 
       {/* Enquire dialog — one instance at root, keyed by the active listing */}
       <Show when={enquireListing()}>

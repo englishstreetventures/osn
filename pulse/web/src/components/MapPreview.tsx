@@ -1,5 +1,5 @@
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import type * as Leaflet from "leaflet";
 import { onCleanup, onMount, Show } from "solid-js";
 
@@ -66,7 +66,7 @@ export function MapPreview(props: {
       when={props.latitude != null && props.longitude != null}
       fallback={
         <Show when={props.label}>
-          <Card class="p-4">
+          <Card padding="sm">
             <p class="text-foreground text-sm font-medium">Location</p>
             <p class="text-muted-foreground text-sm">{props.label}</p>
           </Card>

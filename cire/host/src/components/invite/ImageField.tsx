@@ -6,6 +6,8 @@
  * that caused it, not in the distant save bar.
  */
 
+import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
 import { apiUrl } from "../../lib/api";
@@ -17,8 +19,6 @@ import {
   type CropSlot,
   type ImageCrop,
 } from "../../lib/image-crop";
-import Button from "../ui/Button";
-import Notice from "../ui/Notice";
 import { InstantBadge } from "./fields";
 
 const ImageCropModal = lazy(() => import("../ImageCropModal"));
@@ -64,7 +64,7 @@ export default function ImageField(props: {
   return (
     <div class="flex flex-col gap-2">
       <span class="flex items-center gap-2">
-        <span class="font-body text-text-muted text-[0.8rem]">{props.label}</span>
+        <span class="font-body text-text-muted text-ui-sm">{props.label}</span>
         <InstantBadge />
       </span>
       <div class="flex flex-wrap items-end gap-3">
@@ -124,7 +124,7 @@ export default function ImageField(props: {
             if (file) props.onSelect(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
         />
         <Show when={props.url}>
           <Button variant="outline" size="sm" onClick={() => setCropping("desktop")}>
@@ -143,12 +143,12 @@ export default function ImageField(props: {
         </Show>
       </div>
       <Show when={props.error}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {props.error}
         </Notice>
       </Show>
       <Show when={hasMobileCrop()}>
-        <p class="font-body text-text-muted text-[0.72rem]">
+        <p class="font-body text-text-muted text-ui-xs">
           Phones show a tall slice of this photo — use “Phone crop” to choose which part, so the
           people in it stay in view on small screens.
         </p>

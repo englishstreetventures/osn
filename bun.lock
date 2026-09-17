@@ -61,8 +61,11 @@
         "@astrojs/solid-js": "^7.0.2",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
+        "@cire/ui": "workspace:*",
         "@kobalte/core": "^0.13.14",
+        "@shared/ui": "workspace:*",
         "@shared/db-utils": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/sortable": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -105,6 +108,9 @@
         "@cire/theme": "workspace:*",
         "@fontsource/cormorant-garamond": "^5.3.0",
         "@fontsource/lato": "^5.3.0",
+        "@cire/ui": "workspace:*",
+        "@shared/ui": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -133,10 +139,12 @@
       "name": "@cire/landing",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
+        "@cire/ui": "workspace:*",
+        "@shared/ui": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.2.10",
-        "motion": "^13.1.1",
         "solid-js": "^1.9.15",
         "tailwindcss": "^4.3.3",
         "three": "^0.185.1",
@@ -147,7 +155,7 @@
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@types/three": "^0.185.4",
-        "jsdom": "^30.0.1",
+        "happy-dom": "^20.12.2",
         "typescript": "^6.0.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "^4.1.11",
@@ -155,8 +163,32 @@
     },
     "cire/theme": {
       "name": "@cire/theme",
+      "dependencies": {
+        "@shared/color": "workspace:*",
+      },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
+      },
+    },
+    "cire/ui": {
+      "name": "@cire/ui",
+      "dependencies": {
+        "@shared/ui": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@testing-library/jest-dom": "^7.0.1",
+        "happy-dom": "^20.12.2",
+        "solid-js": "^1.9.15",
+        "typescript": "^6.0.3",
+        "vite": "^8.2.2",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
       },
     },
     "cire/vendor": {
@@ -164,7 +196,10 @@
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@cire/theme": "workspace:*",
+        "@cire/ui": "workspace:*",
         "@kobalte/core": "^0.13.14",
+        "@shared/ui": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/toast": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
@@ -214,7 +249,9 @@
       "version": "0.14.1",
       "dependencies": {
         "@osn/client": "workspace:*",
-        "@osn/ui": "workspace:*",
+        "@osn/auth-ui": "workspace:*",
+        "@shared/ui": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
         "@shared/toast": "workspace:*",
         "@simplewebauthn/browser": "^13.3.0",
@@ -227,8 +264,11 @@
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
+        "@vitest/browser": "4.1.11",
+        "@vitest/browser-playwright": "4.1.11",
         "@vitest/coverage-istanbul": "^4.1.11",
         "happy-dom": "^20.12.2",
+        "playwright": "^1.62.1",
         "typescript": "^6.0.3",
         "vite": "^8.2.2",
         "vite-plugin-solid": "^2.11.14",
@@ -267,6 +307,29 @@
         "wrangler": "^4.127.1",
       },
     },
+    "osn/auth-ui": {
+      "name": "@osn/auth-ui",
+      "version": "1.13.0",
+      "dependencies": {
+        "@osn/client": "workspace:*",
+        "@shared/toast": "workspace:*",
+        "@shared/ui": "workspace:*",
+        "@simplewebauthn/browser": "^13.3.0",
+      },
+      "devDependencies": {
+        "@shared/design-tokens": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "happy-dom": "^20.12.2",
+        "solid-js": "^1.9.15",
+        "vite": "^8.2.2",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
+      },
+    },
     "osn/client": {
       "name": "@osn/client",
       "version": "2.17.0",
@@ -303,31 +366,7 @@
         "wrangler": "^4.127.1",
       },
     },
-    "osn/ui": {
-      "name": "@osn/ui",
-      "version": "1.11.1",
-      "dependencies": {
-        "@kobalte/core": "^0.13.14",
-        "@osn/client": "workspace:*",
-        "@shared/toast": "workspace:*",
-        "@simplewebauthn/browser": "^13.3.0",
-        "class-variance-authority": "^0.7.1",
-        "clsx": "^2.1.1",
-        "tailwind-merge": "^3.6.0",
-      },
-      "devDependencies": {
-        "@shared/typescript-config": "workspace:*",
-        "@solidjs/testing-library": "^0.8.10",
-        "happy-dom": "^20.12.2",
-        "solid-js": "^1.9.15",
-        "vite": "^8.2.2",
-        "vite-plugin-solid": "^2.11.14",
-        "vitest": "^4.1.11",
-      },
-      "peerDependencies": {
-        "solid-js": ">=1.9",
-      },
-    },
+
     "pulse/api": {
       "name": "@pulse/api",
       "version": "0.27.9",
@@ -408,8 +447,9 @@
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
         "@fontsource/instrument-serif": "^5.3.0",
-        "@osn/ui": "workspace:*",
+        "@shared/ui": "workspace:*",
         "@pulse/api": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -428,11 +468,22 @@
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^7.0.1",
         "@types/leaflet": "^1.9.22",
+        "@vitest/browser": "4.1.11",
+        "@vitest/browser-playwright": "4.1.11",
         "@vitest/coverage-istanbul": "^4.1.11",
         "happy-dom": "^20.12.2",
+        "playwright": "^1.62.1",
         "typescript": "^6.0.3",
         "vite": "^8.2.2",
         "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+    },
+    "shared/color": {
+      "name": "@shared/color",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.11",
       },
     },
@@ -461,6 +512,17 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20260903.1",
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.11",
+      },
+    },
+    "shared/design-tokens": {
+      "name": "@shared/design-tokens",
+      "version": "0.1.0",
+      "dependencies": {
+        "@shared/color": "workspace:*",
+      },
+      "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.11",
       },
@@ -645,11 +707,42 @@
       "name": "@shared/typescript-config",
       "version": "0.0.2",
     },
+    "shared/ui": {
+      "name": "@shared/ui",
+      "version": "0.0.0",
+      "dependencies": {
+        "@kobalte/core": "^0.13.14",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "tailwind-merge": "^3.6.0",
+      },
+      "devDependencies": {
+        "@shared/design-tokens": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@tailwindcss/vite": "^4.3.3",
+        "@testing-library/jest-dom": "^7.0.1",
+        "@vitest/browser": "4.1.11",
+        "@vitest/browser-playwright": "4.1.11",
+        "happy-dom": "^20.12.2",
+        "playwright": "^1.62.1",
+        "solid-js": "^1.9.15",
+        "tailwindcss": "^4.3.3",
+        "vite": "^8.2.2",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
+      },
+    },
     "tools/lab": {
       "name": "@tools/lab",
       "version": "0.1.18",
       "dependencies": {
-        "@osn/ui": "workspace:*",
+        "@shared/color": "workspace:*",
+        "@shared/design-tokens": "workspace:*",
+        "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "solid-js": "^1.9.15",
         "tailwindcss": "^4.3.3",
@@ -671,7 +764,7 @@
       "version": "0.2.6",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
-        "@osn/ui": "workspace:*",
+        "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "solid-js": "^1.9.15",
         "tailwindcss": "^4.3.3",
@@ -928,6 +1021,8 @@
     "@cire/landing": ["@cire/landing@workspace:cire/landing"],
 
     "@cire/theme": ["@cire/theme@workspace:cire/theme"],
+
+    "@cire/ui": ["@cire/ui@workspace:cire/ui"],
 
     "@cire/vendor": ["@cire/vendor@workspace:cire/vendor"],
 
@@ -1251,7 +1346,7 @@
 
     "@osn/db": ["@osn/db@workspace:osn/db"],
 
-    "@osn/ui": ["@osn/ui@workspace:osn/ui"],
+    "@osn/auth-ui": ["@osn/auth-ui@workspace:osn/auth-ui"],
 
     "@oxc-parser/binding-android-arm-eabi": ["@oxc-parser/binding-android-arm-eabi@0.141.0", "", { "os": "android", "cpu": "arm" }, "sha512-jk7086MFvR/T4DG9IY7MKBVt1PMxvSZoz/TvnifodvS0pjghVwJHRttnAExhlwdMOgHv1TmLdENnbNpYk2zjvA=="],
 
@@ -1449,10 +1544,12 @@
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
 
+    "@shared/color": ["@shared/color@workspace:shared/color"],
     "@shared/crypto": ["@shared/crypto@workspace:shared/crypto"],
 
     "@shared/db-utils": ["@shared/db-utils@workspace:shared/db-utils"],
 
+    "@shared/design-tokens": ["@shared/design-tokens@workspace:shared/design-tokens"],
     "@shared/dev-urls": ["@shared/dev-urls@workspace:shared/dev-urls"],
 
     "@shared/email": ["@shared/email@workspace:shared/email"],
@@ -1476,6 +1573,8 @@
     "@shared/sortable": ["@shared/sortable@workspace:shared/sortable"],
 
     "@shared/toast": ["@shared/toast@workspace:shared/toast"],
+
+    "@shared/ui": ["@shared/ui@workspace:shared/ui"],
 
     "@shared/turnstile": ["@shared/turnstile@workspace:shared/turnstile"],
 

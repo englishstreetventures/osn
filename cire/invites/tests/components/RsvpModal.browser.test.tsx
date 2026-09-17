@@ -1,5 +1,5 @@
-import { render } from "@solidjs/testing-library";
-import { describe, expect, it } from "vitest";
+import { cleanup, render } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it } from "vitest";
 
 import "../../src/styles/global.css";
 import { RsvpModal } from "../../src/components/RsvpModal";
@@ -52,38 +52,61 @@ const members: FamilyMember[] = Array.from({ length: 12 }, (_, i) => ({
   eventIds: ["event-1"],
 }));
 
-function open() {
+/**
+ * Render the sheet and wait out its entry transition before anything is
+ * measured.
+ *
+ * `Modal` animates in from `transform: translateY(24px) scale(0.98)`, and
+ * `getBoundingClientRect()` reports the POST-transform box — so a rect read
+ * while that is still running is the layout box moved 24px down and scaled by
+ * 0.98, and every comparison against a `clientWidth` or `clientLeft`, which are
+ * not transformed, is wrong by that much. It is not a small error either: it
+ * put the panel's bottom edge 15px below the viewport and the action bar 16px
+ * above the scrollport's floor, both of which read as exactly the layout bugs
+ * this file exists to catch.
+ *
+ * A frame first, because the transition has not STARTED until the initial style
+ * has been resolved, and `getAnimations()` before that comes back empty.
+ */
+async function open() {
   const view = render(() => (
     <RsvpModal event={event} members={members} apiUrl="https://api.test" onClose={() => {}} />
   ));
-  const panel = document.querySelector('[role="dialog"]') as HTMLElement;
+  const panel = document.querySelector("dialog") as HTMLElement;
+  await new Promise(requestAnimationFrame);
+  await Promise.allSettled(panel.getAnimations({ subtree: true }).map((a) => a.finished));
   const scroller = panel.lastElementChild as HTMLElement;
   const bar = view.getByRole("button", { name: "Save" }).parentElement as HTMLElement;
   return { ...view, panel, scroller, bar };
 }
 
 describe("RSVP action bar, as laid out", () => {
-  it("gives the sheet a scrollport that actually scrolls", () => {
+  // Every sheet is a `<dialog>` in the top layer now, and `open()` finds it
+  // with `document.querySelector`. Without this each test measures the FIRST
+  // sheet in the document — the one the previous test left open.
+  afterEach(cleanup);
+
+  it("gives the sheet a scrollport that actually scrolls", async () => {
     // Everything below is vacuous without this — and in jsdom it is always
     // false, because no layout is computed at all.
-    const { scroller } = open();
+    const { scroller } = await open();
     expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
   });
 
-  it("seats the bar ON the scrollport's bottom edge, not hoisted above it", () => {
+  it("seats the bar ON the scrollport's bottom edge, not hoisted above it", async () => {
     // The exact inversion the rule is about: a negative bottom margin would lift
     // the bar up over the last card, leaving a gap below it. Both edges must
     // coincide.
-    const { scroller, bar } = open();
+    const { scroller, bar } = await open();
     const gap = scroller.getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
     expect(Math.abs(gap)).toBeLessThan(1);
   });
 
-  it("keeps the bar in view while the content scrolls under it", () => {
+  it("keeps the bar in view while the content scrolls under it", async () => {
     // `sticky` doing its job. If the panel ever became the scroll container, or
     // an ancestor gained `overflow: hidden`, sticky would silently degrade to
     // static and the bar would scroll away with the content.
-    const { scroller, bar } = open();
+    const { scroller, bar } = await open();
     const before = bar.getBoundingClientRect().bottom;
 
     scroller.scrollTop = 0;
@@ -99,11 +122,11 @@ describe("RSVP action bar, as laid out", () => {
     expect(bar.getBoundingClientRect().top).toBeGreaterThanOrEqual(port.top - 1);
   });
 
-  it("runs the bar full-bleed, edge to edge of the panel", () => {
+  it("runs the bar full-bleed, edge to edge of the panel", async () => {
     // `-mx-6` exactly cancels the scroller's `px-6`. Asserting the two class
     // literals (as the unit test does) cannot catch one of them changing value
     // while both remain present.
-    const { panel, bar } = open();
+    const { panel, bar } = await open();
     const panelRect = panel.getBoundingClientRect();
     const barRect = bar.getBoundingClientRect();
     // Against the panel's CONTENT box, not its border box: the panel carries a
@@ -114,10 +137,10 @@ describe("RSVP action bar, as laid out", () => {
     expect(Math.abs(barRect.width - panel.clientWidth)).toBeLessThan(1);
   });
 
-  it("keeps both actions inside the sheet and reachable at a mobile viewport", () => {
+  it("keeps both actions inside the sheet and reachable at a mobile viewport", async () => {
     // The failure a guest would report as "I can't press Save": the bar is
     // there, but the button's centre is not what a tap at that point hits.
-    const { getByRole } = open();
+    const { getByRole } = await open();
     for (const name of ["Cancel", "Save"]) {
       const btn = getByRole("button", { name });
       const r = btn.getBoundingClientRect();

@@ -5,10 +5,11 @@ tags: [index]
 related:
   - "[[TODO]]"
   - "[[deferred-decisions]]"
+  - "[[decisions/README]]"
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-17
 ---
 
 # OSN Wiki
@@ -19,6 +20,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 - [[TODO]] — a pointer to GitHub Issues, where the backlogs now live
 - [[deferred-decisions]] — open questions parked for later, and the ones already settled
+- [[decisions/README]] — decision records: the choices between named alternatives that source files no longer carry
 - [`../CLAUDE.md`](../CLAUDE.md) — slim repo-root entry point (lives outside the vault)
 
 ## Architecture
@@ -30,7 +32,8 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[effect-v4-api]] — the v3 forms that no longer compile, and the v4 form to write instead
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
-- [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
+- [[design-tokens]] — the `ui-*` contract every shared component reads, the scales under it, and the conformance harness
+- [[component-library]] — Zaidan/shadcn-style components in three layers (`@shared/ui` primitives, `@osn/auth-ui` ceremony views, `@cire/ui` house style), Kobalte primitives, CVA variants
 - [[drag-and-drop]] — `@shared/sortable` for drag-to-reorder, multi-container lists, and the keyboard + announcement path it owns
 - [[account-recovery-factors]] — TOTP and email-verified recovery: the restricted `osn-recovery` session, the step-up allow-lists, the provenance cooldown, and the six issues they split into
 - [[cire-platform-plan]] — cire's build plan from digital invite to wedding-management platform
@@ -111,6 +114,20 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
 - [[bundle-size-guards]] — the two rules any guard that gates on a number obeys, and the guards that hold them: per-app Astro bundle size, the src/pages test-route check, D1 migration-cost, and the monorepo-wide lint-warning ceiling
 - [[wiki-search]] — the three ways to search this vault, which exist where, and the guard that stops a branch reading stale
+
+## Decisions
+
+One page per choice made between named alternatives, with the reasoning that
+decided it — see [[decisions/README]] for what belongs here and what does not.
+
+- [[native-dialog-over-kobalte]] — `@shared/ui`'s `Modal` is the platform `<dialog>`, not Kobalte's: the bundle measurement, and which of the two to reach for
+- [[org-comember-fanout-batched-union]] — batched `UNION ALL` with a per-organisation `LIMIT`, over a global `LIMIT`, a window function or `json_each()`
+- [[post-rank-connection-recheck-over-d1-batch]] — a bounded re-check after ranking, over a `db.batch()` that would rest on undocumented D1 isolation
+- [[d1-migration-cost-budget-calibration]] — why the migration-cost guard prices a chain offline at 27 D1 rows per schema write
+- [[rsvp-dwell-as-budget-with-announcement-floor]] — the cire RSVP dwell is a budget spent from the click, floored by what VoiceOver needs to speak
+- [[top-layer-over-z-index-stack]] — nothing in cire's stacking scale ranks against a sheet: the top layer, entered later, over a bigger number
+- [[closing-band-width-bound-over-height-clip]] — the closing band takes the crop's aspect, and its height bound is applied to the width so nothing is clipped
+- [[d1-session-first-primary]] — one D1 session per request, `first-primary` Worker-wide, over a per-route constraint
 
 ## Compliance
 

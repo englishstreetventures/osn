@@ -38,10 +38,10 @@ const testimonials = [
           {testimonials.map((t) => (
             <figure class="text-center md:text-left" data-reveal>
               <blockquote
-                class="font-display text-text text-[clamp(1.4rem,2.6vw,1.9rem)] leading-[1.4] font-light italic"
+                class="font-display text-text text-[clamp(1.4rem,2.6vw,1.9rem)] leading-ui-snug font-light italic"
                 set:html={`&ldquo;${t.quote}&rdquo;`}
               />
-              <figcaption class="font-body text-text-muted mt-6 text-[0.85rem] tracking-[0.06em]">
+              <figcaption class="font-body text-text-muted mt-6 text-ui-sm tracking-ui-wide">
                 <span class="text-gold">{t.name}</span> &middot; {t.detail}
               </figcaption>
             </figure>

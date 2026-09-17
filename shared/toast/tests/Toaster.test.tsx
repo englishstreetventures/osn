@@ -29,8 +29,8 @@ describe("Toaster", () => {
         <Toaster />
       </div>
     ));
-    expect(container.querySelector(".osn-toaster")).toBeNull();
-    expect(document.body.querySelector(".osn-toaster")).toBeTruthy();
+    expect(container.querySelector(".ui-toaster")).toBeNull();
+    expect(document.body.querySelector(".ui-toaster")).toBeTruthy();
   });
 
   it("sets NO z-index of its own, and takes the layer from `class`", () => {
@@ -38,7 +38,7 @@ describe("Toaster", () => {
     // inline style, which silently beat every class a caller passed and parked
     // toasts above the consent banner. An inline z-index here would be that bug.
     render(() => <Toaster class="z-150" />);
-    const el = document.body.querySelector(".osn-toaster") as HTMLElement;
+    const el = document.body.querySelector(".ui-toaster") as HTMLElement;
     expect(el.style.zIndex).toBe("");
     expect(el.className).toContain("z-150");
   });
@@ -59,17 +59,17 @@ describe("Toaster", () => {
   it("names the tone for assistive tech without showing the word", () => {
     render(() => <Toaster />);
     toast.error("Could not save");
-    const sr = document.querySelector(".osn-toast__sr");
+    const sr = document.querySelector(".ui-toast__sr");
     expect(sr?.textContent).toBe("Error: ");
-    expect(document.querySelector(".osn-toast__glyph")?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector(".ui-toast__glyph")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("interrupts for an error and waits its turn for a confirmation", () => {
     render(() => <Toaster />);
     toast.error("Could not save");
     toast.success("Saved");
-    const error = document.querySelector(".osn-toast--error")!;
-    const success = document.querySelector(".osn-toast--success")!;
+    const error = document.querySelector(".ui-toast--error")!;
+    const success = document.querySelector(".ui-toast--success")!;
     expect(error.getAttribute("role")).toBe("alert");
     expect(error.getAttribute("aria-live")).toBe("assertive");
     expect(success.getAttribute("role")).toBe("status");
@@ -81,7 +81,7 @@ describe("Toaster", () => {
     toast.info("One");
     toast.info("Two");
     toast.info("Three");
-    expect(document.querySelectorAll(".osn-toast")).toHaveLength(2);
+    expect(document.querySelectorAll(".ui-toast")).toHaveLength(2);
     expect(screen.queryByText("One")).toBeNull();
     expect(screen.getByText("Three")).toBeTruthy();
   });
@@ -96,7 +96,7 @@ describe("Toaster", () => {
   it("pauses the dwell while the pointer is over it, so a toast can be read", async () => {
     render(() => <Toaster />);
     toast.success("Saved", { duration: 60 });
-    const el = document.querySelector(".osn-toast") as HTMLElement;
+    const el = document.querySelector(".ui-toast") as HTMLElement;
     el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
     await new Promise((r) => setTimeout(r, 150));
     expect(toasts(), "the toast expired while being read").toHaveLength(1);
@@ -133,13 +133,13 @@ describe("toast.promise", () => {
       error: "Failed",
     });
     expect(screen.getByText("Saving…")).toBeTruthy();
-    expect(document.querySelectorAll(".osn-toast")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-toast")).toHaveLength(1);
 
     settle!("draft");
     await done;
     // Same single toast, now the outcome — not a spinner vanishing and a tick
     // appearing elsewhere in the stack.
-    expect(document.querySelectorAll(".osn-toast")).toHaveLength(1);
+    expect(document.querySelectorAll(".ui-toast")).toHaveLength(1);
     expect(screen.getByText("Saved draft")).toBeTruthy();
   });
 

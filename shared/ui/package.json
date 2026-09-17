@@ -1,0 +1,68 @@
+{
+  "name": "@shared/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./lib/utils": "./src/lib/utils.ts",
+    "./ui/avatar": "./src/ui/avatar.tsx",
+    "./ui/badge": "./src/ui/badge.tsx",
+    "./ui/button": "./src/ui/button.tsx",
+    "./ui/card": "./src/ui/card.tsx",
+    "./ui/checkbox": "./src/ui/checkbox.tsx",
+    "./ui/chip": "./src/ui/chip.tsx",
+    "./ui/control": "./src/ui/control.ts",
+    "./ui/dialog": "./src/ui/dialog.tsx",
+    "./ui/dropdown-menu": "./src/ui/dropdown-menu.tsx",
+    "./ui/empty-state": "./src/ui/empty-state.tsx",
+    "./ui/field": "./src/ui/field.tsx",
+    "./ui/info-popover": "./src/ui/info-popover.tsx",
+    "./ui/input": "./src/ui/input.tsx",
+    "./ui/label": "./src/ui/label.tsx",
+    "./ui/meter": "./src/ui/meter.tsx",
+    "./ui/modal": "./src/ui/modal.tsx",
+    "./ui/notice": "./src/ui/notice.tsx",
+    "./ui/otp-input": "./src/ui/otp-input.tsx",
+    "./ui/popover": "./src/ui/popover.tsx",
+    "./ui/props": "./src/ui/props.ts",
+    "./ui/qr-code": "./src/ui/qr-code.tsx",
+    "./ui/radio-group": "./src/ui/radio-group.tsx",
+    "./ui/select": "./src/ui/select.tsx",
+    "./ui/stat": "./src/ui/stat.tsx",
+    "./ui/table": "./src/ui/table.tsx",
+    "./ui/tabs": "./src/ui/tabs.tsx",
+    "./ui/textarea": "./src/ui/textarea.tsx",
+    "./ui/username-input": "./src/ui/username-input.tsx"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest --project unit",
+    "test:run": "bunx --bun vitest run --project unit",
+    "test:browser": "bunx --bun vitest run --project browser"
+  },
+  "dependencies": {
+    "@kobalte/core": "^0.13.14",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@shared/design-tokens": "workspace:*",
+    "@shared/typescript-config": "workspace:*",
+    "@solidjs/testing-library": "^0.8.10",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@vitest/browser": "4.1.11",
+    "@vitest/browser-playwright": "4.1.11",
+    "happy-dom": "^20.12.2",
+    "playwright": "^1.62.1",
+    "solid-js": "^1.9.15",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.9"
+  }
+}

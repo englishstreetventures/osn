@@ -56,7 +56,10 @@ describe("FilterRail", () => {
 
   it("each category chip has its icon glyph", () => {
     const { container } = render(() => <FilterRail active="all" onSelect={() => {}} />);
-    const glyphs = Array.from(container.querySelectorAll("span.text-\\[13px\\]"));
+    // `[class~=]` rather than an escaped `.text-ui-sm`: the token is what the
+    // 13px arbitrary value became on the contract's scale, and the attribute
+    // form needs nothing escaped.
+    const glyphs = Array.from(container.querySelectorAll('span[class~="text-ui-sm"]'));
     // 10 categories, each with an icon span
     expect(glyphs.length).toBe(10);
     // Spot check a few

@@ -92,9 +92,9 @@ function fillIsUp(): boolean {
   return (fill?.className ?? "").includes("scale-x-100");
 }
 
-/** The sheet, by the role `AnimatedModal` gives it. Null once it has closed. */
+/** The sheet — `AnimatedModal`'s `<dialog>`. Null once it has closed. */
 function sheet(): HTMLElement | null {
-  return document.querySelector('[role="dialog"]');
+  return document.querySelector("dialog");
 }
 
 function fieldsetFor(name: string): HTMLElement {

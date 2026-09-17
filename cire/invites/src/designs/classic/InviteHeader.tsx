@@ -289,16 +289,16 @@ export default function InviteHeader(props: InviteHeaderProps) {
                 // monogram — a multi-tenant product must never default to one
                 // couple's initials.
                 fallback={
-                  <span class="font-display text-gold max-w-full pb-1 text-center text-[calc(clamp(2.5rem,8vw,5.5rem)*var(--invite-heading-scale,1))] leading-[1.1] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
+                  <span class="font-display text-gold leading-ui-none max-w-full pb-1 text-center text-[calc(clamp(2.5rem,8vw,5.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
                     You're Invited
                   </span>
                 }
               >
                 {(title) => (
-                  // leading-[1.1] + pb-1, never leading-none: at 7rem a name
+                  // leading-ui-none + pb-1, never leading-none: at 7rem a name
                   // with a descender (Jyoti, Peggy, Raj) loses its tail to the
                   // line box otherwise, on the one word the page exists for.
-                  <span class="font-display text-gold max-w-full pb-1 text-center text-[calc(clamp(3rem,10vw,7rem)*var(--invite-heading-scale,1))] leading-[1.1] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
+                  <span class="font-display text-gold leading-ui-none max-w-full pb-1 text-center text-[calc(clamp(3rem,10vw,7rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
                     {title()}
                   </span>
                 )}
@@ -321,7 +321,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                     is still strictly better, and the scrim tracks the page's own
                     lightness, so it darkens a dark scheme and veils a light one in
                     the direction this token needs. */
-                  <p class="font-body text-gold-ink max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase">
+                  <p class="font-body text-gold-ink text-ui-sm tracking-ui-ultra max-w-full text-center break-words uppercase">
                     {subtitle()}
                   </p>
                 )}
@@ -394,10 +394,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
               }}
             </Show>
             <div>
-              <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
                 {story()?.eyebrow ?? "Our Story"}
               </p>
-              <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+              <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {story()?.heading ?? "How It All Began"}
               </h2>
               <div class="mx-auto max-w-[480px] group-data-[has-image=true]/story:md:mx-0">
@@ -408,7 +408,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // — a multi-tenant product must never default to one couple's
                   // personal copy.
                   fallback={
-                    <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light">
+                    <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light">
                       Every love story is beautiful, and we can't wait to celebrate the next chapter
                       of ours with the people we love most. Thank you for being part of our day — it
                       wouldn't be the same without you.
@@ -416,7 +416,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   }
                 >
                   {(body) => (
-                    <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light whitespace-pre-line">
+                    <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light whitespace-pre-line">
                       {body()}
                     </p>
                   )}

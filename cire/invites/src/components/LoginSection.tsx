@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { Show, For } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
@@ -124,13 +125,13 @@ export function LoginSection(props: LoginSectionProps) {
       <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
         {/* Login form — visible before claim */}
         <div ref={props.formRef} style={{ display: showWelcome() ? "none" : "" }}>
-          <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+          <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
             Your Invitation
           </p>
-          <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+          <h2 class="font-display text-text leading-ui-none mb-5 text-[clamp(2rem,5vw,3rem)] font-light">
             Enter Your Code
           </h2>
-          <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
+          <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
             Enter the code from your invitation to see your events.
           </p>
           <form class="mx-auto flex max-w-[360px] flex-col gap-3" onSubmit={claim.handleSubmit}>
@@ -165,7 +166,7 @@ export function LoginSection(props: LoginSectionProps) {
               // tones in a real browser. The fill stays deliberately faint
               // (~1.09:1): it only has to read as a well, the border is what the
               // standard governs.
-              class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+              class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base uppercase transition-colors duration-200 placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
               // A placeholder is not an accessible name — it is not exposed as
               // one, and it disappears the moment the guest types. Without this
               // the only control on the page is an unnamed edit field to a
@@ -185,7 +186,7 @@ export function LoginSection(props: LoginSectionProps) {
               pattern="[A-Za-z0-9\-]+"
             />
             <Show when={claim.error()}>
-              <p class="font-body text-error py-2 text-[0.82rem]" role="alert">
+              <p class="font-body text-error text-ui-sm py-2" role="alert">
                 {claim.error()}
               </p>
             </Show>
@@ -196,9 +197,10 @@ export function LoginSection(props: LoginSectionProps) {
               controls={(handle) => (turnstile = handle)}
               class="flex justify-center"
             />
-            <button
+            <Button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              variant="cta"
+              size="lg"
               disabled={
                 claim.loading() ||
                 !claim.code().trim() ||
@@ -206,7 +208,7 @@ export function LoginSection(props: LoginSectionProps) {
               }
             >
               {claim.loading() ? "Checking\u2026" : "Open Invitation"}
-            </button>
+            </Button>
           </form>
         </div>
 
@@ -214,7 +216,7 @@ export function LoginSection(props: LoginSectionProps) {
         <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
           <Show when={props.result?.preview}>
             <p
-              class="border-gold/40 bg-gold/5 text-gold-ink mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
+              class="border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 uppercase"
               role="status"
             >
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
@@ -227,13 +229,13 @@ export function LoginSection(props: LoginSectionProps) {
                 {/* No "Welcome" eyebrow above this heading: the greeting IS the
                     heading, and a label repeating it only adds a fourth gold
                     uppercase micro-label to a page that already has too many. */}
-                <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+                <h2 class="font-display text-gold leading-ui-none mb-3 text-[clamp(2rem,5vw,3rem)] font-light">
                   Welcome, the {props.result?.familyName} Family
                 </h2>
-                <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
+                <p class="text-text-muted text-ui-base leading-ui-normal mb-2 font-light">
                   {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
                 </p>
-                <p class="text-text mb-8 text-[0.88rem] leading-[1.6] font-light">
+                <p class="text-text text-ui-base leading-ui-normal mb-8 font-light">
                   <For each={props.result?.members}>
                     {(member, i) => (
                       <>
@@ -249,21 +251,22 @@ export function LoginSection(props: LoginSectionProps) {
             {/* Single-guest code → greet the individual by name (nickname wins).
                 "Dear" reads as part of the greeting, so it belongs in the
                 heading, not stranded above it as an uppercase label. */}
-            <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+            <h2 class="font-display text-gold leading-ui-none mb-3 text-[clamp(2rem,5vw,3rem)] font-light">
               Dear {individualName()}
             </h2>
-            <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
+            <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
               {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
             </p>
           </Show>
           <Show when={props.onSignOut}>
-            <button
+            <Button
+              variant="bare"
               type="button"
               onClick={handleSignOut}
-              class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.78rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+              class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
             >
               {signOutLabel()}
-            </button>
+            </Button>
           </Show>
         </div>
       </div>

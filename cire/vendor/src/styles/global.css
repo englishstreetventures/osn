@@ -4,6 +4,13 @@
  */
 @import "tailwindcss";
 @import "@shared/toast/toast.css";
+@import "@shared/design-tokens/tokens.css";
+
+/* `@cire/ui` lives outside this package, so Tailwind has to be told where to
+ * look for its classes. The line goes HERE and not in `@shared/design-tokens`:
+ * a shared file pointing at a product package inverts the layering and would
+ * scan cire's classes into every musubi, pulse, lab and metrics build. */
+@source "../../../ui/src";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Lifted wholesale from `cire/host`, deliberately value-for-value. The
@@ -70,10 +77,16 @@
 
   /* Gold is metal, not ink: rules, ornament, the seal, a hairline gradient. It
      carries no contrast contract and must never be readable text — that is
-     what `gold-ink` is for. */
+     what `gold-ink` is for. It IS a fill, though, and `on-gold` is what sits on
+     it: a dark ink in both themes, because gold is mid-lightness in both. The
+     primary button spelled that as `text-bg`, which held in dark (8.5:1) and
+     did not in light, where the page ground is a pale beige — 2.4:1 on the one
+     control the portal most wants pressed. */
   --gold: oklch(75% 0.085 82);
+  --gold-hi: oklch(82% 0.085 82);
   --gold-dim: oklch(75% 0.085 82 / 0.3);
   --gold-ink: oklch(84% 0.072 84);
+  --on-gold: oklch(16.8% 0.026 148);
 
   /* Status. Separate from the accent, as status colour always should be. */
   --success: oklch(76% 0.142 147);
@@ -119,11 +132,13 @@
     --on-brand: oklch(96% 0.008 90);
 
     --gold: oklch(64% 0.095 78);
+    --gold-hi: oklch(70% 0.095 78);
     --gold-dim: oklch(64% 0.095 78 / 0.34);
     --gold-ink: oklch(46% 0.082 74);
+    --on-gold: oklch(24% 0.018 340);
 
-    --success: oklch(46% 0.115 148);
-    --warn: oklch(48% 0.105 62);
+    --success: oklch(43% 0.115 148);
+    --warn: oklch(45% 0.105 62);
     --error: oklch(50% 0.15 25);
 
     --focus: oklch(38% 0.072 141);
@@ -157,11 +172,13 @@
   --on-brand: oklch(96% 0.008 90);
 
   --gold: oklch(64% 0.095 78);
+  --gold-hi: oklch(70% 0.095 78);
   --gold-dim: oklch(64% 0.095 78 / 0.34);
   --gold-ink: oklch(46% 0.082 74);
+  --on-gold: oklch(24% 0.018 340);
 
-  --success: oklch(46% 0.115 148);
-  --warn: oklch(48% 0.105 62);
+  --success: oklch(43% 0.115 148);
+  --warn: oklch(45% 0.105 62);
   --error: oklch(50% 0.15 25);
 
   --focus: oklch(38% 0.072 141);
@@ -262,34 +279,126 @@
   --color-brand-wash: var(--brand-wash);
   --color-on-brand: var(--on-brand);
   --color-gold: var(--gold);
+  --color-gold-hi: var(--gold-hi);
   --color-gold-dim: var(--gold-dim);
   --color-gold-ink: var(--gold-ink);
+  --color-on-gold: var(--on-gold);
   --color-success: var(--success);
   --color-warn: var(--warn);
   --color-error: var(--error);
   --color-focus: var(--focus);
 
-  /* shadcn-style semantic tokens, mapped onto the ramp. Primary is the brand
-     green in both themes, so `primary-foreground` is a near-white in both —
-     it is what sits on a brand fill, not the page ground. */
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --color-card: var(--surface);
-  --color-card-foreground: var(--text);
-  --color-popover: var(--surface-raised);
-  --color-popover-foreground: var(--text);
-  --color-primary: var(--brand);
-  --color-primary-foreground: var(--on-brand);
-  --color-secondary: var(--surface-raised);
-  --color-secondary-foreground: var(--text);
-  --color-muted: var(--surface);
-  --color-muted-foreground: var(--text-muted);
-  --color-accent: var(--surface-raised);
-  --color-accent-foreground: var(--text);
-  --color-destructive: var(--error);
-  --color-destructive-foreground: var(--on-brand);
-  --color-input: var(--border-strong);
-  --color-ring: var(--focus);
+  /* The shadcn semantic names — `--color-background`, `--color-primary` and
+     sixteen more — used to sit here, mapped onto the ramp against the day a
+     shared component layer arrived. It arrived reading `--ui-*` instead, so
+     they became eighteen aliases nothing read, and a misleading set at that:
+     the block sent `primary` to the brand green while the house primary is
+     gold, and `accent` to a neutral surface. The contract mapping below is
+     what replaced them. */
+}
+
+/* ── The token contract ─────────────────────────────────────────────────────
+ * `@shared/ui` and `@cire/ui` are written against `--ui-*`, not against the
+ * ramp above. This block is the whole of their integration, and it is
+ * value-for-value identical to `cire/host`'s for the reason the ramp itself is
+ * duplicated: the two portals are two doors into the same product, and a
+ * shared component must not be a shade off between them.
+ *
+ * Aliases onto the ramp, never literals — the same rule the rest of this file
+ * follows, and for the same reason: `data-theme` re-points the ramp, and every
+ * `--ui-*` name follows it with no rebuild and no second mapping for light.
+ *
+ * ## The accent is gold, not the brand green
+ *
+ * cire carries two accent families and the contract has one role. Counted
+ * across both portals' components, gold appears in 422 colour utilities and
+ * the brand green in 8 — the green lives almost entirely in the shadcn alias
+ * block above, which nothing in this package reads. So gold is what a shared
+ * component means by "accent", which is also what makes an `@shared/ui` Button
+ * and a `@cire/ui` Button the same button rather than two colours of one.
+ *
+ * `--ui-on-accent` is therefore `--on-gold`, a dark ink rather than a
+ * near-white: gold is a mid-lightness fill in both themes, so what sits on it
+ * is dark in both.
+ *
+ * `--gold-hi` goes the opposite way from `--brand-hi` — lighter in BOTH themes,
+ * where the brand's emphatic step is lighter in dark and darker in light. The
+ * reason is the ink: a brand fill carries a near-white, so darkening it adds
+ * contrast, and a gold fill carries `on-gold`, so lightening it does.
+ */
+:root {
+  --ui-ground: var(--bg);
+  --ui-ground-deep: var(--bg-deep);
+  --ui-surface: var(--surface);
+  --ui-surface-raised: var(--surface-raised);
+  --ui-surface-sunk: var(--surface-sunk);
+
+  --ui-hairline: var(--border);
+  --ui-hairline-strong: var(--border-strong);
+
+  --ui-ink: var(--text);
+  --ui-ink-secondary: var(--text-muted);
+  --ui-ink-tertiary: var(--text-faint);
+
+  --ui-accent: var(--gold);
+  --ui-accent-strong: var(--gold-hi);
+  --ui-accent-soft: var(--gold-dim);
+  --ui-accent-ink: var(--gold-ink);
+  --ui-on-accent: var(--on-gold);
+
+  --ui-success: var(--success);
+  --ui-warn: var(--warn);
+  --ui-danger: var(--error);
+  --ui-on-danger: var(--bg);
+
+  --ui-focus: var(--focus);
+
+  /* No `lg`. The house rule is "nothing rounder than 6px except pills", so the
+   * contract's larger step resolves to the same 6px rather than importing a
+   * 10px corner this product does not use. */
+  --ui-radius-hair: var(--radius-hair);
+  --ui-radius-sm: var(--radius-sm);
+  --ui-radius-md: var(--radius-md);
+  --ui-radius-lg: var(--radius-md);
+  --ui-radius-pill: var(--radius-pill);
+  /* Sharp, like every other control here: the house look is stationery. */
+  --ui-radius-control: var(--ui-radius-sm);
+
+  /* No mono family is loaded here — `tabular-nums` on the body face is what
+   * lines figures up in a column. The stack is named anyway so a shared
+   * component asking for mono gets the platform's rather than the contract's
+   * fallback, which is the same list by a different route. */
+  --ui-font-body: var(--font-body);
+  --ui-font-display: var(--font-display);
+  --ui-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The type scale, in the sizes this product already uses. The steps are
+   * clustered from the arbitrary values across both portals — 0.72 for the
+   * uppercase meta line, 0.82 for a control, 0.9 for body — so a shared
+   * component rendering here looks like cire rather than like the contract's
+   * neutral defaults. */
+  --ui-text-xs: 0.72rem;
+  --ui-text-sm: 0.82rem;
+  --ui-text-base: 0.9rem;
+  --ui-text-md: 1.05rem;
+  --ui-text-lg: 1.3rem;
+  --ui-text-xl: 1.75rem;
+  --ui-text-2xl: 2.5rem;
+
+  /* `wider` is the house uppercase tracking and `ultra` is the wide one the
+   * section headings use; the rest keep the contract's own steps. */
+  --ui-tracking-tight: -0.02em;
+  --ui-tracking-normal: 0em;
+  --ui-tracking-wide: 0.04em;
+  --ui-tracking-wider: 0.1em;
+  --ui-tracking-widest: 0.16em;
+  --ui-tracking-ultra: 0.2em;
+
+  --ui-leading-none: 1.1;
+  --ui-leading-tight: 1.2;
+  --ui-leading-snug: 1.4;
+  --ui-leading-normal: 1.6;
+  --ui-leading-relaxed: 1.75;
 }
 
 @layer base {

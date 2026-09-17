@@ -1,9 +1,9 @@
 import type { PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
-import { clsx } from "@osn/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Dialog } from "@osn/ui/ui/dialog";
 import { toast } from "@shared/toast";
+import { clsx } from "@shared/ui/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";

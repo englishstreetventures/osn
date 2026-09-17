@@ -104,7 +104,7 @@ export default function EditWorkspace(props: {
               onClick={() => choose(m.id)}
               onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
               onFocus={m.id === "import" ? warmImportPanel : undefined}
-              class="font-body relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
+              class="font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
               classList={{
                 "bg-gold/12 text-gold": mode() === m.id,
                 "text-text-muted hover:text-text hover:bg-surface/60": mode() !== m.id,
@@ -126,7 +126,7 @@ export default function EditWorkspace(props: {
           <p
             id={hintId(m.id)}
             hidden={mode() !== m.id}
-            class="font-body text-text-muted -mt-3 text-[0.8rem]"
+            class="font-body text-text-muted text-ui-sm -mt-3"
           >
             {m.hint}
           </p>

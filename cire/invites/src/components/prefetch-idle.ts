@@ -1,15 +1,15 @@
 /**
  * Warm a dynamically-imported chunk while the browser is idle.
  *
- * The invite's two animation chunks are imported at the moment they are needed
- * — `UnlockReveal.motion` inside the claim handler, `Modal.motion` inside
- * `AnimatedModal`'s open transition — so their network fetch is serialised
- * AFTER the interaction the guest is waiting on. Both are on the critical path
- * of a moment that should feel instant, and both already carry a failure branch
- * precisely because that late fetch can fail.
+ * The invite's unlock sequence (`UnlockReveal.motion`) is imported at the
+ * moment it is needed, inside the claim handler, so its network fetch is
+ * serialised AFTER the interaction the guest is waiting on. It is on the
+ * critical path of a moment that should feel instant, and it already carries a
+ * failure branch precisely because that late fetch can fail. The same is true
+ * of each `lazy` component the page splits out.
  *
- * Prefetching them at idle removes the fetch from the interaction without
- * changing any behaviour: the call sites keep their `await import(...)` (module
+ * Prefetching at idle removes the fetch from the interaction without changing
+ * any behaviour: the call sites keep their `await import(...)` (module
  * resolution is cached, so the second import resolves from memory) and keep
  * their fallbacks (a prefetch that failed leaves them exactly as they are
  * today). This is a hint, never a dependency.

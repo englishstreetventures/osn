@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import {
   clearAuthError,
   readAuthError,
@@ -5,12 +6,10 @@ import {
   startSignIn,
   type RpAuthConfig,
 } from "@shared/rp-auth";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { CIRE_API_URL } from "../lib/osn";
-import Button from "./ui/Button";
-import Notice from "./ui/Notice";
-
 const authConfig: RpAuthConfig = { apiBase: CIRE_API_URL };
 
 // The key is an arbitrary server-supplied marker, so the contract is an
@@ -75,13 +74,13 @@ export default function SignInPanel() {
           they came back from the issuer without a session. */}
       <Show when={error()}>
         {(message) => (
-          <Notice tone="error" alert>
+          <Notice tone="danger" alert>
             {message()}
           </Notice>
         )}
       </Show>
 
-      <p class="font-body text-text-muted text-[0.88rem] leading-relaxed">
+      <p class="font-body text-text-muted text-ui-base leading-relaxed">
         Cire uses your musubi account to sign you in. Your passkey stays with musubi — Cire never
         sees it.
       </p>
@@ -90,7 +89,7 @@ export default function SignInPanel() {
         Continue with musubi
       </Button>
 
-      <p class="font-body text-text-muted text-[0.88rem] leading-relaxed">
+      <p class="font-body text-text-muted text-ui-base leading-relaxed">
         No musubi account yet? You can create one on the next screen.
       </p>
     </div>

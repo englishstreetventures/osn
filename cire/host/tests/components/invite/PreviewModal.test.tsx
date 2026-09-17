@@ -74,18 +74,31 @@ describe("PreviewModal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("clicking the backdrop calls onClose", () => {
-    const onClose = vi.fn();
-    render(() => <PreviewModal {...previewProps} open={true} onClose={onClose} />);
-    const backdrop = screen.getByRole("dialog").parentElement as HTMLElement;
-    fireEvent.click(backdrop);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
+  /*
+   * The two backdrop tests that used to sit here are gone, and deliberately not
+   * rewritten.
+   *
+   * They clicked `dialog.parentElement` — the `fixed inset-0` scrim this
+   * component used to render. There is no scrim now: the backdrop is
+   * `::backdrop`, a pseudo-element that cannot be an event target, and
+   * `@shared/ui`'s `Modal` decides inside-or-outside by hit-testing the click
+   * against the dialog's own box.
+   *
+   * That is not a claim this tier can make. `getBoundingClientRect` is all
+   * zeroes in happy-dom, so every click lands "inside" a zero-sized box and the
+   * assertion would pass whatever the component did — which is how the second
+   * of the two was already passing. It is tested where it can be, in
+   * `shared/ui/tests/modal.browser.test.tsx`, against a real box: one
+   * case for the backdrop and one for a click on the dialog's own padding,
+   * which a naive `target === currentTarget` check closes on and which loses a
+   * guest's work every time they miss a control by a few pixels.
+   */
 
-  it("clicking inside the dialog does not call onClose", () => {
-    const onClose = vi.fn();
-    render(() => <PreviewModal {...previewProps} open={true} onClose={onClose} />);
-    fireEvent.click(screen.getByRole("dialog"));
-    expect(onClose).not.toHaveBeenCalled();
+  it("names the dialog distinctly from the sticky side pane", () => {
+    // Both can be mounted at once, and `PreviewPane`'s own figure is already
+    // called "Invite preview". Two elements sharing one accessible name make
+    // `getByLabelText` ambiguous for anyone querying either.
+    render(() => <PreviewModal {...previewProps} open={true} onClose={vi.fn()} />);
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Invite preview modal");
   });
 });

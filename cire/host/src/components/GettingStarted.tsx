@@ -1,10 +1,10 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Meter } from "@shared/ui/ui/meter";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
-import Meter from "./ui/Meter";
-
 /** localStorage key for "this organiser dismissed the getting-started checklist
  *  for this wedding". Per-wedding so dismissing one wedding's guide leaves the
  *  others intact. */
@@ -201,13 +201,9 @@ export default function GettingStarted(props: {
           organiser can use to bring the checklist back. */}
       <Show when={dismissed()}>
         <div class="flex justify-end">
-          <button
-            type="button"
-            onClick={restore}
-            class="font-body text-text-muted hover:text-gold text-[0.74rem] tracking-[0.12em] uppercase underline-offset-4 transition hover:underline"
-          >
+          <Button variant="subtle" size="sm" type="button" onClick={restore} class="transition">
             Show getting started
-          </button>
+          </Button>
         </div>
       </Show>
 
@@ -218,27 +214,29 @@ export default function GettingStarted(props: {
         >
           {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
-          <button
+          <Button
+            variant="quiet"
+            size="lg"
             type="button"
             onClick={dismiss}
             aria-label="Dismiss getting started"
             title="Dismiss getting started"
-            class="text-text-muted hover:text-gold hover:border-gold/50 border-border absolute top-3 right-3 flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-[0.9rem] leading-none transition-colors"
+            class="hover:border-gold/50 absolute top-3 right-3 flex h-7 w-7 items-center justify-center border-transparent leading-none"
           >
             <span aria-hidden>✕</span>
-          </button>
+          </Button>
 
           <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
             <div class="flex flex-col gap-1">
-              <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
                 {allDone() ? "You're all set" : "Getting started"}
               </p>
-              <h2 class="font-display text-text text-[1.4rem] font-light">
+              <h2 class="font-display text-text text-ui-lg font-light">
                 {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
               </h2>
               <Show when={!allDone() && nextStep()}>
                 {(step) => (
-                  <p class="font-body text-text-muted text-[0.82rem] leading-relaxed">
+                  <p class="font-body text-text-muted text-ui-sm leading-relaxed">
                     Next: <span class="text-text">{step().todo}</span>
                   </p>
                 )}
@@ -247,7 +245,7 @@ export default function GettingStarted(props: {
             {/* Read out, not hidden. The rail beneath used to carry the count in
               its own `aria-valuenow`; the shared Meter reports a percentage
               instead, so "two of four" now lives here or nowhere. */}
-            <span class="font-body text-gold-dim shrink-0 text-[0.78rem] tracking-[0.12em] uppercase tabular-nums">
+            <span class="font-body text-gold-dim text-ui-sm tracking-ui-wider shrink-0 uppercase tabular-nums">
               {completed()} / {total()} done
             </span>
           </div>
@@ -261,16 +259,17 @@ export default function GettingStarted(props: {
             <For each={steps()}>
               {(step, i) => (
                 <li>
-                  <button
+                  <Button
+                    variant="quiet"
                     type="button"
                     onClick={() => props.onJump(step.tab)}
                     data-complete={step.complete ? "true" : "false"}
-                    class="group border-border bg-bg/30 hover:border-gold/60 flex w-full items-start gap-3 rounded-sm border p-3 text-left transition-colors"
+                    class="group bg-bg/30 hover:border-gold/60 flex w-full items-start gap-3 p-3 text-left"
                   >
                     <StepMarker n={i() + 1} complete={step.complete} />
                     <span class="flex flex-col gap-0.5">
                       <span
-                        class="font-body text-[0.9rem]"
+                        class="font-body text-ui-base"
                         classList={{
                           "text-text": !step.complete,
                           "text-text-muted": step.complete,
@@ -278,11 +277,11 @@ export default function GettingStarted(props: {
                       >
                         {step.label}
                       </span>
-                      <span class="font-body text-text-muted text-[0.76rem] leading-snug">
+                      <span class="font-body text-text-muted text-ui-sm leading-snug">
                         {step.complete ? step.done : step.todo}
                       </span>
                     </span>
-                  </button>
+                  </Button>
                 </li>
               )}
             </For>
@@ -301,7 +300,7 @@ function StepMarker(props: { n: number; complete: boolean }) {
   return (
     <span
       aria-hidden
-      class="font-body mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[0.78rem] transition-colors"
+      class="font-body text-ui-sm mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors"
       classList={{
         "border-gold bg-gold text-bg": props.complete,
         "border-gold/40 text-gold-dim group-hover:border-gold/70": !props.complete,

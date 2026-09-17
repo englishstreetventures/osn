@@ -1,5 +1,11 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@osn/ui/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@osn/ui/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@shared/ui/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { fetchRsvpsByStatus, type Rsvp, type RsvpStatus } from "../lib/rsvps";

@@ -1,6 +1,12 @@
+import Button from "@cire/ui/button";
 import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { EmptyState } from "@shared/ui/ui/empty-state";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createSignal, onCleanup, onMount, Show, For, createMemo } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -18,11 +24,6 @@ import {
 } from "../lib/guests-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import SectionIntro from "./SectionIntro";
-import EmptyState from "./ui/EmptyState";
-import Field, { Input } from "./ui/Field";
-import Notice from "./ui/Notice";
-import { Table, Td, Th } from "./ui/Table";
-
 interface FamilyGroup {
   familyId: string;
   publicId: string;
@@ -359,22 +360,26 @@ export default function GuestTable(props: GuestTableProps) {
         description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
         actions={
           <Show when={!loading() && !error() && hasGuests()}>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               type="button"
               onClick={() => void exportCsv("guests")}
               disabled={exporting() !== null}
-              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+              class="transition"
             >
               {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               type="button"
               onClick={() => void exportCsv("rsvps")}
               disabled={exporting() !== null}
-              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+              class="transition"
             >
               {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
-            </button>
+            </Button>
           </Show>
         }
       />
@@ -388,7 +393,7 @@ export default function GuestTable(props: GuestTableProps) {
       </Show>
 
       <Show when={error()}>
-        <Notice tone="error">{error()}</Notice>
+        <Notice tone="danger">{error()}</Notice>
       </Show>
 
       <Show when={!loading() && !error() && !hasGuests()}>
@@ -400,7 +405,7 @@ export default function GuestTable(props: GuestTableProps) {
 
       <Show when={!loading() && !error() && hasGuests()}>
         <div class="flex flex-wrap items-end justify-between gap-3">
-          <p class="font-body text-text-muted text-[0.82rem]">
+          <p class="font-body text-text-muted text-ui-sm">
             {guests().length} {guests().length === 1 ? "guest" : "guests"} across{" "}
             {families().length} {families().length === 1 ? "household" : "households"}
           </p>
@@ -419,13 +424,13 @@ export default function GuestTable(props: GuestTableProps) {
         </div>
 
         <Show when={visibleFamilies().length === 0}>
-          <p class="font-body text-text-muted text-[0.82rem] italic">
+          <p class="font-body text-text-muted text-ui-sm italic">
             No guests match “{search().trim()}”.
           </p>
         </Show>
 
         <Show when={visibleFamilies().length > 0}>
-          <Table label="Guests" class="font-body">
+          <Table label="Guests">
             <thead>
               <tr>
                 <Th>Guest Name</Th>
@@ -461,11 +466,11 @@ export default function GuestTable(props: GuestTableProps) {
                           }`}
                         >
                           <div class="flex flex-wrap items-center justify-between gap-3">
-                            <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
+                            <span class="font-display text-gold-dim text-ui-md flex items-center gap-2">
                               {family.familyName}
                               <Show when={isDeactivated(family)}>
                                 <span
-                                  class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                  class="font-body border-error/40 text-error text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic"
                                   title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
                                 >
                                   Deactivated — code disabled
@@ -481,7 +486,7 @@ export default function GuestTable(props: GuestTableProps) {
                                   fallback={
                                     <Show when={isShared(family)}>
                                       <span
-                                        class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                        class="font-body text-gold/80 border-gold/30 text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic"
                                         title="Sent — you copied this family's invite message"
                                       >
                                         Sent
@@ -490,7 +495,7 @@ export default function GuestTable(props: GuestTableProps) {
                                   }
                                 >
                                   <span
-                                    class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                    class="font-body bg-gold text-bg text-ui-xs tracking-ui-widest rounded-sm px-1.5 py-0.5 uppercase not-italic"
                                     title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
                                       family.firstOpenedAt!,
                                     )}`}
@@ -501,13 +506,14 @@ export default function GuestTable(props: GuestTableProps) {
                               </Show>
                             </span>
                             <div class="flex flex-wrap items-center gap-2">
-                              <button
+                              <Button
+                                variant="quiet"
+                                size="sm"
                                 type="button"
                                 onClick={() => void copyMessage(family)}
-                                class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
                               >
                                 Copy message
-                              </button>
+                              </Button>
                               {/* Deactivate is confirm-gated (cuts off a live code);
                                 Reactivate is a direct restore. Owner-only —
                                 code management sits above editor writes. */}
@@ -518,52 +524,57 @@ export default function GuestTable(props: GuestTableProps) {
                                     <Show
                                       when={confirmingId() === family.familyId}
                                       fallback={
-                                        <button
+                                        <Button
+                                          variant="quiet"
+                                          size="sm"
                                           type="button"
                                           onClick={() => setConfirmingId(family.familyId)}
                                           disabled={togglingId() === family.familyId}
-                                          class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                          class="hover:border-error/60"
                                           title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
                                         >
                                           Deactivate
-                                        </button>
+                                        </Button>
                                       }
                                     >
-                                      <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                      <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
                                         Disable this code?
                                       </span>
                                       <button
                                         type="button"
                                         onClick={() => void toggleDeactivated(family, true)}
                                         disabled={togglingId() === family.familyId}
-                                        class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                        class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition hover:opacity-90 disabled:opacity-40"
                                       >
                                         {togglingId() === family.familyId
                                           ? "Deactivating…"
                                           : "Confirm"}
                                       </button>
-                                      <button
+                                      <Button
+                                        variant="subtle"
+                                        size="sm"
                                         type="button"
                                         onClick={() => setConfirmingId(null)}
                                         disabled={togglingId() === family.familyId}
-                                        class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
                                       >
                                         Cancel
-                                      </button>
+                                      </Button>
                                     </Show>
                                   }
                                 >
-                                  <button
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
                                     type="button"
                                     onClick={() => void toggleDeactivated(family, false)}
                                     disabled={togglingId() === family.familyId}
-                                    class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+
                                     title="Re-enable this household's code — their guests and RSVPs were kept."
                                   >
                                     {togglingId() === family.familyId
                                       ? "Reactivating…"
                                       : "Reactivate"}
-                                  </button>
+                                  </Button>
                                 </Show>
                               </Show>
                             </div>
@@ -573,15 +584,15 @@ export default function GuestTable(props: GuestTableProps) {
                       <For each={visibleMembers()}>
                         {(member, index) => (
                           <tr class="hover:[&>td]:bg-surface">
-                            <Td class="pl-8 align-middle font-normal">
+                            <Td valign="middle" class="pl-8 font-normal">
                               {member.firstName} {member.lastName}
                             </Td>
-                            <Td class="align-middle">
+                            <Td valign="middle">
                               <div class="flex flex-wrap gap-1.5">
                                 <For each={member.events}>
                                   {(eventId) => (
                                     <span
-                                      class="bg-gold/10 text-gold inline-block rounded-sm px-2 py-0.5 text-[0.72rem] tracking-[0.06em] uppercase"
+                                      class="bg-gold/10 text-gold text-ui-xs tracking-ui-wide inline-block rounded-sm px-2 py-0.5 uppercase"
                                       title={eventId}
                                     >
                                       {eventNameById().get(eventId) ?? eventId}
@@ -589,11 +600,11 @@ export default function GuestTable(props: GuestTableProps) {
                                   )}
                                 </For>
                                 <Show when={member.events.length === 0}>
-                                  <span class="text-text-muted text-[0.8rem]">--</span>
+                                  <span class="text-text-muted text-ui-sm">--</span>
                                 </Show>
                               </div>
                             </Td>
-                            <Td class="text-text-muted align-middle font-mono tracking-[0.06em]">
+                            <Td tone="muted" valign="middle" class="tracking-ui-wide font-mono">
                               <Show when={index() === 0}>{family.publicId}</Show>
                             </Td>
                           </tr>

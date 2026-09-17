@@ -1,7 +1,7 @@
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError } from "@osn/client";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import { useSearchParams } from "@solidjs/router";
 import {
   createMemo,

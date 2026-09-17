@@ -1,14 +1,13 @@
+import { cardClass } from "@cire/ui/card";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip, type ChipTone } from "@shared/ui/ui/chip";
+import { EmptyState } from "@shared/ui/ui/empty-state";
+import { Notice } from "@shared/ui/ui/notice";
 import { createResource, For, Show } from "solid-js";
 
 import { listEnquiries, type VendorEnquiryListItem } from "../lib/enquiries-store";
 import { categoryLabel } from "../lib/service-categories";
-import { cardClass } from "./ui/Card";
-import Chip, { type ChipTone } from "./ui/Chip";
-import EmptyState from "./ui/EmptyState";
-import Loading from "./ui/Loading";
-import Notice from "./ui/Notice";
-
 /**
  * A status, as a tone.
  *
@@ -20,9 +19,9 @@ import Notice from "./ui/Notice";
 function statusTone(status: VendorEnquiryListItem["status"]): ChipTone {
   switch (status) {
     case "open":
-      return "active";
+      return "pending";
     case "quoted":
-      return "quoted";
+      return "accent";
     case "closed":
       return "neutral";
   }
@@ -58,8 +57,8 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
   return (
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-0.5">
-        <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">Enquiries</p>
-        <h2 class="font-display text-text text-[1.4rem] leading-tight font-light">Your inbox</h2>
+        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Enquiries</p>
+        <h2 class="font-display text-text text-ui-lg leading-tight font-light">Your inbox</h2>
       </div>
 
       <Show when={rows.loading}>
@@ -67,7 +66,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
       </Show>
 
       <Show when={rows.error}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           Could not load enquiries. Please refresh.
         </Notice>
       </Show>
@@ -84,6 +83,9 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
           <For each={rows()}>
             {(item) => (
               <li>
+                {/* As in `OrgPicker`: the whole card is the control, so it is
+                    a `<button>` wearing `cardClass` rather than a `Button` or a
+                    `<div role="button">`. */}
                 <button
                   type="button"
                   onClick={() => props.onOpen(item.id)}
@@ -98,11 +100,11 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
                   </div>
 
                   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                    <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
                       {categoryLabel(item.category)}
                     </span>
                     <Show when={item.quotedMinor != null}>
-                      <span class="font-body text-gold-ink text-[0.78rem] tabular-nums">
+                      <span class="font-body text-gold-ink text-ui-sm tabular-nums">
                         {aud.format(item.quotedMinor! / 100)}
                       </span>
                     </Show>
@@ -111,7 +113,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
                         gives the exact moment to anything that wants it. */}
                     <time
                       datetime={new Date(item.lastMessageAt).toISOString()}
-                      class="font-body text-text-muted ml-auto text-[0.72rem]"
+                      class="font-body text-text-muted text-ui-xs ml-auto"
                     >
                       {shortDate(item.lastMessageAt)}
                     </time>

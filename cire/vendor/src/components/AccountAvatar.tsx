@@ -55,7 +55,7 @@ export default function AccountAvatar(props: { session: RpSession | null | undef
     <Show
       when={httpsAvatarUrl(props.session)}
       fallback={
-        <span aria-hidden="true" class="font-display text-gold text-[0.95rem] leading-none">
+        <span aria-hidden="true" class="font-display text-gold text-ui-base leading-none">
           {initial()}
         </span>
       }

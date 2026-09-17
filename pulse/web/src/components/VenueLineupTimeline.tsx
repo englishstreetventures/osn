@@ -1,4 +1,4 @@
-import { Card } from "@osn/ui/ui/card";
+import { Card } from "@shared/ui/ui/card";
 import { For, Show } from "solid-js";
 
 import type { LineupSlot, LineupRole } from "../lib/venues";
@@ -48,7 +48,7 @@ export function VenueLineupTimeline(props: Props) {
   return (
     <Card class="overflow-hidden">
       <div class="border-border/50 border-b p-4">
-        <p class="text-muted-foreground font-mono text-[11px] tracking-[0.18em] uppercase">
+        <p class="text-muted-foreground text-ui-xs tracking-ui-widest font-mono uppercase">
           Tonight's Lineup
         </p>
         <Show when={props.heading}>{(h) => <h2 class="mt-1 text-xl">{h()}</h2>}</Show>
@@ -77,7 +77,7 @@ export function VenueLineupTimeline(props: Props) {
                   </p>
                 </div>
                 <span
-                  class={`shrink-0 font-mono text-[10px] tracking-[0.16em] uppercase ${
+                  class={`text-ui-xs tracking-ui-widest shrink-0 font-mono uppercase ${
                     isHeadliner ? "text-foreground" : "text-muted-foreground"
                   }`}
                 >

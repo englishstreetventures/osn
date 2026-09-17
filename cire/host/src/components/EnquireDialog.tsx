@@ -1,7 +1,10 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
-import { createSignal, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Field } from "@shared/ui/ui/field";
+import { Modal } from "@shared/ui/ui/modal";
+import { Textarea } from "@shared/ui/ui/textarea";
+import { createSignal, createUniqueId } from "solid-js";
 
 import { redirectToLogin } from "../lib/api";
 import { enquiryErrorMessage, EnquiryApiError, openEnquiry } from "../lib/enquiries-api";
@@ -65,64 +68,52 @@ export default function EnquireDialog(props: EnquireDialogProps) {
     }
   };
 
+  const titleId = createUniqueId();
+
   return (
-    <Show when={props.open}>
-      {/* Portalled to document.body: the dashboard shell sets `container-type`
-          on its layout boxes, which brings `contain: layout` with it and makes
-          them the containing block for `position: fixed` descendants. */}
-      <Portal>
-        <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) dismiss();
-          }}
+    // Was a `fixed inset-0 z-50` scrim in a `<Portal>`, portalled because the
+    // dashboard shell sets `container-type` on its layout boxes — which brings
+    // `contain: layout` and makes them the containing block for `position:
+    // fixed` descendants. The top layer is outside every stacking context, so
+    // there is nothing left to escape and nothing to portal past.
+    <Modal
+      open={props.open}
+      onClose={dismiss}
+      labelledBy={titleId}
+      class="flex w-full max-w-lg flex-col gap-4"
+    >
+      <header class="flex flex-col gap-1">
+        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Enquiry</p>
+        <h3 id={titleId} class="font-display text-text text-ui-lg font-light">
+          Enquire with {props.vendorName}
+        </h3>
+      </header>
+
+      <Field label="Your message">
+        {(field) => (
+          <Textarea
+            {...field}
+            value={message()}
+            onInput={(e) => setMessage(e.currentTarget.value)}
+            placeholder="Introduce yourselves and ask your question…"
+            rows={5}
+          />
+        )}
+      </Field>
+
+      <div class="flex items-center gap-3">
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={sending() || message().trim() === ""}
+          onClick={() => void handleSend()}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Enquire with ${props.vendorName}`}
-            class="border-border bg-bg flex w-full max-w-lg flex-col gap-4 rounded-sm border p-6"
-          >
-            <header class="flex flex-col gap-1">
-              <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Enquiry</p>
-              <h3 class="font-display text-text text-[1.2rem] font-light">
-                Enquire with {props.vendorName}
-              </h3>
-            </header>
-
-            <label class="flex flex-col gap-1.5">
-              <span class="text-gold-dim font-body text-[0.64rem] tracking-[0.14em] uppercase">
-                Your message
-              </span>
-              <textarea
-                value={message()}
-                onInput={(e) => setMessage(e.currentTarget.value)}
-                placeholder="Introduce yourselves and ask your question…"
-                rows={5}
-                class="border-border bg-bg text-text w-full rounded-sm border px-3 py-2 text-[0.85rem] focus:outline-none"
-              />
-            </label>
-
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={sending() || message().trim() === ""}
-                onClick={() => void handleSend()}
-                class="bg-gold text-bg rounded-sm px-4 py-1.5 text-[0.78rem] tracking-[0.08em] uppercase disabled:opacity-60"
-              >
-                {sending() ? "Sending…" : "Send"}
-              </button>
-              <button
-                type="button"
-                onClick={dismiss}
-                class="text-text-muted hover:text-text text-[0.78rem]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      </Portal>
-    </Show>
+          {sending() ? "Sending…" : "Send"}
+        </Button>
+        <Button variant="bare" type="button" onClick={dismiss}>
+          Cancel
+        </Button>
+      </div>
+    </Modal>
   );
 }

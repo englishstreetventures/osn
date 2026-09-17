@@ -75,7 +75,7 @@ along. If the user opens the link in a *different* browser, every call
 |---|---|---|
 | `GET /authorize/context?request=<id>` | On load, and again after any sign-in | Returns `{ client: { clientId, name, logoUrl, firstParty }, scopes: string[], signedIn: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
 | `POST /authorize/decision` `{ requestId, profileId, approved }` | On Approve / Deny | Success ⇒ `{ redirectTo }` — assign `window.location`. The request id is single-use on success either way. |
-| Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/ui` `<SignIn>`/`<Register>` components; no new auth UI. `AuthorizeSignIn` holds both and swaps between them — a "No account yet? Create one" link under sign-in, and Cancel back from registration. Without that second half, a relying party's "Create account" button would land on a screen demanding a passkey the visitor has not got. |
+| Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/auth-ui` `<SignIn>`/`<Register>` components; no new auth UI. `AuthorizeSignIn` holds both and swaps between them — a "No account yet? Create one" link under sign-in, and Cancel back from registration. Without that second half, a relying party's "Create account" button would land on a screen demanding a passkey the visitor has not got. |
 
 ### Decision error handling — exhaustive
 

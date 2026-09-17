@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-17
 ---
 
 # OSN and Musubi
@@ -59,13 +59,27 @@ audiences, well-known paths, claim names — are exactly the ones that stay OSN.
 | Surfaces | none — the core is headless | `musubi.social`, `id.musubi.social` |
 | Product label | `product:osn-core` | `product:musubi` |
 
-Two packages sit outside the split on purpose:
+### Where the UI packages landed
 
-- **`@osn/ui`** is user-interface code, so by the definitions above it is not
-  core. It keeps its name because `@pulse/web` and `tools/lab` consume it as
-  well as the social app, and nothing in it is tied to our instance.
-- **`@shared/rp-auth`** is a relying-party helper that works against any OSN
-  issuer, so it is not Musubi's either.
+Applying the discriminator to user-interface code: no independent
+implementation has to spell `Button`, `Card` or `Modal` the way we do in order
+to interoperate, so none of it is OSN. It is also not Musubi's alone — cire and
+pulse render the same primitives. That makes it neither, and it lives under
+`shared/`:
+
+| Package | Holds | Why there |
+|---|---|---|
+| `@shared/ui` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, the rest, plus `cn()`/`clsx()` | Interoperation never depends on them; five products consume them |
+| `@osn/auth-ui` | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `RecoveryCodesView`, `SessionsView`, `TotpView`, `ChangeEmailForm` | Each one is a client of a named OSN ceremony, and its shape is fixed by that protocol, not by our styling |
+| `@cire/ui` | cire's house style — gold primary, 4px corners | One product's own chrome |
+
+`@osn/auth-ui` is the line's real test. It renders `@shared/ui` primitives, so
+it looks like product code; what keeps it in `osn/` is that every view is
+paired with an endpoint in the spec, and an independent implementation
+rebuilding those ceremonies would rebuild these screens too.
+
+`@shared/rp-auth` is a relying-party helper that works against any OSN issuer,
+so it is not Musubi's either, and sits under `shared/` for the same reason.
 
 The repository is still called `xchromo/osn` and the Cloudflare Pages projects
 are still called `osn-social`, `osn-social-dev` and `osn-landing`. Neither is

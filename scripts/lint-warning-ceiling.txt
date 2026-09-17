@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1058   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/festive-keller-y6wq8r on b5f9c8f4 @ 2026-09-17
+1052   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/nifty-cerf-jrox2u @ 2026-09-17 — -1 as the comments this branch's review flagged as narrating history were rewritten to state what the code guarantees now

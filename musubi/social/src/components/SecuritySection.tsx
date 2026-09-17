@@ -1,6 +1,6 @@
-import { PasskeysView } from "@osn/ui/auth/PasskeysView";
-import { RecoveryCodesView } from "@osn/ui/auth/RecoveryCodesView";
-import { TotpView } from "@osn/ui/auth/TotpView";
+import { PasskeysView } from "@osn/auth-ui/PasskeysView";
+import { RecoveryCodesView } from "@osn/auth-ui/RecoveryCodesView";
+import { TotpView } from "@osn/auth-ui/TotpView";
 
 import { passkeysClient, recoveryClient, stepUpClient, totpClient } from "../lib/authClients";
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";

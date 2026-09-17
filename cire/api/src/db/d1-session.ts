@@ -2,35 +2,13 @@
  * D1 Sessions API wiring: route every query a request makes through one D1
  * session, so read replicas can serve the second and later queries.
  *
- * ## Why
- *
- * Without a session, each `prepare()` is an independent query and D1 sends all
- * of them to the primary database. cire's primary lives in Oceania, so a
- * request served from a European or North American colo pays the full
- * round-trip to Sydney *per query* — a request that reads three tables pays it
- * three times. With read replication enabled, a session pins the first query to
- * the primary and lets every later query in the same session be served by any
- * replica that has caught up to the bookmark the first query returned. The
- * round trips collapse from N × (distance to Sydney) to one, plus N-1 local
- * reads.
+ * {@link D1_SESSION_CONSTRAINT} is `"first-primary"` for the whole Worker: the
+ * session's first query goes to the primary, so a request ALWAYS observes every
+ * write committed before it started, whichever route it reached.
  *
  * This is safe to deploy BEFORE replication is turned on: with no replicas, a
  * session behaves exactly like today (every query goes to the primary), so the
  * change is inert until the database has replicas to serve from.
- *
- * ## The constraint, and why it is `first-primary`
- *
- * {@link D1_SESSION_CONSTRAINT} is `"first-primary"`, never
- * `"first-unconstrained"`. `first-primary` sends the first query of the session
- * to the primary, so a request ALWAYS observes every write committed before it
- * started — the ordinary read-your-writes expectation, including across
- * requests (a guest who RSVPs and then reloads, an organiser who saves an edit
- * and then re-reads it). `first-unconstrained` gives that up for one saved
- * round trip on the first query, and cire has at least one route that
- * explicitly cannot take it: `routes/invite.ts` serves a `no-store`,
- * edit-sensitive payload precisely so organiser edits surface on the guest
- * invite's revalidation. One constraint for the whole Worker keeps that
- * property from depending on which route happened to be reached.
  *
  * ## How it threads through
  *
@@ -76,6 +54,11 @@
  *    context and its queries would ride that request's session. `@cire/api`
  *    uses none today. Anything of that shape needs the session captured and
  *    re-established explicitly with {@link withD1Session}.
+ *
+ * @see wiki/decisions/d1-session-first-primary.md — the choice, and why never
+ * `first-unconstrained`.
+ * @see wiki/systems/d1-read-replication.md — the mechanism, the measured
+ * per-query cost, and how replication is turned on.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -90,8 +73,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export type D1QueryClient = Pick<D1Database, "prepare" | "batch">;
 
 /**
- * Sequential consistency for every request. See the module docs above for why
- * this is not `"first-unconstrained"`.
+ * Sequential consistency for every request.
+ *
+ * @see wiki/decisions/d1-session-first-primary.md — why this is not
+ * `"first-unconstrained"`.
  */
 export const D1_SESSION_CONSTRAINT = "first-primary" as const;
 

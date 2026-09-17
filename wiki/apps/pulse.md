@@ -27,7 +27,7 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
 ```
 @pulse/web (SolidStart, client-rendered)
   ├── SolidJS frontend (src/)
-  └── Consumes @osn/client, @osn/ui, @pulse/api
+  └── Consumes @osn/client, @shared/ui, @pulse/api
 
 @pulse/api (Elysia + Eden, binary, port 3001)
   ├── Events CRUD + lifecycle

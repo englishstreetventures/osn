@@ -39,122 +39,144 @@
 
 /* geist-sans-latin-400-normal */
 @font-face {
-  font-family: 'Geist';
+  font-family: "Geist";
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2') format('woff2');
+  src: url("@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2") format("woff2");
 }
 
 /* geist-sans-latin-500-normal */
 @font-face {
-  font-family: 'Geist';
+  font-family: "Geist";
   font-style: normal;
   font-display: swap;
   font-weight: 500;
-  src: url('@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2') format('woff2');
+  src: url("@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2") format("woff2");
 }
 
 /* geist-sans-latin-600-normal */
 @font-face {
-  font-family: 'Geist';
+  font-family: "Geist";
   font-style: normal;
   font-display: swap;
   font-weight: 600;
-  src: url('@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2') format('woff2');
+  src: url("@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2") format("woff2");
 }
 
 /* geist-sans-latin-700-normal */
 @font-face {
-  font-family: 'Geist';
+  font-family: "Geist";
   font-style: normal;
   font-display: swap;
   font-weight: 700;
-  src: url('@fontsource/geist-sans/files/geist-sans-latin-700-normal.woff2') format('woff2');
+  src: url("@fontsource/geist-sans/files/geist-sans-latin-700-normal.woff2") format("woff2");
 }
 
 /* geist-mono-latin-ext-400-normal */
 @font-face {
-  font-family: 'Geist Mono';
+  font-family: "Geist Mono";
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/geist-mono/files/geist-mono-latin-ext-400-normal.woff2') format('woff2');
-  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+  src: url("@fontsource/geist-mono/files/geist-mono-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* geist-mono-latin-400-normal */
 @font-face {
-  font-family: 'Geist Mono';
+  font-family: "Geist Mono";
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/geist-mono/files/geist-mono-latin-400-normal.woff2') format('woff2');
-  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url("@fontsource/geist-mono/files/geist-mono-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* geist-mono-latin-ext-500-normal */
 @font-face {
-  font-family: 'Geist Mono';
+  font-family: "Geist Mono";
   font-style: normal;
   font-display: swap;
   font-weight: 500;
-  src: url('@fontsource/geist-mono/files/geist-mono-latin-ext-500-normal.woff2') format('woff2');
-  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+  src: url("@fontsource/geist-mono/files/geist-mono-latin-ext-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* geist-mono-latin-500-normal */
 @font-face {
-  font-family: 'Geist Mono';
+  font-family: "Geist Mono";
   font-style: normal;
   font-display: swap;
   font-weight: 500;
-  src: url('@fontsource/geist-mono/files/geist-mono-latin-500-normal.woff2') format('woff2');
-  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url("@fontsource/geist-mono/files/geist-mono-latin-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* instrument-serif-latin-ext-400-normal */
 @font-face {
-  font-family: 'Instrument Serif';
+  font-family: "Instrument Serif";
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-normal.woff2') format('woff2');
-  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+  src: url("@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-normal.woff2")
+    format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* instrument-serif-latin-400-normal */
 @font-face {
-  font-family: 'Instrument Serif';
+  font-family: "Instrument Serif";
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2') format('woff2');
-  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url("@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2")
+    format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* instrument-serif-latin-ext-400-italic */
 @font-face {
-  font-family: 'Instrument Serif';
+  font-family: "Instrument Serif";
   font-style: italic;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-italic.woff2') format('woff2');
-  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+  src: url("@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-italic.woff2")
+    format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* instrument-serif-latin-400-italic */
 @font-face {
-  font-family: 'Instrument Serif';
+  font-family: "Instrument Serif";
   font-style: italic;
   font-display: swap;
   font-weight: 400;
-  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2') format('woff2');
-  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url("@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2")
+    format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-@source "../../../osn/ui/src";
-
-@custom-variant base (:where(&));
+@import "@shared/design-tokens/tokens.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -176,6 +198,15 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive-foreground: var(--destructive-foreground);
+  /* The coral brand family, as utilities. Without these `--pulse-accent` can
+     only be reached through an inline `style` and a `text-[var(--…)]`
+     arbitrary value, which is how the explore nav's two accent pills were
+     written — one of them with a hover state and one without, because two
+     copies of a style drift. */
+  --color-pulse-accent: var(--pulse-accent);
+  --color-pulse-accent-strong: var(--pulse-accent-strong);
+  --color-pulse-accent-soft: var(--pulse-accent-soft);
+  --color-pulse-accent-fg: var(--pulse-accent-fg);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -196,7 +227,13 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.92 0.006 70);
   --input: oklch(0.92 0.006 70);
-  --ring: oklch(0.7 0.01 60);
+  /* Darkened from L=0.7, which measured 2.38:1 against `--background` — below
+     the 3:1 floor a focus indicator has to clear (WCAG 2.2 SC 1.4.11). A ring
+     nobody can see is the one component where failing contrast removes the
+     feature outright: a keyboard user has no other way to tell where they are.
+     L=0.58 gives 3.82:1 on the worst ground and still reads as a ring rather
+     than a border. Found by the design-token conformance test. */
+  --ring: oklch(0.58 0.01 60);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.17 0.01 60);
   --accent: oklch(0.97 0 0);
@@ -238,12 +275,19 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(0.28 0.008 60);
   --input: oklch(0.28 0.008 60);
-  --ring: oklch(0.5 0.01 60);
+  /* Lightened from L=0.5 (2.66:1 on `--background`) to clear the same 3:1 focus
+     floor as the light ramp. 4.39:1 on the worst dark ground. */
+  --ring: oklch(0.62 0.01 60);
   --popover: oklch(0.22 0.008 60);
   --popover-foreground: oklch(0.97 0.004 80);
   --accent: oklch(0.25 0.008 60);
   --accent-foreground: oklch(0.97 0.004 80);
-  --destructive-foreground: oklch(0.985 0 0);
+  /* Ink, not paper, on the dark ramp's destructive fill. The fill is lightened
+     in dark mode so it still reads as red against a dark page, and near-white
+     on that lightened red is 2.77:1 — under the 4.5:1 floor, on the one control
+     where a misread is destructive. Near-black gives 6.62:1 and keeps the
+     fill's brightness. Same defect and same remedy as @musubi/social. */
+  --destructive-foreground: oklch(0.17 0.008 60);
 
   --pulse-accent-fg: oklch(0.17 0.008 60);
   --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.4);
@@ -287,4 +331,124 @@ body {
 .dark {
   --toast-accent-success: oklch(78% 0.13 150);
   --toast-accent-warn: oklch(80% 0.12 75);
+}
+
+/* ── Design-token contract ───────────────────────────────────────────────────
+ * `@shared/design-tokens` names the roles a shared component reads; this block
+ * says which of pulse's colours plays each one. App code is untouched — every
+ * `bg-card`, `bg-pulse-accent` and `shadow-md` stays exactly as written.
+ *
+ * ## `--ui-accent` is `--primary`, not `--pulse-accent`
+ *
+ * Pulse carries two accents: shadcn's `--primary`, a near-black used as the
+ * filled-CTA ground, and `--pulse-accent`, the coral that is the product's
+ * brand. The contract has one, and it means "the ground of a primary button" —
+ * which here is `--primary`. Sending the coral instead would repaint every
+ * shared `<Button>` in the app: a redesign wearing the costume of a refactor.
+ *
+ * The coral keeps its own names and stays app-level, which is where it is used
+ * from today. Nothing in `@shared/ui` has ever asked for it.
+ *
+ * ## `--ui-accent-soft` is `--muted`
+ *
+ * The contract's `accent-soft` is a tint of whatever `--ui-accent` is. That is
+ * the near-black `--primary`, so its tint is the neutral `--muted`.
+ * `--pulse-accent-soft` is a tint of the CORAL — the right answer to a
+ * different mapping, and wrong here by exactly the amount coral differs from
+ * ink.
+ */
+:root {
+  --ui-ground: var(--background);
+  --ui-ground-deep: var(--secondary);
+  --ui-surface: var(--card);
+  --ui-surface-raised: var(--popover);
+  --ui-surface-sunk: var(--muted);
+
+  --ui-hairline: var(--border);
+  --ui-hairline-strong: var(--input);
+
+  --ui-ink: var(--foreground);
+  --ui-ink-secondary: var(--muted-foreground);
+  --ui-ink-tertiary: var(--subtle);
+
+  --ui-accent: var(--primary);
+  --ui-accent-strong: var(--primary-hover);
+  --ui-accent-soft: var(--muted);
+  --ui-accent-ink: var(--primary);
+  --ui-on-accent: var(--primary-foreground);
+
+  --ui-success: var(--toast-accent-success);
+  --ui-warn: var(--toast-accent-warn);
+  --ui-danger: var(--destructive);
+  --ui-on-danger: var(--destructive-foreground);
+
+  --ui-focus: var(--ring);
+
+  --ui-radius-hair: 2px;
+  --ui-radius-sm: calc(var(--radius) - 4px);
+  --ui-radius-md: var(--radius);
+  --ui-radius-lg: calc(var(--radius) + 4px);
+  --ui-radius-pill: 9999px;
+  --ui-radius-control: var(--radius);
+
+  --ui-font-body: var(--font-sans);
+  --ui-font-display: var(--font-serif);
+  --ui-font-mono: var(--font-mono);
+
+  /* The type scale.
+   *
+   * Pulse has no named type tokens of its own — DESIGN.md states its sizes in
+   * px at the call site, and the tree writes Tailwind's own `text-xs` (59
+   * sites) and `text-sm` (49). So these are not aliases onto a scale that
+   * exists; they ARE pulse's scale, written down for the first time.
+   *
+   * Leaving them unmapped was not neutral. Every `text-ui-*` in a shared
+   * component was resolving to the contract package's neutral fallback, which
+   * is a different type system showing through in the middle of this one — and
+   * invisible, because a fallback renders legibly.
+   *
+   * The values come from DESIGN.md and from what the tree uses, and they land
+   * within half a pixel of the contract's own steps, which is unsurprising:
+   * the scale was clustered from this monorepo in the first place.
+   *
+   *   xs   11px    meta / eyebrow (DESIGN.md: "10.5-11.5px, uppercase")
+   *   sm   12px    Tailwind `text-xs`, the commonest size in the tree
+   *   base 14px    Tailwind `text-sm`, the second commonest
+   *   md   16.5px  card titles (DESIGN.md)
+   *   lg   22px    section headers (DESIGN.md)
+   *   xl   28px
+   *   2xl  40px    below the hero, which stays a `clamp()` and is not a step
+   */
+  --ui-text-xs: 11px;
+  --ui-text-sm: 12px;
+  --ui-text-base: 14px;
+  --ui-text-md: 16.5px;
+  --ui-text-lg: 22px;
+  --ui-text-xl: 28px;
+  --ui-text-2xl: 40px;
+
+  /* Tracking and leading keep the contract's steps: pulse states neither as a
+   * scale, and the one pattern DESIGN.md does name — "uppercase, wide
+   * tracking" on meta text — is what `wider` already is. */
+}
+
+/* Two roles shadcn's ramp has no name for.
+ *
+ * `--primary-hover`: shadcn expresses the pressed state as `bg-primary/90` at
+ * each call site rather than as a token, so a named role has nothing to point
+ * at. Pulse's primary is ink, so "stronger" is further along the ramp rather
+ * than a different hue.
+ *
+ * `--subtle`: pulse has no tertiary ink — `--muted-foreground` is its faintest
+ * and that one carries the 4.5:1 body-copy contract. Ornament and disabled
+ * states want a third step, and it has to clear 3:1 against the darkest ground
+ * it can land on, which is `--muted`. */
+:root {
+  --primary-hover: oklch(0.12 0 0);
+  --subtle: oklch(0.58 0.01 60);
+}
+
+.dark {
+  --primary-hover: oklch(0.92 0 0);
+  --subtle: oklch(0.6 0.008 60);
 }

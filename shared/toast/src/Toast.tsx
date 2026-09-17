@@ -43,9 +43,9 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
 
   return (
     <div
-      class={`osn-toast osn-toast--${props.toast.tone}${props.class ? ` ${props.class}` : ""}${
+      class={`ui-toast ui-toast--${props.toast.tone}${props.class ? ` ${props.class}` : ""}${
         props.toast.class ? ` ${props.toast.class}` : ""
-      }${props.toast.dismissing ? " osn-toast--leaving" : ""}`}
+      }${props.toast.dismissing ? " ui-toast--leaving" : ""}`}
       // An error interrupts (`assertive`): the thing the user just did did not
       // happen. Everything else waits its turn.
       role={props.toast.tone === "error" ? "alert" : "status"}
@@ -58,10 +58,10 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
       onFocusIn={() => pause(props.toast.id)}
       onFocusOut={resumeClock}
     >
-      <span aria-hidden="true" class="osn-toast__glyph">
+      <span aria-hidden="true" class="ui-toast__glyph">
         {MARK[props.toast.tone].glyph}
       </span>
-      <span class="osn-toast__sr">{MARK[props.toast.tone].word}: </span>
+      <span class="ui-toast__sr">{MARK[props.toast.tone].word}: </span>
       {/*
         The message lives in its OWN element whose `textContent` is EXACTLY the
         message, with the glyph and the screen-reader word as SIBLINGS outside
@@ -70,12 +70,12 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
         folding the tone word in here would break that lookup, and with it the
         z-index regression guard that assertion protects.
       */}
-      <div class="osn-toast__message">{props.toast.message}</div>
+      <div class="ui-toast__message">{props.toast.message}</div>
       <Show when={props.toast.action}>
         {(action) => (
           <button
             type="button"
-            class="osn-toast__action"
+            class="ui-toast__action"
             onClick={() => {
               action().onClick();
               dismiss(props.toast.id);
@@ -88,7 +88,7 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
       <Show when={props.toast.dismissible}>
         <button
           type="button"
-          class="osn-toast__close"
+          class="ui-toast__close"
           aria-label="Dismiss notification"
           onClick={() => dismiss(props.toast.id)}
         >

@@ -17,7 +17,7 @@
 export default function PanelLoading() {
   return (
     <p
-      class="font-body text-text-muted flex min-h-[20rem] items-start py-8 text-[0.85rem]"
+      class="font-body text-text-muted text-ui-sm flex min-h-[20rem] items-start py-8"
       aria-busy="true"
     >
       Loading…

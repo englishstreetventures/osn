@@ -1,4 +1,4 @@
-import { Card } from "@osn/ui/ui/card";
+import { Card } from "@shared/ui/ui/card";
 
 /**
  * Placeholder for the event chat. Zap — OSN's messaging app — has its
@@ -11,13 +11,13 @@ import { Card } from "@osn/ui/ui/card";
  */
 export function EventChatPlaceholder(props: { eventId: string }) {
   return (
-    <Card class="bg-card/50 border-dashed p-6 text-center">
+    <Card padding="lg" class="bg-card/50 border-dashed text-center">
       <h3 class="text-foreground mb-1 text-sm font-semibold">Event chat</h3>
       <p class="text-muted-foreground text-xs">
         Chat for this event will live here — powered by <span class="font-semibold">Zap</span>,
         OSN's messaging app.
       </p>
-      <p class="text-muted-foreground/70 mt-1 text-[10px]">
+      <p class="text-muted-foreground/70 text-ui-xs mt-1">
         Tracked under Zap M2 · event id <code class="font-mono">{props.eventId}</code>
       </p>
     </Card>

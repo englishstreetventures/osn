@@ -52,7 +52,7 @@ export type StoryExport = Story | (() => JSX.Element);
 
 /** Optional per-file defaults, as `export const meta = { ... }`. */
 export interface StoryMeta {
-  /** Overrides the path-derived sidebar title, e.g. `"osn/ui/Button"`. */
+  /** Overrides the path-derived sidebar title, e.g. `"shared/ui/Button"`. */
   title?: string;
   layout?: StoryLayout;
   /**

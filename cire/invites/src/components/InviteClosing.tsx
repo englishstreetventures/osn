@@ -91,41 +91,29 @@ export interface InviteClosingProps {
  * nor an image it renders NOTHING — no empty surface, no stray band above the
  * footer.
  *
- * IMAGE SHAPE — the image is a CLOSING HERO: a full-bleed band spanning the
- * viewport edge to edge, mirroring the hero at the top of the invite, with the
- * note (when there is one) reading below it on the section surface. It was a
- * small centred square before; a photograph is what couples reach for here, and
- * a 200px thumbnail made the sign-off read like a stray avatar rather than the
- * page's closing image. The section's horizontal padding therefore moved off the
- * `<section>` onto the note's own block — the band has to reach past it.
+ * IMAGE SHAPE — the image is a full-bleed band spanning the viewport edge to
+ * edge, with the note (when there is one) reading below it on the section
+ * surface. The section carries no horizontal padding of its own; the note's
+ * block does, because the band has to reach past it.
  *
  * THE CROP DECIDES THE SHAPE. Full width, and then the HEIGHT follows what the
  * organiser framed: the box takes the crop's true pixel aspect and renders the
  * cropped region exactly (`cropBackgroundStyle`, the story photo's technique),
  * so an organiser who crops a 3∶1 panorama gets a 3∶1 panorama and one who crops
- * a 4∶3 scene gets a 4∶3 scene. This is deliberately NOT the hero backdrop's
- * treatment, which pins a fixed viewport-shaped box and uses the crop as a mere
- * focal point: the hero's box is dictated by the screen it fills, while this
- * band has no shape of its own to defend, so the crop editor can be honest —
- * what you frame is what publishes, and the builder's preview shows it.
+ * a 4∶3 scene gets a 4∶3 scene. What you frame is what publishes, and the
+ * builder's preview shows it.
  *
  * With no crop saved, the image keeps its NATURAL aspect (`h-auto`) — nothing
  * is chosen, so nothing is cut.
  *
  * THE HEIGHT BOUND, and why it bounds the WIDTH. A band may not grow taller
- * than {@link BAND_MAX_HEIGHT}: a 4∶5 portrait at 1440px wide wants 1800px of
- * band, which buries the note and the footer under screens of image. On the
- * cropped path that bound is applied to the box's WIDTH
- * (`min(100%, max-height × aspect)`, centred) rather than as a `max-height`
- * clip. A clip would silently break the promise above — measured in Chromium, a
- * top-anchored tall crop clipped by `max-height` renders only its TOP strip,
- * because the background layer is positioned at the crop's own offset and has
- * no idea the box got shorter. Bounding the width instead means an extreme
- * portrait crop stops being edge-to-edge (it becomes a centred column at the
- * widest size that fits a screen) but is still shown WHOLE and exact — losing
- * the full bleed on a rare shape beats cutting the framing on it. The plain
- * `<img>` path keeps a `max-h` + `object-cover`, which genuinely does crop
- * centred, and applies only to an image nobody framed.
+ * than {@link BAND_MAX_HEIGHT}. On the cropped path that bound is applied to
+ * the box's WIDTH (`min(100%, max-height × aspect)`, centred) and NEVER as a
+ * `max-height` clip, which would render only a top-anchored crop's TOP strip.
+ * So an extreme portrait crop stops being edge-to-edge — it becomes a centred
+ * column at the widest size that fits a screen — but is still shown WHOLE and
+ * exact. The plain `<img>` path keeps a `max-h` + `object-cover`, which
+ * genuinely does crop centred, and applies only to an image nobody framed.
  *
  * SURFACE — it deliberately has NO tone setting of its own. It paints whatever
  * the organiser chose for the "Code Entry & Welcome" section (`themeVars`,
@@ -138,6 +126,10 @@ export interface InviteClosingProps {
  * organiser-facing label is "Closing Section". Deliberate, not drift: showing an
  * organiser "footer" next to a page that also has a legal footer would be
  * ambiguous about which one they are editing.
+ *
+ * @see wiki/decisions/closing-band-width-bound-over-height-clip.md — why the
+ * crop decides the shape here but not in the hero, and why the height bound is
+ * applied to the width.
  */
 export function InviteClosing(props: InviteClosingProps) {
   // The whole section is a conditional segment: nothing set ⇒ render nothing.

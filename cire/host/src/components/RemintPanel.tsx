@@ -1,14 +1,13 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Fieldset } from "@shared/ui/ui/field";
 import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
-import Button from "./ui/Button";
-import { Fieldset } from "./ui/Field";
-
 interface RemintPanelProps {
   weddingId: string;
 }
@@ -137,9 +136,9 @@ export default function RemintPanel(props: RemintPanelProps) {
                     onChange={() => setTargetStyle(option.value)}
                     class="accent-gold"
                   />
-                  <span class="font-body text-text text-[0.9rem]">{option.label}</span>
+                  <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted pl-6 text-[0.78rem] leading-snug">
+                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
                   {option.hint}
                 </span>
               </label>
@@ -162,7 +161,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       <Show when={confirming()}>
         <div class="border-error/30 bg-error/5 flex flex-col gap-3 rounded-sm border p-4">
           <Show when={sharedCount() > 0}>
-            <p class="font-body text-error text-[0.88rem] leading-relaxed">
+            <p class="font-body text-error text-ui-base leading-relaxed">
               {sharedCount() === 1
                 ? "1 family has already been sent their code."
                 : `${sharedCount()} families have already been sent their codes.`}{" "}
@@ -170,7 +169,7 @@ export default function RemintPanel(props: RemintPanelProps) {
               new one.
             </p>
           </Show>
-          <p class="font-body text-text text-[0.88rem]">
+          <p class="font-body text-text text-ui-base">
             Re-mint all {familyCount()} family codes in the{" "}
             <span class="text-gold">{targetStyle()}</span> style? This can&apos;t be undone.
           </p>
@@ -178,17 +177,17 @@ export default function RemintPanel(props: RemintPanelProps) {
             <Button variant="danger" onClick={() => void remint()} disabled={busy()}>
               {busy() ? "Re-minting…" : "Yes, re-mint"}
             </Button>
-            <button
+            <Button
+              variant="subtle"
               type="button"
               onClick={() => {
                 haptic("dismiss");
                 setConfirming(false);
               }}
               disabled={busy()}
-              class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </Show>

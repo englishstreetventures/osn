@@ -1,6 +1,6 @@
 import { AuthProvider } from "@osn/client/solid";
-import { clsx } from "@osn/ui/lib/utils";
 import { Toaster } from "@shared/toast";
+import { clsx } from "@shared/ui/lib/utils";
 import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
 

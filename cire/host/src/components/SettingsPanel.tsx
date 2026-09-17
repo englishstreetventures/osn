@@ -1,5 +1,9 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -7,10 +11,6 @@ import { haptic } from "../lib/haptics";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
-import Button from "./ui/Button";
-import Field, { Input } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its free-text `address` (the sole
  *  location source, shown on the invite); the wedding holds one MAIN currency
@@ -38,8 +38,8 @@ interface WeddingProfile {
 /** Kept for the two blocks that are NOT a control: the read-only invite link,
  *  and the standing notes beside a DatePicker (which draws its own label). Every
  *  real input on this panel goes through `Field`. */
-const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
-const hintClass = "font-body text-text-muted text-[0.75rem] leading-snug";
+const labelClass = "font-body text-text-muted text-ui-xs tracking-ui-wider uppercase";
+const hintClass = "font-body text-text-muted text-ui-sm leading-snug";
 
 /** The RSVP-by half of the settings PUT body — on its own it is the whole patch
  *  an editor co-host may send. */
@@ -286,7 +286,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
       <Show when={loadError()}>
         {(message) => (
-          <Notice tone="error" alert>
+          <Notice tone="danger" alert>
             {message()}
           </Notice>
         )}
@@ -324,7 +324,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
             <div class="flex flex-col gap-1.5">
               <span class={labelClass}>Invite link</span>
-              <p class="font-body text-text border-border bg-bg/50 rounded-sm border px-3 py-2 text-[0.95rem] opacity-70">
+              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-sm border px-3 py-2 opacity-70">
                 {slug()}
               </p>
               <span class={hintClass}>

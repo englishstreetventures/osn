@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -12,6 +13,13 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { EmptyState } from "@shared/ui/ui/empty-state";
+import { Field, Fieldset } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -33,11 +41,6 @@ import ChangePreview, { type ChangePlan } from "./ChangePreview";
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
-import Button from "./ui/Button";
-import EmptyState from "./ui/EmptyState";
-import Field, { Fieldset, Input, Select, Textarea } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
@@ -86,6 +89,7 @@ export default function EventsEditor(props: { weddingId: string }) {
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
+  const shownPreview = heldWhileClosing(preview);
   /** The draft key of the event whose drawer is open, or null when closed. */
   const [editingKey, setEditingKey] = createSignal<string | null>(null);
 
@@ -295,7 +299,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       />
 
       <Show when={loadError()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {loadError()}
         </Notice>
       </Show>
@@ -373,32 +377,32 @@ export default function EventsEditor(props: { weddingId: string }) {
       </Show>
 
       {/* Preview modal (the shared ChangePreview). */}
-      <Show when={preview()}>
-        {(p) => (
-          /* Portalled to document.body: the dashboard shell sets `container-type`
-             on its layout boxes, which brings `contain: layout` with it and makes
-             them the containing block for `position: fixed` descendants. */
-          <Portal>
-            <div
-              class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Review changes before applying"
-            >
-              <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
-                <ChangePreview
-                  plan={p().plan}
-                  warnings={p().warnings}
-                  busy={busy()}
-                  confirmLabel="Confirm & save"
-                  onConfirm={() => void handleApply()}
-                  onCancel={() => setPreview(null)}
-                />
-              </div>
-            </div>
-          </Portal>
-        )}
-      </Show>
+      {/* Was a `fixed inset-0 z-50` scrim in a `<Portal>` — see `GuestsEditor`
+          for the containment reason. A top-layer dialog needs neither, and
+          brings the focus trap and Escape this never had.
+
+          `heldWhileClosing` because the body cannot render without a plan, and
+          confirming sets `preview()` null: without it the modal would fade out
+          as an empty box. */}
+      <Modal
+        open={preview() !== null}
+        onClose={() => setPreview(null)}
+        label="Review changes before applying"
+        class="max-h-[85vh] w-full max-w-lg overflow-y-auto"
+      >
+        <Show when={shownPreview()}>
+          {(p) => (
+            <ChangePreview
+              plan={p().plan}
+              warnings={p().warnings}
+              busy={busy()}
+              confirmLabel="Confirm & save"
+              onConfirm={() => void handleApply()}
+              onCancel={() => setPreview(null)}
+            />
+          )}
+        </Show>
+      </Modal>
 
       {/* Sticky unsaved-changes bar (§8) — only while dirty. */}
       <Show when={store.loaded() && store.dirty()}>
@@ -408,7 +412,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         <Portal>
           <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
             <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
-              <span class="font-body text-text-muted text-[0.82rem]">
+              <span class="font-body text-text-muted text-ui-sm">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">
                   <span class="text-error">
                     Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
@@ -451,12 +455,12 @@ export default function EventsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
-              <p class="border-gold/20 bg-gold/5 text-gold-dim page-frame border-t py-2 text-[0.82rem]">
+              <p class="border-gold/20 bg-gold/5 text-gold-dim page-frame text-ui-sm border-t py-2">
                 {store.warnings().join(" ")}
               </p>
             </Show>
             <Show when={saveError()}>
-              <p class="border-error/20 bg-error/5 text-error page-frame border-t py-2 text-[0.82rem]">
+              <p class="border-error/20 bg-error/5 text-error page-frame text-ui-sm border-t py-2">
                 {saveError()}
               </p>
             </Show>
@@ -489,12 +493,14 @@ function EventRowCard(props: {
    *  silently no-opping, so AT reports the boundary instead of the user
    *  pressing into nothing. */
   const moveButton = (delta: -1 | 1) => (
-    <button
+    <Button
+      variant="quiet"
+      size="sm"
       {...props.sortableItem.moveProps(delta)}
-      class="border-border bg-surface font-body text-text-muted hover:text-gold sr-only rounded-sm border px-2 py-1 text-[0.7rem] tracking-[0.1em] uppercase focus:not-sr-only focus:relative focus:z-20"
+      class="bg-surface sr-only focus:not-sr-only focus:relative focus:z-20"
     >
       {props.sortableItem.moveLabel(delta)}
-    </button>
+    </Button>
   );
 
   return (
@@ -523,7 +529,9 @@ function EventRowCard(props: {
           required — without it the browser scrolls instead of handing the
           gesture to the sensor. */}
       <div class="flex items-center">
-        <button
+        <Button
+          variant="bare"
+          size="icon"
           // `dragActivators` FIRST, so the pointer sensor can never clobber the
           // grip's own keyboard handler — later props win in Solid's spread,
           // and `gripProps` is what carries `onKeyDown`, the label and the ref.
@@ -531,10 +539,10 @@ function EventRowCard(props: {
           {...props.sortableItem.gripProps()}
           // `py-2` is not decoration: it brings the handle to the WCAG 2.5.8
           // 24px minimum target, on the row's only re-order affordance.
-          class="text-text-muted hover:text-gold focus-visible:text-gold cursor-grab touch-none px-1 py-2 text-[1.1rem] leading-none active:cursor-grabbing"
+          class="focus-visible:text-gold cursor-grab touch-none leading-none active:cursor-grabbing"
         >
           ⠿
-        </button>
+        </Button>
 
         {/* The arrow-key handler on the grip above is NOT enough on its own:
             NVDA and JAWS run in browse mode by default and consume unmodified
@@ -553,23 +561,23 @@ function EventRowCard(props: {
       </div>
 
       <div class="min-w-0 flex-1">
-        <p class="font-display text-text truncate text-[1.15rem]">
+        <p class="font-display text-text text-ui-md truncate">
           {props.event.name || <span class="text-text-muted not-italic">{UNNAMED_EVENT}</span>}
         </p>
         {/* The stored value is never printed raw: it carries a derived UTC
             offset, and showing that next to the zone named right after it says
             the same fact twice — once in a form the organiser can't edit. */}
-        <p class="font-body text-text-muted truncate text-[0.8rem]">
+        <p class="font-body text-text-muted text-ui-sm truncate">
           <Show when={props.event.startAt} fallback="No start time set">
             {formatEventWhen(props.event.startAt, props.event.endAt, props.event.timezone)}
           </Show>
           {props.event.timezone ? ` · ${props.event.timezone}` : ""}
         </p>
         <Show when={props.hasError}>
-          <p class="text-error text-[0.76rem]">This event has errors — open it to fix them.</p>
+          <p class="text-error text-ui-sm">This event has errors — open it to fix them.</p>
         </Show>
         <Show when={props.event.id === null}>
-          <span class="font-body text-gold/70 border-gold/30 mt-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase">
+          <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest mt-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
             New — saved on apply
           </span>
         </Show>
@@ -590,7 +598,7 @@ function EventRowCard(props: {
 /** The palette group's heading. Not a `Field` label: the group holds a list of
  *  swatch rows rather than one control, so there is nothing for a `for` to point
  *  at. Kept in step with `Field`'s own label by hand. */
-const fieldLabel = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
+const fieldLabel = "font-body text-text-muted text-ui-xs tracking-ui-wider uppercase";
 
 /** The add/edit drawer — a right-hand panel with the full event form. Every
  *  field writes straight through to the draft (no local staging), so undo/
@@ -685,236 +693,234 @@ function EventDrawer(props: {
     });
 
   return (
-    /* Portalled: see the preview modal above — `container-type` on the shell
-       makes it the containing block for `position: fixed` descendants. */
-    <Portal>
-      <div class="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={props.onClose}>
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Edit event"
-          class="bg-bg border-border h-full w-full max-w-md overflow-y-auto border-l p-6 shadow-xl"
-          onClick={(e) => e.stopPropagation()}
+    /* A right-hand drawer rather than a centred sheet, so it overrides the
+       UA's `margin: auto` on a modal dialog: `ml-auto mr-0` pins it to the
+       edge, and a full height with no max keeps it a drawer rather than a card.
+       Everything else it used to hand-roll — the scrim, the `z-50`, the portal
+       past the shell's `container-type`, the dialog ARIA — is the element's. */
+    <Modal
+      open
+      onClose={props.onClose}
+      label="Edit event"
+      class="border-border my-0 mr-0 ml-auto h-full max-h-none w-full max-w-md overflow-y-auto rounded-none border-l p-6"
+    >
+      <div class="mb-6 flex items-center justify-between">
+        <h2 class="font-display text-gold-dim text-ui-lg">Event details</h2>
+        <Button
+          variant="bare"
+          type="button"
+          onClick={props.onClose}
+          aria-label="Close"
+          class="text-ui-lg"
         >
-          <div class="mb-6 flex items-center justify-between">
-            <h2 class="font-display text-gold-dim text-[1.4rem]">Event details</h2>
-            <button
-              type="button"
-              onClick={props.onClose}
-              aria-label="Close"
-              class="text-text-muted hover:text-text text-[1.2rem]"
-            >
-              ✕
-            </button>
-          </div>
+          ✕
+        </Button>
+      </div>
 
-          <Show when={props.errors.length > 0}>
-            <Notice tone="error" alert class="mb-5">
-              <For each={props.errors}>{(msg) => <p>{msg}</p>}</For>
-            </Notice>
-          </Show>
+      <Show when={props.errors.length > 0}>
+        <Notice tone="danger" alert class="mb-5">
+          <For each={props.errors}>{(msg) => <p>{msg}</p>}</For>
+        </Notice>
+      </Show>
 
-          <div class="flex flex-col gap-5">
-            <Field label="Event name">
-              {(field) => (
-                <Input
-                  {...field}
-                  value={props.event.name}
-                  onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
-                />
-              )}
-            </Field>
+      <div class="flex flex-col gap-5">
+        <Field label="Event name">
+          {(field) => (
+            <Input
+              {...field}
+              value={props.event.name}
+              onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
+            />
+          )}
+        </Field>
 
-            {/* Timezone FIRST — it governs both the Start and the End below, and
+        {/* Timezone FIRST — it governs both the Start and the End below, and
                 it is the one field a new event arrives with already answered
                 (the organiser's own zone). The UTC offset each timestamp carries
                 is derived from this, never typed: an offset is a fact about a
                 zone on a particular date, so asking for it separately only
                 created a way for the two to disagree. */}
-            <Field label="Timezone" hint={zoneHint()}>
-              {(field) => (
-                <Select
-                  {...field}
-                  value={props.event.timezone}
-                  onChange={(e) => setTimezone(e.currentTarget.value)}
-                >
-                  <Show when={zoneUnset()}>
-                    <option value="">Select a timezone…</option>
-                  </Show>
-                  <For each={zoneGroups()}>
-                    {(group) => (
-                      <optgroup label={group.label}>
-                        <For each={group.zones}>
-                          {(zone) => <option value={zone}>{zone}</option>}
-                        </For>
-                      </optgroup>
-                    )}
-                  </For>
-                </Select>
-              )}
-            </Field>
+        <Field label="Timezone" hint={zoneHint()}>
+          {(field) => (
+            <Select
+              {...field}
+              value={props.event.timezone}
+              onChange={(e) => setTimezone(e.currentTarget.value)}
+            >
+              <Show when={zoneUnset()}>
+                <option value="">Select a timezone…</option>
+              </Show>
+              <For each={zoneGroups()}>
+                {(group) => (
+                  <optgroup label={group.label}>
+                    <For each={group.zones}>{(zone) => <option value={zone}>{zone}</option>}</For>
+                  </optgroup>
+                )}
+              </For>
+            </Select>
+          )}
+        </Field>
 
-            {/* Start: date + time, in the zone above. */}
-            <Fieldset legend="Start">
-              <DatePicker
-                label="Start date"
-                value={start().date || null}
-                onChange={(v) => setStart("date", v)}
-              />
-              <div class="flex flex-wrap items-end gap-3">
-                {/* The visible label is "Time" — the legend above says which time.
+        {/* Start: date + time, in the zone above. */}
+        <Fieldset legend="Start">
+          <DatePicker
+            label="Start date"
+            value={start().date || null}
+            onChange={(v) => setStart("date", v)}
+          />
+          <div class="flex flex-wrap items-end gap-3">
+            {/* The visible label is "Time" — the legend above says which time.
                     An `aria-label` names it in full anyway: a legend is only
                     reliably announced for a radio group, and "Time" on its own is
                     the same word as the end field's. Keeping the visible text
                     inside the spoken name is what WCAG 2.5.3 asks for. */}
-                <Field label="Time">
-                  {(field) => (
-                    <Input
-                      {...field}
-                      type="time"
-                      value={start().time}
-                      aria-label="Start time"
-                      onInput={(e) => setStart("time", e.currentTarget.value)}
-                    />
-                  )}
-                </Field>
-              </div>
-            </Fieldset>
-
-            {/* End (optional). */}
-            <Fieldset legend="End (optional)">
-              <DatePicker
-                label="End date"
-                value={end().date || null}
-                onChange={(v) => setEnd("date", v)}
-              />
-              <div class="flex flex-wrap items-end gap-3">
-                <Field label="Time">
-                  {(field) => (
-                    <Input
-                      {...field}
-                      type="time"
-                      value={end().time}
-                      aria-label="End time"
-                      onInput={(e) => setEnd("time", e.currentTarget.value)}
-                    />
-                  )}
-                </Field>
-              </div>
-            </Fieldset>
-
-            <Field label="Address">
+            <Field label="Time">
               {(field) => (
                 <Input
                   {...field}
-                  value={props.event.address ?? ""}
-                  onInput={(e) =>
-                    props.onPatch({
-                      address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                    })
-                  }
+                  type="time"
+                  value={start().time}
+                  aria-label="Start time"
+                  onInput={(e) => setStart("time", e.currentTarget.value)}
                 />
               )}
             </Field>
-
-            <Field label="Dress code description">
-              {(field) => (
-                <Textarea
-                  {...field}
-                  value={props.event.dressCodeDescription ?? ""}
-                  rows={2}
-                  onInput={(e) =>
-                    props.onPatch({
-                      dressCodeDescription:
-                        e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                    })
-                  }
-                  // This editor is a module view, and every module view
-                  // renders inside `ModuleShell`'s auto-sized frame, whose
-                  // reflow guard keys on width only. A vertically resizable
-                  // textarea holds its width steady while its height changes,
-                  // so the guard reads that as a content swap — keep textareas
-                  // in an auto-sized panel `resize-none`.
-                  resize="none"
-                />
-              )}
-            </Field>
-
-            {/* Dress-code palette — each swatch a name + a ColorPicker. */}
-            <div class="flex flex-col gap-2">
-              <span class={fieldLabel}>Dress code palette</span>
-              <For each={props.event.dressCodePalette}>
-                {(swatch, i) => (
-                  <div class="flex flex-wrap items-end gap-2">
-                    <Field labelHidden label={`Swatch ${i() + 1} name`} class="flex-1">
-                      {(field) => (
-                        <Input
-                          {...field}
-                          value={swatch.name}
-                          placeholder="Blush"
-                          onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
-                        />
-                      )}
-                    </Field>
-                    <ColorPicker
-                      label={`Swatch ${i() + 1} colour`}
-                      value={swatch.color}
-                      onChange={(c) => updateSwatch(i(), { color: c })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeSwatch(i())}
-                      aria-label={`Remove swatch ${i() + 1}`}
-                      class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-              </For>
-              <Button variant="outline" size="sm" onClick={addSwatch} class="self-start">
-                Add swatch
-              </Button>
-            </div>
-
-            <Field label="Pinterest URL">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="url"
-                  value={props.event.pinterestUrl ?? ""}
-                  placeholder="https://www.pinterest.com/…"
-                  onInput={(e) =>
-                    props.onPatch({
-                      pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                    })
-                  }
-                />
-              )}
-            </Field>
-
-            <Field label="Maps URL">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="url"
-                  value={props.event.mapsUrl ?? ""}
-                  placeholder="https://maps.google.com/…"
-                  onInput={(e) =>
-                    props.onPatch({
-                      mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                    })
-                  }
-                />
-              )}
-            </Field>
-
-            <Button variant="primary" onClick={props.onClose} class="mt-2 self-start">
-              Done
-            </Button>
           </div>
+        </Fieldset>
+
+        {/* End (optional). */}
+        <Fieldset legend="End (optional)">
+          <DatePicker
+            label="End date"
+            value={end().date || null}
+            onChange={(v) => setEnd("date", v)}
+          />
+          <div class="flex flex-wrap items-end gap-3">
+            <Field label="Time">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="time"
+                  value={end().time}
+                  aria-label="End time"
+                  onInput={(e) => setEnd("time", e.currentTarget.value)}
+                />
+              )}
+            </Field>
+          </div>
+        </Fieldset>
+
+        <Field label="Address">
+          {(field) => (
+            <Input
+              {...field}
+              value={props.event.address ?? ""}
+              onInput={(e) =>
+                props.onPatch({
+                  address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                })
+              }
+            />
+          )}
+        </Field>
+
+        <Field label="Dress code description">
+          {(field) => (
+            <Textarea
+              {...field}
+              value={props.event.dressCodeDescription ?? ""}
+              rows={2}
+              onInput={(e) =>
+                props.onPatch({
+                  dressCodeDescription:
+                    e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                })
+              }
+              // This editor is a module view, and every module view
+              // renders inside `ModuleShell`'s auto-sized frame, whose
+              // reflow guard keys on width only. A vertically resizable
+              // textarea holds its width steady while its height changes,
+              // so the guard reads that as a content swap — keep textareas
+              // in an auto-sized panel `resize-none`.
+              resize="none"
+            />
+          )}
+        </Field>
+
+        {/* Dress-code palette — each swatch a name + a ColorPicker. */}
+        <div class="flex flex-col gap-2">
+          <span class={fieldLabel}>Dress code palette</span>
+          <For each={props.event.dressCodePalette}>
+            {(swatch, i) => (
+              <div class="flex flex-wrap items-end gap-2">
+                <Field labelHidden label={`Swatch ${i() + 1} name`} class="flex-1">
+                  {(field) => (
+                    <Input
+                      {...field}
+                      value={swatch.name}
+                      placeholder="Blush"
+                      onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
+                    />
+                  )}
+                </Field>
+                <ColorPicker
+                  label={`Swatch ${i() + 1} colour`}
+                  value={swatch.color}
+                  onChange={(c) => updateSwatch(i(), { color: c })}
+                />
+                <Button
+                  variant="bareDanger"
+                  size="sm"
+                  type="button"
+                  onClick={() => removeSwatch(i())}
+                  aria-label={`Remove swatch ${i() + 1}`}
+                >
+                  Remove
+                </Button>
+              </div>
+            )}
+          </For>
+          <Button variant="outline" size="sm" onClick={addSwatch} class="self-start">
+            Add swatch
+          </Button>
         </div>
+
+        <Field label="Pinterest URL">
+          {(field) => (
+            <Input
+              {...field}
+              type="url"
+              value={props.event.pinterestUrl ?? ""}
+              placeholder="https://www.pinterest.com/…"
+              onInput={(e) =>
+                props.onPatch({
+                  pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                })
+              }
+            />
+          )}
+        </Field>
+
+        <Field label="Maps URL">
+          {(field) => (
+            <Input
+              {...field}
+              type="url"
+              value={props.event.mapsUrl ?? ""}
+              placeholder="https://maps.google.com/…"
+              onInput={(e) =>
+                props.onPatch({
+                  mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                })
+              }
+            />
+          )}
+        </Field>
+
+        <Button variant="primary" onClick={props.onClose} class="mt-2 self-start">
+          Done
+        </Button>
       </div>
-    </Portal>
+    </Modal>
   );
 }

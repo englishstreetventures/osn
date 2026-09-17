@@ -1,4 +1,8 @@
+import Button from "@cire/ui/button";
 import { toast } from "@shared/toast";
+import { Field } from "@shared/ui/ui/field";
+import { Notice } from "@shared/ui/ui/notice";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createSignal, For, Show } from "solid-js";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
@@ -6,10 +10,6 @@ import { haptic } from "../lib/haptics";
 // Shared, memoised formatters — see `lib/money.ts`.
 import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
-import Button from "./ui/Button";
-import Field, { Textarea } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 interface EnquiryThreadProps {
   enquiry: EnquiryListItem;
   messages: EnquiryMessage[];
@@ -54,17 +54,18 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
     <div class="flex flex-col gap-4">
       {/* Back + header */}
       <div class="flex items-center gap-3">
-        <button
+        <Button
+          variant="link"
           type="button"
           onClick={props.onBack}
-          class="text-gold-dim hover:text-gold text-[0.82rem] underline-offset-2 hover:underline"
+
           aria-label="Back"
         >
           ← Back
-        </button>
+        </Button>
         <div class="flex flex-1 flex-wrap items-center gap-2">
-          <span class="text-text text-[0.95rem] font-medium">{props.enquiry.vendorName}</span>
-          <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
+          <span class="text-text text-ui-base font-medium">{props.enquiry.vendorName}</span>
+          <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
             {categoryLabel(props.enquiry.category)}
           </span>
         </div>
@@ -80,10 +81,8 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
       {/* Quote card */}
       <Show when={props.enquiry.quotedMinor != null}>
         <div class="border-border bg-surface/10 flex flex-wrap items-center gap-3 rounded-sm border px-3 py-2">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Quote
-          </span>
-          <span class="text-text flex-1 text-[0.9rem] font-medium">
+          <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">Quote</span>
+          <span class="text-text text-ui-base flex-1 font-medium">
             {fmtMinor(props.enquiry.quotedMinor!, props.currency)}
           </span>
           <Show when={props.canEdit}>
@@ -106,10 +105,10 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
       {/* Message list */}
       <div class="flex flex-col gap-2">
         <Show when={props.loading}>
-          <p class="text-text-muted text-[0.85rem] italic">Loading messages…</p>
+          <p class="text-text-muted text-ui-sm italic">Loading messages…</p>
         </Show>
         <Show when={props.error}>
-          <Notice tone="error" alert>
+          <Notice tone="danger" alert>
             {props.error}
           </Notice>
         </Show>
@@ -119,7 +118,7 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
             return (
               <div
                 data-mine={String(isMine)}
-                class={`max-w-[75%] rounded-sm px-3 py-2 text-[0.88rem] ${
+                class={`text-ui-base max-w-[75%] rounded-sm px-3 py-2 ${
                   isMine ? "bg-gold/20 text-text self-end" : "bg-surface/30 text-text self-start"
                 }`}
               >

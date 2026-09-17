@@ -1,0 +1,61 @@
+/*
+ * The stylesheet the browser tier renders against.
+ *
+ * `@shared/ui` ships no CSS of its own — an app supplies it, along with the token
+ * mapping. That is right for the package and useless for a test, which has no
+ * app: without a real Tailwind build every `base:bg-ui-danger` resolves to
+ * nothing, every colour assertion compares two empty strings, and the suite
+ * goes green having measured an unstyled document.
+ *
+ * So this file stands in for the app, and it maps the contract rather than
+ * leaning on the fallbacks. Two reasons it has to:
+ *
+ * 1. The contract declares **no `:root` block** — the fallbacks live inside
+ *    each `var()` at its use site, deliberately, so a package-level `:root`
+ *    cannot beat an app's mapping. A consequence is that `--ui-*` is not
+ *    readable from `getComputedStyle` until something declares it, so a test
+ *    that wants to compare a painted colour against the token it came from
+ *    needs the token to exist.
+ * 2. Under the neutral fallbacks several roles share a value — an unmapped
+ *    library has no brand, so `accent-ink` and `ink` are the same greyscale.
+ *    Assertions that two roles differ are then untestable, and the ones that
+ *    matter most (tone is not carried by hue alone) are the ones that collapse.
+ *
+ * The palette below is deliberately synthetic and deliberately garish. It is
+ * not a house style and nothing should copy it: every value is chosen to be
+ * distinguishable from its neighbours so a test can tell roles apart, and each
+ * pair clears the contrast floor the contract asks of it so the components can
+ * be asserted without a waiver.
+ */
+@import "tailwindcss";
+@import "@shared/design-tokens/tokens.css";
+
+@source "../../src";
+
+:root {
+  --ui-ground: #ffffff;
+  --ui-ground-deep: #eeeef2;
+  --ui-surface: #f7f7fa;
+  --ui-surface-raised: #ffffff;
+  --ui-surface-sunk: #ececf1;
+
+  --ui-hairline: #dcdce4;
+  --ui-hairline-strong: #7d7d8c;
+
+  --ui-ink: #1a1a22;
+  --ui-ink-secondary: #4a4a58;
+  --ui-ink-tertiary: #6d6d7c;
+
+  --ui-accent: #2f4bd8;
+  --ui-accent-strong: #1f34a8;
+  --ui-accent-soft: #dfe4fb;
+  --ui-accent-ink: #2537a6;
+  --ui-on-accent: #ffffff;
+
+  --ui-success: #1a7a3d;
+  --ui-warn: #8a5a08;
+  --ui-danger: #b3241f;
+  --ui-on-danger: #ffffff;
+
+  --ui-focus: #2f4bd8;
+}

@@ -2,7 +2,7 @@
   "name": "@musubi/social",
   "version": "0.15.0",
   "private": true,
-  "description": "Musubi — identity and social graph app, built on OSN",
+  "description": "Musubi \u2014 identity and social graph app, built on OSN",
   "type": "module",
   "scripts": {
     "dev": "portless",
@@ -10,8 +10,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "test": "bunx --bun vitest",
-    "test:run": "bunx --bun vitest run"
+    "test": "bunx --bun vitest --project unit",
+    "test:run": "bunx --bun vitest run --project unit",
+    "test:browser": "bunx --bun vitest run --project browser"
   },
   "portless": {
     "name": "musubi",
@@ -20,7 +21,9 @@
   "license": "GPL-3.0",
   "dependencies": {
     "@osn/client": "workspace:*",
-    "@osn/ui": "workspace:*",
+    "@osn/auth-ui": "workspace:*",
+    "@shared/ui": "workspace:*",
+    "@shared/design-tokens": "workspace:*",
     "@shared/legal": "workspace:*",
     "@shared/toast": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
@@ -33,8 +36,11 @@
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
+    "@vitest/browser": "4.1.11",
+    "@vitest/browser-playwright": "4.1.11",
     "@vitest/coverage-istanbul": "^4.1.11",
     "happy-dom": "^20.12.2",
+    "playwright": "^1.62.1",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",

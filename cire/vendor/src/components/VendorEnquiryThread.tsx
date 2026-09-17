@@ -1,5 +1,12 @@
+import Button from "@cire/ui/button";
+import Card, { CardEyebrow } from "@cire/ui/card";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import {
@@ -9,12 +16,6 @@ import {
   submitQuote,
 } from "../lib/enquiries-store";
 import { haptic } from "../lib/haptics";
-import Button from "./ui/Button";
-import Card, { CardEyebrow } from "./ui/Card";
-import Field, { Input, Textarea } from "./ui/Field";
-import Loading from "./ui/Loading";
-import Notice from "./ui/Notice";
-
 // AUD formatter — acceptable for v1; wedding currency context not available in vendor app.
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
@@ -118,7 +119,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
       </Show>
 
       <Show when={messages.error}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           Could not load messages. Please refresh.
         </Notice>
       </Show>
@@ -127,7 +128,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
         <Show
           when={(messages()?.length ?? 0) > 0}
           fallback={
-            <p class="font-body text-text-muted text-[0.9rem]">
+            <p class="font-body text-text-muted text-ui-base">
               No messages yet. Your reply will start the thread.
             </p>
           }
@@ -142,7 +143,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                     class={`flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      class={`font-body max-w-[75%] rounded-sm px-4 py-2.5 text-[0.9rem] ${
+                      class={`font-body text-ui-base max-w-[75%] rounded-sm px-4 py-2.5 ${
                         mine
                           ? "bg-brand text-on-brand"
                           : "border-border bg-surface/50 text-text border"
@@ -155,7 +156,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                       {m.body}
                       <time
                         datetime={new Date(m.createdAt).toISOString()}
-                        class="text-text-muted mt-1 block text-[0.68rem]"
+                        class="text-text-muted text-ui-xs mt-1 block"
                       >
                         {new Date(m.createdAt).toLocaleTimeString(undefined, {
                           hour: "2-digit",
@@ -222,7 +223,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
         >
           {(field) => (
             <div class="flex items-center gap-2">
-              <span aria-hidden="true" class="font-body text-text-muted text-[0.95rem]">
+              <span aria-hidden="true" class="font-body text-text-muted text-ui-base">
                 $
               </span>
               <Input

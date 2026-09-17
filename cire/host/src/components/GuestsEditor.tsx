@@ -1,5 +1,11 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { EmptyState } from "@shared/ui/ui/empty-state";
+import { Input } from "@shared/ui/ui/input";
+import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
+import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -27,12 +33,6 @@ import {
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import ChangePreview, { type ChangePlan } from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
-import Button from "./ui/Button";
-import EmptyState from "./ui/EmptyState";
-import { Input } from "./ui/Field";
-import Notice from "./ui/Notice";
-import { Table, Td, Th } from "./ui/Table";
-
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
@@ -61,6 +61,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
+  const shownPreview = heldWhileClosing(preview);
 
   const changesUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
@@ -245,7 +246,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
       />
 
       <Show when={loadError()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {loadError()}
         </Notice>
       </Show>
@@ -290,40 +291,45 @@ export default function GuestsEditor(props: { weddingId: string }) {
 
       {/* Preview modal (the shared ChangePreview) — shown after a successful
           preview, gates the apply. */}
-      <Show when={preview()}>
-        {(p) => (
-          /* Portalled to document.body: the dashboard shell sets `container-type`
-             on its layout boxes, which brings `contain: layout` with it and makes
-             them the containing block for `position: fixed` descendants. */
-          <Portal>
-            <div
-              class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Review changes before applying"
-            >
-              <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
-                <ChangePreview
-                  plan={p().plan}
-                  warnings={p().warnings}
-                  busy={busy()}
-                  confirmLabel="Confirm & save"
-                  onConfirm={() => void handleApply()}
-                  onCancel={() => setPreview(null)}
-                />
-                {/* An apply error has to render HERE as well as in the sticky
-                    bar: the bar sits behind this modal's overlay, so a failed
-                    apply otherwise looked like nothing happened at all. */}
-                <Show when={saveError()}>
-                  <Notice tone="error" alert class="mt-4">
-                    {saveError()}
-                  </Notice>
-                </Show>
-              </div>
-            </div>
-          </Portal>
-        )}
-      </Show>
+      {/* Was a `fixed inset-0 z-50` scrim in a `<Portal>`, portalled because the
+          dashboard shell sets `container-type` on its layout boxes, which brings
+          `contain: layout` and makes them the containing block for
+          `position: fixed` descendants. A top-layer dialog is outside every
+          stacking context, so there is nothing to escape and nothing to portal
+          past — and it brings the focus trap and Escape this never had.
+
+          `heldWhileClosing` because the body cannot render without a plan, and
+          confirming sets `preview()` null: without it the modal would fade out
+          as an empty box. */}
+      <Modal
+        open={preview() !== null}
+        onClose={() => setPreview(null)}
+        label="Review changes before applying"
+        class="max-h-[85vh] w-full max-w-lg overflow-y-auto"
+      >
+        <Show when={shownPreview()}>
+          {(p) => (
+            <>
+              <ChangePreview
+                plan={p().plan}
+                warnings={p().warnings}
+                busy={busy()}
+                confirmLabel="Confirm & save"
+                onConfirm={() => void handleApply()}
+                onCancel={() => setPreview(null)}
+              />
+              {/* An apply error has to render HERE as well as in the sticky
+                  bar: the bar sits behind this dialog, so a failed apply
+                  otherwise looked like nothing happened at all. */}
+              <Show when={saveError()}>
+                <Notice tone="danger" alert class="mt-4">
+                  {saveError()}
+                </Notice>
+              </Show>
+            </>
+          )}
+        </Show>
+      </Modal>
 
       {/* Sticky unsaved-changes bar (§8) — only while dirty. */}
       <Show when={store.loaded() && store.dirty()}>
@@ -333,7 +339,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         <Portal>
           <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
             <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
-              <span class="font-body text-text-muted text-[0.82rem]">
+              <span class="font-body text-text-muted text-ui-sm">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">
                   <span class="text-error">
                     Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
@@ -382,7 +388,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
                 the chrome instead of as something that just failed. */}
             <Show when={saveError()}>
               <div class="page-frame pb-3">
-                <Notice tone="error" alert>
+                <Notice tone="danger" alert>
                   {saveError()}
                 </Notice>
               </div>
@@ -407,7 +413,7 @@ function FamilyCard(props: {
     <div class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <label class="flex flex-1 flex-col gap-1">
-          <span class="font-body text-text-muted text-[0.66rem] tracking-[0.14em] uppercase">
+          <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">
             Household name
           </span>
           <input
@@ -416,20 +422,20 @@ function FamilyCard(props: {
             aria-label="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class="border-border bg-bg font-display text-text focus:border-gold rounded-sm border px-3 py-1.5 text-[1.05rem] outline-none"
+            class="border-border bg-bg font-display text-text focus:border-gold text-ui-md rounded-sm border px-3 py-1.5 outline-none"
           />
         </label>
         <div class="flex items-center gap-3">
           <Show
             when={props.family.publicId}
             fallback={
-              <span class="font-body text-gold/70 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic">
+              <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic">
                 New — code minted on save
               </span>
             }
           >
             <span
-              class="text-text-muted font-mono text-[0.72rem]"
+              class="text-text-muted text-ui-xs font-mono"
               title="This household's claim code — deleting the household disables it."
             >
               {props.family.publicId}
@@ -450,7 +456,7 @@ function FamilyCard(props: {
         </div>
       </div>
 
-      <For each={famErrors()}>{(msg) => <p class="text-error text-[0.78rem]">{msg}</p>}</For>
+      <For each={famErrors()}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
 
       {/* The shared `Table`, which also makes the sideways scroll reachable from
           a keyboard — the bare `overflow-x-auto` div it replaces could only be
@@ -489,7 +495,7 @@ function FamilyCard(props: {
           keeps its claim code) until it is deleted on purpose, so say so rather
           than rendering a bare header row. */}
       <Show when={props.family.guests.length === 0}>
-        <p class="font-body text-text-muted text-[0.8rem]">
+        <p class="font-body text-text-muted text-ui-sm">
           No guests in this household yet — its invite code won’t show anyone.
         </p>
       </Show>
@@ -560,7 +566,7 @@ function GuestRow(props: {
         </Td>
         <For each={props.events}>
           {(evt) => (
-            <Td class="text-center">
+            <Td align="center">
               <input
                 type="checkbox"
                 checked={props.guest.eventKeys.includes(evt.key)}
@@ -571,21 +577,22 @@ function GuestRow(props: {
             </Td>
           )}
         </For>
-        <Td class="text-right">
-          <button
+        <Td align="end">
+          <Button
+            variant="bareDanger"
+            size="sm"
             type="button"
             onClick={() => props.store.removeGuest(props.guest.key)}
             aria-label={`Remove ${props.guest.firstName || "guest"}`}
-            class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase transition-colors"
           >
             Remove
-          </button>
+          </Button>
         </Td>
       </tr>
       <Show when={props.errors.length > 0}>
         <tr>
           <td colspan={3 + props.events.length + 1} class="px-2 pb-2">
-            <For each={props.errors}>{(msg) => <p class="text-error text-[0.76rem]">{msg}</p>}</For>
+            <For each={props.errors}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
           </td>
         </tr>
       </Show>

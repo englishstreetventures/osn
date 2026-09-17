@@ -1,6 +1,7 @@
 import { For } from "solid-js";
 
 import { Icon } from "../components/Icon";
+import { FilterChip } from "./FilterChip";
 
 const CATEGORIES = [
   { id: "all", label: "For you", ico: "\u2726" },
@@ -27,33 +28,21 @@ export function FilterRail(props: {
     <div class="filter-rail mb-3.5 flex items-center gap-2 overflow-x-auto pb-1">
       <For each={CATEGORIES}>
         {(cat) => (
-          <button
-            type="button"
-            class={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors ${
-              props.active === cat.id
-                ? "border-foreground bg-foreground text-background"
-                : "border-border bg-card text-foreground hover:bg-secondary"
-            }`}
-            onClick={() => props.onSelect(cat.id)}
-          >
-            <span class="text-[13px]">{cat.ico}</span>
+          <FilterChip pressed={props.active === cat.id} onPress={() => props.onSelect(cat.id)}>
+            <span class="text-ui-sm">{cat.ico}</span>
             {cat.label}
-          </button>
+          </FilterChip>
         )}
       </For>
       <span class="w-2 shrink-0" />
-      <button
-        type="button"
-        class={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors ${
-          props.moreFiltersActive
-            ? "border-foreground bg-foreground text-background"
-            : "border-border bg-card text-muted-foreground hover:bg-secondary"
-        }`}
-        onClick={() => props.onOpenMoreFilters?.()}
+      <FilterChip
+        pressed={props.moreFiltersActive ?? false}
+        tone="muted"
+        onPress={() => props.onOpenMoreFilters?.()}
       >
         <Icon name="filter" size={12} />
         More filters
-      </button>
+      </FilterChip>
     </div>
   );
 }

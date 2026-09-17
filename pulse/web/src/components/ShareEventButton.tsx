@@ -1,7 +1,13 @@
-import { Button } from "@osn/ui/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@osn/ui/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@osn/ui/ui/popover";
 import { toast } from "@shared/toast";
+import { Button } from "@shared/ui/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@shared/ui/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { createSignal, For, Show } from "solid-js";
 
 import { recordShareInvoked } from "../lib/rsvps";

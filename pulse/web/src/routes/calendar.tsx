@@ -64,7 +64,7 @@ export function CalendarPage() {
             when={(calendar()?.length ?? 0) > 0}
             fallback={
               <div class="text-muted-foreground py-16 text-center">
-                <div class="mb-1.5 text-[26px]" style={{ "font-family": "var(--font-serif)" }}>
+                <div class="text-ui-xl mb-1.5" style={{ "font-family": "var(--font-serif)" }}>
                   Nothing on your calendar yet.
                 </div>
                 <div>RSVP to an event and it'll show up here.</div>

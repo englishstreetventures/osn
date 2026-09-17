@@ -1,5 +1,5 @@
-import { clsx } from "@osn/ui/lib/utils";
-import { DialogContent } from "@osn/ui/ui/dialog";
+import { clsx } from "@shared/ui/lib/utils";
+import { DialogContent } from "@shared/ui/ui/dialog";
 import { splitProps, type ComponentProps, type ParentComponent } from "solid-js";
 
 /**
@@ -7,7 +7,7 @@ import { splitProps, type ComponentProps, type ParentComponent } from "solid-js"
  * bottom sheet: pinned to the bottom edge, full-width, square bottom corners,
  * scrollable within 85dvh so the soft keyboard and small screens never clip a
  * form. At `md+` it renders exactly the shared centered card. Classes only —
- * the `@osn/ui` primitive is untouched (its `base:` zero-specificity variant
+ * the `@shared/ui` primitive is untouched (its `base:` zero-specificity variant
  * lets these call-site classes win).
  */
 export const ResponsiveDialogContent: ParentComponent<ComponentProps<"div">> = (props) => {

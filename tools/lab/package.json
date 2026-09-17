@@ -18,7 +18,9 @@
     "script": "dev:app"
   },
   "dependencies": {
-    "@osn/ui": "workspace:*",
+    "@shared/color": "workspace:*",
+    "@shared/design-tokens": "workspace:*",
+    "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "solid-js": "^1.9.15",
     "tailwindcss": "^4.3.3",

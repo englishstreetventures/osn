@@ -14,7 +14,7 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 export default defineConfig({
   plugins: [tailwindcss(), solid()],
   // Bun installs solid-js into each workspace's own node_modules rather than
-  // hoisting it, so `@osn/ui` resolves a *second* copy of the runtime. Two
+  // hoisting it, so `@shared/ui` resolves a *second* copy of the runtime. Two
   // Solid instances do not share a reactive graph: context reads come back
   // undefined and effects silently never fire. Dedupe pins every import to
   // one copy. Same fix as `tools/lab`.

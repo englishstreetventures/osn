@@ -167,7 +167,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
             href={props.url}
             target="_blank"
             rel="noopener noreferrer"
-            class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg inline-block rounded-sm border px-5 py-2.5 text-[0.78rem] tracking-[0.12em] uppercase transition-colors duration-200"
+            class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
           >
             View moodboard on Pinterest ↗
           </a>
@@ -313,7 +313,7 @@ function PinterestEmbed(props: PinterestBoardProps) {
           this sits above it rather than replacing it. */}
       <Show when={embedLoading()}>
         <div
-          class="font-body text-fg/70 mt-2 flex items-center justify-center gap-2 text-center text-[0.72rem]"
+          class="font-body text-fg/70 text-ui-xs mt-2 flex items-center justify-center gap-2 text-center"
           role="status"
           aria-live="polite"
         >

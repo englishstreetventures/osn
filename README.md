@@ -125,19 +125,21 @@ Multi-format social content: text posts, image posts, long-form writing, short-f
 
 ### Monorepo structure
 
-Organised by domain. Five top-level directories, one workspace prefix each.
+Organised by domain. Six top-level directories, one workspace prefix each.
 
 ```
-osn/              # @osn/* — identity stack
+osn/              # @osn/* — identity stack, the headless system
   api/              # Elysia identity server (:4000; prod Worker id.musubi.social)
+  auth-ui/          # SolidJS views for OSN's ceremonies (<SignIn>, <Register>, <SessionsView>…)
   client/           # Client SDK (Effect-based + SolidJS bindings)
   db/               # Drizzle schema — accounts, profiles, passkeys, sessions, graph, orgs
-  ui/               # Shared SolidJS auth components (<SignIn>, <Register>, <SessionsView>…)
-  social/           # SolidJS app for identity + graph management (:1422)
+
+musubi/           # @musubi/* — our implementation of OSN
+  social/           # SolidJS app for identity + graph management (:1422; prod musubi.social)
   landing/          # Marketing site, Astro + Solid (:4324)
 
 pulse/            # @pulse/* — events stack
-  app/              # SolidJS client (browser SPA)
+  web/              # SolidJS client (browser SPA)
   api/              # Elysia + Eden events server (:3001)
   db/               # Drizzle schema — events, RSVPs
   landing/          # Marketing site (:4325)
@@ -148,16 +150,19 @@ zap/              # @zap/* — messaging stack (M0 scaffolded; client planned)
 
 cire/             # @cire/* — wedding-invite stack
   api/              # Elysia on Cloudflare Workers (:8787; prod api.cireweddings.com)
-  web/              # Guest invite site, Astro + SolidJS (:4321; prod invite.cireweddings.com)
-  organiser/        # Organiser portal (:4322; prod host.cireweddings.com)
-  vendor/           # Vendor portal (:4326)
+  invites/          # Guest invite site, Astro + SolidJS (:4321; prod invite.cireweddings.com)
+  host/             # Organiser portal (:4322; prod host.cireweddings.com)
+  vendor/           # Vendor portal (:4326; prod vendor.cireweddings.com)
   landing/          # Marketing site for the apex (:4323)
   db/               # Drizzle schema + D1 migrations
   theme/            # Zero-dependency theming validators (CSS-colour allowlist)
+  ui/               # cire's house component layer, on top of @shared/ui
+  invite-designs/   # The invite design catalogue
 
 shared/           # @shared/* — cross-cutting utilities
   crypto/            # ARC tokens, recovery-code helpers (Signal Protocol planned)
   db-utils/          # Driver-agnostic Drizzle handle, makeDbLive, makeD1DbLive
+  design-tokens/     # The ui-* token contract every shared component reads
   email/             # EmailService Tag — Resend / Cloudflare / Log / Noop transports
   feature-flags/     # Key-optional, fail-safe flag client (GrowthBook)
   observability/     # OpenTelemetry helpers, Elysia plugin, instrumentedFetch
@@ -166,11 +171,12 @@ shared/           # @shared/* — cross-cutting utilities
   redis/             # Redis wrapper, rate-limiter Lua, JTI / rotated-session stores
   turnstile/         # Key-optional, fail-closed Turnstile verifier
   typescript-config/ # base / node / solid tsconfigs
+  ui/                # The shared SolidJS primitives (Button, Card, Modal, Field, Table…)
 ```
 
-**Prefix rule:** every workspace sits under exactly one of `osn/`, `pulse/`, `zap/`, `cire/` or `shared/`, and its `package.json` `name` uses the matching prefix.
+**Prefix rule:** every workspace sits under exactly one of `osn/`, `musubi/`, `pulse/`, `zap/`, `cire/` or `shared/`, and its `package.json` `name` uses the matching prefix.
 
-Dependencies flow one way: `shared/*` depends on nothing internal; `osn/*` depends on `shared/*`; `pulse/*`, `zap/*` and `cire/*` may depend on `osn/*` and `shared/*` but never on each other. Cross-domain reads go through a bridge module — Pulse reaches the social graph through `graphBridge`, Cire through ARC-gated internal endpoints.
+Dependencies flow one way: `shared/*` depends on nothing internal; `osn/*` depends on `shared/*`; `musubi/*`, `pulse/*`, `zap/*` and `cire/*` may depend on `osn/*` and `shared/*` but never on each other. Cross-domain reads go through a bridge module — Pulse reaches the social graph through `graphBridge`, Cire through ARC-gated internal endpoints.
 
 ### Backend
 
@@ -200,7 +206,7 @@ Four environments, two drivers, one Drizzle type:
 - **Standalone apps first**, working toward a hybrid super-app
 - **iOS first**, then web, then Android (Android deferred)
 - **SolidJS** everywhere; **Astro + Solid** for the web surfaces and marketing sites
-- Shared components in `@osn/ui`, built on Kobalte in the Zaidan (shadcn-for-Solid) style
+- Components in three layers, all built on Kobalte in the Zaidan (shadcn-for-Solid) style: `@shared/ui` primitives, `@osn/auth-ui` ceremony views, `@cire/ui` for cire's house style
 
 ### Messaging architecture
 

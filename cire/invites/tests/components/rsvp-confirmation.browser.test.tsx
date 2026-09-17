@@ -137,7 +137,7 @@ function scaleX(el: HTMLElement): number {
 }
 
 function sheet(): HTMLElement | null {
-  return document.querySelector('[role="dialog"]');
+  return document.querySelector("dialog");
 }
 
 function fieldsetFor(name: string): HTMLElement {

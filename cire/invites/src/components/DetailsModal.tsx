@@ -25,7 +25,7 @@ interface DetailsModalProps {
 function Section(props: { label: string; children: JSX.Element }) {
   return (
     <section class="border-border/80 border-t pt-6">
-      <h4 class="font-body text-gold-ink mb-3 text-[0.68rem] font-normal tracking-[0.22em] uppercase">
+      <h4 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
         {props.label}
       </h4>
       {props.children}
@@ -52,12 +52,10 @@ export function DetailsModal(props: DetailsModalProps) {
   return (
     <AnimatedModal onClose={props.onClose} labelledBy={titleId} themeVars={props.themeVars}>
       <header class="mb-7">
-        <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
-          Details
-        </p>
+        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">Details</p>
         <h3
           id={titleId}
-          class="font-display text-text mb-5 text-[1.7rem] leading-tight font-light italic"
+          class="font-display text-text text-ui-xl mb-5 leading-tight font-light italic"
         >
           {props.event.name}
         </h3>
@@ -67,9 +65,9 @@ export function DetailsModal(props: DetailsModalProps) {
       <div class="flex flex-col gap-6">
         <Show when={day()}>
           <Section label="When">
-            <p class="font-body text-text text-[0.98rem] font-light">{day()}</p>
+            <p class="font-body text-text text-ui-md font-light">{day()}</p>
             <Show when={timeRange()}>
-              <p class="font-body text-text-muted mt-1 text-[0.9rem]">
+              <p class="font-body text-text-muted text-ui-base mt-1">
                 {timeRange()}
                 <Show when={tz()}>
                   <span class="text-text-muted/80"> · {tz()}</span>
@@ -86,7 +84,7 @@ export function DetailsModal(props: DetailsModalProps) {
         <Show when={props.event.description}>
           {(description) => (
             <Section label="About">
-              <p class="font-body text-text-muted text-[0.92rem] leading-[1.7] font-light whitespace-pre-line">
+              <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light whitespace-pre-line">
                 {description()}
               </p>
             </Section>
@@ -97,7 +95,7 @@ export function DetailsModal(props: DetailsModalProps) {
           <Section label="Dress Code">
             <Show when={props.event.dressCodeDescription}>
               {(desc) => (
-                <p class="font-body text-text-muted mb-5 text-[0.92rem] leading-[1.65] font-light">
+                <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
                   {desc()}
                 </p>
               )}
@@ -115,7 +113,7 @@ export function DetailsModal(props: DetailsModalProps) {
                             style={{ "background-color": swatch.color }}
                             aria-label={`${truncateSwatchName(swatch.name)} swatch`}
                           />
-                          <span class="font-body text-text-muted text-[0.72rem] tracking-[0.08em] uppercase">
+                          <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
                             {truncateSwatchName(swatch.name)}
                           </span>
                         </div>

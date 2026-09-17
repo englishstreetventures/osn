@@ -298,7 +298,7 @@ function TimeScrubber(props: {
         "box-shadow": "var(--shadow-sm)",
       }}
     >
-      <div class="mb-2.5 flex items-center justify-between text-[11.5px]">
+      <div class="text-ui-xs mb-2.5 flex items-center justify-between">
         <span
           class="text-muted-foreground tracking-wider uppercase"
           style={{ "font-family": "var(--font-mono)", "font-size": "11px" }}
@@ -314,7 +314,7 @@ function TimeScrubber(props: {
         >
           {displayHour()}{" "}
           <span
-            class="text-muted-foreground text-[12px] italic"
+            class="text-muted-foreground text-ui-sm italic"
             style={{ "font-family": "var(--font-sans)" }}
           >
             · {label()}
@@ -334,7 +334,7 @@ function TimeScrubber(props: {
         }}
       />
       <div
-        class="text-muted-foreground mt-1.5 flex justify-between text-[9.5px] tracking-wider uppercase"
+        class="text-muted-foreground text-ui-xs mt-1.5 flex justify-between tracking-wider uppercase"
         style={{ "font-family": "var(--font-mono)" }}
       >
         <span>12AM</span>
@@ -357,12 +357,12 @@ function Legend() {
         "box-shadow": "var(--shadow-sm)",
       }}
     >
-      <div class="text-muted-foreground mb-1.5 text-[10.5px] font-semibold tracking-widest uppercase">
+      <div class="text-muted-foreground text-ui-xs mb-1.5 font-semibold tracking-widest uppercase">
         Heat · people here
       </div>
       <div class="legend-bar" />
       <div
-        class="text-muted-foreground mt-[3px] flex justify-between text-[9.5px] tracking-wider"
+        class="text-muted-foreground text-ui-xs mt-[3px] flex justify-between tracking-wider"
         style={{ "font-family": "var(--font-mono)" }}
       >
         <span>quiet</span>
@@ -558,7 +558,7 @@ export function ExploreMap(props: {
                 onMouseLeave={() => setHoveredVenue(null)}
               >
                 <span
-                  class="border-foreground/70 bg-card text-foreground flex size-5 items-center justify-center rounded-[6px] border text-[10px] shadow-sm"
+                  class="border-foreground/70 bg-card text-foreground text-ui-xs flex size-5 items-center justify-center rounded-[6px] border shadow-sm"
                   style={{ "font-family": "var(--font-mono)" }}
                 >
                   ◇
@@ -583,7 +583,7 @@ export function ExploreMap(props: {
           >
             <div class="font-semibold">{pin().venue.name}</div>
             <div
-              class="text-muted-foreground mt-0.5 text-[10.5px] tracking-wider uppercase"
+              class="text-muted-foreground text-ui-xs mt-0.5 tracking-wider uppercase"
               style={{ "font-family": "var(--font-mono)" }}
             >
               {pin().venue.kind}
@@ -627,7 +627,7 @@ export function ExploreMap(props: {
                     : pin().event.title}
                 </div>
                 <div
-                  class="text-muted-foreground mt-0.5 text-[10.5px]"
+                  class="text-muted-foreground text-ui-xs mt-0.5"
                   style={{ "font-family": "var(--font-mono)" }}
                 >
                   {pin().event.venue ?? ""} · {fmtTime(new Date(pin().event.startTime))}
@@ -637,7 +637,7 @@ export function ExploreMap(props: {
                 {(v) => (
                   <A
                     href={`/venues/${v().orgHandle}/${v().handle}`}
-                    class="border-border text-foreground hover:bg-muted inline-flex items-center justify-between gap-1 rounded-md border px-2 py-1 text-[11px] font-medium"
+                    class="border-border text-foreground hover:bg-muted text-ui-xs inline-flex items-center justify-between gap-1 rounded-md border px-2 py-1 font-medium"
                   >
                     See venue
                     <span aria-hidden="true">→</span>

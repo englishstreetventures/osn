@@ -37,7 +37,7 @@ export interface Registry {
 }
 
 /**
- * `../../../../osn/ui/src/components/ui/button.story.tsx` → `osn/ui/components/ui/button`
+ * `../../../../shared/ui/src/ui/button.story.tsx` → `shared/ui/ui/button`
  * `../stories/three-cube.story.tsx`                       → `lab/three-cube`
  *
  * The `/src/` segment carries no information a reader of the sidebar wants,

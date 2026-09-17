@@ -13,7 +13,7 @@ packages:
   - "@shared/turnstile"
   - "@osn/api"
   - "@musubi/social"
-  - "@osn/ui"
+  - "@osn/auth-ui"
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
@@ -46,7 +46,7 @@ key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
 ever appears. Removed in the RSVP-friction fix (2026-06-19).
 
 Frontends: cire/invites guest claim form, and **`@musubi/social`'s SignIn + Register**
-(via `@osn/ui`) — the sidebar auth dialogs and the `/authorize` consent screen's
+(via `@osn/auth-ui`) — the sidebar auth dialogs and the `/authorize` consent screen's
 sign-in island. Since the 2026-07-27 OIDC swap, `musubi.social` is the **only**
 origin that runs the OSN ceremonies (the RP ID lives on the apex and cire signs
 in by redirect), so it is the only frontend that must carry the osn-api sitekey.
@@ -105,12 +105,12 @@ domains cover `invite.cireweddings.com` (guest), `host.cireweddings.com`
 > dashboard → Turnstile → widget). If `host.cireweddings.com` is missing, the
 > organiser widget fires `error-callback` (Cloudflare error `110200`), never
 > calls back with a token, and the gated form's submit stays disabled — the
-> `@osn/ui` widget surfaces this as "Couldn't load the verification challenge",
+> `@osn/auth-ui` widget surfaces this as "Couldn't load the verification challenge",
 > not a silent hang. The list is a **dashboard step** — the wrangler API token
 > has no `challenge-widgets.write` scope, so it cannot be edited from CI.
 >
 > Only hostnames that **render a form** belong here. `musubi.social` does
-> (the `@osn/ui` register + login islands); `id.musubi.social` does not — osn-api
+> (the `@osn/auth-ui` register + login islands); `id.musubi.social` does not — osn-api
 > serves JSON, and the server half siteverifies against Cloudflare rather than
 > against the domain list. `musubi.social` was added on 2026-07-27.
 
@@ -123,7 +123,7 @@ it. So a frontend that re-submits a form (a retried sign-in, a "resend code")
 **must reset the widget** to mint a fresh token — otherwise it replays the
 redeemed token and the server fail-closes it.
 
-`@osn/ui`'s `TurnstileWidget` exposes this via `onReady({ reset })`: `reset()`
+`@osn/auth-ui`'s `TurnstileWidget` exposes this via `onReady({ reset })`: `reset()`
 drops the stale token (`onToken(null)`) and calls Cloudflare's `turnstile.reset()`
 on the live widget instance (no re-render, no new iframe), and the fresh token
 arrives on the existing `onToken` callback. `SignIn` and `Register` call it

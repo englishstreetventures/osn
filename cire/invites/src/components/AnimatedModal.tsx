@@ -1,6 +1,6 @@
-import { onCleanup, onMount, type JSX } from "solid-js";
+import { Modal } from "@shared/ui/ui/modal";
+import { createSignal, onCleanup, onMount, type JSX } from "solid-js";
 
-import { Z_CLASS } from "../lib/z-index";
 import { filterThemeVars } from "./invite-theme";
 
 interface AnimatedModalProps {
@@ -35,195 +35,121 @@ interface AnimatedModalProps {
   children: JSX.Element;
 }
 
-/** Selector for the tab-order-relevant focusable descendants of the panel. */
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/** Snap the backdrop + panel straight to their final visible state, no animation. */
-function showInstantly(backdrop: HTMLElement, panel: HTMLElement) {
-  backdrop.style.opacity = "1";
-  panel.style.opacity = "1";
-  panel.style.transform = "none";
-}
-
+/**
+ * The guest site's bottom-sheet modal: the invite's own theming and chrome
+ * around `@shared/ui`'s {@link Modal}.
+ *
+ * ## What the platform owns
+ *
+ * Everything an overlay usually hand-rolls. `showModal()` supplies the top
+ * layer, the focus trap, Escape, the backdrop and the focus restore, and
+ * `Modal` supplies the entry and exit choreography as CSS — so there is no
+ * animation chunk to import and nothing here to prefetch.
+ *
+ * ## What is this component's
+ *
+ * Four things the platform does not do, each the reason a line below exists.
+ *
+ * The **theme variables**, which have to be re-declared on the panel because it
+ * paints outside the themed section wrapper it belongs to, and are filtered
+ * through the allow-list so the prop cannot become a style sink.
+ *
+ * The **body scroll lock**. A modal dialog makes the page behind it inert — it
+ * cannot be clicked or tabbed into — but inert is not unscrollable, and a sheet
+ * that slides while the invite scrolls behind it reads as broken.
+ *
+ * The **frame/scrollport split**. The close button is a sibling of the scroller
+ * rather than a child, so it cannot leave the viewport on a sheet tall enough
+ * to scroll; that is what {@link Modal}'s `frame` exists for.
+ *
+ * And the **initial focus**, which goes to the scrollport rather than to the
+ * close button. Left alone, `showModal()` focuses the first focusable thing,
+ * which is the button — a sibling of the scrollport, so the keyboard is left
+ * with nothing to scroll: its nearest scrollable ancestor is the frame, then a
+ * `<body>` this component has deliberately locked. Measured with focus on the
+ * button, Arrow and PageDown moved a scrollable sheet 0px; with focus on the
+ * scrollport, ArrowDown 0→40px and PageDown 40→594px. `autofocus` on the
+ * scrollport is how that is said to the platform — the dialog's own focusing
+ * steps prefer it over the first tabbable descendant, so there is no imperative
+ * `focus()` racing `showModal()` for the same frame.
+ */
 export function AnimatedModal(props: AnimatedModalProps) {
-  let backdropRef!: HTMLDivElement;
-  let panelRef!: HTMLDivElement;
-  let closeButtonRef: HTMLButtonElement | undefined;
-  let scrollRef: HTMLDivElement | undefined;
+  /**
+   * The dialog's own open state, separate from whether this component is
+   * mounted.
+   *
+   * Every consumer mounts this inside a `<Show>` and closes it by clearing the
+   * signal that `<Show>` reads, so the component is unmounted the moment the
+   * caller hears about a close. `Modal` needs the element to stay in the
+   * document while its exit runs, and this is what buys that time: the close
+   * button flips this to false, `Modal` plays the exit and fires `onClose` when
+   * it has finished, and only then does the caller unmount us. A close the
+   * platform performs — Escape, a backdrop click — arrives the same way,
+   * without the exit, because the element is already gone from the top layer by
+   * the time anything hears about it.
+   */
+  const [open, setOpen] = createSignal(true);
 
-  // The element that had focus when the modal opened, so we can restore it on
-  // close (mirrors AddToCalendar's popover focus-return pattern).
-  let previouslyFocused: HTMLElement | null = null;
-
-  function focusableElements(): HTMLElement[] {
-    if (!panelRef) return [];
-    return Array.from(panelRef.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-  }
-
-  // Trap Tab / Shift+Tab inside the panel and close on Escape.
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      void handleClose();
-      return;
-    }
-    if (e.key !== "Tab") return;
-
-    const focusables = focusableElements();
-    if (focusables.length === 0) {
-      // Nothing focusable but the panel itself — keep focus on the panel.
-      e.preventDefault();
-      panelRef?.focus();
-      return;
-    }
-
-    const first = focusables[0]!;
-    const last = focusables[focusables.length - 1]!;
-    const active = document.activeElement as HTMLElement | null;
-
-    if (e.shiftKey) {
-      if (active === first || !panelRef?.contains(active)) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else if (active === last || !panelRef?.contains(active)) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  onMount(async () => {
-    previouslyFocused = document.activeElement as HTMLElement | null;
-
-    // Lock background scroll while the modal is open; restore on cleanup.
+  onMount(() => {
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     onCleanup(() => {
       document.body.style.overflow = previousBodyOverflow;
     });
-
-    document.addEventListener("keydown", onKeyDown);
-    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
-
-    // Move focus to the SCROLL CONTAINER, not the close button. The button is
-    // a sibling of the scrollport, so focusing it leaves the keyboard with
-    // nothing to scroll — its nearest scrollable ancestor is the
-    // `overflow-hidden` frame, then a `<body>` this component has deliberately
-    // locked. Measured before this line changed: Arrow and PageDown moved a
-    // scrollable sheet 0px. Focusing the scrollport itself restores that, and
-    // lands a screen-reader user on the content with the dialog's own name
-    // already announced from the panel. The close button stays first in DOM,
-    // so it is still the first stop when tabbing round.
-    (scrollRef ?? closeButtonRef ?? panelRef)?.focus();
-
-    if (prefersReducedMotion()) {
-      // Reduced motion: skip the imperative animation but still land on the
-      // final *visible* state — the panel ships opacity-0, so merely not
-      // animating would leave the content invisible.
-      showInstantly(backdropRef, panelRef);
-      return;
-    }
-
-    const { modalEnter } = await import("./Modal.motion");
-    modalEnter(backdropRef, panelRef);
   });
 
-  // Restore focus to whatever triggered the modal once it has closed.
-  onCleanup(() => previouslyFocused?.focus());
-
-  async function handleClose() {
-    if (!prefersReducedMotion()) {
-      const { modalExit } = await import("./Modal.motion");
-      await modalExit(backdropRef, panelRef);
-    }
-    props.onClose();
-  }
-
   return (
-    <div
-      ref={backdropRef}
-      // Stacking order is centralised in `lib/z-index` — `Z_CLASS.MODAL` (z-100)
-      // is the backdrop/panel layer. A modal-launched popover (AddToCalendar)
-      // must paint above this; that invariant lives in `lib/z-index` + its test.
-      class={`fixed inset-0 ${Z_CLASS.MODAL} flex items-end justify-center bg-black/70 opacity-0 md:items-center`}
-      onClick={() => handleClose()}
+    <Modal
+      open={open()}
+      onClose={() => {
+        setOpen(false);
+        props.onClose();
+      }}
+      label={props.label}
+      labelledBy={props.labelledBy}
+      frame
+      style={filterThemeVars(props.themeVars)}
+      // Plain utilities, not `base:`-prefixed ones, for everything that
+      // overrides a `Modal` default. `base:` compiles to `:where(&)`, which has
+      // zero specificity by design — so a `base:` class here would tie with the
+      // component's own and be resolved by Tailwind's stylesheet order rather
+      // than by this file. A plain utility simply wins.
+      class="border-border bg-surface mt-auto mb-0 max-h-[85dvh] max-w-[480px] rounded-t-[1.75rem] rounded-b-none md:m-auto md:mb-8 md:max-h-[85vh] md:rounded-lg"
     >
-      {/* The panel is a NON-scrolling frame; the scroller is the div below it.
-          Keeping the close button out of the scroll container is what stops it
-          leaving the viewport on a sheet tall enough to scroll — as an
-          `absolute` child of the scroller it used to scroll away with the
-          content, leaving Escape or a backdrop tap as the only way out. It also
-          gives a sticky footer inside the scroller a containing block that is
-          the scrollport itself. */}
-      <div
-        ref={panelRef}
-        class="border-border bg-surface relative flex max-h-[85dvh] w-full max-w-[480px] flex-col overflow-hidden rounded-t-[1.75rem] border opacity-0 md:mb-8 md:max-h-[85vh] md:rounded-lg"
-        style={filterThemeVars(props.themeVars)}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={props.labelledBy}
-        aria-label={props.labelledBy ? undefined : props.label}
-        tabindex="-1"
+      {/* No z-index: a positioned box already paints over its non-positioned
+          in-flow siblings, so this stays above the scroller without adding a
+          magic number. `bg-surface` (not transparent) because content passes
+          UNDERNEATH the button as it scrolls, and an opaque chip is what keeps
+          a guest's name from colliding with the glyph. */}
+      <button
+        class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface absolute top-2 right-2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+        onClick={() => setOpen(false)}
+        aria-label="Close"
       >
-        {/* No z-index: a positioned box already paints over its non-positioned
-            in-flow siblings, so this stays above the scroller without adding a
-            magic number outside `lib/z-index`. `bg-surface` (not transparent)
-            because content now passes UNDERNEATH the button as it scrolls, and
-            an opaque chip is what keeps a guest's name from colliding with the
-            glyph. */}
-        <button
-          ref={closeButtonRef}
-          class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface absolute top-2 right-2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
-          onClick={() => handleClose()}
-          aria-label="Close"
-        >
-          &times;
-        </button>
-        {/* `min-h-0` so this flex item may shrink below its content height —
-            without it the panel's `max-h` cannot take effect and nothing
-            scrolls.
+        &times;
+      </button>
+      {/* `min-h-0` so this flex item may shrink below its content height —
+          without it the panel's `max-h` cannot take effect and nothing
+          scrolls.
 
-            `tabindex="0"` makes the scrollport itself focusable, which is what
-            gives it a keyboard. Initial focus lands on the close button, and
-            that button is now a SIBLING of this box rather than a descendant —
-            so without a tab stop here the nearest scrollable ancestor of the
-            focused element is the `overflow-hidden` frame, then a `<body>` we
-            have deliberately locked, and Arrow/PageDown scroll nothing at all
-            until the guest tabs into the content. (Measured: they scrolled 0px.)
-            `[tabindex]:not([tabindex="-1"])` is already in FOCUSABLE_SELECTOR,
-            so this joins the focus trap cleanly.
+          `tabindex="0"` makes the scrollport itself focusable, which is what
+          gives it a keyboard; `autofocus` is what makes `showModal()` land
+          there rather than on the close button. See the component doc.
 
-            `scroll-pt-14` (56px) keeps focus-driven scrolling clear of the
-            close button's 52px-tall footprint: tabbing BACKWARDS scrolls a
-            target to the top of the scrollport, which is exactly where the chip
-            sits. */}
-        <div
-          ref={scrollRef}
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
-          tabindex="0"
-          class={`min-h-0 scroll-pt-14 overflow-y-auto overscroll-contain px-6 pt-8 ${
-            props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"
-          }`}
-        >
-          {props.children}
-        </div>
+          `scroll-pt-14` (56px) keeps focus-driven scrolling clear of the
+          close button's 52px-tall footprint: tabbing BACKWARDS scrolls a
+          target to the top of the scrollport, which is exactly where the chip
+          sits. */}
+      <div
+        autofocus
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
+        tabindex="0"
+        class={`min-h-0 scroll-pt-14 overflow-y-auto overscroll-contain px-6 pt-8 ${
+          props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"
+        }`}
+      >
+        {props.children}
       </div>
-    </div>
+    </Modal>
   );
 }

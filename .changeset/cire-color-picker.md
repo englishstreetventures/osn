@@ -24,5 +24,5 @@ emits a `#rrggbb` string (or `null`), so the live `ThemePreview` and the
 organiser theme tokens; keyboard-navigable via Kobalte's popover focus handling.
 
 Adds `@kobalte/core` as a direct `@cire/host` dependency (already a
-transitive dep via `@osn/ui`); `@internationalized/color` is not needed —
+transitive dep via `@shared/ui`); `@internationalized/color` is not needed —
 Kobalte bundles `parseColor`/`Color` under `@kobalte/core/colors`.

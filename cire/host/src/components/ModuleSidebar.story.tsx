@@ -1,8 +1,6 @@
 import { createSignal, type JSX } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
-
-import "../styles/global.css";
 import ModuleSidebar from "./ModuleSidebar";
 
 /**
@@ -28,10 +26,16 @@ import ModuleSidebar from "./ModuleSidebar";
  * `text-text-muted` here while differing in the app. Judge the fade in the
  * portal, at `https://<branch>.host.cire.localhost`.
  *
- * The portal's stylesheet is imported anyway, for the shapes and spacing that
- * do come through. It carries the portal's `:root`, so it re-themes the chrome
- * around the story — open a story with **open** (`?bare`) for the view without
- * it.
+ * **The portal's stylesheet is deliberately NOT imported here.** A story file
+ * must not import a stylesheet that declares a global `:root`, because the lab
+ * imports every story module to build its sidebar — so such a block lands on
+ * the page whatever story is open, and the last one loaded re-themes the whole
+ * lab rather than this one bench. `cire/host`'s ramp maps the `--ui-*` contract
+ * onto the portal's colours, so importing it here left every other story
+ * rendering `@shared/ui` in cire's light palette, deaf to the light · dark
+ * toggle. What this bench gives up by not importing it is the portal's shapes
+ * and spacing; what it keeps is layout, placement, timing and interaction,
+ * which is what it exists for.
  *
  * See `wiki/conventions/component-lab.md` and `wiki/systems/cire-entitlements.md`.
  */
@@ -69,9 +73,7 @@ function Shell(props: { width: string; wide?: boolean; children: JSX.Element }) 
  *  having to find this file. */
 function Guidance(props: { children: JSX.Element }) {
   return (
-    <p class="font-body text-text-muted max-w-prose text-[0.8rem] leading-relaxed">
-      {props.children}
-    </p>
+    <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">{props.children}</p>
   );
 }
 
@@ -117,7 +119,7 @@ export const Rail = {
             entitlements={entitlementsFrom(args)}
             onSelect={setActive}
           />
-          <div class="border-border text-text-muted font-body flex min-h-64 flex-1 items-center justify-center rounded-sm border border-dashed text-[0.8rem] tracking-[0.08em] uppercase">
+          <div class="border-border text-text-muted font-body text-ui-sm tracking-ui-wider flex min-h-64 flex-1 items-center justify-center rounded-sm border border-dashed uppercase">
             {active()}
           </div>
         </Shell>

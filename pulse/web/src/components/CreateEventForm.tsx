@@ -1,12 +1,12 @@
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
-import { Checkbox } from "@osn/ui/ui/checkbox";
-import { InfoPopover } from "@osn/ui/ui/info-popover";
-import { Input } from "@osn/ui/ui/input";
-import { Label } from "@osn/ui/ui/label";
-import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
-import { Textarea } from "@osn/ui/ui/textarea";
 import { toast } from "@shared/toast";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { InfoPopover } from "@shared/ui/ui/info-popover";
+import { Input } from "@shared/ui/ui/input";
+import { Label } from "@shared/ui/ui/label";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createSignal, createMemo, For, Show } from "solid-js";
 
 import { api } from "../lib/api";
@@ -126,7 +126,7 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
   }
 
   return (
-    <Card class="mb-4 p-4">
+    <Card padding="sm" class="mb-4">
       <form onSubmit={handleSubmit} class="flex flex-col gap-4">
         {/* Title */}
         <div class="flex flex-col gap-1">

@@ -26,7 +26,7 @@
  * toasts with no extra wiring at all.
  */
 
-.osn-toaster {
+.ui-toaster {
   position: fixed;
   display: flex;
   flex-direction: column;
@@ -43,49 +43,76 @@
    */
   pointer-events: none;
   max-width: min(100vw, 26rem);
+
+  /*
+   * Undo the user-agent styles a `popover` element carries, for the top-layer
+   * form (`topLayer` on `Toaster`). The UA sheet gives every popover
+   * `inset: 0; margin: auto; border: solid; background: canvas;
+   * color: canvastext; overflow: auto` — which would stretch this container
+   * across the viewport and paint a bordered white box behind toasts that each
+   * bring their own surface. Declared here rather than in a `[popover]` rule so
+   * the position modifiers below, at the same specificity and later in source,
+   * still win for the one or two insets they set.
+   */
+  inset: auto;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  overflow: visible;
 }
 
-.osn-toaster--top-left {
+/*
+ * A popover that is not open is `display: none` in the UA sheet — but
+ * `.ui-toaster` sets `display: flex`, and an author rule beats the UA one. So
+ * the hidden state has to be restated, or an empty container would be laid out
+ * (and outside the top layer) between toasts.
+ */
+.ui-toaster[popover]:not(:popover-open) {
+  display: none;
+}
+
+.ui-toaster--top-left {
   top: 0;
   left: 0;
   align-items: flex-start;
 }
-.osn-toaster--top-center {
+.ui-toaster--top-center {
   top: 0;
   left: 50%;
   transform: translateX(-50%);
   align-items: center;
 }
-.osn-toaster--top-right {
+.ui-toaster--top-right {
   top: 0;
   right: 0;
   align-items: flex-end;
 }
-.osn-toaster--bottom-left {
+.ui-toaster--bottom-left {
   bottom: 0;
   left: 0;
   align-items: flex-start;
 }
-.osn-toaster--bottom-center {
+.ui-toaster--bottom-center {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
   align-items: center;
 }
-.osn-toaster--bottom-right {
+.ui-toaster--bottom-right {
   bottom: 0;
   right: 0;
   align-items: flex-end;
 }
 
 /* Newest nearest the edge the stack grows from. */
-.osn-toaster--bottom-left,
-.osn-toaster--bottom-center,
-.osn-toaster--bottom-right {
+.ui-toaster--bottom-left,
+.ui-toaster--bottom-center,
+.ui-toaster--bottom-right {
   flex-direction: column-reverse;
 }
 
-.osn-toast {
+.ui-toast {
   pointer-events: auto;
   display: flex;
   align-items: flex-start;
@@ -101,18 +128,18 @@
   font-family: var(--toast-font, inherit);
   font-size: var(--toast-font-size, 0.85rem);
   line-height: 1.45;
-  animation: osn-toast-in var(--toast-enter-duration, 160ms) ease-out both;
+  animation: ui-toast-in var(--toast-enter-duration, 160ms) ease-out both;
 }
 
-.osn-toast--leaving {
-  animation: osn-toast-out var(--toast-exit-duration, 160ms) ease-in both;
+.ui-toast--leaving {
+  animation: ui-toast-out var(--toast-exit-duration, 160ms) ease-in both;
 }
 
 /*
  * The glyph is the tone's SHAPE, and the accent is its colour. Both carry the
  * tone, so neither alone has to.
  */
-.osn-toast__glyph {
+.ui-toast__glyph {
   flex: none;
   width: 0.9rem;
   text-align: center;
@@ -121,33 +148,33 @@
   user-select: none;
 }
 
-.osn-toast--success {
+.ui-toast--success {
   --toast-accent: var(--toast-accent-success, #1a7f4b);
 }
-.osn-toast--error {
+.ui-toast--error {
   --toast-accent: var(--toast-accent-error, #b3261e);
 }
-.osn-toast--warning {
+.ui-toast--warning {
   --toast-accent: var(--toast-accent-warn, #8a5a00);
 }
-.osn-toast--info {
+.ui-toast--info {
   --toast-accent: var(--toast-accent-info, currentColor);
 }
-.osn-toast--loading {
+.ui-toast--loading {
   --toast-accent: var(--toast-accent-info, currentColor);
 }
 
-.osn-toast--loading .osn-toast__glyph {
-  animation: osn-toast-spin 900ms linear infinite;
+.ui-toast--loading .ui-toast__glyph {
+  animation: ui-toast-spin 900ms linear infinite;
 }
 
-.osn-toast__message {
+.ui-toast__message {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.osn-toast__action,
-.osn-toast__close {
+.ui-toast__action,
+.ui-toast__close {
   flex: none;
   cursor: pointer;
   background: none;
@@ -156,7 +183,7 @@
   font: inherit;
 }
 
-.osn-toast__action {
+.ui-toast__action {
   align-self: center;
   margin-left: 0.25rem;
   padding: 0.25rem 0.5rem;
@@ -172,7 +199,7 @@
  * `padding` here is not decoration: it brings the close button to the WCAG
  * 2.5.8 24px minimum target on a glyph this small.
  */
-.osn-toast__close {
+.ui-toast__close {
   align-self: flex-start;
   margin: -0.25rem -0.25rem -0.25rem 0.25rem;
   padding: 0.375rem;
@@ -180,19 +207,19 @@
   opacity: 0.65;
 }
 
-.osn-toast__close:hover,
-.osn-toast__close:focus-visible {
+.ui-toast__close:hover,
+.ui-toast__close:focus-visible {
   opacity: 1;
 }
 
-.osn-toast__action:focus-visible,
-.osn-toast__close:focus-visible {
+.ui-toast__action:focus-visible,
+.ui-toast__close:focus-visible {
   outline: 2px solid var(--toast-focus, var(--toast-accent, currentColor));
   outline-offset: 2px;
 }
 
 /* Read, never seen. Matches the repo's `sr-only`. */
-.osn-toast__sr {
+.ui-toast__sr {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -204,7 +231,7 @@
   border: 0;
 }
 
-@keyframes osn-toast-in {
+@keyframes ui-toast-in {
   from {
     opacity: 0;
     transform: translateY(0.5rem) scale(0.97);
@@ -215,7 +242,7 @@
   }
 }
 
-@keyframes osn-toast-out {
+@keyframes ui-toast-out {
   from {
     opacity: 1;
     transform: none;
@@ -226,7 +253,7 @@
   }
 }
 
-@keyframes osn-toast-spin {
+@keyframes ui-toast-spin {
   to {
     transform: rotate(360deg);
   }
@@ -241,9 +268,9 @@
  * Near-zero rather than `none` so `animationend` listeners still fire.
  */
 @media (prefers-reduced-motion: reduce) {
-  .osn-toast,
-  .osn-toast--leaving,
-  .osn-toast--loading .osn-toast__glyph {
+  .ui-toast,
+  .ui-toast--leaving,
+  .ui-toast--loading .ui-toast__glyph {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
   }

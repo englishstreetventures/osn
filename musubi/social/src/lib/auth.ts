@@ -1,6 +1,6 @@
 export const OSN_ISSUER_URL = import.meta.env.VITE_OSN_ISSUER_URL ?? "http://localhost:4000";
 
-/** The product name this instance shows in `@osn/ui`'s auth copy. */
+/** The product name this instance shows in `@osn/auth-ui`'s auth copy. */
 export const PRODUCT_NAME = "Musubi";
 
 /**
@@ -14,7 +14,7 @@ export const PRODUCT_NAME = "Musubi";
  * MUST be populated — osn-api fails closed (`400 turnstile_failed`) on a gated
  * request that carries no token.
  *
- * Normalised to `undefined` when blank so `turnstileEnabled()` in `@osn/ui` sees
+ * Normalised to `undefined` when blank so `turnstileEnabled()` in `@osn/auth-ui` sees
  * a single shape: an unset GitHub Actions variable expands to the empty string,
  * not to nothing.
  */

@@ -125,7 +125,9 @@ describe("RsvpModal", () => {
     // makes iOS Safari zoom the page when the field is focused.
     expect(input.className).toContain("text-base");
     // The smaller visual size only applies from the `sm:` breakpoint up.
-    expect(input.className).toContain("sm:text-[0.9rem]");
+    // `text-ui-base` rather than the `[0.9rem]` this used to spell: the value
+    // is unchanged, it is a contract step now instead of a one-off.
+    expect(input.className).toContain("sm:text-ui-base");
   });
 
   it("blocks submit and shows an error when nobody in the party has answered", async () => {
@@ -1154,10 +1156,9 @@ describe("RsvpModal", () => {
       // dwell timer, so the cue never fires and no celebration plays on a card
       // the guest has already moved on from. Worth pinning at the real exit —
       // Cancel is `disabled` while `saved()`, so the only mid-dwell way out is
-      // Escape or a backdrop tap, and both route through `AnimatedModal`'s
-      // `handleClose`, a different component with an awaited dynamic import in
-      // front of `props.onClose()`. Unmounting via `cleanup()` would skip that
-      // path entirely and prove nothing about it.
+      // Escape or a backdrop tap, and both route through `AnimatedModal` rather
+      // than through anything this component owns. Unmounting via `cleanup()`
+      // would skip that path entirely and prove nothing about it.
       const onConfirmed = vi.fn();
       const rsvps: RsvpSummary[] = [
         { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
@@ -1194,8 +1195,12 @@ describe("RsvpModal", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(onConfirmed).not.toHaveBeenCalled();
 
-      // Escape mid-dwell, then run well past both the dwell and the celebration.
-      fireEvent.keyDown(document, { key: "Escape" });
+      // Dismiss mid-dwell, then run well past both the dwell and the
+      // celebration. The `close` event is what Escape and a backdrop click both
+      // arrive as — the gestures themselves are the user agent's, and jsdom
+      // implements no part of `<dialog>`, so dispatching the event is how this
+      // tier reaches the same code path.
+      document.querySelector("dialog")!.dispatchEvent(new Event("close"));
       await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS * 3);
       expect(open()).toBe(false);
       expect(onConfirmed).not.toHaveBeenCalled();
@@ -1612,7 +1617,7 @@ describe("RsvpModal", () => {
       <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
-    const panel = document.querySelector('[role="dialog"]') as HTMLElement;
+    const panel = document.querySelector("dialog")!;
     // The panel is a non-scrolling frame; its last child is the scroll
     // container that carries the padding the action bar has to line up with.
     const scroller = panel.lastElementChild as HTMLElement;

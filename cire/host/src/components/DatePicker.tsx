@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { Popover } from "@kobalte/core/popover";
 import { createEffect, createSignal, For, Show } from "solid-js";
 
@@ -192,10 +193,10 @@ export default function DatePicker(props: {
   if (props.readOnly) {
     return (
       <div class="flex flex-col gap-1.5">
-        <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
           {props.label}
         </span>
-        <p class="font-body text-text border-border bg-bg/50 rounded-sm border px-3 py-2 text-[0.95rem] opacity-70">
+        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-sm border px-3 py-2 opacity-70">
           <Show when={selected()} fallback={<span class="opacity-60">No date set</span>}>
             {(d) => formatLong(d())}
           </Show>
@@ -206,14 +207,14 @@ export default function DatePicker(props: {
 
   return (
     <div class="flex flex-col gap-1.5">
-      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+      <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
         {props.label}
       </span>
       <Popover open={open()} onOpenChange={setOpen} gutter={8} placement="bottom-start">
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 flex items-center justify-between gap-2 rounded-sm border px-3 py-2 text-left text-[0.95rem] transition-colors outline-none focus-visible:ring-2 disabled:opacity-40"
+          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base flex items-center justify-between gap-2 rounded-sm border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-2 disabled:opacity-40"
         >
           <Show
             when={selected()}
@@ -237,11 +238,12 @@ export default function DatePicker(props: {
           <Popover.Content class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
             {/* ── Month header: prev / label / next ─────────────────────── */}
             <div class="flex items-center justify-between gap-2">
-              <button
+              <Button
+                variant="quiet"
                 type="button"
                 aria-label="Previous month"
                 onClick={() => shiftMonth(-1)}
-                class="border-border text-text-muted hover:border-gold hover:text-gold flex h-7 w-7 items-center justify-center rounded-sm border transition-colors"
+                class="flex h-7 w-7 items-center justify-center"
               >
                 <svg
                   class="h-4 w-4"
@@ -253,15 +255,14 @@ export default function DatePicker(props: {
                 >
                   <path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-              </button>
-              <span class="font-body text-text text-[0.85rem] tracking-[0.04em]">
-                {monthLabel()}
-              </span>
-              <button
+              </Button>
+              <span class="font-body text-text text-ui-sm tracking-ui-wide">{monthLabel()}</span>
+              <Button
+                variant="quiet"
                 type="button"
                 aria-label="Next month"
                 onClick={() => shiftMonth(1)}
-                class="border-border text-text-muted hover:border-gold hover:text-gold flex h-7 w-7 items-center justify-center rounded-sm border transition-colors"
+                class="flex h-7 w-7 items-center justify-center"
               >
                 <svg
                   class="h-4 w-4"
@@ -273,7 +274,7 @@ export default function DatePicker(props: {
                 >
                   <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-              </button>
+              </Button>
             </div>
 
             {/* ── Weekday header row ────────────────────────────────────── */}
@@ -290,7 +291,7 @@ export default function DatePicker(props: {
                   {(wd) => (
                     <span
                       role="columnheader"
-                      class="font-body text-text-muted flex h-6 items-center justify-center text-[0.62rem] tracking-[0.08em] uppercase"
+                      class="font-body text-text-muted text-ui-xs tracking-ui-wider flex h-6 items-center justify-center uppercase"
                     >
                       {wd}
                     </span>
@@ -323,7 +324,7 @@ export default function DatePicker(props: {
                             tabindex={isFocused() ? 0 : -1}
                             onClick={() => commit(day)}
                             classList={{
-                              "flex h-8 w-8 items-center justify-center rounded-sm text-[0.8rem] tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-gold/50": true,
+                              "flex h-8 w-8 items-center justify-center rounded-sm text-ui-sm tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-gold/50": true,
                               "bg-gold text-bg font-medium": isSelected(),
                               "text-text hover:bg-gold/15": !isSelected() && inMonth(),
                               "text-text-muted opacity-40 hover:opacity-70":
@@ -343,24 +344,26 @@ export default function DatePicker(props: {
 
             {/* ── Clear / today shortcuts ───────────────────────────────── */}
             <div class="flex items-center justify-between gap-2 pt-0.5">
-              <button
+              <Button
+                variant="link"
+                size="sm"
                 type="button"
                 onClick={() => commit(startOfDay(new Date()))}
-                class="font-body text-gold-dim hover:text-gold text-[0.72rem] underline-offset-4 transition-colors hover:underline"
               >
                 Today
-              </button>
+              </Button>
               <Show when={selected()}>
-                <button
+                <Button
+                  variant="subtle"
+                  size="sm"
                   type="button"
                   onClick={() => {
                     props.onChange(null);
                     setOpen(false);
                   }}
-                  class="font-body text-text-muted hover:text-text text-[0.72rem] underline-offset-4 transition-colors hover:underline"
                 >
                   Clear date
-                </button>
+                </Button>
               </Show>
             </div>
           </Popover.Content>

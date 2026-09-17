@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { Dialog } from "@osn/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 

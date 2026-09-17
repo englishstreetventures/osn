@@ -1,5 +1,5 @@
-import { clsx } from "@osn/ui/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@osn/ui/ui/popover";
+import { clsx } from "@shared/ui/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { For, type JSX } from "solid-js";
 
 import { setThemePref, themePref, type ThemePref } from "../lib/theme";

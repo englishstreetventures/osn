@@ -3,10 +3,10 @@ import type {
   ProfileSearchResult,
   SearchConnectionState,
 } from "@osn/client";
-import { clsx } from "@osn/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
 import { toast } from "@shared/toast";
+import { clsx } from "@shared/ui/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
@@ -133,7 +133,7 @@ export function PersonAction(props: {
     >
       <Button
         size="sm"
-        class="text-body rounded-pill h-7 shrink-0 max-md:h-9"
+        class="text-body h-7 shrink-0 max-md:h-9"
         disabled={props.busy}
         onClick={() => (props.status === "none" ? props.onConnect() : props.onAccept())}
       >

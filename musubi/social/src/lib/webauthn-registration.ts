@@ -1,9 +1,9 @@
-import type { RunPasskeyRegistration } from "@osn/ui/auth/StepUpDialog";
+import type { RunPasskeyRegistration } from "@osn/auth-ui/StepUpDialog";
 import { startRegistration } from "@simplewebauthn/browser";
 
 /**
  * Runs the attestation (enrolment) ceremony. This app's WebAuthn attestation
- * (enrolment) ceremony runner, handed to `@osn/ui`'s `PasskeysView` as the
+ * (enrolment) ceremony runner, handed to `@osn/auth-ui`'s `PasskeysView` as the
  * `runPasskeyRegistration` prop.
  *
  * Kept out of `webauthn-ceremony.ts`: registration only runs from the

@@ -229,7 +229,7 @@ export default function CommandPalette(props: {
             <Dialog.Title class="sr-only">Command palette</Dialog.Title>
 
             <div class="border-border flex items-center gap-3 border-b px-4">
-              <span aria-hidden="true" class="text-gold shrink-0 text-[0.9rem]">
+              <span aria-hidden="true" class="text-gold text-ui-base shrink-0">
                 ⌘
               </span>
               <input
@@ -249,9 +249,9 @@ export default function CommandPalette(props: {
                   setActive(0);
                 }}
                 onKeyDown={onKeyDown}
-                class="font-body text-text placeholder:text-text-faint min-w-0 flex-1 bg-transparent py-3.5 text-[0.95rem] outline-none"
+                class="font-body text-text placeholder:text-text-faint text-ui-base min-w-0 flex-1 bg-transparent py-3.5 outline-none"
               />
-              <kbd class="font-body text-text-faint border-border hidden shrink-0 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.1em] uppercase sm:block">
+              <kbd class="font-body text-text-faint border-border text-ui-xs tracking-ui-wider hidden shrink-0 rounded-sm border px-1.5 py-0.5 uppercase sm:block">
                 Esc
               </kbd>
             </div>
@@ -270,7 +270,7 @@ export default function CommandPalette(props: {
                       {(group) => (
                         <li
                           role="presentation"
-                          class="font-body text-text-faint px-3 pt-2.5 pb-1.5 text-[0.6rem] tracking-[0.18em] uppercase"
+                          class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-2.5 pb-1.5 uppercase"
                         >
                           {group()}
                         </li>
@@ -289,10 +289,10 @@ export default function CommandPalette(props: {
                       <span aria-hidden="true" class="w-4 shrink-0 text-center text-[0.9em]">
                         {command.glyph}
                       </span>
-                      <span class="min-w-0 flex-1 truncate text-[0.85rem]">{command.label}</span>
+                      <span class="text-ui-sm min-w-0 flex-1 truncate">{command.label}</span>
                       <Show when={command.hint}>
                         {(hint) => (
-                          <span class="text-text-faint hidden max-w-[45%] shrink-0 truncate text-[0.7rem] sm:block">
+                          <span class="text-text-faint text-ui-xs hidden max-w-[45%] shrink-0 truncate sm:block">
                             {hint()}
                           </span>
                         )}
@@ -305,7 +305,7 @@ export default function CommandPalette(props: {
               <Show when={results().length === 0}>
                 <li
                   role="presentation"
-                  class="font-body text-text-muted px-3 py-6 text-center text-[0.82rem]"
+                  class="font-body text-text-muted text-ui-sm px-3 py-6 text-center"
                 >
                   Nothing matches “{query()}”.
                 </li>

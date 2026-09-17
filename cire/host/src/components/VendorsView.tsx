@@ -1,4 +1,9 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -18,10 +23,6 @@ import {
   vendorsAccessor,
 } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
-import Button from "./ui/Button";
-import Field, { Input, Select } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 /** Vendor pipeline stages in workflow order. */
 const VENDOR_STATUSES = [
   { key: "researching", label: "Researching" },
@@ -253,7 +254,7 @@ export default function VendorsView(props: VendorsViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>
@@ -340,12 +341,12 @@ export default function VendorsView(props: VendorsViewProps) {
 
       <Show
         when={(vendors() ?? []).length > 0}
-        fallback={<p class="text-text-muted text-[0.85rem] italic">No vendors yet.</p>}
+        fallback={<p class="text-text-muted text-ui-sm italic">No vendors yet.</p>}
       >
         <For each={grouped()}>
           {(group) => (
             <section class="flex flex-col gap-2">
-              <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+              <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                 {group.status.label}
               </h3>
               <ul class="flex flex-col gap-1">
@@ -353,15 +354,15 @@ export default function VendorsView(props: VendorsViewProps) {
                   {(v) => (
                     <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
                       <div class="flex flex-wrap items-center gap-3">
-                        <span class="text-text min-w-[10rem] flex-1 text-[0.9rem] font-medium">
+                        <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
                           {v.name}
                         </span>
                         {/* Category chip */}
-                        <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
+                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
                           {categoryLabel(v.category)}
                         </span>
                         <Show when={v.contactName ?? v.email ?? v.phone}>
-                          <span class="text-text-muted text-[0.82rem]">
+                          <span class="text-text-muted text-ui-sm">
                             {v.contactName}
                             {v.contactName && (v.email || v.phone) ? " · " : ""}
                             {v.email}
@@ -370,7 +371,7 @@ export default function VendorsView(props: VendorsViewProps) {
                           </span>
                         </Show>
                         <Show when={v.quotedMinor != null}>
-                          <span class="text-text text-[0.82rem]">
+                          <span class="text-text text-ui-sm">
                             {fmtMinor(v.quotedMinor!, props.currency ?? "AUD")}
                           </span>
                         </Show>
@@ -391,34 +392,34 @@ export default function VendorsView(props: VendorsViewProps) {
                               </For>
                             </Select>
                             {/* List in directory */}
-                            <button
+                            <Button
+                              variant="link"
                               type="button"
                               aria-label={`List ${v.name} in directory`}
                               onClick={() => openListing(v)}
-                              class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
                             >
                               List in directory
-                            </button>
+                            </Button>
                             {/* Enquire — only available when linked to a directory vendor */}
                             <Show when={v.directoryVendorId}>
-                              <button
+                              <Button
+                                variant="link"
                                 type="button"
                                 aria-label={`Enquire with ${v.name}`}
                                 onClick={() => setEnquireVendor(v)}
-                                class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
                               >
                                 Enquire
-                              </button>
+                              </Button>
                             </Show>
                             {/* Delete */}
-                            <button
+                            <Button
+                              variant="bareDanger"
                               type="button"
                               aria-label={`Delete ${v.name}`}
                               onClick={() => deleteVendor(v)}
-                              class="text-text-muted hover:text-error px-1"
                             >
                               ✕
-                            </button>
+                            </Button>
                           </div>
                         </Show>
                       </div>
@@ -462,20 +463,21 @@ export default function VendorsView(props: VendorsViewProps) {
                             }
                           >
                             <div class="flex flex-col gap-2">
-                              <p class="text-text text-[0.85rem]">
+                              <p class="text-text text-ui-sm">
                                 Listed! Share this claim link with {v.name}:
                               </p>
                               <div class="border-border bg-bg flex items-center gap-2 rounded-sm border px-3 py-2">
-                                <span class="text-text-muted grow truncate font-mono text-[0.78rem]">
+                                <span class="text-text-muted text-ui-sm grow truncate font-mono">
                                   {claimUrl()}
                                 </span>
-                                <button
+                                <Button
+                                  variant="link"
                                   type="button"
                                   onClick={() => void copyToClipboard(claimUrl()!)}
-                                  class="text-gold-dim hover:text-gold shrink-0 text-[0.76rem] underline-offset-2 hover:underline"
+                                  class="shrink-0"
                                 >
                                   Copy
-                                </button>
+                                </Button>
                               </div>
                               <Button
                                 variant="quiet"

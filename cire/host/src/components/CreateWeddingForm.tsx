@@ -1,12 +1,12 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Field, Fieldset } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import Button from "./ui/Button";
-import Field, { Fieldset, Input } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 export interface WeddingSummary {
   id: string;
   slug: string;
@@ -104,8 +104,8 @@ export default function CreateWeddingForm(props: {
       onSubmit={submit}
     >
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">New wedding</p>
-        <h2 class="font-display text-text text-[1.4rem] font-light">Start a new celebration</h2>
+        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">New wedding</p>
+        <h2 class="font-display text-text text-ui-lg font-light">Start a new celebration</h2>
       </div>
 
       <Field label="Wedding name">
@@ -143,9 +143,9 @@ export default function CreateWeddingForm(props: {
                     onChange={() => setCodeStyle(option.value)}
                     class="accent-gold"
                   />
-                  <span class="font-body text-text text-[0.9rem]">{option.label}</span>
+                  <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted pl-6 text-[0.78rem] leading-snug">
+                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
                   {option.hint}
                 </span>
               </label>
@@ -162,19 +162,19 @@ export default function CreateWeddingForm(props: {
           {/* Not a Button: cancelling out of a form the host has not committed
               to is a link's worth of weight, and giving it a border would put
               it in the same tier as the thing it backs out of. */}
-          <button
+          <Button
+            variant="subtle"
             type="button"
             onClick={() => props.onCancel?.()}
             disabled={busy()}
-            class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
           >
             Cancel
-          </button>
+          </Button>
         </Show>
       </div>
 
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>

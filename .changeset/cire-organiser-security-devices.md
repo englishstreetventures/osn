@@ -5,7 +5,7 @@
 Organiser portal: a **Security** section for managing devices / passkeys.
 
 Signed-in organisers can now reach a top-level "Security" nav item (`#security`)
-that renders the shared `@osn/ui` `<PasskeysView>`: list passkeys, rename, remove
+that renders the shared `@osn/auth-ui` `<PasskeysView>`: list passkeys, rename, remove
 (the last-passkey removal is refused server-side), and **Add passkey** to enrol a
 new device. It also explains how to get onto a brand-new device (synced passkey,
 password-manager cross-device QR, or recovery code).

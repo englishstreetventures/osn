@@ -5,6 +5,13 @@ import { createSlidingPill } from "../lib/sliding-pill";
 /**
  * The portal's two views, as one control.
  *
+ * Bare `<button>`s rather than `@cire/ui`'s `Button`, deliberately. These are
+ * not actions — they are a `aria-current="page"` set with a single travelling
+ * highlight, which is a tab bar. Wearing a button's border and uppercase
+ * tracking would say "press me" twice on a control whose whole job is to say
+ * "you are here".
+ *
+ *
  * Before this they were two bare `<button>`s that turned gold when active,
  * sitting in a row beside "Sign out" — so "which view am I in" and "leave" were
  * the same kind of thing in the same place, told apart only by a colour. A
@@ -59,7 +66,7 @@ export default function ViewTabs(props: {
             type="button"
             aria-current={props.value === tab.value ? "page" : undefined}
             onClick={() => props.onChange(tab.value)}
-            class={`font-body rounded-pill relative px-3 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) @2xl/frame:px-4 ${
+            class={`font-body rounded-pill text-ui-xs tracking-ui-wider relative px-3 py-1.5 uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) @2xl/frame:px-4 ${
               props.value === tab.value ? "text-on-brand" : "text-text-muted hover:text-text"
             }`}
           >

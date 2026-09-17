@@ -202,7 +202,7 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
           Human verification challenge
         </span>
         <Show when={failed()}>
-          <p class="font-body text-error mt-2 text-[0.78rem]" role="alert">
+          <p class="font-body text-error text-ui-sm mt-2" role="alert">
             Couldn&apos;t load the verification challenge. Refresh and try again.
           </p>
         </Show>

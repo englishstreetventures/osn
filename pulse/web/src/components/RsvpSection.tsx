@@ -1,6 +1,6 @@
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
 import { toast } from "@shared/toast";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import {
@@ -79,7 +79,7 @@ export function RsvpSection(props: {
   }
 
   return (
-    <Card class="p-4">
+    <Card padding="sm">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-foreground text-sm font-semibold">Who's going</h3>
         <button

@@ -24,15 +24,15 @@ import {
  * can tell which one is signed in before acting on it.
  */
 const itemClass =
-  "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-[0.76rem] " +
-  "tracking-[0.12em] uppercase outline-none transition-colors duration-(--dur-fast) " +
+  "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
+  "tracking-ui-wider uppercase outline-none transition-colors duration-(--dur-fast) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */
 const settingClass = `${itemClass} justify-between gap-4`;
 
 const groupLabelClass =
-  "font-body text-text-faint px-3 pt-2 pb-1 text-[0.6rem] tracking-[0.18em] uppercase";
+  "font-body text-text-faint px-3 pt-2 pb-1 text-ui-xs tracking-ui-widest uppercase";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the host's OS after they close the menu. */
@@ -80,7 +80,7 @@ export default function ProfileMenu(props: {
         <Show
           when={httpsAvatarUrl()}
           fallback={
-            <span aria-hidden="true" class="font-display text-gold text-[0.95rem] leading-none">
+            <span aria-hidden="true" class="font-display text-gold text-ui-base leading-none">
               {initial()}
             </span>
           }
@@ -92,10 +92,10 @@ export default function ProfileMenu(props: {
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="border-border bg-surface z-50 min-w-52 rounded-sm border p-1.5 shadow-lg outline-none">
           <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
-            <span class="font-body text-text truncate text-[0.85rem]">{name()}</span>
+            <span class="font-body text-text text-ui-sm truncate">{name()}</span>
             <Show when={detail()}>
               {(line) => (
-                <span class="font-body text-text-muted truncate text-[0.72rem]">{line()}</span>
+                <span class="font-body text-text-muted text-ui-xs truncate">{line()}</span>
               )}
             </Show>
           </div>
@@ -118,7 +118,7 @@ export default function ProfileMenu(props: {
                     class={settingClass}
                   >
                     {option.label}
-                    <DropdownMenu.ItemIndicator class="text-gold shrink-0 text-[0.7rem]">
+                    <DropdownMenu.ItemIndicator class="text-gold text-ui-xs shrink-0">
                       ✓
                     </DropdownMenu.ItemIndicator>
                   </DropdownMenu.RadioItem>

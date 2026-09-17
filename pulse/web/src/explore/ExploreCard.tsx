@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 
@@ -91,7 +91,7 @@ export function ExploreCard(props: {
       <Show when={props.series}>
         {(series) => (
           <div
-            class="border-border bg-secondary/60 text-muted-foreground mb-1 flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-1 text-[11px] font-medium tracking-wide"
+            class="border-border bg-secondary/60 text-muted-foreground text-ui-xs mb-1 flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-1 font-medium tracking-wide"
             style={{ "font-family": "var(--font-mono)" }}
           >
             <Icon name="repeat" size={11} />
@@ -129,7 +129,7 @@ export function ExploreCard(props: {
               <>
                 <div class="ph-pattern" />
                 <div
-                  class="absolute right-2.5 bottom-2 text-[42px] leading-none italic"
+                  class="text-ui-2xl absolute right-2.5 bottom-2 leading-none italic"
                   style={{
                     "font-family": "var(--font-serif)",
                     color: "oklch(1 0 0 / 0.85)",
@@ -151,13 +151,13 @@ export function ExploreCard(props: {
           {/* Date stamp */}
           <div class="date-stamp bg-card absolute top-3 left-3 w-[46px] rounded-[10px] border border-white/50 py-1 text-center shadow-sm">
             <div
-              class="text-[9px] font-semibold tracking-widest uppercase"
+              class="text-ui-xs font-semibold tracking-widest uppercase"
               style={{ color: "var(--pulse-accent-strong)" }}
             >
               {dateParts().mo}
             </div>
             <div class="mt-0.5 text-lg leading-none font-semibold">{dateParts().day}</div>
-            <div class="text-muted-foreground mt-0.5 text-[9px] tracking-wider uppercase">
+            <div class="text-muted-foreground text-ui-xs mt-0.5 tracking-wider uppercase">
               {dateParts().dow}
             </div>
           </div>
@@ -165,7 +165,7 @@ export function ExploreCard(props: {
           {/* Status tags */}
           <Show when={e().status === "ongoing"}>
             <div
-              class="absolute bottom-2.5 left-2.5 inline-flex items-center gap-[5px] rounded-full px-2 py-[3px] text-[10px] font-medium text-white"
+              class="text-ui-xs absolute bottom-2.5 left-2.5 inline-flex items-center gap-[5px] rounded-full px-2 py-[3px] font-medium text-white"
               style={{ background: "oklch(0.15 0 0 / 0.7)", "backdrop-filter": "blur(8px)" }}
             >
               <span
@@ -184,7 +184,7 @@ export function ExploreCard(props: {
         <div class="relative flex min-w-0 flex-col gap-1.5 px-4 py-3.5">
           {/* Meta line */}
           <div
-            class="flex items-center gap-1.5 text-[11.5px] tracking-wider uppercase"
+            class="text-ui-xs flex items-center gap-1.5 tracking-wider uppercase"
             style={{ "font-family": "var(--font-mono)", color: "var(--pulse-accent-strong)" }}
           >
             <Icon name="clock" size={11} />
@@ -192,12 +192,12 @@ export function ExploreCard(props: {
           </div>
 
           {/* Title */}
-          <h3 class="m-0 line-clamp-2 text-[16.5px] leading-tight font-semibold tracking-tight">
+          <h3 class="text-ui-md m-0 line-clamp-2 leading-tight font-semibold tracking-tight">
             {e().title}
           </h3>
 
           {/* Location */}
-          <div class="text-muted-foreground flex items-center gap-2 text-[12.5px]">
+          <div class="text-muted-foreground text-ui-sm flex items-center gap-2">
             <Icon name="map-pin" size={12} />
             <Show when={e().venue}>
               <span>{e().venue}</span>
@@ -213,12 +213,12 @@ export function ExploreCard(props: {
           {/* Host */}
           <Show when={e().createdByName}>
             {(name) => (
-              <div class="text-muted-foreground flex items-center gap-1.5 text-[11.5px]">
+              <div class="text-muted-foreground text-ui-xs flex items-center gap-1.5">
                 <Avatar class="h-[18px] w-[18px]">
                   <Show when={e().createdByAvatar}>
                     {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                   </Show>
-                  <AvatarFallback class="text-[8px]">{initials(name())}</AvatarFallback>
+                  <AvatarFallback class="text-ui-xs">{initials(name())}</AvatarFallback>
                 </Avatar>
                 Hosted by <b class="text-foreground font-semibold">{name()}</b>
               </div>
@@ -228,12 +228,12 @@ export function ExploreCard(props: {
           {/* Footer */}
           <div class="border-border mt-1.5 flex items-center justify-between gap-2.5 border-t border-dashed pt-2.5">
             <Show when={e().category}>
-              <span class="text-muted-foreground text-[12px] font-medium tracking-wider uppercase">
+              <span class="text-muted-foreground text-ui-sm font-medium tracking-wider uppercase">
                 {e().category}
               </span>
             </Show>
             <span
-              class="text-muted-foreground text-[11.5px]"
+              class="text-muted-foreground text-ui-xs"
               style={{ "font-family": "var(--font-mono)" }}
             >
               {e().status === "ongoing"

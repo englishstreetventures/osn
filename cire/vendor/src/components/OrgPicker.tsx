@@ -1,15 +1,14 @@
+import { buttonClass } from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
+import { EmptyState } from "@shared/ui/ui/empty-state";
+import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { friendlyError } from "../lib/api";
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 import { listMyOrgs, type OrgSummary } from "../lib/vendor-store";
-import { buttonClass } from "./ui/Button";
-import { cardClass } from "./ui/Card";
-import EmptyState from "./ui/EmptyState";
-import Loading from "./ui/Loading";
-import Notice from "./ui/Notice";
-
 interface OrgPickerProps {
   onPick: (org: OrgSummary) => void;
 }
@@ -47,7 +46,7 @@ export default function OrgPicker(props: OrgPickerProps) {
     <div class="flex flex-col gap-6">
       <Show when={loadError()}>
         {(message) => (
-          <Notice tone="error" alert>
+          <Notice tone="danger" alert>
             {message()}
           </Notice>
         )}
@@ -59,7 +58,7 @@ export default function OrgPicker(props: OrgPickerProps) {
 
       <Show when={(orgs() ?? []).length > 0}>
         <div class="flex flex-col gap-3">
-          <h2 class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">
+          <h2 class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
             Your organisations
           </h2>
           {/* One column until there is room for two whole cards. An org row is
@@ -69,13 +68,17 @@ export default function OrgPicker(props: OrgPickerProps) {
             <For each={orgs()}>
               {(org) => (
                 <li class="contents">
+                  {/* A `<button>` wearing `cardClass`, which is the form
+                      `@cire/ui`'s Card exports its classes FOR: the whole
+                      rectangle is the control, and `<div role="button">` is a
+                      worse answer than either a div or a button. */}
                   <button
                     type="button"
                     onClick={() => props.onPick(org)}
                     class={`${cardClass({ interactive: true })} gap-1`}
                   >
                     <span class="font-body text-text font-medium">{org.name}</span>
-                    <span class="font-body text-text-muted text-[0.82rem]">@{org.handle}</span>
+                    <span class="font-body text-text-muted text-ui-sm">@{org.handle}</span>
                   </button>
                 </li>
               )}

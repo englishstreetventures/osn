@@ -18,22 +18,41 @@ Nothing here ships. It is a dev tool.
 
 ## The catalogue
 
-Open **`osn/ui` → Everything** for every component `@osn/ui` exports on one
+Open **`shared/ui` → Everything** for every component `@shared/ui` exports on one
 page, each with the import path to copy. That is the "what do we already have"
 view. For a component's full range of variants and states, open its own group:
 
-| Group             | Covers                                                                   |
-| ----------------- | ------------------------------------------------------------------------ |
-| `osn/ui`          | Everything, one state each                                               |
-| `osn/ui/Button`   | All variants, all sizes, live playground                                 |
-| `osn/ui/display`  | Badge, Avatar, Card                                                      |
-| `osn/ui/forms`    | Input, Label, Textarea, Checkbox, RadioGroup, UsernameInput, OtpInput    |
-| `osn/ui/overlays` | Dialog, DropdownMenu, Popover, Tabs                                      |
-| `pulse/Icon`      | The Pulse glyph set, every icon at every size                            |
-| `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                   |
-| `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container |
+| Group             | Covers                                                                          |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `shared/ui`          | Everything, one state each                                                      |
+| `shared/ui/Button`   | All variants, all sizes, live playground                                        |
+| `shared/ui/display`  | Badge, Avatar, Card                                                             |
+| `shared/ui/forms`    | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/feedback` | Notice, Chip, EmptyState, Stat                                                  |
+| `shared/ui/data`     | Table, Meter                                                                    |
+| `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, Tabs                                      |
+| `pulse/Icon`      | The Pulse glyph set, every icon at every size                                   |
+| `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                          |
+| `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container        |
+| `design-system/colour` | Every colour role of the token contract in use, swatches captioned with what the browser painted; the contract's obligation groups |
+| `design-system/contrast` | Every pair the conformance harness checks, measured live from the pixels in the current theme |
+| `design-system/type` | The type, tracking, leading and measure scales stacked and compared, contract value beside painted value |
+| `design-system/shape-motion` | Radius (and why `control` is a role), elevation, the focus ring, and durations × easings that move |
+| `design-system/theming` | The same `@shared/ui` components under musubi's mapping, cire's ramp, and no mapping at all — what `@theme inline` buys |
 
-The last two are benches for behaviour no test tier can see. `@shared/toast`'s
+The `design-system/*` group is the token contract (`@shared/design-tokens`,
+[design tokens](../../wiki/architecture/design-tokens.md)) as something to look
+at rather than read. Every list in it is iterated from the contract's own exports
+(`CONTRACT_COLOR_TOKENS`, `CONTRACT_SCALES`, `contrastPairs()`), and the literal
+utility for each token lives in a table that is `satisfies`-checked against the
+same export — Tailwind only emits a class it can see spelled out, so a runtime
+`` `bg-ui-${name}` `` would render nothing. Every caption is read back from the
+painted element with `getComputedStyle`, which is why the numbers change when the
+theme does and why they say `unmeasured` under a headless DOM. The **light · dark**
+toggle is the thing to play with here: the contrast matrix re-measures, and the
+theming story's page column follows it while its cire column does not.
+
+`shared/toast` and `shared/sortable` are benches for behaviour no test tier can see. `@shared/toast`'s
 suite asserts the queue and the DOM contract; `@shared/sortable`'s asserts drop
 semantics against stubbed geometry, because happy-dom computes no layout. Neither
 can tell you whether a drag tracks the pointer, whether the rows shift aside to
@@ -92,7 +111,7 @@ Anything richer (a callback, a fixture) belongs in the story's own closure.
 Optional per-file defaults:
 
 ```tsx
-export const meta = { title: "osn/ui/Button", layout: "centered" as const };
+export const meta = { title: "shared/ui/Button", layout: "centered" as const };
 ```
 
 `layout` is `centered` (default), `padded` (top-left, for layout work) or
@@ -205,7 +224,7 @@ not copy the pattern into app code.
 
 `src/lab.css` imports `musubi/social/src/App.css` wholesale rather than keeping its
 own copy of the design tokens. That file defines `--background`, the `.dark`
-block and the `base:` variant that every `@osn/ui` class is written against, so
+block and the `base:` variant that every `@shared/ui` class is written against, so
 importing it is what makes those components render here exactly as they render
 in the app. A second copy would drift within a week.
 

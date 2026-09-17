@@ -1,6 +1,6 @@
-import { Avatar, AvatarImage, AvatarFallback } from "@osn/ui/ui/avatar";
-import { Badge } from "@osn/ui/ui/badge";
-import { Card } from "@osn/ui/ui/card";
+import { Avatar, AvatarImage, AvatarFallback } from "@shared/ui/ui/avatar";
+import { Badge } from "@shared/ui/ui/badge";
+import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 

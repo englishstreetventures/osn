@@ -1,4 +1,9 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -12,10 +17,6 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
-import Button from "./ui/Button";
-import Field, { Input, Select } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
@@ -192,7 +193,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>
@@ -251,12 +252,12 @@ export default function ChecklistView(props: ChecklistViewProps) {
         <For each={grouped()}>
           {(group) => (
             <section class="flex flex-col gap-2">
-              <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+              <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                 {group.bucket.label}
               </h3>
               <Show
                 when={group.items.length > 0}
-                fallback={<p class="text-text-muted text-[0.8rem] italic">Nothing here yet.</p>}
+                fallback={<p class="text-text-muted text-ui-sm italic">Nothing here yet.</p>}
               >
                 <ul class="flex flex-col gap-1">
                   <For each={group.items}>
@@ -270,45 +271,45 @@ export default function ChecklistView(props: ChecklistViewProps) {
                           onChange={() => props.canEdit && toggleDone(task)}
                         />
                         <span
-                          class={`flex-1 text-[0.9rem] ${
+                          class={`text-ui-base flex-1 ${
                             task.status === "done" ? "text-text-muted line-through" : "text-text"
                           }`}
                         >
                           {task.title}
                           <Show when={task.dueAt}>
-                            <span class="text-text-muted ml-2 text-[0.72rem]">
-                              · due {task.dueAt}
-                            </span>
+                            <span class="text-text-muted text-ui-xs ml-2">· due {task.dueAt}</span>
                           </Show>
                         </span>
                         <Show when={props.canEdit}>
                           <div class="flex items-center gap-1">
-                            <button
+                            <Button
+                              variant="bare"
                               type="button"
                               aria-label="Move up"
                               disabled={i() === 0}
                               onClick={() => move(group.bucket.key, i(), -1)}
-                              class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                              class="disabled:opacity-30"
                             >
                               ↑
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="bare"
                               type="button"
                               aria-label="Move down"
                               disabled={i() === group.items.length - 1}
                               onClick={() => move(group.bucket.key, i(), 1)}
-                              class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                              class="disabled:opacity-30"
                             >
                               ↓
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="bareDanger"
                               type="button"
                               aria-label="Delete task"
                               onClick={() => deleteTask(task)}
-                              class="text-text-muted hover:text-error px-1"
                             >
                               ✕
-                            </button>
+                            </Button>
                           </div>
                         </Show>
                       </li>

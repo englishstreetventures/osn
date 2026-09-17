@@ -1,5 +1,5 @@
-import { Badge } from "@osn/ui/ui/badge";
-import { Card } from "@osn/ui/ui/card";
+import { Badge } from "@shared/ui/ui/badge";
+import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
@@ -70,22 +70,8 @@ export function VenueEventCarousel(props: Props) {
             <h2 class="text-xl">{h()}</h2>
             <Show when={needsScroll()}>
               <div class="flex gap-1.5">
-                <button
-                  type="button"
-                  aria-label="Scroll programme left"
-                  onClick={() => scrollByPage(-1)}
-                  class="border-border/60 hover:bg-accent inline-flex h-8 w-8 items-center justify-center rounded-full border"
-                >
-                  <Chevron direction="left" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Scroll programme right"
-                  onClick={() => scrollByPage(1)}
-                  class="border-border/60 hover:bg-accent inline-flex h-8 w-8 items-center justify-center rounded-full border"
-                >
-                  <Chevron direction="right" />
-                </button>
+                <PageButton direction="left" onPage={() => scrollByPage(-1)} />
+                <PageButton direction="right" onPage={() => scrollByPage(1)} />
               </div>
             </Show>
           </div>
@@ -119,7 +105,7 @@ export function VenueEventCarousel(props: Props) {
                     </Badge>
                   </div>
                   <p class="line-clamp-2 text-sm font-semibold">{event.title}</p>
-                  <p class="text-muted-foreground mt-1 font-mono text-[11px] tracking-wide">
+                  <p class="text-muted-foreground text-ui-xs mt-1 font-mono tracking-wide">
                     {formatCardDate(event.startTime)}
                   </p>
                 </div>
@@ -147,5 +133,25 @@ function Chevron(props: { direction: "left" | "right" }) {
     >
       <path d={props.direction === "left" ? "M15 18l-6-6 6-6" : "M9 6l6 6-6 6"} />
     </svg>
+  );
+}
+
+/**
+ * One of the carousel's two page controls.
+ *
+ * The pair were the same nine classes written out twice, differing only in an
+ * arrow and a word — and a chevron is the whole label a mouse user gets, so the
+ * `aria-label` is the only thing telling anyone else which way it goes.
+ */
+function PageButton(props: { direction: "left" | "right"; onPage: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Scroll programme ${props.direction}`}
+      onClick={() => props.onPage()}
+      class="border-border/60 hover:bg-accent inline-flex h-8 w-8 items-center justify-center rounded-full border"
+    >
+      <Chevron direction={props.direction} />
+    </button>
   );
 }

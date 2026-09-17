@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * link; the rest are the paths that already worked and must keep working.
  */
 
-vi.mock("@osn/ui/auth/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
+vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
   registrationClient: { checkHandle: vi.fn() },
 }));

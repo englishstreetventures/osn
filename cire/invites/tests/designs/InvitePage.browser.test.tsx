@@ -131,7 +131,7 @@ function answer(name: string) {
  * never sent.
  */
 function save() {
-  (document.querySelector('[role="dialog"] button[type="submit"]') as HTMLButtonElement).click();
+  (document.querySelector('dialog button[type="submit"]') as HTMLButtonElement).click();
 }
 
 /**
@@ -324,7 +324,7 @@ describe.each([
     expect(scaleX(fill())).toBe(0);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
     answer("Priya");
     answer("Raj");
     save();
@@ -334,7 +334,7 @@ describe.each([
     // `SAVED_DWELL_MS + SWEEP_DURATION_MS` has only its slack to absorb one long
     // task and otherwise reads the sweep mid-travel.
     await vi.waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.querySelector("dialog")).toBeNull();
       expect(scaleX(fill())).toBe(1);
     }, SETTLED);
 
@@ -365,7 +365,7 @@ describe.each([
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
     answer("Priya");
     save();
 
@@ -376,7 +376,7 @@ describe.each([
       return found!;
     }, SETTLED);
 
-    const toast = el.closest(".osn-toast") as HTMLElement;
+    const toast = el.closest(".ui-toast") as HTMLElement;
     expect(toast, "the message is not inside a toast element").toBeTruthy();
 
     // The message itself, on whatever the toast composites to.
@@ -387,7 +387,7 @@ describe.each([
 
     // And the tone glyph, which is the half that carries the organiser's
     // semantic colour and the half the page tokens got wrong.
-    const glyph = toast.querySelector(".osn-toast__glyph")!;
+    const glyph = toast.querySelector(".ui-toast__glyph")!;
     expect(
       contrastRatio(paintedInk(glyph), paintedBackdrop(glyph)),
       "the tone glyph is illegible on the toast surface",
@@ -399,7 +399,7 @@ describe.each([
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
     answer("Priya");
     save();
 
@@ -409,7 +409,7 @@ describe.each([
     // geometry then absorbs the toast's enter animation without assuming a
     // duration for it.
     await vi.waitFor(() => {
-      const submit = document.querySelector('[role="dialog"] button[type="submit"]');
+      const submit = document.querySelector('dialog button[type="submit"]');
       // Null once the dwell has already closed the sheet — which also means the
       // save landed, so it satisfies this wait exactly as well as the label
       // does. Reading `.textContent` off null instead throws inside the
@@ -435,13 +435,19 @@ describe.each([
       fixedContainingBlockAncestor(container!),
       "the toast is trapped inside a transformed ancestor's stacking context",
     ).toBeNull();
-    // Two-sided on purpose. `> MODAL` alone is satisfied by any "just make it
-    // big" z-index — the previous library hardcoded 9999 — so a one-sided
-    // assertion passes while the toast sits ABOVE the consent banner and
-    // dialog, the one thing that must never be buried.
+    // Two-sided on purpose. A lower bound alone is satisfied by any "just make
+    // it big" z-index — the previous library hardcoded 9999 — so a one-sided
+    // assertion passes while the toast sits ABOVE the consent banner, the one
+    // thing that must never be buried. Above the SHEET is no longer this
+    // number's business at all: the sheet is a `showModal()` dialog in the top
+    // layer, which no z-index reaches, and the container's `topLayer` is what
+    // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
-    expect(painted, "the toast stacks below the RSVP sheet").toBeGreaterThan(Z_LAYER.MODAL);
+    expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
+      Z_LAYER.STICKY_RAIL,
+    );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
     const rect = el.getBoundingClientRect();
@@ -455,7 +461,7 @@ describe.each([
     await openByCode(Pack, [json({ rsvps: [row("guest-priya"), row("guest-raj")] })]);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
     answer("Priya");
     answer("Raj");
     save();
@@ -472,11 +478,11 @@ describe.each([
     await openByCode(Pack, [json({ rsvps: [row("guest-priya")] })]);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
     answer("Priya");
     save();
     await vi.waitFor(() => {
-      const submit = document.querySelector('[role="dialog"] button[type="submit"]');
+      const submit = document.querySelector('dialog button[type="submit"]');
       // Null once the dwell has already closed the sheet — which also means the
       // save landed, so it satisfies this wait exactly as well as the label
       // does. Reading `.textContent` off null instead throws inside the
@@ -503,13 +509,19 @@ describe.each([
       fixedContainingBlockAncestor(container!),
       "the toast is trapped inside a transformed ancestor's stacking context",
     ).toBeNull();
-    // Two-sided on purpose. `> MODAL` alone is satisfied by any "just make it
-    // big" z-index — the previous library hardcoded 9999 — so a one-sided
-    // assertion passes while the toast sits ABOVE the consent banner and
-    // dialog, the one thing that must never be buried.
+    // Two-sided on purpose. A lower bound alone is satisfied by any "just make
+    // it big" z-index — the previous library hardcoded 9999 — so a one-sided
+    // assertion passes while the toast sits ABOVE the consent banner, the one
+    // thing that must never be buried. Above the SHEET is no longer this
+    // number's business at all: the sheet is a `showModal()` dialog in the top
+    // layer, which no z-index reaches, and the container's `topLayer` is what
+    // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
-    expect(painted, "the toast stacks below the RSVP sheet").toBeGreaterThan(Z_LAYER.MODAL);
+    expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
+      Z_LAYER.STICKY_RAIL,
+    );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
     const rect = el.getBoundingClientRect();

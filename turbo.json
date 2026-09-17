@@ -58,6 +58,14 @@
         "!**/*.md"
       ]
     },
+    // Serial, like `test:d1` above and for a neighbouring reason. Each project
+    // in this task starts its own Vite server AND its own Chromium; six of them
+    // at once on a 4-core runner took down a different one on three of six runs
+    // — `@musubi/social` once, `@shared/ui` once — each time after
+    // `Port 63315 is in use, trying another one...` and a navigation that never
+    // completed. A failure that moves between packages is contention, not a
+    // test, and the concurrency lives in the root script because turbo has no
+    // per-task setting for it.
     "test:browser": {
       "dependsOn": [
         "^build"

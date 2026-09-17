@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { Dialog } from "@kobalte/core/dialog";
 import { HoverCard } from "@kobalte/core/hover-card";
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
@@ -10,7 +11,7 @@ import { createSlidingPill } from "../lib/sliding-pill";
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
  *  same control at two sizes rather than as two different navs. */
 const rowBase =
-  "font-body flex w-full items-center gap-3 rounded-sm text-left tracking-[0.08em] uppercase " +
+  "font-body flex w-full items-center gap-3 rounded-sm text-left tracking-ui-wider uppercase " +
   "transition-colors duration-(--dur-fast) ease-(--ease-out)";
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
@@ -113,16 +114,18 @@ function LockedRow(props: {
           the nav's control list. */}
       <HoverCard.Portal>
         <HoverCard.Content class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none">
-          <p class="font-display text-text text-[1rem] leading-tight font-light">{lock().title}</p>
-          <p class="text-text-muted text-[0.78rem] leading-snug">{lock().blurb}</p>
-          <button
+          <p class="font-display text-text text-ui-md leading-tight font-light">{lock().title}</p>
+          <p class="text-text-muted text-ui-sm leading-snug">{lock().blurb}</p>
+          <Button
+            variant="quiet"
+            size="sm"
             type="button"
             disabled
             aria-disabled="true"
-            class="border-border text-text-muted mt-1 rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.18em] uppercase"
+            class="tracking-ui-widest mt-1"
           >
             Upgrade — coming soon
-          </button>
+          </Button>
         </HoverCard.Content>
       </HoverCard.Portal>
     </HoverCard>
@@ -228,7 +231,7 @@ export default function ModuleSidebar(props: {
                 <span class="min-w-0 truncate">{mod.label}</span>
               </>
             );
-            const railRow = `${rowBase} relative px-3 py-2 text-[0.82rem]`;
+            const railRow = `${rowBase} relative px-3 py-2 text-ui-sm`;
             // `Show`, not a ternary. `MODULE_NAV` never changes, so `For` runs
             // this callback once per module and a ternary between two elements
             // would be resolved once and for all — a wedding switched underneath
@@ -274,7 +277,7 @@ export default function ModuleSidebar(props: {
           }}
         >
           <Dialog.Trigger
-            class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim justify-between border px-4 py-3 text-[0.82rem]`}
+            class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
           >
             <span class="flex min-w-0 items-center gap-3">
               <span aria-hidden="true" class="text-gold w-4 shrink-0 text-center text-[1em]">
@@ -282,9 +285,9 @@ export default function ModuleSidebar(props: {
               </span>
               <span class="min-w-0 truncate">{current().label}</span>
             </span>
-            <span class="text-text-muted flex shrink-0 items-center gap-2 text-[0.62rem] tracking-[0.18em]">
+            <span class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2">
               Modules
-              <span aria-hidden="true" class="text-gold text-[0.9rem] tracking-normal">
+              <span aria-hidden="true" class="text-gold text-ui-base tracking-normal">
                 ☰
               </span>
             </span>
@@ -297,12 +300,12 @@ export default function ModuleSidebar(props: {
                 of its own. The name belongs on the element that owns the role. */}
             <Dialog.Content class="sheet-panel border-border bg-surface fixed inset-y-0 left-0 z-50 flex w-[min(19rem,86vw)] flex-col border-r">
               <div class="border-border flex items-center justify-between gap-4 border-b px-5 py-4">
-                <Dialog.Title class="font-display text-text text-[1.15rem] leading-none font-light">
+                <Dialog.Title class="font-display text-text text-ui-md leading-none font-light">
                   Wedding modules
                 </Dialog.Title>
                 <Dialog.CloseButton
                   aria-label="Close modules"
-                  class="text-text-muted hover:text-gold hover:border-gold-dim border-border flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border text-[0.9rem] transition-colors duration-(--dur-fast)"
+                  class="text-text-muted hover:text-gold hover:border-gold-dim border-border text-ui-base flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border transition-colors duration-(--dur-fast)"
                 >
                   <span aria-hidden="true">✕</span>
                 </Dialog.CloseButton>
@@ -328,13 +331,13 @@ export default function ModuleSidebar(props: {
                         </span>
                         <span class="flex min-w-0 flex-col gap-1">
                           <span class="truncate">{mod.label}</span>
-                          <span class="text-text-muted text-[0.7rem] leading-snug tracking-normal normal-case">
+                          <span class="text-text-muted text-ui-xs leading-snug tracking-normal normal-case">
                             {mod.hint}
                           </span>
                         </span>
                       </>
                     );
-                    const sheetRow = `${rowBase} items-start px-3 py-2.5 text-[0.8rem]`;
+                    const sheetRow = `${rowBase} items-start px-3 py-2.5 text-ui-sm`;
                     // `Show` for the same reason as the rail above.
                     return (
                       <Show

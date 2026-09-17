@@ -29,7 +29,7 @@ import {
   WCAG_TEXT_MIN,
   WCAG_UI_MIN,
   withAlpha,
-} from "./color";
+} from "@shared/color";
 
 // ── Seeds ─────────────────────────────────────────────────────────────────────
 

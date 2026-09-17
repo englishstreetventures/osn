@@ -14,7 +14,7 @@ packages:
   - "@osn/api"
   - "@osn/db"
   - "@osn/client"
-  - "@osn/ui"
+  - "@osn/auth-ui"
   - "@musubi/social"
   - "@shared/crypto"
 last-reviewed: 2026-09-09

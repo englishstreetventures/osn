@@ -1,0 +1,23 @@
+{
+  "name": "@shared/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./conformance": "./src/conformance.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "dependencies": {
+    "@shared/color": "workspace:*"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "^4.1.11"
+  }
+}

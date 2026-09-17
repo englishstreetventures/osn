@@ -12,16 +12,15 @@
     "test:browser": "bunx --bun vitest run --project browser",
     "check": "bunx --bun astro check"
   },
-  "portless": {
-    "name": "host.cire",
-    "script": "dev:app"
-  },
   "dependencies": {
     "@astrojs/solid-js": "^7.0.2",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
+    "@cire/ui": "workspace:*",
     "@kobalte/core": "^0.13.14",
+    "@shared/ui": "workspace:*",
     "@shared/db-utils": "workspace:*",
+    "@shared/design-tokens": "workspace:*",
     "@shared/rp-auth": "workspace:*",
     "@shared/sortable": "workspace:*",
     "@shared/toast": "workspace:*",
@@ -46,5 +45,9 @@
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "^4.1.11"
+  },
+  "portless": {
+    "name": "host.cire",
+    "script": "dev:app"
   }
 }

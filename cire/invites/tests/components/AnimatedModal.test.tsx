@@ -1,13 +1,18 @@
+/**
+ * What this tier can and cannot see.
+ *
+ * The sheet is `@shared/ui`'s `Modal` now, so Escape, the backdrop, the focus trap
+ * and the focus restore are the platform's — and jsdom implements no part of
+ * `<dialog>`: `showModal` is `undefined`, nothing is focused on open, and every
+ * box measures zero. `Modal` degrades to a non-modal dialog there, which is
+ * enough to assert structure, wiring and the class contract, and nothing at all
+ * about the gestures. Those live in `AnimatedModal.browser.test.tsx`.
+ */
+
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { AnimatedModal } from "../../src/components/AnimatedModal";
-
-// The open/close animation is imported dynamically; stub it so the modal's
-// imperative reveal is a no-op under the test DOM.
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
 
 /**
  * The panel is a non-scrolling frame whose only in-flow child is the scroll
@@ -78,33 +83,39 @@ describe("AnimatedModal", () => {
     expect(dialog.getAttribute("aria-labelledby")).toBeNull();
   });
 
-  it("moves focus to the scroll container on open, so the keyboard can scroll it", async () => {
-    const { getByRole } = render(() => (
+  it("asks the platform to focus the scroll container, not the close button", () => {
+    const { getByRole, getByLabelText } = render(() => (
       <AnimatedModal onClose={() => {}} label="Event details">
         <p>body</p>
       </AnimatedModal>
     ));
 
-    // NOT the close button. That button is a sibling of the scrollport, so
-    // focusing it leaves the keyboard with nothing to scroll — its nearest
+    // `autofocus` rather than an imperative `focus()`: a dialog's focusing
+    // steps prefer the autofocus delegate over the first tabbable descendant,
+    // which is the close button. That button is a sibling of the scrollport, so
+    // landing there leaves the keyboard with nothing to scroll — its nearest
     // scrollable ancestor is the `overflow-hidden` frame, then a `<body>` this
     // component locks. Measured in a real browser with focus on the button:
-    // Arrow and PageDown moved a scrollable sheet 0px. With focus here:
-    // ArrowDown 0→40px, PageDown 40→594px, Home back to 0.
-    await waitFor(() => {
-      expect(document.activeElement).toBe(scrollerOf(getByRole("dialog")));
-    });
+    // Arrow and PageDown moved a scrollable sheet 0px. With focus on the
+    // scrollport: ArrowDown 0→40px, PageDown 40→594px, Home back to 0.
+    // That it actually lands there is the browser tier's to check.
+    const scroller = scrollerOf(getByRole("dialog"));
+    expect(scroller.hasAttribute("autofocus")).toBe(true);
+    expect(getByLabelText("Close").hasAttribute("autofocus")).toBe(false);
   });
 
-  it("closes on Escape", async () => {
+  it("tells its caller about a close the platform performed", async () => {
+    // Escape and a backdrop click both arrive as the dialog's `close` event,
+    // and this is the wiring that turns that into `onClose` — without it the
+    // consumer's `<Show>` stays true against a dialog that has already shut.
     const onClose = vi.fn();
-    render(() => (
+    const { getByRole } = render(() => (
       <AnimatedModal onClose={onClose} label="Event details">
         <p>body</p>
       </AnimatedModal>
     ));
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    getByRole("dialog").dispatchEvent(new Event("close"));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
@@ -130,56 +141,6 @@ describe("AnimatedModal", () => {
     await waitFor(() => expect(document.body.style.overflow).toBe("hidden"));
     unmount();
     expect(document.body.style.overflow).toBe("");
-  });
-
-  it("restores focus to the trigger element when it unmounts", async () => {
-    const trigger = document.createElement("button");
-    trigger.textContent = "Open";
-    document.body.append(trigger);
-    trigger.focus();
-    expect(document.activeElement).toBe(trigger);
-
-    const { unmount } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <button type="button">Inside</button>
-      </AnimatedModal>
-    ));
-
-    // Focus moves into the modal on open…
-    await waitFor(() => expect(document.activeElement).not.toBe(trigger));
-
-    // …and returns to the trigger once the modal is gone.
-    unmount();
-    expect(document.activeElement).toBe(trigger);
-    trigger.remove();
-  });
-
-  it("reveals the panel to its final visible state under prefers-reduced-motion", async () => {
-    const matchMediaSpy = vi.fn().mockImplementation((query: string) => ({
-      matches: query.includes("prefers-reduced-motion"),
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      onchange: null,
-    }));
-    vi.stubGlobal("matchMedia", matchMediaSpy);
-
-    const { getByRole } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <p>body</p>
-      </AnimatedModal>
-    ));
-
-    const dialog = getByRole("dialog");
-    // Reduced motion short-circuits to the final visible state rather than
-    // leaving the panel at its initial opacity-0 — the content must be visible.
-    await waitFor(() => expect(dialog.style.opacity).toBe("1"));
-    expect(dialog.style.transform).toBe("none");
-
-    vi.unstubAllGlobals();
   });
 
   it("keeps the close button outside the scroll container so it cannot scroll away", () => {
@@ -213,7 +174,7 @@ describe("AnimatedModal", () => {
     expect(panel.querySelector("button")).toBe(close);
 
     // The scrollport must be focusable itself: it is where focus lands on open,
-    // and `[tabindex]:not([tabindex="-1"])` is what puts it in the focus trap.
+    // and a focusable scrolling region is what gives it a keyboard at all.
     expect(scroller.getAttribute("tabindex")).toBe("0");
     // Tabbing BACKWARDS scrolls a target to the top of the scrollport, which is
     // exactly where the close chip sits — reserve its 52px footprint so no

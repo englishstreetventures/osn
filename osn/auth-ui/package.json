@@ -1,0 +1,45 @@
+{
+  "name": "@osn/auth-ui",
+  "version": "1.13.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ChangeEmailForm": "./src/ChangeEmailForm.tsx",
+    "./CreateProfileForm": "./src/CreateProfileForm.tsx",
+    "./PasskeysView": "./src/PasskeysView.tsx",
+    "./ProfileOnboarding": "./src/ProfileOnboarding.tsx",
+    "./ProfileSwitcher": "./src/ProfileSwitcher.tsx",
+    "./RecoveryCodesView": "./src/RecoveryCodesView.tsx",
+    "./Register": "./src/Register.tsx",
+    "./SecurityEventsBanner": "./src/SecurityEventsBanner.tsx",
+    "./SessionsView": "./src/SessionsView.tsx",
+    "./SignIn": "./src/SignIn.tsx",
+    "./StepUpDialog": "./src/StepUpDialog.tsx",
+    "./TotpView": "./src/TotpView.tsx"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "dependencies": {
+    "@osn/client": "workspace:*",
+    "@shared/toast": "workspace:*",
+    "@shared/ui": "workspace:*",
+    "@simplewebauthn/browser": "^13.3.0"
+  },
+  "devDependencies": {
+    "@shared/design-tokens": "workspace:*",
+    "@shared/typescript-config": "workspace:*",
+    "@solidjs/testing-library": "^0.8.10",
+    "happy-dom": "^20.12.2",
+    "solid-js": "^1.9.15",
+    "vite": "^8.2.2",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.9"
+  }
+}

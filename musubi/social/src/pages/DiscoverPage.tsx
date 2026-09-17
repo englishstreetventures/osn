@@ -1,8 +1,8 @@
 import type { Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
 import { toast } from "@shared/toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
@@ -125,7 +125,7 @@ export function DiscoverPage() {
                       </span>
                       <Button
                         size="sm"
-                        class="text-body rounded-pill h-7 max-md:h-10"
+                        class="text-body h-7 max-md:h-10"
                         disabled={sending().has(suggestion.handle)}
                         onClick={() => connect(suggestion.handle)}
                       >

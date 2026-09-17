@@ -61,7 +61,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
 
   const hiddenStrip = (label: string) => (
     <div
-      class="p-2 text-center text-[0.6rem] tracking-[0.12em] uppercase"
+      class="text-ui-xs tracking-ui-wider p-2 text-center uppercase"
       style={{ color: "var(--color-text-muted)", "background-color": "var(--color-bg)" }}
     >
       {label} — hidden until it has content
@@ -71,7 +71,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
   return (
     <div class="flex flex-col gap-2">
       <span class="flex items-center justify-between gap-2">
-        <span class="font-body text-text-muted text-[0.8rem]">Live invite preview</span>
+        <span class="font-body text-text-muted text-ui-sm">Live invite preview</span>
         <DeviceToggle value={device()} onChange={setDevice} />
       </span>
       {/* Which pack the miniature below is showing. Named, because the two packs
@@ -79,7 +79,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
           preview reads as a rendering glitch instead of the design changing. */}
       <span
         data-testid="preview-design"
-        class="font-body text-text-muted text-[0.7rem] tracking-[0.08em] uppercase"
+        class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase"
       >
         {designName()} design
       </span>
@@ -146,7 +146,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
           />
         </Show>
       </figure>
-      <p class="font-body text-text-muted text-[0.72rem] italic">
+      <p class="font-body text-text-muted text-ui-xs italic">
         A miniature of the guest invite, updating as you edit — colours, fonts and copy are exact;
         spacing is compressed.
       </p>

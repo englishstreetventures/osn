@@ -8,7 +8,7 @@ Talks to two backends over HTTP:
 - **`@osn/api`** on port 4000 for identity (registration, sign-in, tokens,
   social graph)
 
-UI auth flows come entirely from `@osn/ui/auth` — `<Register>`, `<SignIn>`,
+UI auth flows come entirely from `@osn/auth-ui` — `<Register>`, `<SignIn>`,
 and `<MagicLinkHandler>` — with `RegistrationClient` and `LoginClient`
 instances built once in `src/lib/authClients.ts` and injected as props.
 

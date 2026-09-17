@@ -48,7 +48,7 @@ vi.hoisted(() => {
 
 // Stand-ins for the real ceremonies: they only record the props they were
 // handed, so no WebAuthn feature-detection or Turnstile script load is involved.
-vi.mock("@osn/ui/auth/SignIn", () => ({
+vi.mock("@osn/auth-ui/SignIn", () => ({
   SignIn: (props: { turnstileSiteKey?: string; productName: string }) => {
     captured.signIn.push({
       turnstileSiteKey: props.turnstileSiteKey,
@@ -57,7 +57,7 @@ vi.mock("@osn/ui/auth/SignIn", () => ({
     return <div data-testid="signin" />;
   },
 }));
-vi.mock("@osn/ui/auth/Register", () => ({
+vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { turnstileSiteKey?: string; productName: string }) => {
     captured.register.push({
       turnstileSiteKey: props.turnstileSiteKey,

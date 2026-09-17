@@ -30,7 +30,7 @@ const index = [
     <div class="letter-column mb-16 text-center md:mb-24" data-reveal>
       <h2
         id="features-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
       >
         Beautiful to open. Effortless to run.
       </h2>
@@ -43,7 +43,7 @@ const index = [
         <h3 class="display text-text mb-4 text-[clamp(1.6rem,3.5vw,2.25rem)] font-normal">
           An invitation that unwraps
         </h3>
-        <p class="font-body text-text-muted text-[1rem] leading-[1.8] font-light">
+        <p class="font-body text-text-muted text-ui-md leading-ui-relaxed font-light">
           Every Cire invite opens with motion: a wax seal that breaks, a letter that unfolds. The
           first thing your guests feel is occasion, not a web page.
         </p>
@@ -57,7 +57,7 @@ const index = [
         <h3 class="display text-text mb-4 text-[clamp(1.6rem,3.5vw,2.25rem)] font-normal">
           Effortless RSVPs, counted live
         </h3>
-        <p class="font-body text-text-muted text-[1rem] leading-[1.8] font-light">
+        <p class="font-body text-text-muted text-ui-md leading-ui-relaxed font-light">
           Guests reply in a tap, attending or not, per person, with dietary notes. You watch the
           numbers land in real time on a dashboard built for the couple, not a spreadsheet.
         </p>
@@ -68,15 +68,15 @@ const index = [
 
     {/* The index — the rest of what every invitation carries. A list, not cards. */}
     <div data-reveal>
-      <h3 class="display text-text mb-10 text-center text-[1.5rem] font-normal md:text-left">
+      <h3 class="display text-text mb-10 text-center text-ui-lg font-normal md:text-left">
         Inside every invitation
       </h3>
       <ul class="grid gap-x-14 gap-y-8 md:grid-cols-3">
         {
           index.map((item) => (
             <li class="border-border border-t pt-5">
-              <h4 class="display text-text mb-2 text-[1.2rem] font-normal">{item.title}</h4>
-              <p class="font-body text-text-muted text-[0.95rem] leading-[1.7] font-light">
+              <h4 class="display text-text mb-2 text-ui-lg font-normal">{item.title}</h4>
+              <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light">
                 {item.body}
               </p>
             </li>

@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { createSignal, For, Show } from "solid-js";
 
 import CreateWeddingForm, { type WeddingSummary } from "./CreateWeddingForm";
@@ -25,7 +26,7 @@ export default function WeddingList(props: {
   return (
     <div class="flex flex-col gap-8">
       <Show when={isEmpty()}>
-        <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
+        <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
           You don&apos;t host any weddings yet. Create your first one to start adding guests,
           events, and the invite.
         </p>
@@ -39,10 +40,11 @@ export default function WeddingList(props: {
           <For each={props.weddings}>
             {(wedding) => (
               <li class="flex">
-                <button
+                <Button
+                  variant="quiet"
                   type="button"
                   onClick={() => props.onSelect(wedding)}
-                  class="border-border bg-surface/30 hover:border-gold-dim hover:bg-surface/60 group relative flex w-full flex-col gap-2 overflow-hidden rounded-sm border p-6 text-left transition-colors duration-(--dur-base) ease-(--ease-out)"
+                  class="bg-surface/30 hover:bg-surface/60 group relative flex w-full flex-col gap-2 overflow-hidden p-6 text-left"
                 >
                   {/* A gold rule that draws down the left edge on hover — the
                       same marker vocabulary the module rail uses for "you are
@@ -52,13 +54,13 @@ export default function WeddingList(props: {
                     aria-hidden="true"
                     class="bg-gold absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                   />
-                  <span class="font-body text-gold text-[0.7rem] tracking-[0.22em] uppercase">
+                  <span class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">
                     {wedding.slug}
                   </span>
-                  <span class="font-display text-text text-[1.5rem] leading-tight font-light">
+                  <span class="font-display text-text text-ui-lg leading-tight font-light">
                     {wedding.displayName}
                   </span>
-                  <span class="font-body text-text-muted group-hover:text-gold mt-2 flex items-center gap-2 text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-base)">
+                  <span class="font-body text-text-muted group-hover:text-gold text-ui-xs tracking-ui-widest mt-2 flex items-center gap-2 uppercase transition-colors duration-(--dur-base)">
                     Open dashboard
                     <span
                       aria-hidden="true"
@@ -67,7 +69,7 @@ export default function WeddingList(props: {
                       →
                     </span>
                   </span>
-                </button>
+                </Button>
               </li>
             )}
           </For>
@@ -89,12 +91,8 @@ export default function WeddingList(props: {
 
 function CreateAffordance(props: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      class="border-border text-text-muted hover:border-gold hover:text-gold font-body self-start rounded-sm border border-dashed px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition-colors"
-    >
+    <Button variant="quiet" type="button" onClick={props.onClick} class="self-start border-dashed">
       + Create a wedding
-    </button>
+    </Button>
   );
 }

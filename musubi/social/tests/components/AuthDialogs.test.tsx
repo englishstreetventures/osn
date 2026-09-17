@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // this file tests the wrapper's open/close logic, not the forms themselves.
 // The Register stand-in exposes a button that fires `onSuccess`, which is how
 // the real component signals "account created and passkey enrolled".
-vi.mock("@osn/ui/auth/SignIn", () => ({
+vi.mock("@osn/auth-ui/SignIn", () => ({
   SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
       <span data-testid="signin-product-name">{props.productName}</span>
@@ -18,7 +18,7 @@ vi.mock("@osn/ui/auth/SignIn", () => ({
     </div>
   ),
 }));
-vi.mock("@osn/ui/auth/Register", () => ({
+vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="register">
       <span data-testid="register-product-name">{props.productName}</span>

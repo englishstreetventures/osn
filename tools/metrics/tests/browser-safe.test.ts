@@ -66,7 +66,7 @@ function resolveFile(base: string): string | null {
 /**
  * Where a specifier's file lives, or `null` for a third-party package.
  *
- * Workspace packages are resolved as well as relative paths. `@osn/ui` is one,
+ * Workspace packages are resolved as well as relative paths. `@shared/ui` is one,
  * and leaving bare specifiers unwalked would put every component the dashboard
  * renders outside this test — which is precisely the shape of hop that hid the
  * original defect.
@@ -141,8 +141,8 @@ describe("the dashboard's module graph stays browser-safe", () => {
 
   it("walks past a workspace package rather than stopping at it", () => {
     // Without this the first two assertions could pass by seeing almost
-    // nothing. `@osn/ui` is the dashboard's one workspace dependency, and its
+    // nothing. `@shared/ui` is the dashboard's one workspace dependency, and its
     // files must be inside the graph for their imports to have been checked.
-    expect([...files].some((file) => file.includes("/osn/ui/src/"))).toBe(true);
+    expect([...files].some((file) => file.includes("/shared/ui/src/"))).toBe(true);
   });
 });

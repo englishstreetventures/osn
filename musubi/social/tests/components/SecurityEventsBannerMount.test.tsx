@@ -14,7 +14,7 @@ const captured = vi.hoisted(() => ({
   productName: undefined as string | undefined,
 }));
 
-vi.mock("@osn/ui/auth/SecurityEventsBanner", () => ({
+vi.mock("@osn/auth-ui/SecurityEventsBanner", () => ({
   SecurityEventsBanner: (props: { productName: string }) => {
     captured.productName = props.productName;
     return <div data-testid="banner">{props.productName}</div>;

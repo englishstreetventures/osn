@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * of the component itself would notice.
  *
  * The three views are stubbed: what is under test is the wiring, not their
- * internals, which have their own tests in `@osn/ui`.
+ * internals, which have their own tests in `@osn/auth-ui`.
  */
 
 const props = vi.hoisted(() => ({
@@ -18,19 +18,19 @@ const props = vi.hoisted(() => ({
   recoveryCodes: {} as Record<string, unknown>,
 }));
 
-vi.mock("@osn/ui/auth/PasskeysView", () => ({
+vi.mock("@osn/auth-ui/PasskeysView", () => ({
   PasskeysView: (p: Record<string, unknown>) => {
     Object.assign(props.passkeys, p);
     return <div data-testid="passkeys" />;
   },
 }));
-vi.mock("@osn/ui/auth/TotpView", () => ({
+vi.mock("@osn/auth-ui/TotpView", () => ({
   TotpView: (p: Record<string, unknown>) => {
     Object.assign(props.totp, p);
     return <div data-testid="totp" />;
   },
 }));
-vi.mock("@osn/ui/auth/RecoveryCodesView", () => ({
+vi.mock("@osn/auth-ui/RecoveryCodesView", () => ({
   RecoveryCodesView: (p: Record<string, unknown>) => {
     Object.assign(props.recoveryCodes, p);
     return <div data-testid="recovery-codes" />;

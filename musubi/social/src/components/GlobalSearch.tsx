@@ -1,5 +1,5 @@
-import { clsx } from "@osn/ui/lib/utils";
-import { Input } from "@osn/ui/ui/input";
+import { clsx } from "@shared/ui/lib/utils";
+import { Input } from "@shared/ui/ui/input";
 import { useNavigate } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 
@@ -132,7 +132,7 @@ export function GlobalSearch(props: { token: string }) {
           type="search"
           autocomplete="off"
           placeholder="Search"
-          class="rounded-pill h-9 pl-7"
+          class="h-9 pl-7"
           role="combobox"
           aria-expanded={showPanel()}
           aria-controls={LISTBOX_ID}

@@ -1,7 +1,7 @@
+import { Register } from "@osn/auth-ui/Register";
+import { SignIn } from "@osn/auth-ui/SignIn";
 import { useAuth } from "@osn/client/solid";
-import { Register } from "@osn/ui/auth/Register";
-import { SignIn } from "@osn/ui/auth/SignIn";
-import { Dialog } from "@osn/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { createEffect } from "solid-js";
 
 import { PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";

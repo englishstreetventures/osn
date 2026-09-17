@@ -32,7 +32,7 @@ const steps = [
     <div class="mb-14 md:mb-20" data-reveal>
       <h2
         id="how-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
       >
         From idea to invited in an afternoon.
       </h2>
@@ -49,14 +49,14 @@ const steps = [
             data-reveal
           >
             <span
-              class="display text-gold text-[2.5rem] leading-none font-light md:text-[3.25rem]"
+              class="display text-gold text-ui-2xl leading-none font-light md:text-ui-2xl"
               aria-hidden="true"
             >
               {step.n}
             </span>
             <div>
-              <h3 class="display text-text mb-2 text-[1.5rem] font-normal">{step.title}</h3>
-              <p class="font-body text-text-muted max-w-[38rem] text-[0.98rem] leading-[1.75] font-light">
+              <h3 class="display text-text mb-2 text-ui-lg font-normal">{step.title}</h3>
+              <p class="font-body text-text-muted max-w-[38rem] text-ui-md leading-ui-relaxed font-light">
                 {step.body}
               </p>
             </div>

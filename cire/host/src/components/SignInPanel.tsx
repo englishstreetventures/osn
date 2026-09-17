@@ -92,10 +92,7 @@ export default function SignInPanel() {
     <div class="flex flex-col gap-6">
       <Show when={error()}>
         {(message) => (
-          <p
-            role="alert"
-            class="border-border bg-background text-text rounded-sm border px-4 py-3 text-sm"
-          >
+          <p role="alert" class="border-border bg-bg text-text rounded-sm border px-4 py-3 text-sm">
             {message()}
           </p>
         )}
@@ -109,7 +106,7 @@ export default function SignInPanel() {
       <button
         type="button"
         onClick={signIn}
-        class="bg-gold text-background w-full rounded-sm px-6 py-3 text-sm font-medium tracking-wide transition-opacity hover:opacity-90"
+        class="bg-gold text-on-gold w-full rounded-sm px-6 py-3 text-sm font-medium tracking-wide transition-opacity hover:opacity-90"
       >
         Continue with musubi
       </button>

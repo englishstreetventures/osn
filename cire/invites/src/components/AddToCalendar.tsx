@@ -1,5 +1,4 @@
 import { createMemo, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 
 import { Z_CLASS } from "../lib/z-index";
 import { googleCalendarUrl, icsObjectUrl } from "./calendar";
@@ -18,9 +17,9 @@ interface AddToCalendarProps {
 
 const TRIGGER_CLASS = {
   outline:
-    "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200",
+    "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink rounded-sm border bg-transparent px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200",
   primary:
-    "border-gold bg-gold text-bg font-body hover:bg-transparent hover:text-gold-ink inline-flex items-center gap-2 rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200",
+    "border-gold bg-gold text-bg font-body hover:bg-transparent hover:text-gold-ink inline-flex items-center gap-2 rounded-sm border px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200",
 } satisfies Record<NonNullable<AddToCalendarProps["variant"]>, string>;
 
 interface PopoverPosition {
@@ -103,10 +102,12 @@ export function AddToCalendar(props: AddToCalendarProps) {
   }
 
   /**
-   * Anchor the (portalled, position:fixed) popover beneath the button. The
-   * popover lives at document.body so it escapes the EventCard's stacking
-   * context — without that escape it gets painted under sibling cards
-   * regardless of z-index.
+   * Anchor the (position:fixed) popover beneath the button.
+   *
+   * The coordinates are viewport coordinates, which is right because the menu
+   * is in the top layer: its containing block is the viewport whatever the
+   * button's ancestors do, so nothing here has to know about the EventCard's
+   * stacking context or the sheet's `overflow: hidden`.
    */
   function updatePosition() {
     if (!buttonRef) return;
@@ -158,9 +159,9 @@ export function AddToCalendar(props: AddToCalendarProps) {
     listenersAttached = true;
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onDocumentPointer);
-    // Capture-phase scroll catches nested scroll containers too — the popover
-    // is portalled, so any ancestor scroll would otherwise drift it away from
-    // the anchor button.
+    // Capture-phase scroll catches nested scroll containers too — the menu is
+    // positioned against the viewport, so a scroll of the sheet it sits in
+    // would otherwise drift it away from the anchor button.
     window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
     window.addEventListener("resize", onScrollOrResize);
   }
@@ -221,45 +222,68 @@ export function AddToCalendar(props: AddToCalendarProps) {
         Add to Calendar
       </button>
       <Show when={open()}>
-        <Portal>
-          <div
-            ref={popoverRef}
-            id={popoverId}
-            role="menu"
-            aria-label="Add to calendar options"
-            // `Z_CLASS.MODAL_POPOVER` (z-110) sits ABOVE `Z_CLASS.MODAL`
-            // (z-100). Add-to-Calendar is triggered from inside the details
-            // modal, so its popover must paint on top of that modal — at z-90 it
-            // rendered *behind* the modal backdrop, leaving the menu invisible
-            // and unclickable ("Add to Calendar doesn't work"). The popover is
-            // portalled to <body>, so this z-index isn't trapped inside the
-            // modal's stacking context. The ordering invariant
-            // (MODAL_POPOVER > MODAL) is centralised + asserted in `lib/z-index`.
-            class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg`}
-            style={{ top: `${position().top}px`, left: `${position().left}px` }}
+        <div
+          ref={(el) => {
+            popoverRef = el;
+            // The top layer, entered from here rather than from a z-index.
+            //
+            // This menu is opened from INSIDE the details sheet, which is a
+            // `showModal()` dialog — and a modal dialog paints above every
+            // stacking context in the document by definition, so no `z-index`
+            // can put the menu over it. That is the #203 failure exactly
+            // ("Add to Calendar doesn't work": the menu rendered behind the
+            // sheet, invisible and unclickable), arriving through a different
+            // door. Showing a popover puts this in the top layer too.
+            //
+            // `manual` because this component already owns Escape, the
+            // outside-click dismissal and the focus return; `auto` would
+            // light-dismiss underneath all three.
+            //
+            // The attribute is set here rather than written in the JSX so it
+            // exists only where the method does. A `[popover]` element that
+            // has never been shown is `display: none`, so in an environment
+            // without the API — jsdom, or a server render — writing it would
+            // hide the menu outright instead of degrading to the z-index.
+            if (typeof el.showPopover !== "function") return;
+            el.setAttribute("popover", "manual");
+            // A microtask later, because a `ref` callback runs BEFORE the
+            // element is inserted, and `showPopover()` on a disconnected
+            // element throws `InvalidStateError`.
+            queueMicrotask(() => {
+              if (el.isConnected) el.showPopover();
+            });
+          }}
+          id={popoverId}
+          role="menu"
+          aria-label="Add to calendar options"
+          // `inset-auto m-0` undo the user-agent styles a `popover` carries
+          // (`inset: 0; margin: auto`), which would otherwise fight the
+          // measured `top`/`left` below and stretch the box across the
+          // viewport.
+          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg`}
+          style={{ top: `${position().top}px`, left: `${position().left}px` }}
+        >
+          <a
+            ref={firstItemRef}
+            role="menuitem"
+            href={googleHref()}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg text-ui-sm tracking-ui-wider rounded-sm px-3 py-2 uppercase transition-colors duration-200"
+            onClick={() => setOpen(false)}
           >
-            <a
-              ref={firstItemRef}
-              role="menuitem"
-              href={googleHref()}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
-              onClick={() => setOpen(false)}
-            >
-              Google Calendar
-            </a>
-            <a
-              role="menuitem"
-              href={icsHref() ?? "#"}
-              download={filename()}
-              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
-              onClick={() => setOpen(false)}
-            >
-              Apple / Outlook (.ics)
-            </a>
-          </div>
-        </Portal>
+            Google Calendar
+          </a>
+          <a
+            role="menuitem"
+            href={icsHref() ?? "#"}
+            download={filename()}
+            class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg text-ui-sm tracking-ui-wider rounded-sm px-3 py-2 uppercase transition-colors duration-200"
+            onClick={() => setOpen(false)}
+          >
+            Apple / Outlook (.ics)
+          </a>
+        </div>
       </Show>
     </>
   );

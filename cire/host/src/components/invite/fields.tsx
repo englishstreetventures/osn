@@ -12,11 +12,12 @@
  * input the organiser is actively filling in.
  */
 
+import Button from "@cire/ui/button";
+import { Input } from "@shared/ui/ui/input";
+import { Select } from "@shared/ui/ui/select";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
-
-import { Input, Select, Textarea } from "../ui/Field";
-
-const LABEL_CLASS = "font-body text-text-muted text-[0.8rem]";
+const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
 /**
  * Live length counter against a field's server cap (`COPY_CAPS`). Textareas
@@ -28,7 +29,7 @@ function CapCounter(props: { length: number; max: number; always?: boolean }) {
   return (
     <Show when={visible()}>
       <span
-        class="font-body text-[0.68rem] tabular-nums"
+        class="font-body text-ui-xs tabular-nums"
         classList={{
           "text-error": props.length >= props.max,
           "text-text-muted": props.length < props.max,
@@ -108,7 +109,7 @@ export function TextAreaField(props: {
         resize="none"
       />
       <Show when={props.hint}>
-        <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
+        <span class="font-body text-text-muted text-ui-xs italic">{props.hint}</span>
       </Show>
     </div>
   );
@@ -152,7 +153,7 @@ export function SliderField(props: {
     <label class="flex flex-col gap-1.5">
       <span class="flex items-baseline justify-between gap-2">
         <span class={LABEL_CLASS}>{props.label}</span>
-        <span class="font-body text-gold text-[0.72rem] tabular-nums">{props.value}</span>
+        <span class="font-body text-gold text-ui-xs tabular-nums">{props.value}</span>
       </span>
       <input
         type="range"
@@ -166,7 +167,7 @@ export function SliderField(props: {
         class="accent-gold h-1.5 w-full cursor-pointer"
       />
       <Show when={props.hint}>
-        <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
+        <span class="font-body text-text-muted text-ui-xs italic">{props.hint}</span>
       </Show>
     </label>
   );
@@ -186,7 +187,7 @@ export function SegmentBadge(props: { shown: boolean }) {
       data-segment-badge
       data-shown={props.shown ? "true" : "false"}
       role="status"
-      class="font-body inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.66rem] tracking-[0.1em] uppercase"
+      class="font-body text-ui-xs tracking-ui-wider inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 uppercase"
       classList={{
         "border-gold/40 text-gold bg-gold/5": props.shown,
         "border-border text-text-muted bg-bg/40": !props.shown,
@@ -207,7 +208,7 @@ export function SegmentBadge(props: { shown: boolean }) {
  *  separates the two persistence models the builder mixes. */
 export function InstantBadge() {
   return (
-    <span class="font-body border-border text-text-muted rounded-full border px-2 py-0.5 text-[0.62rem] tracking-[0.08em] uppercase">
+    <span class="font-body border-border text-text-muted text-ui-xs tracking-ui-wider rounded-full border px-2 py-0.5 uppercase">
       Applies immediately
     </span>
   );
@@ -246,7 +247,7 @@ export function SectionCard(props: {
       aria-labelledby={`${props.id}-tab`}
       class="border-border flex flex-col gap-4 rounded-sm border p-4"
     >
-      <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
+      <legend class="font-body text-gold-dim text-ui-xs tracking-ui-wider px-2 uppercase">
         {props.legend}
       </legend>
       <Show when={props.shown !== undefined || props.onReset}>
@@ -255,18 +256,14 @@ export function SectionCard(props: {
             <SegmentBadge shown={props.shown!} />
           </Show>
           <Show when={props.onReset}>
-            <button
-              type="button"
-              onClick={() => props.onReset!()}
-              class="font-body text-text-muted hover:text-text text-[0.72rem] underline-offset-4 hover:underline"
-            >
+            <Button variant="subtle" size="sm" type="button" onClick={() => props.onReset!()}>
               Reset section
-            </button>
+            </Button>
           </Show>
         </div>
       </Show>
       <Show when={props.description}>
-        <p class="font-body text-text-muted text-[0.82rem]">{props.description}</p>
+        <p class="font-body text-text-muted text-ui-sm">{props.description}</p>
       </Show>
       {props.children}
     </fieldset>
@@ -281,7 +278,7 @@ export function SectionCard(props: {
 export function Disclosure(props: { summary: string; hint?: string; children: JSX.Element }) {
   return (
     <details class="border-border rounded-sm border">
-      <summary class="font-body text-text-muted hover:text-text cursor-pointer px-3 py-2 text-[0.78rem] tracking-[0.06em] uppercase select-none">
+      <summary class="font-body text-text-muted hover:text-text text-ui-sm tracking-ui-wide cursor-pointer px-3 py-2 uppercase select-none">
         {props.summary}
         <Show when={props.hint}>
           <span class="text-text-muted/70 ml-2 normal-case italic">{props.hint}</span>

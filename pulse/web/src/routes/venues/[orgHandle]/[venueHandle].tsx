@@ -1,4 +1,4 @@
-import { Card } from "@osn/ui/ui/card";
+import { Card } from "@shared/ui/ui/card";
 import { A, useParams } from "@solidjs/router";
 import { createMemo, createResource, For, Show } from "solid-js";
 
@@ -148,7 +148,7 @@ export function VenueDetailPage() {
               </Show>
               <div class="flex flex-col gap-4 p-5">
                 <div>
-                  <p class="text-muted-foreground font-mono text-[11px] tracking-[0.18em] uppercase">
+                  <p class="text-muted-foreground text-ui-xs tracking-ui-widest font-mono uppercase">
                     {v().kind}
                     <Show when={v().capacity}>{(c) => <> · Capacity {c()}</>}</Show>
                   </p>
@@ -258,8 +258,8 @@ export function VenueDetailPage() {
             {/* Full hours */}
             <Show when={hours()}>
               {(h) => (
-                <Card class="p-5">
-                  <p class="text-muted-foreground font-mono text-[11px] tracking-[0.18em] uppercase">
+                <Card padding="md">
+                  <p class="text-muted-foreground text-ui-xs tracking-ui-widest font-mono uppercase">
                     Hours
                   </p>
                   <ul class="mt-2 grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-2">
@@ -285,8 +285,8 @@ export function VenueDetailPage() {
 
             {/* About */}
             <Show when={v().description}>
-              <Card class="p-5">
-                <p class="text-muted-foreground font-mono text-[11px] tracking-[0.18em] uppercase">
+              <Card padding="md">
+                <p class="text-muted-foreground text-ui-xs tracking-ui-widest font-mono uppercase">
                   About
                 </p>
                 <p class="text-foreground mt-2 text-sm whitespace-pre-wrap">{v().description}</p>

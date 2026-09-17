@@ -1,4 +1,4 @@
-import { Button } from "@osn/ui/ui/button";
+import { Button } from "@shared/ui/ui/button";
 import { Show, type JSX } from "solid-js";
 
 /**

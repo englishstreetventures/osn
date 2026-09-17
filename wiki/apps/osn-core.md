@@ -7,17 +7,19 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/db"
-  - "@osn/ui"
+  - "@osn/auth-ui"
   - "@shared/crypto"
 related:
   - "[[identity-model]]"
+  - "[[osn-and-musubi]]"
+  - "[[component-library]]"
   - "[[passkey-primary]]"
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-07-22
+last-reviewed: 2026-09-17
 ---
 
 # OSN Core
@@ -31,8 +33,14 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 | `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
 | `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed graph / organisation / recommendation clients. |
 | `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
-| `@osn/ui` | Shared SolidJS components for auth flows: `<SignIn>`, `<Register>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`. |
+| `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`. |
 | `@shared/crypto` | ARC token primitives + recovery-code helpers. |
+
+`@osn/auth-ui` renders `@shared/ui` primitives but is not itself one of them: a
+primitive is styling nobody has to share to interoperate, while each view here
+is paired with a named route in the table below. `@shared/ui` sits under
+`shared/` for that reason — see [[component-library]] for the three layers and
+[[osn-and-musubi]] for why the line falls there.
 
 ## Authentication model
 
@@ -90,7 +98,7 @@ Handles live in a single namespace shared with organisations. A handle is immuta
 ```bash
 bun run --cwd osn/api test:run     # auth + graph + organisation routes and services
 bun run --cwd osn/client test:run  # client SDK
-bun run --cwd osn/ui test:run      # shared auth components
+bun run --cwd osn/auth-ui test:run # auth views
 ```
 
 Auth routes use `createAuthRoutes(authConfig, dbLayer?)` — `authConfig` is required, `dbLayer` defaults to `DbLive`.

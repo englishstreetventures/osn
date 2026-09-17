@@ -34,15 +34,15 @@ import AccountAvatar, { accountName, AVATAR_TRIGGER_CLASS } from "./AccountAvata
  * other origin.
  */
 const itemClass =
-  "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-[0.76rem] " +
-  "tracking-[0.12em] uppercase outline-none transition-colors duration-(--dur-fast) " +
+  "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
+  "tracking-ui-wider uppercase outline-none transition-colors duration-(--dur-fast) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */
 const settingClass = `${itemClass} justify-between gap-4`;
 
 const groupLabelClass =
-  "font-body text-text-faint px-3 pt-2 pb-1 text-[0.6rem] tracking-[0.18em] uppercase";
+  "font-body text-text-faint px-3 pt-2 pb-1 text-ui-xs tracking-ui-widest uppercase";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the vendor's OS after they close the menu. */
@@ -96,10 +96,10 @@ export default function ProfileMenu(props: {
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="border-border bg-surface z-50 min-w-52 rounded-sm border p-1.5 shadow-lg outline-none">
           <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
-            <span class="font-body text-text truncate text-[0.85rem]">{name()}</span>
+            <span class="font-body text-text text-ui-sm truncate">{name()}</span>
             <Show when={detail()}>
               {(line) => (
-                <span class="font-body text-text-muted truncate text-[0.72rem]">{line()}</span>
+                <span class="font-body text-text-muted text-ui-xs truncate">{line()}</span>
               )}
             </Show>
           </div>
@@ -122,7 +122,7 @@ export default function ProfileMenu(props: {
                     class={settingClass}
                   >
                     {option.label}
-                    <DropdownMenu.ItemIndicator class="text-gold shrink-0 text-[0.7rem]">
+                    <DropdownMenu.ItemIndicator class="text-gold text-ui-xs shrink-0">
                       ✓
                     </DropdownMenu.ItemIndicator>
                   </DropdownMenu.RadioItem>
@@ -176,7 +176,7 @@ export default function ProfileMenu(props: {
             class={itemClass}
           >
             Account &amp; passkeys
-            <span aria-hidden="true" class="text-text-faint ml-auto text-[0.7rem]">
+            <span aria-hidden="true" class="text-text-faint text-ui-xs ml-auto">
               ↗
             </span>
             <span class="sr-only">(opens musubi in a new tab)</span>

@@ -1,7 +1,7 @@
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 
 /**
- * Security section for the organiser portal. It used to render `@osn/ui`'s
+ * Security section for the organiser portal. It used to render `@shared/ui`'s
  * `PasskeysView` and `RecoveryCodesView` in place, driven by an OSN access
  * token the portal held itself.
  *
@@ -21,9 +21,9 @@ export default function SecurityPanel() {
   return (
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Security</p>
-        <h2 class="font-display text-[1.4rem]">Your devices &amp; passkeys</h2>
-        <p class="font-body text-text-muted text-[0.88rem]">
+        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Security</p>
+        <h2 class="font-display text-ui-lg">Your devices &amp; passkeys</h2>
+        <p class="font-body text-text-muted text-ui-base">
           Passkeys and recovery codes belong to your musubi account, not to Cire. Manage them there
           and the change applies everywhere you sign in with it.
         </p>
@@ -33,12 +33,12 @@ export default function SecurityPanel() {
         href={settingsUrl}
         target="_blank"
         rel="noreferrer"
-        class="border-gold font-body text-gold hover:bg-gold hover:text-bg self-start rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
+        class="border-gold font-body text-gold hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider self-start rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
       >
         Manage on musubi
       </a>
 
-      <p class="font-body text-text-muted text-[0.82rem]">
+      <p class="font-body text-text-muted text-ui-sm">
         Opens musubi in a new tab. Signing out of Cire leaves your musubi account signed in.
       </p>
     </div>

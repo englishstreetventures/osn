@@ -82,7 +82,7 @@ Same as Pulse unless a real reason emerges:
 | E2E             | Signal Protocol (`@shared/crypto`, planned)          |
 | S2S auth        | ARC tokens (`@shared/crypto`)                        |
 | Identity        | `@osn/api` via `@osn/client`                         |
-| Shared UI       | `@osn/ui`                                            |
+| Shared UI       | `@shared/ui`                                            |
 | Validation      | TypeBox at HTTP boundary, Effect Schema in services  |
 
 The DB layer may diverge later (messages have very different access

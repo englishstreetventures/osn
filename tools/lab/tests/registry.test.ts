@@ -14,8 +14,8 @@ import { titleFromPath } from "../src/lab/registry.ts";
 
 describe("titleFromPath", () => {
   it("strips the climb out of tools/lab and the .story extension", () => {
-    expect(titleFromPath("../../../../osn/ui/src/components/ui/button.story.tsx")).toBe(
-      "osn/ui/components/ui/button",
+    expect(titleFromPath("../../../../shared/ui/src/ui/button.story.tsx")).toBe(
+      "shared/ui/ui/button",
     );
   });
 
@@ -24,7 +24,7 @@ describe("titleFromPath", () => {
   });
 
   it("keeps nesting below the stories directory", () => {
-    expect(titleFromPath("../stories/osn-ui/overview.story.tsx")).toBe("lab/osn-ui/overview");
+    expect(titleFromPath("../stories/shared-ui/overview.story.tsx")).toBe("lab/shared-ui/overview");
   });
 
   it("accepts every extension the glob can match", () => {

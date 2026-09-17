@@ -1,7 +1,6 @@
+import Button from "@cire/ui/button";
+import { Table, Td, Th } from "@shared/ui/ui/table";
 import { For, Show } from "solid-js";
-
-import { Table, Td, Th } from "./ui/Table";
-
 // The SHARED change-preview renderer (guest+event editor §8): "extract
 // ImportPanel's plan-rendering into a shared component so both ImportPanel and
 // the editor save-flow render the same preview". Both front doors of the
@@ -80,15 +79,15 @@ export function PlanCounts(props: { plan: ChangePlan }) {
   ];
 
   return (
-    <Table label="Diff counts" class="font-body">
+    <Table label="Diff counts">
       <thead>
         <tr>
           <Th>
             <span class="sr-only">Record type</span>
           </Th>
-          <Th class="text-right">Create</Th>
-          <Th class="text-right">Update</Th>
-          <Th class="text-right">Remove</Th>
+          <Th align="end">Create</Th>
+          <Th align="end">Update</Th>
+          <Th align="end">Remove</Th>
         </tr>
       </thead>
       <tbody>
@@ -96,13 +95,13 @@ export function PlanCounts(props: { plan: ChangePlan }) {
           {(r) => (
             <tr>
               <Td>{r.label}</Td>
-              <Td numeric class="text-text-muted">
+              <Td numeric tone="muted">
                 {r.create}
               </Td>
-              <Td numeric class="text-text-muted">
+              <Td numeric tone="muted">
                 {r.update}
               </Td>
-              <Td numeric class="text-text-muted">
+              <Td numeric tone="muted">
                 {r.remove}
               </Td>
             </tr>
@@ -121,15 +120,15 @@ export function PlanCounts(props: { plan: ChangePlan }) {
 export default function ChangePreview(props: ChangePreviewProps) {
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-      <h3 class="font-display text-gold-dim text-[1.1rem]">Diff preview</h3>
+      <h3 class="font-display text-gold-dim text-ui-md">Diff preview</h3>
       <PlanCounts plan={props.plan} />
 
       <Show when={props.warnings.length > 0}>
         <div class="border-gold/30 bg-gold/[0.06] flex flex-col gap-1.5 rounded-sm border p-3">
-          <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">
+          <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
             Before you apply
           </p>
-          <ul class="text-text-muted flex flex-col gap-1 text-[0.82rem]">
+          <ul class="text-text-muted text-ui-sm flex flex-col gap-1">
             <For each={props.warnings}>
               {(w) => <li class="before:mr-2 before:content-['•']">{w}</li>}
             </For>
@@ -138,22 +137,23 @@ export default function ChangePreview(props: ChangePreviewProps) {
       </Show>
 
       <div class="flex flex-wrap items-center gap-3">
-        <button
+        <Button
+          variant="primary"
           type="button"
           onClick={() => props.onConfirm()}
           disabled={props.busy}
-          class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+          class="hover:bg-gold-dim transition"
         >
           {props.busy ? "Applying…" : (props.confirmLabel ?? "Apply changes")}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="subtle"
           type="button"
           onClick={() => props.onCancel()}
           disabled={props.busy}
-          class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

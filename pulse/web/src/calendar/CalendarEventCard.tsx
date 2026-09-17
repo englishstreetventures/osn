@@ -1,5 +1,5 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { toast } from "@shared/toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
@@ -51,7 +51,7 @@ export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () =
         class="hover:bg-secondary/40 block px-4 py-3 transition-colors"
       >
         <div
-          class="flex items-center gap-1.5 text-[11.5px] tracking-wider uppercase"
+          class="text-ui-xs flex items-center gap-1.5 tracking-wider uppercase"
           style={{ "font-family": "var(--font-mono)", color: "var(--pulse-accent-strong)" }}
         >
           <Icon name="clock" size={11} />
@@ -62,18 +62,18 @@ export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () =
           </Show>
         </div>
 
-        <h3 class="mt-1 mb-0 line-clamp-2 text-[15.5px] leading-tight font-semibold tracking-tight">
+        <h3 class="text-ui-base mt-1 mb-0 line-clamp-2 leading-tight font-semibold tracking-tight">
           {event().title}
         </h3>
 
         <Show when={event().venue || event().location}>
-          <div class="text-muted-foreground mt-1 flex items-center gap-1.5 text-[12.5px]">
+          <div class="text-muted-foreground text-ui-sm mt-1 flex items-center gap-1.5">
             <Icon name="map-pin" size={12} />
             <span class="truncate">{event().venue ?? event().location}</span>
           </div>
         </Show>
 
-        <div class="text-muted-foreground mt-1.5 flex items-center gap-2 text-[11.5px]">
+        <div class="text-muted-foreground text-ui-xs mt-1.5 flex items-center gap-2">
           <Show
             when={props.entry.isHost}
             fallback={
@@ -84,7 +84,7 @@ export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () =
                       <Show when={event().createdByAvatar}>
                         {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                       </Show>
-                      <AvatarFallback class="text-[8px]">{initials(name())}</AvatarFallback>
+                      <AvatarFallback class="text-ui-xs">{initials(name())}</AvatarFallback>
                     </Avatar>
                     Hosted by <b class="text-foreground font-semibold">{name()}</b>
                   </span>
@@ -106,7 +106,7 @@ export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () =
       {/* Reminder strip — only for unconfirmed "maybe" RSVPs. */}
       <Show when={props.entry.myStatus === "maybe"}>
         <div class="border-border bg-secondary/30 flex flex-wrap items-center gap-2 border-t px-4 py-2.5">
-          <span class="text-muted-foreground mr-auto text-[12px]">Can you make it?</span>
+          <span class="text-muted-foreground text-ui-sm mr-auto">Can you make it?</span>
           <button
             type="button"
             disabled={submitting()}

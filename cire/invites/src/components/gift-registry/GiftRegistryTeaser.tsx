@@ -152,16 +152,16 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
           }}
         >
           <div class="mx-auto max-w-[540px] text-center md:max-w-[46rem]">
-            <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+            <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
               {eyebrow()}
             </p>
-            <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+            <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
               {heading()}
             </h2>
 
             <Show when={body()}>
               {(text) => (
-                <p class="font-body text-text-muted mx-auto mb-8 max-w-[34rem] text-[0.92rem] leading-[1.6] break-words whitespace-pre-line">
+                <p class="font-body text-text-muted text-ui-base leading-ui-normal mx-auto mb-8 max-w-[34rem] break-words whitespace-pre-line">
                   {text()}
                 </p>
               )}
@@ -208,7 +208,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
             <a
               data-gift-teaser-link
               href={giftRegistryPath(props.slug)}
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg inline-block rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             >
               See the gift list
             </a>
@@ -217,7 +217,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
               {(copy) => (
                 <p
                   data-gift-teaser-availability
-                  class="font-body text-text-muted mt-4 text-[0.72rem] tracking-[0.14em] uppercase"
+                  class="font-body text-text-muted text-ui-xs tracking-ui-widest mt-4 uppercase"
                 >
                   {copy()}
                 </p>

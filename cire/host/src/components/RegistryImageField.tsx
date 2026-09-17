@@ -29,15 +29,14 @@
  * saved image from a shop's origin: after the copy, the only URL it knows is ours.
  */
 
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import Button from "./ui/Button";
-import { Input } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
  *  the cap that counts is the server's. */
@@ -327,7 +326,7 @@ export default function RegistryImageField(props: {
 
   return (
     <div class="flex flex-col gap-2">
-      <span class="font-body text-text-muted text-[0.8rem]" id={`${props.idPrefix}-picture-label`}>
+      <span class="font-body text-text-muted text-ui-sm" id={`${props.idPrefix}-picture-label`}>
         Picture
       </span>
 
@@ -335,7 +334,7 @@ export default function RegistryImageField(props: {
         <div class="flex flex-wrap items-center gap-3">
           <Show
             when={thumb()}
-            fallback={<span class="text-text-muted text-[0.78rem] italic">Picture saved.</span>}
+            fallback={<span class="text-text-muted text-ui-sm italic">Picture saved.</span>}
           >
             {(src) => (
               // Decorative, as in `invite/ImageField.tsx`: the field's own label
@@ -403,17 +402,14 @@ export default function RegistryImageField(props: {
             if (file) void upload(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
         />
       </Show>
 
       <Show when={mode() === "link"}>
         <div class="flex flex-col gap-2">
           <div class="flex flex-wrap items-end gap-2">
-            <label
-              class="font-body text-text-muted text-[0.78rem]"
-              for={`${props.idPrefix}-shop-link`}
-            >
+            <label class="font-body text-text-muted text-ui-sm" for={`${props.idPrefix}-shop-link`}>
               Shop link
             </label>
             <Input
@@ -439,7 +435,7 @@ export default function RegistryImageField(props: {
           {/* Fetching a shop page takes seconds. Say so, and say it in a live
               region — a field that simply sits there reads as broken. */}
           <Show when={busy() === "preview"}>
-            <p class="text-text-muted text-[0.8rem]" role="status">
+            <p class="text-text-muted text-ui-sm" role="status">
               Looking for pictures on that page…
             </p>
           </Show>
@@ -453,7 +449,7 @@ export default function RegistryImageField(props: {
 
           <Show when={candidates().length > 0}>
             <div class="flex flex-col gap-2">
-              <p class="text-text-muted text-[0.8rem]" id={`${props.idPrefix}-candidates-label`}>
+              <p class="text-text-muted text-ui-sm" id={`${props.idPrefix}-candidates-label`}>
                 Choose the picture for this gift.
               </p>
               <div
@@ -463,7 +459,8 @@ export default function RegistryImageField(props: {
               >
                 <For each={candidates()}>
                   {(candidate, i) => (
-                    <button
+                    <Button
+                      variant="quiet"
                       ref={(el) => {
                         refs[i()] = el;
                       }}
@@ -475,7 +472,7 @@ export default function RegistryImageField(props: {
                       disabled={props.disabled || busy() !== null}
                       onClick={() => setChosen(candidate)}
                       onKeyDown={(e) => onKey(e, i())}
-                      class="border-border aria-checked:border-gold rounded-sm border p-1"
+                      class="aria-checked:border-gold p-1"
                     >
                       {/* Decorative: the button carries the name. */}
                       {/* `no-referrer`: the shop is a third party we do not trust with
@@ -497,7 +494,7 @@ export default function RegistryImageField(props: {
                         height={80}
                         class="h-20 w-20 object-cover"
                       />
-                    </button>
+                    </Button>
                   )}
                 </For>
               </div>
@@ -510,7 +507,7 @@ export default function RegistryImageField(props: {
                 >
                   {busy() === "save" ? "Saving…" : "Use this picture"}
                 </Button>
-                <span class="text-text-muted text-[0.72rem]">
+                <span class="text-text-muted text-ui-xs">
                   We keep our own copy, so it stays on your list even if the shop changes the page.
                 </span>
               </div>
@@ -520,13 +517,13 @@ export default function RegistryImageField(props: {
       </Show>
 
       <Show when={busy() === "save" && mode() !== "link"}>
-        <p class="text-text-muted text-[0.8rem]" role="status">
+        <p class="text-text-muted text-ui-sm" role="status">
           Saving that picture…
         </p>
       </Show>
 
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>

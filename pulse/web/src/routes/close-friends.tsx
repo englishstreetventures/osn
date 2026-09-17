@@ -1,8 +1,8 @@
-import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import {
@@ -87,7 +87,7 @@ export function CloseFriendsPage() {
         when={session()}
         fallback={<p class="text-muted-foreground text-sm">Sign in to manage close friends.</p>}
       >
-        <Card class="mb-6 flex flex-col gap-2 p-4">
+        <Card padding="sm" class="mb-6 flex flex-col gap-2">
           <h2 class="text-base font-semibold">Your close friends</h2>
           <Show
             when={closeFriends().length > 0}
@@ -132,7 +132,7 @@ export function CloseFriendsPage() {
           </Show>
         </Card>
 
-        <Card class="flex flex-col gap-2 p-4">
+        <Card padding="sm" class="flex flex-col gap-2">
           <h2 class="text-base font-semibold">Add from your connections</h2>
           <Show
             when={candidates() !== null}

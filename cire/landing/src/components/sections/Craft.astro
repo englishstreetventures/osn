@@ -28,7 +28,7 @@ const points = [
     <div data-reveal>
       <h2
         id="craft-heading"
-        class="display text-text mb-8 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="display text-text mb-8 text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
       >
         The trust of paper, kept digital.
       </h2>
@@ -36,8 +36,8 @@ const points = [
         {
           points.map((point) => (
             <div class="border-border border-t pt-5">
-              <dt class="display text-text mb-1.5 text-[1.25rem] font-normal">{point.title}</dt>
-              <dd class="font-body text-text-muted text-[0.95rem] leading-[1.7] font-light">
+              <dt class="display text-text mb-1.5 text-ui-lg font-normal">{point.title}</dt>
+              <dd class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light">
                 {point.body}
               </dd>
             </div>

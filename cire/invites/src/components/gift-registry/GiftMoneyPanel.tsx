@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { createMemo, createSignal, For, Show } from "solid-js";
 
 import {
@@ -121,10 +122,8 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
       data-gift-money
       class="border-border mx-auto mb-10 max-w-[34rem] rounded-sm border px-5 py-6 text-center"
     >
-      <p class="font-body text-gold-ink mb-2 text-[0.72rem] tracking-[0.2em] uppercase">
-        Give money
-      </p>
-      <p class="font-body text-text-muted mb-5 text-[0.88rem] leading-[1.6]">
+      <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-2 uppercase">Give money</p>
+      <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5">
         Straight to the couple, whether or not anything is left on the list.
       </p>
 
@@ -138,7 +137,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <For each={GIFT_AMOUNT_PRESETS_MINOR}>
               {(minor) => (
                 <label
-                  class="font-body focus-within:ring-gold/60 cursor-pointer rounded-sm border px-4 py-2 text-[0.85rem] transition-colors duration-200 focus-within:ring-2"
+                  class="font-body focus-within:ring-gold/60 text-ui-sm cursor-pointer rounded-sm border px-4 py-2 transition-colors duration-200 focus-within:ring-2"
                   classList={{
                     "border-gold text-gold-ink bg-gold/5": preset() === minor,
                     "border-border text-text-muted": preset() !== minor,
@@ -156,7 +155,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               )}
             </For>
             <label
-              class="font-body focus-within:ring-gold/60 cursor-pointer rounded-sm border px-4 py-2 text-[0.85rem] transition-colors duration-200 focus-within:ring-2"
+              class="font-body focus-within:ring-gold/60 text-ui-sm cursor-pointer rounded-sm border px-4 py-2 transition-colors duration-200 focus-within:ring-2"
               classList={{
                 "border-gold text-gold-ink bg-gold/5": preset() === null,
                 "border-border text-text-muted": preset() !== null,
@@ -175,7 +174,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
         </fieldset>
 
         <Show when={preset() === null}>
-          <label class="font-body text-text-muted mb-5 block text-[0.8rem]">
+          <label class="font-body text-text-muted text-ui-sm mb-5 block">
             <span class="mb-1 block">Amount ({props.currency})</span>
             <input
               data-gift-money-amount
@@ -183,45 +182,41 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               inputmode="decimal"
               value={customText()}
               onInput={(event) => setCustomText(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold mx-auto w-40 rounded-sm border px-3 py-2 text-center text-[0.95rem] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base mx-auto w-40 rounded-sm border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
         </Show>
 
         <div class="mx-auto mb-5 flex max-w-[26rem] flex-col gap-3 text-left">
-          <label class="font-body text-text-muted text-[0.8rem]">
+          <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">Your name (optional)</span>
             <input
               type="text"
               maxlength="120"
               value={displayName()}
               onInput={(event) => setDisplayName(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold w-full rounded-sm border px-3 py-2 text-[0.9rem] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
-          <label class="font-body text-text-muted text-[0.8rem]">
+          <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">A note for them (optional)</span>
             <textarea
               rows="2"
               maxlength="400"
               value={message()}
               onInput={(event) => setMessage(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold w-full rounded-sm border px-3 py-2 text-[0.9rem] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
         </div>
 
-        <button
-          type="submit"
-          disabled={amountMinor() === null || busy()}
-          class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg rounded-sm border bg-transparent px-6 py-3 text-[0.85rem] tracking-[0.12em] uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-        >
+        <Button type="submit" variant="cta" size="lg" disabled={amountMinor() === null || busy()}>
           {busy() ? "Taking you to pay…" : "Continue to payment"}
-        </button>
+        </Button>
 
         {/* Said before they press, not after: where they are about to go, and
             who sees what they just typed. */}
-        <p class="font-body text-text-muted mt-3 text-[0.72rem] leading-[1.6]">
+        <p class="font-body text-text-muted text-ui-xs leading-ui-normal mt-3">
           You’ll pay on Stripe’s own page. Your name and note go to the couple — never to the other
           guests.
         </p>
@@ -230,7 +225,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           data-gift-money-status
           role="status"
           aria-live="polite"
-          class="font-body text-text mt-3 min-h-[1.25rem] text-[0.82rem] leading-[1.6]"
+          class="font-body text-text text-ui-sm leading-ui-normal mt-3 min-h-[1.25rem]"
         >
           {status()}
         </p>
@@ -239,7 +234,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           <Show when={status().includes("invite code")}>
             <a
               href={props.inviteHref}
-              class="font-body text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.8rem] underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+              class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
             >
               Open the invitation
             </a>

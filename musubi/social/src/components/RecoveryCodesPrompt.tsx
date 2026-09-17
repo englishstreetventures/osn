@@ -1,4 +1,4 @@
-import { Button, buttonVariants } from "@osn/ui/ui/button";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, Show } from "solid-js";
 

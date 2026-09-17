@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { type JSX, onMount, Show } from "solid-js";
 
 import { CATEGORY_META, type ConsentCategory } from "../../lib/consent/categories";
@@ -101,7 +102,7 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
 
   return (
     <div class="border-border/70 bg-surface-raised/60 mt-2 rounded-md border px-4 py-4 text-center">
-      <p class="font-body text-text-muted text-[0.78rem] leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
         <Show when={vendor()?.purpose} fallback={<>Content from {vendorName()} is switched off.</>}>
           {(purpose) => (
             <>
@@ -110,25 +111,29 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
           )}
         </Show>
       </p>
-      <p class="font-body text-text-muted/80 mt-1.5 text-[0.72rem] leading-relaxed">
+      <p class="font-body text-text-muted/80 text-ui-xs mt-1.5 leading-relaxed">
         It's switched off because you turned off {categoryTitle()}. It loads from {vendorName()}'s
         servers, which lets them see your IP address and browser.
       </p>
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-        <button
+        <Button
+          variant="cta"
+          size="sm"
           type="button"
           onClick={() => grantCategory(props.category)}
-          class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="focus-visible:ring-gold/60 duration-200 focus:outline-none focus-visible:ring-2"
         >
           Allow {categoryTitle()}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="bare"
+          size="sm"
           type="button"
           onClick={openConsentPreferences}
-          class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.72rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
         >
           Privacy choices
-        </button>
+        </Button>
       </div>
     </div>
   );

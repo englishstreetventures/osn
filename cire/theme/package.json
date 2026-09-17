@@ -10,6 +10,9 @@
     "test": "bun test",
     "test:run": "bun test"
   },
+  "dependencies": {
+    "@shared/color": "workspace:*"
+  },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*"
   }

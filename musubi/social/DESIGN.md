@@ -8,7 +8,7 @@ The system is deliberately near-monochrome and typographic: SF Pro, a tight
 grey ink hierarchy, two corner radii plus a pill, and nothing else competing
 for attention. It is scoped to `@musubi/social` only — it lives in
 `src/App.css` and per-screen class overrides, and never edits the shared
-`@osn/ui` primitives (those are used by cire and pulse too).
+`@shared/ui` primitives (those are used by cire and pulse too).
 
 ## Genre
 
@@ -137,8 +137,8 @@ four-size scale, the two-radius + pill system, and the pill CTA voice.
 
 ## Implementation notes
 
-- Tokens + base rules live in `src/App.css` (app-scoped). `@osn/ui` primitives
+- Tokens + base rules live in `src/App.css` (app-scoped). `@shared/ui` primitives
   use the `base:` (zero-specificity) variant, so any class passed at an
   `@musubi/social` call site overrides the shared default without touching the lib.
-- Cards (`@osn/ui` `Card` is `rounded-xl` by default) get `rounded-card` at the
+- Cards (`@shared/ui` `Card` is `rounded-xl` by default) get `rounded-card` at the
   call site; CTA buttons get `rounded-pill`; dialogs get `rounded-card`.

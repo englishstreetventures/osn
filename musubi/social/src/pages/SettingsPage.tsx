@@ -1,14 +1,14 @@
+import { ProfileOnboarding } from "@osn/auth-ui/ProfileOnboarding";
 import { useAuth } from "@osn/client/solid";
-import { ProfileOnboarding } from "@osn/ui/auth/ProfileOnboarding";
-import { clsx } from "@osn/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
-import { Input } from "@osn/ui/ui/input";
-import { Label } from "@osn/ui/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Input } from "@shared/ui/ui/input";
+import { Label } from "@shared/ui/ui/label";
 import { useLocation, useNavigate } from "@solidjs/router";
-import { createMemo, For, lazy, Show, Suspense } from "solid-js";
+import { createMemo, lazy, Show, Suspense } from "solid-js";
 
+import { SectionTabs } from "../components/SectionTabs";
 import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
@@ -90,29 +90,17 @@ export function SettingsPage() {
           <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />
         </div>
 
-        {/* Section tabs */}
-        <div class="border-border mb-6 flex gap-1 overflow-x-auto border-b whitespace-nowrap">
-          <For each={SECTIONS}>
-            {(s) => (
-              <button
-                type="button"
-                class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors max-md:min-h-11",
-                  section() === s.value
-                    ? "border-foreground text-foreground"
-                    : "text-muted-foreground hover:text-foreground border-transparent",
-                )}
-                onClick={() => selectSection(s.value)}
-              >
-                {s.label}
-              </button>
-            )}
-          </For>
-        </div>
+        <SectionTabs
+          label="Settings sections"
+          tabs={SECTIONS}
+          current={section()}
+          onSelect={selectSection}
+          class="mb-6"
+        />
 
         {/* Profile section */}
         <Show when={section() === "profile"}>
-          <Card class="rounded-card flex flex-col gap-5 p-5">
+          <Card padding="md" class="rounded-card flex flex-col gap-5">
             <div class="flex items-center gap-4">
               <Avatar class="h-16 w-16">
                 <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
@@ -158,7 +146,7 @@ export function SettingsPage() {
 
         {/* Account section */}
         <Show when={section() === "account"}>
-          <Card class="rounded-card flex flex-col gap-5 p-5">
+          <Card padding="md" class="rounded-card flex flex-col gap-5">
             <div class="flex flex-col gap-1.5">
               <Label class="text-subtle text-meta">Email</Label>
               <Input value={claims().email ?? ""} disabled class="bg-muted/50 text-body" />
@@ -187,7 +175,7 @@ export function SettingsPage() {
 
         {/* Security section — manage passkeys (add / rename / delete). */}
         <Show when={section() === "security"}>
-          <Card class="rounded-card flex flex-col gap-3 p-5">
+          <Card padding="md" class="rounded-card flex flex-col gap-3">
             <Show
               when={accessToken() && claims().profileId}
               fallback={
@@ -203,7 +191,7 @@ export function SettingsPage() {
 
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
-          <Card class="rounded-card flex flex-col gap-4 p-5">
+          <Card padding="md" class="rounded-card flex flex-col gap-4">
             <Show
               when={accessToken()}
               fallback={<p class="text-subtle text-meta">Sign in to manage your connected apps.</p>}

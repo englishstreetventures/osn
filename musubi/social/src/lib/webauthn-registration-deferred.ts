@@ -1,4 +1,4 @@
-import type { RunPasskeyRegistration } from "@osn/ui/auth/StepUpDialog";
+import type { RunPasskeyRegistration } from "@osn/auth-ui/StepUpDialog";
 
 /**
  * `runPasskeyRegistration`, fetched at the moment a ceremony actually runs.

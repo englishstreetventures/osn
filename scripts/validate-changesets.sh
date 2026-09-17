@@ -114,7 +114,7 @@ done
 if [ $bad -ne 0 ]; then
   echo
   echo "Open the offending .changeset/*.md files. For an unknown package,"
-  echo "use the exact workspace 'name' from its package.json (e.g. '@osn/ui',"
+  echo "use the exact workspace 'name' from its package.json (e.g. '@shared/ui',"
   echo "'@pulse/web', not 'pulse'). For a mixed changeset, split it in two:"
   echo "one file for the ignored (version-less) packages and one for the"
   echo "versioned packages."

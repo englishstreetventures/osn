@@ -1,4 +1,4 @@
-import { Button } from "@osn/ui/ui/button";
+import { Button } from "@shared/ui/ui/button";
 
 /**
  * Downloads the event's ICS file via a hidden anchor with `download` so

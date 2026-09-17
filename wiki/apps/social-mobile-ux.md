@@ -19,7 +19,7 @@ left-rail workbench and had **no responsive behaviour at all**. On a phone it
 was effectively broken: the fixed 240 px sidebar always rendered, leaving
 ~135 px of content on a 375 px viewport. This page is the audit of what was
 wrong and the phased plan that fixed it, scoped to the app only (per
-`DESIGN.md`, the shared `@osn/ui` primitives are never edited — cire and
+`DESIGN.md`, the shared `@shared/ui` primitives are never edited — cire and
 pulse consume them too).
 
 > **Superseded in one detail (2026-08-02):** the tab bar now carries a fifth
@@ -140,8 +140,8 @@ that won't exist on mobile.
 
 Five phases, each independently shippable, ordered so foundations land before
 layout. Everything is `@musubi/social`-scoped: `App.css`, call-site classes
-(the `base:` zero-specificity variant in `@osn/ui` makes call-site overrides
-win), and new app-local components. **No edits to `@osn/ui` primitives.**
+(the `base:` zero-specificity variant in `@shared/ui` makes call-site overrides
+win), and new app-local components. **No edits to `@shared/ui` primitives.**
 `DESIGN.md` is the locked system — phases that extend it amend the file in the
 same PR.
 
@@ -179,7 +179,7 @@ mobile shell; at and above it, today's rail is unchanged.
 
 ### Phase 2 — Bottom-sheet dialogs (fixes F5)
 
-- New app-local `ResponsiveDialogContent` wrapping `@osn/ui`'s
+- New app-local `ResponsiveDialogContent` wrapping `@shared/ui`'s
   `DialogContent` with classes only: below `md` — pinned to bottom,
   full-width, `rounded-t-card` (square bottom corners), slide-up motion,
   `max-h-[85dvh] overflow-y-auto`, `pb-safe`; at `md+` — exactly today's
@@ -232,7 +232,7 @@ after Phase 0.
 
 - Native wrapper — separate, already-deferred track.
 - PWA install/offline — worth a look after the shell work, not part of it.
-- Editing `@osn/ui` primitives to be responsive — cire and pulse own their
+- Editing `@shared/ui` primitives to be responsive — cire and pulse own their
   breakpoints; everything here stays app-scoped.
 - Redesigning the near-monochrome system — mobile inherits the same ink
   hierarchy, radii, and type scale (16 px input exception aside).

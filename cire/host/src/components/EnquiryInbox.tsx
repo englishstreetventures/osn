@@ -38,7 +38,7 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
     <div class="flex flex-col gap-2">
       <Show
         when={props.items.length > 0}
-        fallback={<p class="text-text-muted text-[0.85rem] italic">No enquiries yet.</p>}
+        fallback={<p class="text-text-muted text-ui-sm italic">No enquiries yet.</p>}
       >
         <ul class="flex flex-col gap-1">
           <For each={props.items}>
@@ -57,31 +57,31 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
                     }}
                   >
                     {/* Vendor name */}
-                    <span class="text-text min-w-[10rem] flex-1 text-[0.9rem] font-medium">
+                    <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
                       {item.vendorName}
                     </span>
 
                     {/* Category chip */}
-                    <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
+                    <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
                       {categoryLabel(item.category)}
                     </span>
 
                     {/* Status chip */}
                     <span
-                      class={`rounded-full px-2 py-0.5 text-[0.72rem] ${STATUS_CHIP_CLASS[item.status]}`}
+                      class={`text-ui-xs rounded-full px-2 py-0.5 ${STATUS_CHIP_CLASS[item.status]}`}
                     >
                       {STATUS_CHIP[item.status]}
                     </span>
 
                     {/* Quote (when present) */}
                     <Show when={item.quotedMinor != null}>
-                      <span class="text-text text-[0.82rem]">
+                      <span class="text-text text-ui-sm">
                         {formatMinor(item.quotedMinor!, props.currency)}
                       </span>
                     </Show>
 
                     {/* Last message date */}
-                    <span class="text-text-muted shrink-0 text-[0.78rem]">
+                    <span class="text-text-muted text-ui-sm shrink-0">
                       {shortDate(item.lastMessageAt)}
                     </span>
                   </button>

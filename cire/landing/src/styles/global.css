@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@import "@shared/design-tokens/tokens.css";
+
+/* `@cire/ui` lives outside this package, so Tailwind has to be told where to
+ * look for its classes. The line goes HERE and not in `@shared/design-tokens`:
+ * a shared file pointing at a product package inverts the layering and would
+ * scan cire's classes into every musubi, pulse, lab and metrics build. */
+@source "../../../ui/src";
 
 /* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
@@ -18,7 +25,18 @@
   --color-surface-raised: oklch(27.87% 0.0393 149.62);
   --color-border: oklch(85.51% 0.069 144.94 / 0.1);
   --color-text: oklch(94.62% 0.0111 89.72);
-  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
+  /* The control boundary. Written out at every form control as `border-text/55`
+     before it had a name — the guest site's claim-code box and its
+     gift-registry fields — which is a token by any other measure, and one the
+     contract needs by name (`--ui-hairline-strong`) to hold it to its 3:1
+     floor. */
+  --color-border-strong: oklch(94.62% 0.0111 89.72 / 0.55);
+  /* Solid, not `text / 0.5`. The alpha form measured 4.24:1 composited over
+     `--color-surface-raised`, under the 4.5 bar, and no contrast check sees an
+     alpha — `contrastOklch` ignores it by design. This is the value
+     `cire/invites` carries, which is what `derivePalette(evergreen)` emits, so
+     the fix restores brand parity as well as legibility. */
+  --color-text-muted: oklch(69.24% 0.0186 109.31);
   --color-gold: oklch(74.99% 0.0854 82.08);
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
   --color-error: oklch(67.56% 0.1401 21.48);
@@ -287,4 +305,82 @@
   .vine-layer.is-animated .vine-organs > g {
     opacity: 1;
   }
+}
+
+/* ── The token contract ─────────────────────────────────────────────────────
+ * `@shared/ui` and `@cire/ui` are written against `--ui-*`, not against the theme
+ * block above. This says which of the marketing site's colours plays each role,
+ * and it is the same mapping `cire/invites` declares — the point of the brand
+ * block above is that the site and the invites it advertises read as one brand,
+ * and a shared component has to follow that too.
+ *
+ * Several roles share one value because this surface has one of the thing: a
+ * single page ground, and a single muted ink.
+ */
+:root {
+  --ui-ground: var(--color-bg);
+  --ui-ground-deep: var(--color-bg);
+  --ui-surface: var(--color-surface);
+  --ui-surface-raised: var(--color-surface-raised);
+  --ui-surface-sunk: var(--color-bg);
+
+  --ui-hairline: var(--color-border);
+  --ui-hairline-strong: var(--color-border-strong);
+
+  --ui-ink: var(--color-text);
+  --ui-ink-secondary: var(--color-text-muted);
+  --ui-ink-tertiary: var(--color-text-muted);
+
+  /* No `--color-gold-ink` here: this site carries no gold that is read at body
+     size, so the metal and the readable variant are the same colour. They part
+     company on a paler scheme, which is why the contract names both. */
+  --ui-accent: var(--color-gold);
+  --ui-accent-strong: var(--color-gold);
+  --ui-accent-soft: var(--color-gold-dim);
+  --ui-accent-ink: var(--color-gold);
+  --ui-on-accent: var(--color-bg);
+
+  --ui-success: var(--color-success);
+  --ui-warn: var(--color-gold);
+  --ui-danger: var(--color-error);
+  --ui-on-danger: var(--color-bg);
+
+  --ui-focus: var(--color-gold);
+
+  /* No `lg`. The house rule is "nothing rounder than 6px except pills". */
+  --ui-radius-hair: 2px;
+  --ui-radius-sm: 4px;
+  --ui-radius-md: 6px;
+  --ui-radius-lg: 6px;
+  --ui-radius-pill: 999px;
+  /* Sharp, like every other control here: the house look is stationery. */
+  --ui-radius-control: var(--ui-radius-sm);
+
+  --ui-font-body: var(--font-body);
+  --ui-font-display: var(--font-display);
+  --ui-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The type scale, in the sizes cire already uses — the same seven steps the
+     two portals map, so a shared component is the same size on every cire
+     surface. */
+  --ui-text-xs: 0.72rem;
+  --ui-text-sm: 0.82rem;
+  --ui-text-base: 0.9rem;
+  --ui-text-md: 1.05rem;
+  --ui-text-lg: 1.3rem;
+  --ui-text-xl: 1.75rem;
+  --ui-text-2xl: 2.5rem;
+
+  --ui-tracking-tight: -0.02em;
+  --ui-tracking-normal: 0em;
+  --ui-tracking-wide: 0.04em;
+  --ui-tracking-wider: 0.1em;
+  --ui-tracking-widest: 0.16em;
+  --ui-tracking-ultra: 0.2em;
+
+  --ui-leading-none: 1.1;
+  --ui-leading-tight: 1.2;
+  --ui-leading-snug: 1.4;
+  --ui-leading-normal: 1.6;
+  --ui-leading-relaxed: 1.75;
 }

@@ -1,5 +1,5 @@
-import { clsx } from "@osn/ui/lib/utils";
-import { Avatar, AvatarImage, AvatarFallback } from "@osn/ui/ui/avatar";
+import { clsx } from "@shared/ui/lib/utils";
+import { Avatar, AvatarImage, AvatarFallback } from "@shared/ui/ui/avatar";
 import { Show } from "solid-js";
 
 import type { Rsvp } from "../lib/rsvps";

@@ -1,5 +1,5 @@
 import { useAuth } from "@osn/client/solid";
-import { Input } from "@osn/ui/ui/input";
+import { Input } from "@shared/ui/ui/input";
 import { For, onMount, Show } from "solid-js";
 
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
@@ -56,7 +56,7 @@ export function SearchPage() {
             type="search"
             autocomplete="off"
             placeholder="Search by name or @handle"
-            class="rounded-pill h-11 pl-8"
+            class="h-11 pl-8"
             value={controller.query()}
             onInput={(event) => controller.setQuery(event.currentTarget.value)}
           />

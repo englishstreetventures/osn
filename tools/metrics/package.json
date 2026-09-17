@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@observablehq/plot": "^0.6.17",
-    "@osn/ui": "workspace:*",
+    "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "solid-js": "^1.9.15",
     "tailwindcss": "^4.3.3"

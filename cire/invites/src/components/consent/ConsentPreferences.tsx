@@ -1,4 +1,5 @@
-import { createSignal, createUniqueId, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { Modal } from "@shared/ui/ui/modal";
+import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
 import {
   CATEGORY_LIST,
@@ -18,15 +19,6 @@ import {
   gatedVendorsInCategory,
   ungatedVendorsInCategory,
 } from "../../lib/consent/vendors";
-import { Z_CLASS } from "../../lib/z-index";
-
-/** Selector for the tab-order-relevant focusable descendants of the panel. */
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
 
 /**
  * The "Choose" layer — per-category toggles, with the vendors each one governs
@@ -53,95 +45,38 @@ export function ConsentPreferences() {
 
   const [draft, setDraft] = createSignal<ConsentGrants>({ ...currentGrants() });
 
-  let panelRef: HTMLDivElement | undefined;
-  let previouslyFocused: HTMLElement | null = null;
-
-  function focusables(): HTMLElement[] {
-    if (!panelRef) return [];
-    return Array.from(panelRef.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-  }
-
-  // Escape closes; Tab is trapped inside the panel. Same contract as
-  // AnimatedModal — the consent dialog is a modal dialog and has to behave like
-  // one, but it deliberately does not reuse AnimatedModal: that component
-  // applies the invite's per-section theme variables and sits at the modal
-  // layer, and this dialog also has to render on the legal pages, which have no
-  // invite theme and no modal beneath it.
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeConsentPreferences();
-      return;
-    }
-    if (event.key !== "Tab") return;
-
-    const items = focusables();
-    if (items.length === 0) {
-      event.preventDefault();
-      panelRef?.focus();
-      return;
-    }
-
-    const first = items[0]!;
-    const last = items[items.length - 1]!;
-    const active = document.activeElement as HTMLElement | null;
-
-    if (event.shiftKey && (active === first || !panelRef?.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  onMount(() => {
-    previouslyFocused = document.activeElement as HTMLElement | null;
-    document.addEventListener("keydown", onKeyDown);
-    // Focus the panel itself rather than the first control, so a screen reader
-    // announces the dialog's name and purpose before its options.
-    panelRef?.focus();
-  });
-
-  onCleanup(() => {
-    document.removeEventListener("keydown", onKeyDown);
-    previouslyFocused?.focus?.();
-  });
-
   function toggle(category: ConsentCategory, next: boolean) {
     if (isRequiredCategory(category)) return;
     setDraft((current) => ({ ...current, [category]: next }));
   }
 
   return (
-    <div
-      class={`fixed inset-0 ${Z_CLASS.CONSENT_DIALOG} flex items-end justify-center sm:items-center`}
+    // `Modal` rather than `AnimatedModal`: that one applies the invite's
+    // per-section theme variables, and this dialog also renders on `/privacy`
+    // and `/terms`, which have no invite theme at all.
+    //
+    // A dismissal is not a decision. Escape and a backdrop click both discard
+    // the draft and leave the banner up, and `onClose` is wired to nothing but
+    // `closeConsentPreferences` so there is no path where one writes a record.
+    //
+    // Plain utilities in `class`, never `base:` ones: `Modal`'s own defaults
+    // are `:where(…)`, so a plain utility beats them and a `base:` one ties —
+    // see `wiki/architecture/component-library.md`.
+    <Modal
+      open
+      onClose={closeConsentPreferences}
+      labelledBy={titleId}
+      aria-describedby={descriptionId}
+      class="border-border bg-bg mt-auto mb-0 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-lg rounded-b-none sm:m-auto sm:rounded-lg"
     >
-      {/* Backdrop. Clicking it closes WITHOUT saving — a dismissal is not a
-          decision, so the draft is discarded and the banner stays up. */}
-      <div
-        class="absolute inset-0 bg-black/70"
-        aria-hidden="true"
-        onClick={closeConsentPreferences}
-      />
-
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        tabindex="-1"
-        class="border-border bg-bg relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-lg border p-6 focus:outline-none sm:rounded-lg"
-      >
-        <h2 id={titleId} class="font-display text-text text-[1.4rem] leading-tight font-light">
-          Your privacy choices
-        </h2>
-        <p id={descriptionId} class="font-body text-text-muted mt-2 text-[0.82rem] leading-relaxed">
-          Choose what this invite is allowed to load. You can change this at any time from the link
-          in the footer of any page.
-        </p>
-        {/* Turning off a category whose content already ran this
+      <h2 id={titleId} class="font-display text-text text-ui-lg leading-tight font-light">
+        Your privacy choices
+      </h2>
+      <p id={descriptionId} class="font-body text-text-muted text-ui-sm mt-2 leading-relaxed">
+        Choose what this invite is allowed to load. You can change this at any time from the link in
+        the footer of any page.
+      </p>
+      {/* Turning off a category whose content already ran this
             visit reloads the page — see `saveConsent` in
             `lib/consent/store.ts` — so that company's code is cleared, not
             just stopped from running again. Stated here rather than left
@@ -150,41 +85,40 @@ export function ConsentPreferences() {
             happens when there is something to clear: a guest who never
             opened an event's details sheet loaded no embed, and reloading them
             would cost a full page load to clear nothing. */}
-        <p class="font-body text-text-muted/80 mt-1.5 text-[0.76rem] leading-relaxed">
-          Switching something off takes effect straight away. If content from that company already
-          loaded during this visit, the page reloads to clear it.
-        </p>
+      <p class="font-body text-text-muted/80 text-ui-sm mt-1.5 leading-relaxed">
+        Switching something off takes effect straight away. If content from that company already
+        loaded during this visit, the page reloads to clear it.
+      </p>
 
-        <div class="mt-5 flex flex-col gap-4">
-          <For each={CATEGORY_LIST}>
-            {(category) => (
-              <CategoryRow
-                id={category.id}
-                title={category.title}
-                summary={category.summary}
-                required={category.required}
-                checked={draft()[category.id]}
-                onChange={(next) => toggle(category.id, next)}
-              />
-            )}
-          </For>
-        </div>
+      <div class="mt-5 flex flex-col gap-4">
+        <For each={CATEGORY_LIST}>
+          {(category) => (
+            <CategoryRow
+              id={category.id}
+              title={category.title}
+              summary={category.summary}
+              required={category.required}
+              checked={draft()[category.id]}
+              onChange={(next) => toggle(category.id, next)}
+            />
+          )}
+        </For>
+      </div>
 
-        <div class="border-border/70 mt-6 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:justify-between">
-          {/* Reject and Accept are rendered as siblings with identical weight.
+      <div class="border-border/70 mt-6 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:justify-between">
+        {/* Reject and Accept are rendered as siblings with identical weight.
               A refusal that is visually harder to reach than an acceptance is
               not a free choice, and is the specific dark pattern the "reject
               must be as easy as accept" rule targets. */}
-          <div class="flex gap-2">
-            <ChoiceButton onClick={rejectAllConsent}>Reject all</ChoiceButton>
-            <ChoiceButton onClick={acceptAllConsent}>Accept all</ChoiceButton>
-          </div>
-          <ChoiceButton primary onClick={() => saveConsent(draft())}>
-            Save choices
-          </ChoiceButton>
+        <div class="flex gap-2">
+          <ChoiceButton onClick={rejectAllConsent}>Reject all</ChoiceButton>
+          <ChoiceButton onClick={acceptAllConsent}>Accept all</ChoiceButton>
         </div>
+        <ChoiceButton primary onClick={() => saveConsent(draft())}>
+          Save choices
+        </ChoiceButton>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -214,7 +148,7 @@ function CategoryRow(props: {
         <div class="min-w-0 flex-1">
           <label
             for={inputId}
-            class="font-body text-text flex items-center gap-2 text-[0.88rem] font-normal"
+            class="font-body text-text text-ui-base flex items-center gap-2 font-normal"
           >
             {props.title}
             <Show when={props.required}>
@@ -223,14 +157,10 @@ function CategoryRow(props: {
                   over a surface has no single ratio for the derivation to
                   enforce — `text-gold-ink/80` would have looked fixed without
                   being fixed. */}
-              <span class="text-gold-ink text-[0.62rem] tracking-[0.14em] uppercase">
-                Always on
-              </span>
+              <span class="text-gold-ink text-ui-xs tracking-ui-widest uppercase">Always on</span>
             </Show>
           </label>
-          <p class="font-body text-text-muted mt-1 text-[0.76rem] leading-relaxed">
-            {props.summary}
-          </p>
+          <p class="font-body text-text-muted text-ui-sm mt-1 leading-relaxed">{props.summary}</p>
 
           <Show when={gated().length > 0}>
             <VendorList label="This switch controls" vendors={gated()} />
@@ -248,13 +178,13 @@ function CategoryRow(props: {
 function VendorList(props: { label: string; vendors: readonly ConsentVendor[] }) {
   return (
     <div class="mt-2.5">
-      <p class="font-body text-text-muted/70 text-[0.66rem] tracking-[0.1em] uppercase">
+      <p class="font-body text-text-muted/70 text-ui-xs tracking-ui-wider uppercase">
         {props.label}
       </p>
       <ul class="mt-1 flex flex-col gap-1">
         <For each={props.vendors}>
           {(vendor) => (
-            <li class="font-body text-text-muted text-[0.74rem] leading-snug">
+            <li class="font-body text-text-muted text-ui-xs leading-snug">
               <span class="text-text/90">{vendor.name}</span>
               <Show when={vendor.transfer}>{(transfer) => <> — {transfer()}</>}</Show>
               <Show when={vendor.privacyUrl}>
@@ -287,8 +217,8 @@ function ChoiceButton(props: { primary?: boolean; onClick: () => void; children:
       onClick={props.onClick}
       class={
         props.primary
-          ? "border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
-          : "border-border font-body text-text hover:border-gold hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          ? "border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
+          : "border-border font-body text-text hover:border-gold hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
       }
     >
       {props.children}

@@ -1,4 +1,4 @@
-import { Button } from "@osn/ui/ui/button";
+import { Button } from "@shared/ui/ui/button";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { connectionsClient } from "../lib/authClients";
@@ -89,7 +89,7 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="text-body rounded-pill h-7 shrink-0"
+                    class="text-body h-7 shrink-0"
                     disabled={revoking() === conn.clientId}
                     onClick={() => void revoke(conn.clientId)}
                   >

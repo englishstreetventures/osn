@@ -156,18 +156,16 @@ export default function InvitePage(props: InvitePageProps) {
   const [revealed, setRevealed] = createSignal(false);
 
   // Warm the chunks that are otherwise fetched mid-interaction: the unlock
-  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves),
-  // the modal transitions (imported inside `AnimatedModal` on first open), and
-  // the post-claim components split out above — those are needed the instant
-  // the claim resolves, so without this the split would trade a slower first
-  // paint for a slower reveal. `lazy` exposes each one's loader as `.preload()`,
+  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves)
+  // and the post-claim components split out above — those are needed the
+  // instant the claim resolves, so without this the split would trade a slower
+  // first paint for a slower reveal. `lazy` exposes each one's loader as `.preload()`,
   // which both fetches the chunk and primes the same cache the render reads, so
   // a warmed component renders without a suspense gap.
   // Hints only — every call site keeps its own import and its own fallback.
   onMount(() => {
     const cancels = [
       prefetchOnIdle(() => import("./UnlockReveal.motion")),
-      prefetchOnIdle(() => import("../../components/Modal.motion")),
       prefetchOnIdle(() => RsvpModal.preload()),
       prefetchOnIdle(() => DetailsModal.preload()),
       prefetchOnIdle(() => EventCard.preload()),
@@ -425,10 +423,10 @@ export default function InvitePage(props: InvitePageProps) {
             }}
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
-              <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
                 {detailsEyebrow()}
               </p>
-              <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+              <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {detailsHeading()}
               </h2>
               {/* The RSVP-by line. One line governs every card — a per-card
@@ -451,7 +449,7 @@ export default function InvitePage(props: InvitePageProps) {
                 {(notice) => (
                   <p
                     id={RSVP_NOTICE_ID}
-                    class="font-body mb-3 text-center text-[0.85rem]"
+                    class="font-body text-ui-sm mb-3 text-center"
                     classList={{ "text-text-muted": rsvpClosed(), "text-gold-ink": !rsvpClosed() }}
                     role="status"
                   >
@@ -597,11 +595,19 @@ export default function InvitePage(props: InvitePageProps) {
           still open, and that sheet's sticky action bar owns the bottom edge. */}
       <Toaster
         position="top-center"
-        // The layer goes on as a CLASS. `@shared/toast` sets no `z-index` of
-        // its own — precisely so this works. (`solid-toast` spread a hardcoded
-        // `z-index: 9999` onto the same div's inline style, which beat any
-        // class and parked the toast ABOVE the consent layers; the only
-        // override that won was `containerStyle`. Two-sided bound asserted in
+        // The RSVP sheet is a `showModal()` dialog, which paints in the top
+        // layer — above every stacking context in the document, so no `z-index`
+        // here can reach over it. The save toast fires while that sheet is
+        // still open, so without this it is raised behind the reply it
+        // confirms. See `ToasterProps.topLayer`.
+        topLayer
+        // The layer still goes on as a CLASS, for everything that is NOT in the
+        // top layer — the consent banner above it, the page below.
+        // `@shared/toast` sets no `z-index` of its own, precisely so this
+        // works. (`solid-toast` spread a hardcoded `z-index: 9999` onto the
+        // same div's inline style, which beat any class and parked the toast
+        // ABOVE the consent layers; the only override that won was
+        // `containerStyle`. Two-sided bound asserted in
         // `InvitePage.browser.test.tsx`.)
         class={Z_CLASS.TOAST}
       />

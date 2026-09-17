@@ -1,4 +1,4 @@
-import { clsx } from "@osn/ui/lib/utils";
+import { clsx } from "@shared/ui/lib/utils";
 import { createSignal, Show } from "solid-js";
 
 import { RecoveryCodesPrompt } from "./RecoveryCodesPrompt";

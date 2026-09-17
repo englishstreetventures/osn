@@ -1,134 +1,56 @@
-import { onCleanup, onMount, type JSX } from "solid-js";
+/**
+ * The demo's bottom sheet.
+ *
+ * It used to be a 130-line port of `cire/invites`' `AnimatedModal`: a
+ * `fixed inset-0` scrim, a 40-line `Tab` focus trap, Escape handling, a body
+ * scroll lock, focus restore, and an enter/exit animation lazily imported from
+ * `Modal.motion`. `@shared/ui`'s `Modal` supplies all of it — the trap, Escape and
+ * inertness from `showModal()`, the top layer instead of a `z-index`, and the
+ * motion from its own stylesheet.
+ *
+ * The exit is the part worth knowing about. `close()` drops a dialog out of the
+ * top layer immediately, so a CSS-only exit has nothing to paint, and the
+ * platform's fix for that — the `overlay` property — is Chrome and Edge only.
+ * `Modal` defers the `close()` call instead, which is why this still fades out
+ * in Safari. See `wiki/architecture/component-library.md`.
+ *
+ * What is left here is the sheet's own shape: bottom-anchored on a phone,
+ * centred above `md`, and a close button in the corner.
+ */
 
-// A slimmed port of cire/invites's AnimatedModal: focus trap, Escape-to-close,
-// background scroll lock, reduced-motion fallback, and the same enter/exit
-// motion. Self-contained so the landing site carries no dependency on cire/invites.
+import Button from "@cire/ui/button";
+import { Modal } from "@shared/ui/ui/modal";
+import type { JSX } from "solid-js";
 
 interface DemoModalProps {
+  open: boolean;
   onClose: () => void;
   labelledBy?: string;
   children: JSX.Element;
 }
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-function showInstantly(backdrop: HTMLElement, panel: HTMLElement) {
-  backdrop.style.opacity = "1";
-  panel.style.opacity = "1";
-  panel.style.transform = "none";
-}
-
 export function DemoModal(props: DemoModalProps) {
-  let backdropRef!: HTMLDivElement;
-  let panelRef!: HTMLDivElement;
-  let closeButtonRef: HTMLButtonElement | undefined;
-  let previouslyFocused: HTMLElement | null = null;
-
-  function focusableElements(): HTMLElement[] {
-    if (!panelRef) return [];
-    return Array.from(panelRef.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-  }
-
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      void handleClose();
-      return;
-    }
-    if (e.key !== "Tab") return;
-
-    const focusables = focusableElements();
-    if (focusables.length === 0) {
-      e.preventDefault();
-      panelRef?.focus();
-      return;
-    }
-    const first = focusables[0]!;
-    const last = focusables[focusables.length - 1]!;
-    const active = document.activeElement as HTMLElement | null;
-    if (e.shiftKey) {
-      if (active === first || !panelRef?.contains(active)) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else if (active === last || !panelRef?.contains(active)) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  onMount(async () => {
-    previouslyFocused = document.activeElement as HTMLElement | null;
-
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    onCleanup(() => {
-      document.body.style.overflow = previousBodyOverflow;
-    });
-
-    document.addEventListener("keydown", onKeyDown);
-    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
-
-    (closeButtonRef ?? panelRef)?.focus();
-
-    if (prefersReducedMotion()) {
-      showInstantly(backdropRef, panelRef);
-      return;
-    }
-    const { modalEnter } = await import("./Modal.motion");
-    modalEnter(backdropRef, panelRef);
-  });
-
-  onCleanup(() => previouslyFocused?.focus());
-
-  async function handleClose() {
-    if (!prefersReducedMotion()) {
-      const { modalExit } = await import("./Modal.motion");
-      await modalExit(backdropRef, panelRef);
-    }
-    props.onClose();
-  }
-
   return (
-    <div
-      ref={backdropRef}
-      class="fixed inset-0 z-50 flex items-end justify-center bg-black/70 opacity-0 md:items-center"
-      onClick={() => void handleClose()}
+    // `mt-auto mb-0` overrides the UA's `margin: auto` on a modal dialog so the
+    // sheet sits on the bottom edge of a phone; `md:m-auto` hands it back for
+    // the centred desktop presentation. A `max-w` in `px` rather than a
+    // contract step because this is one fixed sheet width, not a scale.
+    <Modal
+      open={props.open}
+      onClose={props.onClose}
+      labelledBy={props.labelledBy}
+      class="border-border bg-surface relative mt-auto mb-0 max-h-[85dvh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-[1.75rem] rounded-b-none px-6 pt-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] md:m-auto md:max-h-[85vh] md:rounded-lg md:pb-10"
     >
-      <div
-        ref={panelRef}
-        class="border-border bg-surface relative max-h-[85dvh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-[1.75rem] border px-6 pt-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] opacity-0 md:mb-8 md:max-h-[85vh] md:rounded-lg md:pb-10"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={props.labelledBy}
-        tabindex="-1"
+      <Button
+        variant="bare"
+        size="icon"
+        aria-label="Close"
+        onClick={props.onClose}
+        class="absolute top-2 right-2 h-11 w-11"
       >
-        <button
-          ref={closeButtonRef}
-          class="text-text-muted hover:text-text focus-visible:ring-gold/60 absolute top-2 right-2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
-          onClick={() => void handleClose()}
-          aria-label="Close"
-        >
-          &times;
-        </button>
-        {props.children}
-      </div>
-    </div>
+        &times;
+      </Button>
+      {props.children}
+    </Modal>
   );
 }

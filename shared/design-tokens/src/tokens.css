@@ -1,0 +1,256 @@
+/*
+ * @shared/design-tokens — the contract every shared component reads.
+ *
+ * ## What this file is
+ *
+ * A **library-facing** API. `@shared/ui`, `@cire/ui` and every other shared
+ * package writes `bg-ui-surface` / `text-ui-ink`; an application keeps its
+ * own vocabulary untouched (`bg-card` in pulse, `text-gold` in cire). The
+ * `ui-` namespace is what makes that separation real rather than a
+ * convention — nothing an app writes can collide with a contract utility, and
+ * nothing a contract utility reads depends on an app's naming.
+ *
+ * An app opts in by mapping its own colours onto the `--ui-*` names once,
+ * anywhere in the cascade above the components:
+ *
+ *   @import "tailwindcss";
+ *   @import "@shared/design-tokens/tokens.css";
+ *
+ *   :root {
+ *     --ui-surface: var(--surface);
+ *     --ui-ink: var(--text);
+ *     --ui-accent: var(--brand);
+ *   }
+ *
+ * That is the whole integration. This file carries the `@source` and
+ * `@custom-variant` the components need, so no app declares them — verified in
+ * xchromo/osn#1041, which proved both propagate through a bare package
+ * specifier and that the relative `@source` below resolves against this file's
+ * real path rather than through the `node_modules` symlink.
+ *
+ * ## Why the values are fallbacks, not defaults
+ *
+ * Every read is `var(--ui-x, <fallback>)` written inline at the use site, and
+ * there is deliberately **no `:root` block here**. A package-level `:root` is
+ * unlayered and lands at the import site, so it would beat any app mapping
+ * written inside `@layer base` or a later `@theme` — the app would set a token
+ * and silently get this file's value. `@shared/toast` reaches for the same
+ * inline-fallback form for the same reason.
+ *
+ * The fallbacks are a neutral greyscale, not a brand. An unmapped app renders
+ * legibly rather than correctly; that is the point. Anything that looks like a
+ * house style here would be a library owning a brand.
+ *
+ * ## Why `inline`
+ *
+ * `@theme inline` makes `bg-ui-surface` compile to
+ * `background-color: var(--ui-surface, …)` — the variable is resolved **at the
+ * element**, not at `:root`. So a subtree that redefines `--ui-surface` is
+ * followed correctly: a theme story showing light and dark side by side, a
+ * themed section on a landing page, cire's invite preview rendering a wedding's
+ * palette inside the organiser's own chrome. Without `inline` the alias
+ * resolves once at `:root` and every one of those silently shows the page
+ * theme instead.
+ *
+ * Nothing reads `--color-ui-*` from JavaScript; an app that wants a value in
+ * JS reads its own `--ui-*` (or its own token) with `getComputedStyle`. That
+ * is why the reason `cire/host` gives for keeping its OWN theme block
+ * non-inline does not apply here.
+ */
+
+@source "../../ui/src";
+@source "../../../osn/auth-ui/src";
+@source "../../toast/src";
+@source "../../sortable/src";
+
+@custom-variant base (:where(&));
+
+@theme inline {
+  /* ── Grounds ──────────────────────────────────────────────────────────────
+   * `ground` is the page. `ground-deep` is what the page recedes to behind a
+   * sticky bar or under a scrim — it is not "darker", it is *further away*,
+   * which in a light theme means darker and in a dark theme can mean either. */
+  --color-ui-ground: var(--ui-ground, #ffffff);
+  --color-ui-ground-deep: var(--ui-ground-deep, #f4f4f5);
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────────
+   * Three, and three is the minimum: `musubi/social` and `pulse/web` both
+   * collapse shadcn's `secondary`/`muted`/`accent` onto one value and
+   * `card`/`popover`/`background` onto another, so a two-surface contract
+   * cannot express either app without losing a distinction it relies on.
+   * `surface` is a card, `surface-raised` a menu or popover above it,
+   * `surface-sunk` a well — an input, a code block, a progress track. */
+  --color-ui-surface: var(--ui-surface, #fafafa);
+  --color-ui-surface-raised: var(--ui-surface-raised, #ffffff);
+  --color-ui-surface-sunk: var(--ui-surface-sunk, #f4f4f5);
+
+  /* ── Edges ────────────────────────────────────────────────────────────────
+   * `hairline` is decoration and carries NO contrast floor — a card is told
+   * apart by its surface, not its edge. `hairline-strong` is the visible
+   * boundary of a control that has no fill (an outline button, an input) and
+   * must clear 3:1 against both grounds. The conformance test knows the
+   * difference; a single `--ui-border` could not express it. */
+  --color-ui-hairline: var(--ui-hairline, #e4e4e7);
+  --color-ui-hairline-strong: var(--ui-hairline-strong, #a1a1aa);
+
+  /* ── Ink ──────────────────────────────────────────────────────────────────
+   * `ink` and `ink-secondary` clear 4.5:1. `ink-tertiary` clears only 3:1 and
+   * is therefore for large text, ornament and disabled states — never body
+   * copy. Naming it `tertiary` rather than `faint` keeps the ladder readable;
+   * naming the floor in the comment is what the test asserts. */
+  --color-ui-ink: var(--ui-ink, #18181b);
+  --color-ui-ink-secondary: var(--ui-ink-secondary, #52525b);
+  --color-ui-ink-tertiary: var(--ui-ink-tertiary, #71717a);
+
+  /* ── Accent ───────────────────────────────────────────────────────────────
+   * `accent` is a FILL: the ground of a primary button, the wash behind an
+   * active row. `on-accent` is what sits on top of it. `accent-ink` is the
+   * readable-on-a-page-ground variant, which is a different colour whenever
+   * the accent is dark enough to need one. `accent-soft` is a tint of the
+   * accent — never a neutral surface, however tempting: an app that maps
+   * shadcn's neutral `accent` here instead of onto a surface gets a coloured
+   * hover state where it wanted a grey one. */
+  --color-ui-accent: var(--ui-accent, #18181b);
+  --color-ui-accent-strong: var(--ui-accent-strong, #000000);
+  --color-ui-accent-soft: var(--ui-accent-soft, #e4e4e7);
+  --color-ui-accent-ink: var(--ui-accent-ink, #18181b);
+  --color-ui-on-accent: var(--ui-on-accent, #ffffff);
+
+  /* ── Status ───────────────────────────────────────────────────────────────
+   * Separate from the accent, as status colour always should be: an app whose
+   * brand is green still needs a green that means "succeeded" and does not
+   * mean "primary action". */
+  --color-ui-success: var(--ui-success, #15803d);
+  --color-ui-warn: var(--ui-warn, #a16207);
+  --color-ui-danger: var(--ui-danger, #b91c1c);
+  --color-ui-on-danger: var(--ui-on-danger, #ffffff);
+
+  /* ── Focus ────────────────────────────────────────────────────────────────
+   * Its own token rather than an alias of the accent, because a focus
+   * indicator has a 3:1 floor and plenty of brand colours do not clear it.
+   * cire learned this with gold, which is unreadable on its light ground. */
+  --color-ui-focus: var(--ui-focus, #2563eb);
+
+  /* ── Radius ───────────────────────────────────────────────────────────────
+   * `hair` is a 2px softening that reads as "not a raw rectangle"; `pill` is
+   * fully round. Everything between is the app's house style. */
+  --radius-ui-hair: var(--ui-radius-hair, 2px);
+  --radius-ui-sm: var(--ui-radius-sm, 4px);
+  --radius-ui-md: var(--ui-radius-md, 6px);
+  --radius-ui-lg: var(--ui-radius-lg, 10px);
+  --radius-ui-pill: var(--ui-radius-pill, 999px);
+
+  /* `control` is a role, not a size — the same way `focus` is its own colour
+   * rather than an alias of the accent. How round a BUTTON is turns out to be
+   * an app-level decision independent of how round a card is: musubi's house
+   * style is pill CTAs, cire's is a sharp 4px, and pulse sits between them. A
+   * shared control that picked one of the sized steps instead would be
+   * overridden at every call site in at least one of those apps, which is
+   * exactly what `<Button class="rounded-pill">` x16 in musubi was.
+   *
+   * It defaults to `md` rather than to a literal, so an app that has no opinion
+   * gets its own mid radius and not this package's. */
+  --radius-ui-control: var(--ui-radius-control, var(--ui-radius-md, 6px));
+
+  /* ── Type families ────────────────────────────────────────────────────────
+   * Families only — the sizes are the scale below. */
+  --font-ui-body: var(--ui-font-body, ui-sans-serif, system-ui, sans-serif);
+  --font-ui-display: var(--ui-font-display, ui-serif, Georgia, serif);
+  --font-ui-mono: var(--ui-font-mono, ui-monospace, SFMono-Regular, monospace);
+
+  /* ── Type scale ───────────────────────────────────────────────────────────
+   * Seven steps, clustered from what the monorepo actually used: 956 sites
+   * carrying 93 distinct font sizes, nine of them between 0.7rem and 0.95rem.
+   * That is not a house style, it is drift, and a scale is the thing that
+   * stops it recurring.
+   *
+   * Seven and not eleven because a scale nobody can hold in their head is
+   * another way of having no scale: each step here is visibly distinct, which
+   * is what makes "use the next step up" a decision rather than a guess. The
+   * cost is paid once, in the migration — 749 of 853 sites move by a pixel or
+   * less, 104 move more.
+   *
+   * Values are unitless-in-rem so a user's root font size still scales the
+   * whole system. `em` is deliberately absent: two `em` sizes nested compound,
+   * which is how a scale stops being one.
+   *
+   * Named for role, not value. Changing `--ui-text-sm` is one line; changing
+   * `text-[0.82rem]` was 108 sites. */
+  --text-ui-xs: var(--ui-text-xs, 0.7rem);
+  --text-ui-sm: var(--ui-text-sm, 0.8rem);
+  --text-ui-base: var(--ui-text-base, 0.9rem);
+  --text-ui-md: var(--ui-text-md, 1.05rem);
+  --text-ui-lg: var(--ui-text-lg, 1.3rem);
+  --text-ui-xl: var(--ui-text-xl, 1.75rem);
+  --text-ui-2xl: var(--ui-text-2xl, 2.5rem);
+
+  /* ── Tracking ─────────────────────────────────────────────────────────────
+   * Six steps from 18 observed values, chosen so nothing moves more than
+   * 0.04em — under half a pixel per character at the sizes that use it.
+   *
+   * The wide end is not decoration: `wider` and `ultra` are what the uppercase
+   * eyebrow labels across cire and pulse are built on, and letter-spacing is
+   * the whole difference between an eyebrow and shouting. */
+  --tracking-ui-tight: var(--ui-tracking-tight, -0.02em);
+  --tracking-ui-normal: var(--ui-tracking-normal, 0em);
+  --tracking-ui-wide: var(--ui-tracking-wide, 0.04em);
+  --tracking-ui-wider: var(--ui-tracking-wider, 0.1em);
+  --tracking-ui-widest: var(--ui-tracking-widest, 0.16em);
+  --tracking-ui-ultra: var(--ui-tracking-ultra, 0.24em);
+
+  /* ── Leading ──────────────────────────────────────────────────────────────
+   * Five steps from 12 observed values; nothing moves more than 0.05.
+   * `none` is not 1 — a display line still needs its descenders. */
+  /* `none` is 1.1 — a tight line, not literally no leading. A component that
+     wants `line-height: 1` on a single-line label (a badge, a checkbox's word)
+     reaches for Tailwind's own `leading-none`, which is a structural choice
+     rather than a step on a type scale. */
+  --leading-ui-none: var(--ui-leading-none, 1.1);
+  --leading-ui-tight: var(--ui-leading-tight, 1.2);
+  --leading-ui-snug: var(--ui-leading-snug, 1.4);
+  --leading-ui-normal: var(--ui-leading-normal, 1.6);
+  --leading-ui-relaxed: var(--ui-leading-relaxed, 1.75);
+
+  /* ── Measure ──────────────────────────────────────────────────────────────
+   * Content widths only — the caps that decide how long a line of prose gets,
+   * and how wide a panel or modal grows. Seven steps from 87 uses spread over
+   * 28 distinct widths, which mixed units for identical values:
+   * `max-w-[640px]` and `max-w-[40rem]` are the same number written twice.
+   * One unit, so that cannot recur.
+   *
+   * A one-off layout constant — a 240px rail, a 44% grid column — is NOT a
+   * measure and does not belong here. Those stay arbitrary, with the
+   * exemption documented in the README, because forcing a sidebar width into
+   * a typographic scale makes the scale meaningless rather than making the
+   * sidebar consistent. */
+  --container-ui-xs: var(--ui-measure-xs, 20rem);
+  --container-ui-sm: var(--ui-measure-sm, 30rem);
+  --container-ui-md: var(--ui-measure-md, 34rem);
+  --container-ui-lg: var(--ui-measure-lg, 40rem);
+  --container-ui-xl: var(--ui-measure-xl, 46rem);
+  --container-ui-2xl: var(--ui-measure-2xl, 64rem);
+  --container-ui-3xl: var(--ui-measure-3xl, 75rem);
+}
+
+/*
+ * Focus ring width and offset, and the motion tokens, are plain custom
+ * properties rather than `@theme` entries: they are consumed as
+ * `outline-width: var(--ui-focus-width)` inside a component's own rule, not
+ * as a Tailwind utility, so aliasing them would generate utilities nobody
+ * spells. They still need fallbacks, which is what this block is for — and
+ * unlike a `:root` colour block, a value an app has already set wins here,
+ * because these are only ever read through `var()` with the same fallback.
+ */
+@layer base {
+  :where(:root) {
+    --ui-focus-width: 2px;
+    --ui-focus-offset: 2px;
+    --ui-dur-fast: 120ms;
+    --ui-dur-base: 200ms;
+    --ui-dur-slow: 320ms;
+    --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --ui-elev-1: 0 1px 2px rgb(0 0 0 / 0.06);
+    --ui-elev-2: 0 8px 24px rgb(0 0 0 / 0.12);
+  }
+}

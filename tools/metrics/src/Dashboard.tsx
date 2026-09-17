@@ -1,5 +1,5 @@
 import * as Plot from "@observablehq/plot";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@osn/ui/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@shared/ui/ui/card";
 import { For, Show, type JSX } from "solid-js";
 
 import { compactTokens } from "../../pr-metrics/format.ts";

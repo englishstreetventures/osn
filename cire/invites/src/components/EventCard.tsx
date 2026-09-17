@@ -6,6 +6,8 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 // The event card photo's default display aspect (4∶3) — used when a crop carries
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
+import Button from "@cire/ui/button";
+
 import { formatEventDay, venueLine } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
@@ -204,11 +206,11 @@ export function EventCard(props: EventCardProps) {
               text (4.5:1), while the metal token is only held to the 3:1 UI
               floor — which shipped this line at 3.58:1 on `chapel` and 3.91:1
               on `garden` (C-M2). */}
-          <p class="font-body text-gold-ink mb-1 text-[0.92rem]">{formatEventDay(props.event)}</p>
+          <p class="font-body text-gold-ink text-ui-base mb-1">{formatEventDay(props.event)}</p>
           <Show when={venueLine(props.event)}>
-            {(venue) => <p class="font-body text-text-muted mb-3 text-[0.88rem]">{venue()}</p>}
+            {(venue) => <p class="font-body text-text-muted text-ui-base mb-3">{venue()}</p>}
           </Show>
-          <p class="font-body text-text-muted mb-5 text-[0.88rem] leading-[1.65] font-light">
+          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only
@@ -222,7 +224,7 @@ export function EventCard(props: EventCardProps) {
                 inactive-component exemption to lean on, and the outlined pair
                 beside it is a contrast combination this card already ships. */}
             <button
-              class="font-body relative min-h-11 flex-1 overflow-hidden rounded-sm border px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+              class="font-body text-ui-sm tracking-ui-wider relative min-h-11 flex-1 overflow-hidden rounded-sm border px-5 py-3 uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
               classList={{
                 "bg-gold text-bg hover:bg-gold/85 border-transparent": !props.rsvpClosed,
                 "border-border text-text-muted cursor-not-allowed bg-transparent": props.rsvpClosed,
@@ -294,12 +296,13 @@ export function EventCard(props: EventCardProps) {
                 </Show>
               </span>
             </button>
-            <button
-              class="border-border font-body text-text-muted hover:border-gold hover:text-gold-ink min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+            <Button
+              variant="quiet"
+              class="min-h-11 flex-1 duration-200 sm:flex-none sm:py-2.5"
               onClick={() => props.onDetails(props.event)}
             >
               Event Details
-            </button>
+            </Button>
           </div>
         </div>
 

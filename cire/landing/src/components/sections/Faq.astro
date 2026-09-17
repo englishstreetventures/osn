@@ -33,7 +33,7 @@ const faqs = [
     <div class="mb-14 text-center" data-reveal>
       <h2
         id="faq-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
       >
         Everything you might be wondering.
       </h2>
@@ -43,13 +43,13 @@ const faqs = [
       {
         faqs.map((faq) => (
           <details class="faq-item border-border border-b">
-            <summary class="display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-[1.2rem] font-normal">
+            <summary class="display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-ui-lg font-normal">
               <span>{faq.q}</span>
               <span class="faq-marker text-gold shrink-0 text-2xl leading-none" aria-hidden="true">
                 +
               </span>
             </summary>
-            <p class="font-body text-text-muted pb-5 text-[0.95rem] leading-[1.75] font-light">
+            <p class="font-body text-text-muted pb-5 text-ui-base leading-ui-relaxed font-light">
               {faq.a}
             </p>
           </details>

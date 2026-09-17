@@ -1,12 +1,12 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
-import Notice from "./ui/Notice";
-
 /**
  * One row of the change list as returned by
  * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint).
@@ -197,7 +197,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
   return (
     <details class="border-border bg-bg/30 group/history rounded-sm border" onToggle={onToggle}>
-      <summary class="font-body text-text hover:text-gold flex cursor-pointer items-center gap-2 px-4 py-3 text-[0.88rem] transition select-none [&::-webkit-details-marker]:hidden">
+      <summary class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition select-none [&::-webkit-details-marker]:hidden">
         <span
           class="text-gold inline-block transition-transform group-open/history:rotate-90"
           aria-hidden
@@ -209,17 +209,17 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
       <div class="border-border/60 flex flex-col gap-4 border-t px-4 py-5">
         <Show when={error()}>
-          <Notice tone="error">{error()}</Notice>
+          <Notice tone="danger">{error()}</Notice>
         </Show>
 
         <Show when={loading() && entries() === null}>
-          <p class="text-text-muted text-[0.85rem]" aria-busy="true">
+          <p class="text-text-muted text-ui-sm" aria-busy="true">
             Loading…
           </p>
         </Show>
 
         <Show when={loaded() && (entries()?.length ?? 0) === 0}>
-          <p class="text-text-muted text-[0.85rem]">No changes yet.</p>
+          <p class="text-text-muted text-ui-sm">No changes yet.</p>
         </Show>
 
         <Show when={(entries()?.length ?? 0) > 0}>
@@ -233,15 +233,15 @@ export default function ChangeHistory(props: { weddingId: string }) {
                 return (
                   <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 @lg/panel:flex-row @lg/panel:items-center @lg/panel:justify-between">
                     <div class="flex flex-col gap-1">
-                      <span class="font-body text-gold text-[0.62rem] tracking-[0.18em] uppercase">
+                      <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
                         {KIND_LABEL[entry.kind] ?? "Change"}
                       </span>
-                      <span class="font-body text-text text-[0.88rem]">
+                      <span class="font-body text-text text-ui-base">
                         {formatDate(entry.uploadedAt)}
                       </span>
-                      <span class="text-text-muted text-[0.82rem]">{summarise(entry.summary)}</span>
+                      <span class="text-text-muted text-ui-sm">{summarise(entry.summary)}</span>
                       <span
-                        class="font-body text-[0.66rem] tracking-[0.18em] uppercase"
+                        class="font-body text-ui-xs tracking-ui-widest uppercase"
                         classList={{
                           "text-gold": entry.status === "applied",
                           "text-text-muted": entry.status !== "applied",
@@ -252,20 +252,21 @@ export default function ChangeHistory(props: { weddingId: string }) {
                     </div>
 
                     <Show when={entry.status === "applied" && entry.revertable}>
-                      <button
+                      <Button
+                        variant="outline"
                         type="button"
                         onClick={() => void handleRevert(entry)}
                         disabled={revertingId() !== null}
                         aria-busy={reverting()}
-                        class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 shrink-0 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition disabled:opacity-40 @lg/panel:self-auto"
+                        class="shrink-0 self-start transition @lg/panel:self-auto"
                       >
                         {reverting() ? "Reverting…" : "Revert"}
-                      </button>
+                      </Button>
                     </Show>
 
                     <Show when={agedOut()}>
                       <span
-                        class="font-body text-text-muted shrink-0 self-start text-[0.72rem] italic @lg/panel:max-w-[12rem] @lg/panel:self-auto @lg/panel:text-right"
+                        class="font-body text-text-muted text-ui-xs shrink-0 self-start italic @lg/panel:max-w-[12rem] @lg/panel:self-auto @lg/panel:text-right"
                         title="Only the ten most recent changes keep a restore point."
                       >
                         Restore point no longer available

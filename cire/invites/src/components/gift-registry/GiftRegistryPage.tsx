@@ -356,7 +356,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <output
               data-gift-waiting
               aria-live="polite"
-              class="font-body text-text-muted block py-10 text-center text-[0.88rem]"
+              class="font-body text-text-muted text-ui-base block py-10 text-center"
             >
               Opening the couple’s list…
             </output>
@@ -368,13 +368,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 invitation — a different document now, so this is a link, never
                 "scroll up". Not an error: nothing has gone wrong. */}
             <div data-gift-locked class="mx-auto max-w-[34rem] py-10 text-center">
-              <p class="font-body text-text mb-4 text-[0.95rem] leading-[1.7]">
+              <p class="font-body text-text text-ui-base leading-ui-relaxed mb-4">
                 This gift list is for the couple’s guests. Enter your invite code on the invitation
                 and it opens here.
               </p>
               <a
                 href={props.inviteHref}
-                class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg inline-block rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+                class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
               >
                 Open the invitation
               </a>
@@ -387,12 +387,12 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 here, so say that and hand back the link that still leads
                 somewhere. */}
             <div data-gift-closed class="py-10 text-center">
-              <p class="font-body text-text mb-4 text-[0.95rem] leading-[1.7]">
+              <p class="font-body text-text text-ui-base leading-ui-relaxed mb-4">
                 The couple have closed their gift list.
               </p>
               <a
                 href={props.inviteHref}
-                class="font-body text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.85rem] underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
               >
                 Back to the invitation
               </a>
@@ -404,7 +404,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 transport failure is not allowed to replace it. */}
             <p
               data-gift-unreachable
-              class="font-body text-text-muted py-10 text-center text-[0.9rem] leading-[1.7]"
+              class="font-body text-text-muted text-ui-base leading-ui-relaxed py-10 text-center"
             >
               Could not reach the gift list. Check your connection and refresh the page.
             </p>
@@ -420,7 +420,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               {(arrival) => (
                 <p
                   data-gift-payment={arrival()}
-                  class="border-gold/40 bg-gold/5 text-gold-ink font-body mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center text-[0.85rem] leading-[1.6]"
+                  class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
                 >
                   {arrival() === "thanks"
                     ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
@@ -431,7 +431,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
 
             <Show when={intro()}>
               {(text) => (
-                <p class="font-body text-text-muted mx-auto mb-8 max-w-[34rem] text-center text-[0.92rem] leading-[1.7] break-words whitespace-pre-line">
+                <p class="font-body text-text-muted text-ui-base leading-ui-relaxed mx-auto mb-8 max-w-[34rem] text-center break-words whitespace-pre-line">
                   {text()}
                 </p>
               )}
@@ -444,7 +444,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <Show when={!signedIn()}>
               <p
                 data-gift-signed-out
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center text-[0.8rem] leading-[1.6]"
+                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
               >
                 Your invite session has ended. Enter your invite code again on{" "}
                 <a
@@ -463,10 +463,10 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   data-gift-shipping
                   class="border-border mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
                 >
-                  <p class="font-body text-text-muted mb-1 text-[0.72rem] tracking-[0.14em] uppercase">
+                  <p class="font-body text-text-muted text-ui-xs tracking-ui-widest mb-1 uppercase">
                     Send gifts to
                   </p>
-                  <p class="font-body text-text text-[0.88rem] leading-[1.6] break-words whitespace-pre-line">
+                  <p class="font-body text-text text-ui-base leading-ui-normal break-words whitespace-pre-line">
                     {address()}
                   </p>
                 </div>
@@ -480,7 +480,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <output
               data-gift-status
               aria-live="polite"
-              class="font-body text-text mx-auto mb-8 block min-h-[1.25rem] max-w-[34rem] text-center text-[0.82rem] leading-[1.6]"
+              class="font-body text-text text-ui-sm leading-ui-normal mx-auto mb-8 block min-h-[1.25rem] max-w-[34rem] text-center"
             >
               {status()}
             </output>
@@ -510,7 +510,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               fallback={
                 /* PUBLISHED BUT EMPTY — a real state, and not the same as an
                    unpublished list, which answers the 404 above. */
-                <p class="font-body text-text-muted py-10 text-center text-[0.88rem]">
+                <p class="font-body text-text-muted text-ui-base py-10 text-center">
                   The couple haven’t added any gifts yet.
                 </p>
               }
@@ -519,7 +519,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   on the page that reads the WHOLE list at once, which is exactly
                   what a page (rather than a section) is for — a guest scrolling a
                   long list should never have to count it themselves. Counts only. */}
-              <div class="border-border font-body mb-10 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b pb-3 text-[0.72rem] tracking-[0.14em] uppercase">
+              <div class="border-border font-body text-ui-xs tracking-ui-widest mb-10 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b pb-3 uppercase">
                 <p data-gift-availability class="text-text-muted">
                   {availabilityCopy()}
                 </p>
@@ -546,7 +546,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                             where their grouping starts. Absent when they grouped
                             nothing, since one unlabelled shelf is just a list. */}
                         <Show when={showShelfLabels()}>
-                          <h2 class="font-body text-gold-ink mb-6 flex items-center gap-4 text-[0.72rem] tracking-[0.2em] uppercase">
+                          <h2 class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-6 flex items-center gap-4 uppercase">
                             <span>{group().category ?? "More gifts"}</span>
                             <span class="border-border h-px flex-1 border-t" aria-hidden="true" />
                           </h2>

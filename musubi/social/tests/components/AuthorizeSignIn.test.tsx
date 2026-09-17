@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * what either does. The same three mocks as `turnstile-wiring.test.tsx`.
  */
 
-vi.mock("@osn/ui/auth/SignIn", () => ({
+vi.mock("@osn/auth-ui/SignIn", () => ({
   SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
       <span data-testid="signin-product-name">{props.productName}</span>
@@ -26,7 +26,7 @@ vi.mock("@osn/ui/auth/SignIn", () => ({
     </div>
   ),
 }));
-vi.mock("@osn/ui/auth/Register", () => ({
+vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; onCancel?: () => void; productName: string }) => (
     <div data-testid="register">
       <span data-testid="register-product-name">{props.productName}</span>

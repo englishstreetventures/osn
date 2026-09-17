@@ -343,10 +343,10 @@ export default function ModuleShell(props: ModuleShellProps) {
           <header class="mb-6 flex flex-col gap-4">
             <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
               <div class="flex min-w-0 flex-col gap-1">
-                <h2 class="font-display text-text text-[1.4rem] leading-none font-light">
+                <h2 class="font-display text-text text-ui-lg leading-none font-light">
                   {moduleDef(module()).label}
                 </h2>
-                <p class="font-body text-text-muted text-[0.78rem]">{moduleDef(module()).hint}</p>
+                <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
               </div>
 
               {/* Sub-tabs, only for modules that have more than one visible
@@ -388,7 +388,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                         onPointerEnter={() => warmPanel(module(), subTab.id)}
                         onFocus={() => warmPanel(module(), subTab.id)}
                         onClick={() => props.onSub(subTab.id)}
-                        class={`font-body relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                        class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                           active() === subTab.id
                             ? "text-gold"
                             : "text-text-muted hover:text-text hover:bg-surface/60"
@@ -568,7 +568,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <Show
                     when={props.canEdit}
                     fallback={
-                      <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
+                      <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
                         You have view-only access to this wedding. Use “Preview invite” above to see
                         the invitation as guests will — ask the owner for editor access to customise
                         it.

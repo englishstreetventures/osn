@@ -68,4 +68,30 @@ export interface ToasterProps {
   toastClass?: string;
   /** Max toasts on screen at once. Older ones are dropped from the far end. */
   limit?: number;
+  /**
+   * Raise the container into the **top layer** while it has something to show.
+   *
+   * Turn this on in any app that opens a `<dialog>` with `showModal()` — which
+   * is every app using `@shared/ui`'s `Modal`. A modal dialog renders in the top
+   * layer, which paints above every stacking context in the document *by
+   * definition*, so no `z-index` on this container can put a toast over it. The
+   * RSVP save toast fires while the sheet is still open, which is precisely the
+   * case: without this it is raised behind the sheet it confirms, and the one
+   * confirmation a partial save gets is never seen.
+   *
+   * It works by making the container a `popover` and showing it whenever there
+   * is a toast to show — so it enters the top layer AFTER any dialog that was
+   * already open, and top-layer order is entry order. Off by default because it
+   * changes how the container is painted, and an app with no top-layer dialogs
+   * gains nothing from it.
+   *
+   * **It buys paint, not reach.** A modal dialog makes every node outside it
+   * INERT, and the top layer is no exemption — so while such a dialog is open
+   * the toast is seen and nothing more: its close button does not respond and
+   * assistive technology does not announce it. Only a descendant of the dialog
+   * escapes that, and a container mounted once at the page root cannot be one.
+   * A toast raised over a modal therefore has to be a confirmation the dialog
+   * itself also states, never the only place something is said.
+   */
+  topLayer?: boolean;
 }

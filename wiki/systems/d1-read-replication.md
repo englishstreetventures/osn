@@ -12,6 +12,7 @@ tags:
   - performance
 status: current
 related:
+  - "[[d1-session-first-primary]]"
   - "[[database-environments]]"
   - "[[d1-limits]]"
   - "[[backend-patterns]]"
@@ -19,7 +20,7 @@ related:
   - "[[free-tier-limits]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-09-17
 ---
 
 # D1 Read Replication and the Sessions API
@@ -109,7 +110,8 @@ routes. The seam is `cire/api/src/db/d1-session.ts`:
 | `first-primary` | Primary | The request observes every write committed before it started. |
 | `first-unconstrained` | Anywhere | One more round trip saved; the request may not see a write that has already committed. |
 
-cire uses `first-primary` Worker-wide. `routes/invite.ts` deliberately serves a
+cire uses `first-primary` Worker-wide — see [[d1-session-first-primary]] for the
+choice stated as a decision record. `routes/invite.ts` deliberately serves a
 `no-store`, edit-sensitive payload so an organiser's edit shows up when a guest
 revalidates the invite — `first-unconstrained` would reintroduce exactly the
 staleness that header exists to prevent. One constraint for the whole Worker

@@ -1,7 +1,13 @@
-import { Button } from "@osn/ui/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
-import { Input } from "@osn/ui/ui/input";
-import { Label } from "@osn/ui/ui/label";
+import { Button } from "@shared/ui/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@shared/ui/ui/dialog";
+import { Input } from "@shared/ui/ui/input";
+import { Label } from "@shared/ui/ui/label";
 import { Show, createSignal } from "solid-js";
 
 export interface DiscoveryFilterValues {

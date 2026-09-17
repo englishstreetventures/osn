@@ -12,7 +12,11 @@ import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consen
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
 
-const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+/**
+ * `dialog`, not `[role="dialog"]`: the panel is the platform's own `<dialog>`
+ * now, and its dialog role is implicit rather than an attribute.
+ */
+const dialog = () => document.querySelector("dialog");
 
 const buttonLabels = (root: HTMLElement) =>
   [...root.querySelectorAll("button")].map((button) => (button.textContent ?? "").trim());
@@ -139,9 +143,14 @@ describe("ConsentPreferences dialog", () => {
     resetConsentForTest();
   });
 
-  it("is an accessible modal dialog with a name", () => {
+  it("is a dialog named by its own visible heading", () => {
+    // `aria-modal` is not asserted here and is not set: a `showModal()` dialog
+    // is modal to the accessibility tree by construction, and writing the
+    // attribute on top of that is the way to end up with one that says modal
+    // while the element was opened non-modally. `Modal`'s own browser suite is
+    // what checks it actually opens modally.
     const panel = dialog()!;
-    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(panel.tagName).toBe("DIALOG");
     const labelId = panel.getAttribute("aria-labelledby")!;
     expect(panel.querySelector(`#${labelId}`)?.textContent).toContain("privacy choices");
   });
@@ -233,16 +242,20 @@ describe("ConsentPreferences dialog", () => {
     expect(labels).toContain("Reject all");
   });
 
-  it("closes without saving when the backdrop is clicked", () => {
-    const backdrop = document.querySelector('[aria-hidden="true"].absolute')!;
-    fireEvent.click(backdrop);
+  it("treats a dismissal as no decision at all, whatever dismissed it", () => {
+    // Escape and a backdrop click are the platform's now — `<dialog>` does the
+    // key, and `Modal` does the hit-test — so both arrive here as one `close`
+    // event, and this asserts what the app owns: the draft is discarded, the
+    // store reopens to nothing saved, and the banner is still owed an answer.
+    // The two gestures themselves are in the browser tier, where a real
+    // `<dialog>` exists to perform them.
+    const panel = dialog()!;
+    const optional = [
+      ...panel.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not([disabled])'),
+    ][0]!;
+    fireEvent.click(optional);
 
-    expect(consentPreferencesOpen()).toBe(false);
-    expect(readConsentFromDocument()).toBeNull();
-  });
-
-  it("closes on Escape without saving", () => {
-    fireEvent.keyDown(document, { key: "Escape" });
+    panel.dispatchEvent(new Event("close"));
 
     expect(consentPreferencesOpen()).toBe(false);
     expect(readConsentFromDocument()).toBeNull();
@@ -291,7 +304,7 @@ describe("ConsentPreferencesLink", () => {
     const { getByText } = render(() => <ConsentPreferencesLink />);
 
     fireEvent.click(getByText("Privacy choices"));
-    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.querySelectorAll("dialog")).toHaveLength(1);
   });
 
   it("accepts a custom label", () => {

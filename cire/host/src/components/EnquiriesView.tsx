@@ -153,7 +153,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
           fallback={
             // Wide-only: the detail column needs to say what it's for when
             // nothing is picked. Narrow has no second column to fill.
-            <p class="border-border bg-surface/10 text-text-muted hidden rounded-sm border border-dashed px-4 py-6 text-[0.85rem] italic @3xl/enquiries:block">
+            <p class="border-border bg-surface/10 text-text-muted text-ui-sm hidden rounded-sm border border-dashed px-4 py-6 italic @3xl/enquiries:block">
               Pick an enquiry to read the conversation and reply.
             </p>
           }

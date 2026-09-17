@@ -1,6 +1,6 @@
 import { useAuth } from "@osn/client/solid";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import { createMemo, createSignal, Show } from "solid-js";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -32,7 +32,7 @@ export function MobileTopBar() {
         <div class="flex h-12 items-center justify-between px-4">
           <div class="flex items-baseline gap-1.5">
             <span class="text-foreground text-title font-medium">OSN</span>
-            <span class="text-subtle text-meta tracking-[0.06em] uppercase">Social</span>
+            <span class="text-subtle text-meta tracking-ui-wide uppercase">Social</span>
           </div>
           <div class="flex items-center gap-2">
             <ThemeToggle />
@@ -43,7 +43,7 @@ export function MobileTopBar() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="text-body rounded-pill h-9"
+                    class="text-body h-9"
                     onClick={() => {
                       setShowRegister(false);
                       setShowSignIn(true);
@@ -53,7 +53,7 @@ export function MobileTopBar() {
                   </Button>
                   <Button
                     size="sm"
-                    class="text-body rounded-pill h-9"
+                    class="text-body h-9"
                     onClick={() => {
                       setShowSignIn(false);
                       setShowRegister(true);

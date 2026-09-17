@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { Toaster } from "@shared/toast";
 import {
   batch,
@@ -160,18 +161,16 @@ export default function InvitePage(props: InvitePageProps) {
   const [revealed, setRevealed] = createSignal(false);
 
   // Warm the chunks that are otherwise fetched mid-interaction: the unlock
-  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves),
-  // the modal transitions (imported inside `AnimatedModal` on first open), and
-  // the post-claim components split out above — those are needed the instant
-  // the claim resolves, so without this the split would trade a slower first
-  // paint for a slower reveal. `lazy` exposes each one's loader as `.preload()`,
+  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves)
+  // and the post-claim components split out above — those are needed the
+  // instant the claim resolves, so without this the split would trade a slower
+  // first paint for a slower reveal. `lazy` exposes each one's loader as `.preload()`,
   // which both fetches the chunk and primes the same cache the render reads, so
   // a warmed component renders without a suspense gap.
   // Hints only — every call site keeps its own import and its own fallback.
   onMount(() => {
     const cancels = [
       prefetchOnIdle(() => import("./UnlockReveal.motion")),
-      prefetchOnIdle(() => import("../../components/Modal.motion")),
       prefetchOnIdle(() => RsvpModal.preload()),
       prefetchOnIdle(() => DetailsModal.preload()),
       prefetchOnIdle(() => EventCard.preload()),
@@ -443,13 +442,13 @@ export default function InvitePage(props: InvitePageProps) {
           >
             {/* Login form — visible before claim */}
             <div ref={(el) => (loginFormRef = el)} style={{ display: revealed() ? "none" : "" }}>
-              <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
                 Your Invitation
               </p>
-              <h2 class="font-display text-text mb-5 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+              <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 Enter Your Code
               </h2>
-              <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
+              <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
                 Enter the code from your invitation to see your events.
               </p>
               <form class="flex flex-col gap-3" onSubmit={claim.handleSubmit}>
@@ -466,7 +465,7 @@ export default function InvitePage(props: InvitePageProps) {
                   // with the border clearing WCAG SC 1.4.11's 3:1 on the worst
                   // of them. Same values as classic's LoginSection — see the
                   // note there; the two packs must not drift.
-                  class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                  class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base uppercase transition-colors duration-200 placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                   // A placeholder is not an accessible name, and it vanishes on
                   // input — see the note in classic's LoginSection.
                   aria-label="Invitation code"
@@ -484,7 +483,7 @@ export default function InvitePage(props: InvitePageProps) {
                   pattern="[A-Za-z0-9\-]+"
                 />
                 <Show when={claim.error()}>
-                  <p class="font-body text-error py-2 text-[0.82rem]" role="alert">
+                  <p class="font-body text-error text-ui-sm py-2" role="alert">
                     {claim.error()}
                   </p>
                 </Show>
@@ -495,9 +494,11 @@ export default function InvitePage(props: InvitePageProps) {
                   controls={(handle) => (turnstile = handle)}
                   class="flex justify-center"
                 />
-                <button
+                <Button
                   type="submit"
-                  class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink w-full rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  variant="cta"
+                  size="lg"
+                  class="w-full"
                   disabled={
                     claim.loading() ||
                     !claim.code().trim() ||
@@ -505,7 +506,7 @@ export default function InvitePage(props: InvitePageProps) {
                   }
                 >
                   {claim.loading() ? "Checking…" : "Open Invitation"}
-                </button>
+                </Button>
               </form>
             </div>
 
@@ -514,7 +515,7 @@ export default function InvitePage(props: InvitePageProps) {
             <div ref={(el) => (welcomeRef = el)} style={{ display: revealed() ? "" : "none" }}>
               <Show when={claimResult()?.preview}>
                 <p
-                  class="border-gold/40 bg-gold/5 text-gold-ink mb-6 rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
+                  class="border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mb-6 rounded-sm border px-4 py-3 uppercase"
                   role="status"
                 >
                   Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
@@ -524,13 +525,13 @@ export default function InvitePage(props: InvitePageProps) {
                 when={isIndividual()}
                 fallback={
                   <>
-                    <h2 class="font-display text-gold-ink mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+                    <h2 class="font-display text-gold-ink leading-ui-none mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                       Welcome, the {claimResult()?.familyName} Family
                     </h2>
-                    <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
+                    <p class="text-text-muted text-ui-base leading-ui-normal mb-2 font-light">
                       {welcomeMessage()}
                     </p>
-                    <p class="text-text mb-8 text-[0.88rem] leading-[1.6] font-light">
+                    <p class="text-text text-ui-base leading-ui-normal mb-8 font-light">
                       <For each={claimResult()?.members}>
                         {(member, i) => (
                           <>
@@ -543,20 +544,21 @@ export default function InvitePage(props: InvitePageProps) {
                   </>
                 }
               >
-                <h2 class="font-display text-gold-ink mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+                <h2 class="font-display text-gold-ink leading-ui-none mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                   Dear {individualName()}
                 </h2>
-                <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
+                <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
                   {welcomeMessage()}
                 </p>
               </Show>
-              <button
+              <Button
+                variant="bare"
                 type="button"
                 onClick={handleSignOut}
-                class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.78rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+                class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
               >
                 {signOutLabel()}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -582,10 +584,10 @@ export default function InvitePage(props: InvitePageProps) {
           >
             <div class="mx-auto max-w-[1200px]">
               <div data-testid="events-column" class="max-w-[960px] text-left">
-                <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+                <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
                   {detailsEyebrow()}
                 </p>
-                <h2 class="font-display text-text mb-5 text-[calc(clamp(1.75rem,4vw,2.5rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+                <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(1.75rem,4vw,2.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                   {detailsHeading()}
                 </h2>
                 <hr class="border-border mb-10 h-0 w-full border-t" aria-hidden="true" />
@@ -605,7 +607,7 @@ export default function InvitePage(props: InvitePageProps) {
                   {(notice) => (
                     <p
                       id={RSVP_NOTICE_ID}
-                      class="font-body mb-3 text-center text-[0.85rem]"
+                      class="font-body text-ui-sm mb-3 text-center"
                       classList={{
                         "text-text-muted": rsvpClosed(),
                         "text-gold-ink": !rsvpClosed(),
@@ -754,11 +756,19 @@ export default function InvitePage(props: InvitePageProps) {
           still open, and that sheet's sticky action bar owns the bottom edge. */}
       <Toaster
         position="top-center"
-        // The layer goes on as a CLASS. `@shared/toast` sets no `z-index` of
-        // its own — precisely so this works. (`solid-toast` spread a hardcoded
-        // `z-index: 9999` onto the same div's inline style, which beat any
-        // class and parked the toast ABOVE the consent layers; the only
-        // override that won was `containerStyle`. Two-sided bound asserted in
+        // The RSVP sheet is a `showModal()` dialog, which paints in the top
+        // layer — above every stacking context in the document, so no `z-index`
+        // here can reach over it. The save toast fires while that sheet is
+        // still open, so without this it is raised behind the reply it
+        // confirms. See `ToasterProps.topLayer`.
+        topLayer
+        // The layer still goes on as a CLASS, for everything that is NOT in the
+        // top layer — the consent banner above it, the page below.
+        // `@shared/toast` sets no `z-index` of its own, precisely so this
+        // works. (`solid-toast` spread a hardcoded `z-index: 9999` onto the
+        // same div's inline style, which beat any class and parked the toast
+        // ABOVE the consent layers; the only override that won was
+        // `containerStyle`. Two-sided bound asserted in
         // `InvitePage.browser.test.tsx`.)
         class={Z_CLASS.TOAST}
       />

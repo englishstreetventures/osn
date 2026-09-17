@@ -1,5 +1,5 @@
-import { Card } from "@osn/ui/ui/card";
-import { Input } from "@osn/ui/ui/input";
+import { Card } from "@shared/ui/ui/card";
+import { Input } from "@shared/ui/ui/input";
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
 
 import { composeLabel, type PhotonFeature } from "./utils";

@@ -7,7 +7,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@osn/ui/ui/dropdown-menu";
+} from "@shared/ui/ui/dropdown-menu";
 import { createMemo, type JSX } from "solid-js";
 
 import { getTokenClaims } from "../lib/utils";

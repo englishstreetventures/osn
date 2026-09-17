@@ -28,7 +28,7 @@ last-reviewed: 2026-09-14
 ```
 @musubi/social (SolidJS + Vite, port 1422)
   ├── SolidJS frontend (src/)
-  ├── Consumes @osn/client and @osn/ui
+  ├── Consumes @osn/client, @shared/ui and @osn/auth-ui
   └── Talks to @osn/api (port 4000) directly over REST
 ```
 
@@ -63,7 +63,7 @@ mounted from `AccountBanners` in `src/App.tsx` rather than from any one page.
 
 | Banner | Shows when | Source |
 |---|---|---|
-| Security events | The account has an unacknowledged `security_events` row | `@osn/ui/auth/SecurityEventsBanner`, wired by `src/components/SecurityEventsBannerMount.tsx` |
+| Security events | The account has an unacknowledged `security_events` row | `@osn/auth-ui/SecurityEventsBanner`, wired by `src/components/SecurityEventsBannerMount.tsx` |
 | Recovery-code prompt | `GET /recovery/status` returns `generatedAt: null` — the account has never generated a set | `src/components/RecoveryCodesPrompt.tsx`, app-local |
 
 **Only one shows at a time, and security events win.** An unacknowledged event
@@ -190,7 +190,7 @@ Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-prima
 
 ### Where the WebAuthn runtime ships
 
-`@osn/ui` never imports `@simplewebauthn/browser`; each host app wires its own
+`@osn/auth-ui` never imports `@simplewebauthn/browser`; each host app wires its own
 wrapper. This app has two, one per ceremony:
 
 | Module | Ceremony | Reached from |

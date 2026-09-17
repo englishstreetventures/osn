@@ -1,4 +1,9 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -16,10 +21,6 @@ import {
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
-import Button from "./ui/Button";
-import Field, { Input, Select } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 interface BudgetViewProps {
   weddingId: string;
   /** Owner/editor may add/edit items + payments and reorder. */
@@ -351,7 +352,7 @@ export default function BudgetView(props: BudgetViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <Notice tone="error" alert>
+        <Notice tone="danger" alert>
           {error()}
         </Notice>
       </Show>
@@ -359,13 +360,13 @@ export default function BudgetView(props: BudgetViewProps) {
       {/* Summary — spent vs cap, owner cap editor. */}
       <div class="border-border bg-surface/20 flex flex-wrap items-center justify-between gap-4 rounded-sm border p-4">
         <div class="flex flex-col gap-1">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
+          <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
             Spent so far
           </span>
-          <span class="text-text text-[1.2rem] font-semibold">
+          <span class="text-text text-ui-lg font-semibold">
             {fmtMinor(spent(), currency())}
             <Show when={snapshot()?.budgetTotalMinor != null}>
-              <span class="text-text-muted text-[0.9rem] font-normal">
+              <span class="text-text-muted text-ui-base font-normal">
                 {" "}
                 of {fmtMinor(snapshot()!.budgetTotalMinor!, currency())}
               </span>
@@ -376,14 +377,15 @@ export default function BudgetView(props: BudgetViewProps) {
               snapshot()?.budgetTotalMinor != null && spent() > (snapshot()?.budgetTotalMinor ?? 0)
             }
           >
-            <span class="text-error text-[0.75rem]">Over budget</span>
+            <span class="text-error text-ui-sm">Over budget</span>
           </Show>
         </div>
         <Show when={props.canManage}>
           <Show
             when={capDraft() !== null}
             fallback={
-              <button
+              <Button
+                variant="link"
                 type="button"
                 onClick={() =>
                   setCapDraft(
@@ -392,10 +394,9 @@ export default function BudgetView(props: BudgetViewProps) {
                       : (snapshot()!.budgetTotalMinor! / 100).toString(),
                   )
                 }
-                class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-4 hover:underline"
               >
                 {snapshot()?.budgetTotalMinor == null ? "Set a budget →" : "Edit budget"}
-              </button>
+              </Button>
             }
           >
             <div class="flex items-end gap-2">
@@ -471,7 +472,7 @@ export default function BudgetView(props: BudgetViewProps) {
 
       <Show
         when={grouped().length > 0}
-        fallback={<p class="text-text-muted text-[0.85rem] italic">No budget items yet.</p>}
+        fallback={<p class="text-text-muted text-ui-sm italic">No budget items yet.</p>}
       >
         {/* Categories pair up on a wide panel. The minimum is generous (32rem)
             because a budget row carries a name plus three money cells and the
@@ -486,10 +487,10 @@ export default function BudgetView(props: BudgetViewProps) {
               return (
                 <section class="flex flex-col gap-2">
                   <div class="flex items-baseline justify-between">
-                    <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+                    <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                       {categoryLabel(group.category.key)}
                     </h3>
-                    <span class="text-text-muted text-[0.75rem]">
+                    <span class="text-text-muted text-ui-sm">
                       est {fmtMinor(subtotalEst(), currency())} · spent{" "}
                       {fmtMinor(subtotalActual(), currency())}
                     </span>
@@ -499,7 +500,7 @@ export default function BudgetView(props: BudgetViewProps) {
                       {(item, i) => (
                         <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
                           <div class="flex flex-wrap items-center gap-3">
-                            <span class="text-text min-w-[8rem] flex-1 text-[0.9rem]">
+                            <span class="text-text text-ui-base min-w-[8rem] flex-1">
                               {item.name}
                             </span>
                             <MoneyCell
@@ -523,41 +524,43 @@ export default function BudgetView(props: BudgetViewProps) {
                               canEdit={props.canEdit}
                               onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
                             />
-                            <button
+                            <Button
+                              variant="bare"
                               type="button"
                               onClick={() => setExpanded(expanded() === item.id ? null : item.id)}
-                              class="text-text-muted hover:text-text px-1 text-[0.78rem]"
                             >
                               payments ({paymentsFor(item.id).length})
-                            </button>
+                            </Button>
                             <Show when={props.canEdit}>
                               <div class="flex items-center gap-1">
-                                <button
+                                <Button
+                                  variant="bare"
                                   type="button"
                                   aria-label="Move up"
                                   disabled={i() === 0}
                                   onClick={() => move(group.category.key, i(), -1)}
-                                  class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                                  class="disabled:opacity-30"
                                 >
                                   ↑
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  variant="bare"
                                   type="button"
                                   aria-label="Move down"
                                   disabled={i() === group.items.length - 1}
                                   onClick={() => move(group.category.key, i(), 1)}
-                                  class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                                  class="disabled:opacity-30"
                                 >
                                   ↓
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  variant="bareDanger"
                                   type="button"
                                   aria-label="Delete item"
                                   onClick={() => deleteItem(item)}
-                                  class="text-text-muted hover:text-error px-1"
                                 >
                                   ✕
-                                </button>
+                                </Button>
                               </div>
                             </Show>
                           </div>
@@ -597,13 +600,13 @@ function MoneyCell(props: {
 }) {
   return (
     <label class="flex w-24 flex-col gap-0.5">
-      <span class="text-gold-dim font-body text-[0.58rem] tracking-[0.14em] uppercase">
+      <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
         {props.label}
       </span>
       <Show
         when={props.canEdit}
         fallback={
-          <span class="text-text text-[0.85rem]">
+          <span class="text-text text-ui-sm">
             {props.minor == null ? "—" : fmtMinor(props.minor, props.currency)}
           </span>
         }
@@ -645,7 +648,7 @@ function PaymentPanel(props: {
     <div class="border-border/60 ml-2 flex flex-col gap-2 border-l pl-3">
       <For each={props.payments}>
         {(p) => (
-          <div class="flex flex-wrap items-center gap-2 text-[0.82rem]">
+          <div class="text-ui-sm flex flex-wrap items-center gap-2">
             <input
               type="checkbox"
               aria-label={`${p.label} paid`}
@@ -663,14 +666,14 @@ function PaymentPanel(props: {
               </Show>
             </span>
             <Show when={props.canEdit}>
-              <button
+              <Button
+                variant="bareDanger"
                 type="button"
                 aria-label="Delete payment"
                 onClick={() => props.onDelete(props.item, p)}
-                class="text-text-muted hover:text-error px-1"
               >
                 ✕
-              </button>
+              </Button>
             </Show>
           </div>
         )}

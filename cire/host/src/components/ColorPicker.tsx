@@ -1,13 +1,12 @@
 import { oklchToRgb, parseColor as parseAnyColor } from "@cire/theme";
+import Button from "@cire/ui/button";
 import { ColorArea } from "@kobalte/core/color-area";
 import { ColorSlider } from "@kobalte/core/color-slider";
 import { ColorSwatch } from "@kobalte/core/color-swatch";
 import { type Color, parseColor } from "@kobalte/core/colors";
 import { Popover } from "@kobalte/core/popover";
+import { Input } from "@shared/ui/ui/input";
 import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
-
-import { Input } from "./ui/Field";
-
 /**
  * The colour a picker shows when nothing is set and the caller names no
  * fallback. Callers that know the real default — the scheme editor, which knows
@@ -205,11 +204,11 @@ export default function ColorPicker(props: {
 
   return (
     <div class="flex flex-col items-start gap-1.5">
-      <span class="font-body text-text-muted text-[0.68rem] tracking-[0.08em] uppercase">
+      <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
         {props.label}
       </span>
       <Show when={props.hint}>
-        <span class="font-body text-text-muted -mt-1 text-[0.68rem] italic">{props.hint}</span>
+        <span class="font-body text-text-muted text-ui-xs -mt-1 italic">{props.hint}</span>
       </Show>
       <div class="flex items-center gap-2">
         <Popover gutter={8} placement="bottom-start">
@@ -223,11 +222,9 @@ export default function ColorPicker(props: {
             />
             <Show
               when={props.value}
-              fallback={
-                <span class="font-body text-text-muted text-[0.78rem] italic">Default</span>
-              }
+              fallback={<span class="font-body text-text-muted text-ui-sm italic">Default</span>}
             >
-              <span class="font-body text-text text-[0.78rem] tracking-[0.04em] uppercase tabular-nums">
+              <span class="font-body text-text text-ui-sm tracking-ui-wide uppercase tabular-nums">
                 {toHex(display())}
               </span>
             </Show>
@@ -267,7 +264,7 @@ export default function ColorPicker(props: {
               <div class="flex flex-col gap-1">
                 <label
                   for={hexId}
-                  class="font-body text-text-muted text-[0.66rem] tracking-[0.1em] uppercase"
+                  class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase"
                 >
                   Hex
                 </label>
@@ -291,11 +288,7 @@ export default function ColorPicker(props: {
                 />
                 <Show when={discarded()}>
                   {(kept) => (
-                    <span
-                      id={hexNoteId}
-                      role="status"
-                      class="font-body text-text-muted text-[0.7rem]"
-                    >
+                    <span id={hexNoteId} role="status" class="font-body text-text-muted text-ui-xs">
                       Needs 6 digits — kept {kept()}
                     </span>
                   )}
@@ -303,26 +296,24 @@ export default function ColorPicker(props: {
               </div>
 
               <Show when={props.value}>
-                <button
+                <Button
+                  variant="subtle"
+                  size="sm"
                   type="button"
                   onClick={() => props.onChange(null)}
-                  class="font-body text-text-muted hover:text-text self-start text-[0.72rem] underline-offset-4 hover:underline"
+                  class="self-start"
                 >
                   Use default
-                </button>
+                </Button>
               </Show>
             </Popover.Content>
           </Popover.Portal>
         </Popover>
 
         <Show when={props.value}>
-          <button
-            type="button"
-            onClick={() => props.onChange(null)}
-            class="font-body text-text-muted text-[0.72rem] underline-offset-4 hover:underline"
-          >
+          <Button variant="subtle" size="sm" type="button" onClick={() => props.onChange(null)}>
             Use default
-          </button>
+          </Button>
         </Show>
       </div>
     </div>

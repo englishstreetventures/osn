@@ -5,20 +5,20 @@ import type {
   SentRequestEntry,
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
-import { clsx } from "@osn/ui/lib/utils";
-import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
+import { toast } from "@shared/toast";
+import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import {
   Dialog,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@osn/ui/ui/dialog";
-import { toast } from "@shared/toast";
+} from "@shared/ui/ui/dialog";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { SectionTabs } from "../components/SectionTabs";
 import { graphClient } from "../lib/api";
 
 type Tab = "all" | "pending" | "sent" | "blocked";
@@ -163,25 +163,13 @@ export function ConnectionsPage() {
           </div>
         }
       >
-        {/* Tab bar */}
-        <div class="border-border mb-6 flex gap-1 overflow-x-auto border-b whitespace-nowrap">
-          <For each={TABS}>
-            {(t) => (
-              <button
-                type="button"
-                class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors max-md:min-h-11",
-                  tab() === t.value
-                    ? "border-foreground text-foreground"
-                    : "text-muted-foreground hover:text-foreground border-transparent",
-                )}
-                onClick={() => setTab(t.value)}
-              >
-                {t.label}
-              </button>
-            )}
-          </For>
-        </div>
+        <SectionTabs
+          label="Connection filters"
+          tabs={TABS}
+          current={tab()}
+          onSelect={setTab}
+          class="mb-6"
+        />
 
         {/* All connections */}
         <Show when={tab() === "all"}>
@@ -254,7 +242,7 @@ export function ConnectionsPage() {
                       <div class="flex items-center gap-1.5">
                         <Button
                           size="sm"
-                          class="text-body rounded-pill h-7 max-md:h-10"
+                          class="text-body h-7 max-md:h-10"
                           onClick={() => acceptRequest(req.handle)}
                         >
                           Accept
@@ -340,7 +328,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  class="text-body rounded-pill max-md:h-10"
+                  class="text-body max-md:h-10"
                   onClick={() => setRemoveTarget(null)}
                 >
                   Cancel
@@ -349,7 +337,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
-                  class="text-body rounded-pill max-md:h-10"
+                  class="text-body max-md:h-10"
                   onClick={() => {
                     void confirmRemove();
                   }}
@@ -383,7 +371,7 @@ export function ConnectionsPage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        class="text-body rounded-pill h-7 max-md:h-10"
+                        class="text-body h-7 max-md:h-10"
                         onClick={() => unblock(profile.handle)}
                       >
                         Unblock

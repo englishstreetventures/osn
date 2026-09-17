@@ -91,6 +91,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
 | Write, re-baseline or debug a guard that gates on a number (bundle budgets, and the two rules any such threshold obeys) | `[[wiki/conventions/bundle-size-guards]]` |
+| Colour a shared component, or map an app onto the token contract (the `ui-*` names, the scales, the conformance harness, why `base:` is a component's and not a caller's) | `[[wiki/architecture/design-tokens]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Raise a toast, theme one for an app, or debug a toast's stacking/contrast | `[[wiki/systems/toast]]` |
 | Add drag-to-reorder to a list (and get the keyboard + screen-reader path for free) | `[[wiki/architecture/drag-and-drop]]` |
@@ -204,12 +205,12 @@ Monorepo by domain. Six dirs, six prefixes — see `[[wiki/architecture/monorepo
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
-| `osn/` | `@osn/*` | **OSN, the system**: the headless identity core (auth, graph, orgs, recommendations, SDK, shared auth UI). No user interface of its own — crypto moved to `@shared/crypto` |
+| `osn/` | `@osn/*` | **OSN, the system**: the headless identity core (auth, graph, orgs, recommendations, SDK) plus `@osn/auth-ui`, the views for its named ceremonies. The core itself has no user interface — crypto lives in `@shared/crypto` |
 | `musubi/` | `@musubi/*` | **Musubi, our implementation**: the identity/social app and its marketing site, built on OSN |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
-| `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, API, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/turnstile` for key-optional bot protection, `@shared/osn-auth-client` for downstream access-JWT verification, `@shared/toast` + `@shared/sortable` for the SolidJS toast and drag-to-reorder surfaces) |
+| `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, vendor portal, marketing site, API, DB, plus `@cire/ui` — the house component layer all four surfaces share, version-less like the rest of `@cire/*`) |
+| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/ui` for the SolidJS primitives every product renders, `@shared/design-tokens` for the `ui-*` token contract they read, `@shared/color` for the OKLCH and contrast maths under it, `@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/turnstile` for key-optional bot protection, `@shared/osn-auth-client` for downstream access-JWT verification, `@shared/toast` + `@shared/sortable` for the SolidJS toast and drag-to-reorder surfaces) |
 
 ## Tech (one-liner)
 
@@ -245,7 +246,8 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Schema Layers | Elysia TypeBox at HTTP boundary, Effect Schema in services. Never mix. | `[[wiki/architecture/schema-layers]]` |
 | Review Finding IDs | S-C/H/M/L (security), P-C/W/I (perf), T-M/U/E/R/S (tests). Four-field format (Issue / Why / Solution / Rationale). | `[[wiki/conventions/review-findings]]` |
 | Stacked PRs | Branch cut from the parent branch, `git config branch.<name>.gh-merge-base <parent>` at worktree creation, `gh pr create --base` — that fixes the diff. The stack itself is a separate object GitHub never infers: register it with `gh stack link <bottom-pr> … <top-pr>` (extension `github/gh-stack`). | `[[wiki/conventions/stacked-prs]]` |
-| Component Library | Zaidan-style (shadcn for SolidJS) on Kobalte. Component defaults use `base:`-prefixed classes written directly in source; two class utils cover the rest: `clsx()` conditional joins, `cn()` only for arbitrary conflicts. | `[[wiki/architecture/component-library]]` |
+| Design-token contract | One neutral vocabulary in `@shared/design-tokens` — colour roles plus type/tracking/leading/radius scales — namespaced `ui-*`. **Library-facing**: shared packages write it, app code keeps its own names and maps onto it once in a `:root` block. `@theme inline`, so a token resolves at the element and a themed subtree is followed. No `:root` in the package (it would beat the app's mapping); fallbacks are a neutral greyscale, so an unmapped app renders legibly rather than correctly. A conformance harness every app calls from its own suite checks each pair against WCAG 2.2, and found 13 pre-existing defects. | `[[wiki/architecture/design-tokens]]` |
+| Component Library | Zaidan-style (shadcn for SolidJS) on Kobalte, in three layers: `@shared/ui` for the primitives, `@osn/auth-ui` for the views of OSN's named ceremonies, `@cire/ui` for the house style that is genuinely cire's. Component defaults use `base:`-prefixed classes written directly in source — `:where(&)`, zero specificity, so a caller's **plain** utility wins and a `base:` one ties. Two class utils cover the rest: `clsx()` conditional joins, `cn()` only for arbitrary conflicts. | `[[wiki/architecture/component-library]]` |
 | Share-source attribution | Closed `ShareSource` enum (`instagram | facebook | tiktok | x | whatsapp | copy_link | other`) drives the share picker, `?source=` URL injection, RSVP attribution columns (`share_source_first` sticky, `share_source_last` overwriting), and four bounded-cardinality counters. Single source of truth in `pulse/api/src/lib/shareSource.ts`; metric attribute type via `import type`. Lightweight `checkEventVisibility` (3 cols) gates the high-frequency share / exposure endpoints instead of the full `loadVisibleEvent`. Organiser self-RSVPs / self-views excluded. | `[[wiki/systems/event-access]]` |
 
 ## Conventions
@@ -400,7 +402,7 @@ bun run reset            # clean + reinstall
 
 ```bash
 # Use --cwd (not --filter)
-bun add solid-js --cwd osn/landing
+bun add solid-js --cwd musubi/landing
 bun add drizzle-orm --cwd pulse/db
 ```
 

@@ -1,4 +1,4 @@
-import { clsx } from "@osn/ui/lib/utils";
+import { clsx } from "@shared/ui/lib/utils";
 import { A, useLocation } from "@solidjs/router";
 import { For } from "solid-js";
 

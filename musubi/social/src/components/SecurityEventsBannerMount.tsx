@@ -1,4 +1,4 @@
-import { SecurityEventsBanner } from "@osn/ui/auth/SecurityEventsBanner";
+import { SecurityEventsBanner } from "@osn/auth-ui/SecurityEventsBanner";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { securityEventsClient, stepUpClient, totpClient } from "../lib/authClients";

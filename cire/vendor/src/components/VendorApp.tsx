@@ -1,3 +1,5 @@
+import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Toaster } from "@shared/toast";
 import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
@@ -10,8 +12,6 @@ import type { OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
 import TopBar from "./TopBar";
-import Button from "./ui/Button";
-import Loading from "./ui/Loading";
 import VendorEnquiryInbox from "./VendorEnquiryInbox";
 import VendorEnquiryThread from "./VendorEnquiryThread";
 import type { VendorView } from "./ViewTabs";
@@ -253,7 +253,11 @@ export default function VendorApp() {
       <RequireAuth>
         <Dashboard />
       </RequireAuth>
-      <Toaster position="bottom-right" />
+      {/* `topLayer` because this app's dialogs are `showModal()` dialogs
+          (`@shared/ui`'s `Modal`), which paint in the top layer — above every
+          stacking context, so no `z-index` on the toast container could reach
+          over one. See `ToasterProps.topLayer`. */}
+      <Toaster position="bottom-right" topLayer />
     </AuthProvider>
   );
 }

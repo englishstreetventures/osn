@@ -1,6 +1,6 @@
-import { Badge } from "@osn/ui/ui/badge";
-import { Card } from "@osn/ui/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Badge } from "@shared/ui/ui/badge";
+import { Card } from "@shared/ui/ui/card";
 import { A, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createResource, createSignal, on, untrack, Show } from "solid-js";
 

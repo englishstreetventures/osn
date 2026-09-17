@@ -1,3 +1,6 @@
+import Button from "@cire/ui/button";
+import { Modal } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
 import Cropper from "cropperjs";
 import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -15,9 +18,6 @@ import {
   presetAspectRatio,
   presetForCrop,
 } from "../lib/image-crop";
-import Button from "./ui/Button";
-import Notice from "./ui/Notice";
-
 /**
  * Drag/resize/zoom crop editor over an uploaded invite image, wrapping the
  * battle-tested vanilla Cropper.js (per the repo's "prefer existing libraries"
@@ -326,65 +326,69 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   }
 
   return (
-    // Portalled to document.body: the dashboard shell sets `container-type`
-    // on its layout boxes, which brings `contain: layout` with it and makes
-    // them the containing block for `position: fixed` descendants. Without the
-    // portal this overlay would cover the panel, not the viewport.
-    <Portal>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Crop image"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-        onClick={(e) => {
-          if (e.target === e.currentTarget && !busy()) props.onClose();
-        }}
-      >
-        <div class="border-border bg-bg flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-auto rounded-sm border p-5">
-          <header class="flex flex-col gap-1">
-            <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Crop</p>
-            <h3 class="font-display text-text text-[1.3rem] font-light">Choose what guests see</h3>
-            <p class="font-body text-text-muted text-[0.82rem]">
-              Drag to pan, drag a corner to zoom. Pick a shape below — guests see exactly this
-              frame, never stretched.
-            </p>
-          </header>
+    // Was a `fixed inset-0 z-50` scrim in a `<Portal>`, portalled because the
+    // dashboard shell sets `container-type` on its layout boxes, which brings
+    // `contain: layout` and makes them the containing block for `position:
+    // fixed` descendants. A top-layer dialog is outside every stacking context,
+    // so neither is needed — and it brings a focus trap and Escape, neither of
+    // which this had.
+    //
+    // `open` is a literal, not a prop: all three call sites `lazy()` this
+    // component behind a `<Show>`, because it drags `cropperjs` in with it.
+    // Mounting it to keep an exit animation would defeat that, so this is the
+    // one shape where unmounting the dialog is right and the exit is forgone.
+    //
+    // `dismissable` is reactive: a backdrop click must not throw away a crop
+    // that is mid-save.
+    <Modal
+      open
+      onClose={props.onClose}
+      dismissable={!busy()}
+      label="Crop image"
+      class="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-auto"
+    >
+      <header class="flex flex-col gap-1">
+        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Crop</p>
+        <h3 class="font-display text-text text-ui-lg font-light">Choose what guests see</h3>
+        <p class="font-body text-text-muted text-ui-sm">
+          Drag to pan, drag a corner to zoom. Pick a shape below — guests see exactly this frame,
+          never stretched.
+        </p>
+      </header>
 
-          <Show when={error()}>
-            <Notice tone="error" alert>
-              {error()}
-            </Notice>
-          </Show>
+      <Show when={error()}>
+        <Notice tone="danger" alert>
+          {error()}
+        </Notice>
+      </Show>
 
-          {/* Aspect-ratio presets — a segmented control. The active shape is filled
+      {/* Aspect-ratio presets — a segmented control. The active shape is filled
             gold; the rest are quiet outlines. Selecting one re-locks the crop box. */}
-          <div class="flex flex-col gap-1.5">
-            <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-              Shape
-            </span>
-            <div role="group" aria-label="Crop aspect ratio" class="flex flex-wrap gap-1.5">
-              <For each={ASPECT_PRESETS}>
-                {(p) => (
-                  <button
-                    type="button"
-                    aria-pressed={preset() === p.id}
-                    disabled={busy()}
-                    onClick={() => choosePreset(p.id)}
-                    class="font-body rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-                    classList={{
-                      "border-gold bg-gold text-bg": preset() === p.id,
-                      "border-border text-text-muted hover:border-gold hover:text-gold bg-transparent":
-                        preset() !== p.id,
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
+      <div class="flex flex-col gap-1.5">
+        <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">Shape</span>
+        <div role="group" aria-label="Crop aspect ratio" class="flex flex-wrap gap-1.5">
+          <For each={ASPECT_PRESETS}>
+            {(p) => (
+              <button
+                type="button"
+                aria-pressed={preset() === p.id}
+                disabled={busy()}
+                onClick={() => choosePreset(p.id)}
+                class="font-body text-ui-xs tracking-ui-wider rounded-sm border px-3 py-1.5 uppercase transition disabled:opacity-40"
+                classList={{
+                  "border-gold bg-gold text-bg": preset() === p.id,
+                  "border-border text-text-muted hover:border-gold hover:text-gold bg-transparent":
+                    preset() !== p.id,
+                }}
+              >
+                {p.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
 
-          {/* Bounded height so the cropper canvas fits the modal; Cropper.js v2 hides
+      {/* Bounded height so the cropper canvas fits the modal; Cropper.js v2 hides
             this `<img>` and injects a `<cropper-canvas>` sibling that fills the box.
 
             MUST NOT set `crossOrigin` here. The dashboard thumbnail loads this exact
@@ -396,42 +400,35 @@ export default function ImageCropModal(props: ImageCropModalProps) {
             in Chromium against cropperjs 2.1.1). The editor only reads geometry and
             `naturalWidth`/`naturalHeight` — never canvas pixels — so a non-CORS
             image is fully sufficient. */}
-          <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
-            <img
-              ref={imgEl}
-              src={props.imageUrl}
-              alt="Region selected for the invite"
-              class="block max-w-full"
-            />
-          </div>
+      <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
+        <img
+          ref={imgEl}
+          src={props.imageUrl}
+          alt="Region selected for the invite"
+          class="block max-w-full"
+        />
+      </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => void handleReset()}
-              disabled={busy()}
-              class="font-body text-text-muted hover:text-gold text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
-            >
-              Reset to full image
-            </button>
-            <div class="flex items-center gap-3">
-              <Button
-                variant="quiet"
-                onClick={() => {
-                  haptic("dismiss");
-                  props.onClose();
-                }}
-                disabled={busy()}
-              >
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={() => void handleSave()} disabled={busy()}>
-                {busy() ? "Saving…" : "Save crop"}
-              </Button>
-            </div>
-          </div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <Button variant="subtle" type="button" onClick={() => void handleReset()} disabled={busy()}>
+          Reset to full image
+        </Button>
+        <div class="flex items-center gap-3">
+          <Button
+            variant="quiet"
+            onClick={() => {
+              haptic("dismiss");
+              props.onClose();
+            }}
+            disabled={busy()}
+          >
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void handleSave()} disabled={busy()}>
+            {busy() ? "Saving…" : "Save crop"}
+          </Button>
         </div>
       </div>
-    </Portal>
+    </Modal>
   );
 }

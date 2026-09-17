@@ -1,5 +1,10 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -14,10 +19,6 @@ import {
   type RegistrySnapshot,
 } from "../lib/registry-store";
 import SectionIntro from "./SectionIntro";
-import Button from "./ui/Button";
-import Field, { Input, Textarea } from "./ui/Field";
-import Notice from "./ui/Notice";
-
 /**
  * THE REGISTRY'S SETTINGS — the four decisions the guest surface has been
  * reading all along with nowhere for a couple to make them: whether the list is
@@ -357,7 +358,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     }
   }
 
-  const hintClass = "font-body text-text-muted text-[0.8rem] leading-relaxed";
+  const hintClass = "font-body text-text-muted text-ui-sm leading-relaxed";
 
   return (
     <div class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
@@ -369,7 +370,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
       <Show when={loadError()}>
         {(error) => (
-          <Notice tone="error" alert>
+          <Notice tone="danger" alert>
             {error()}
           </Notice>
         )}
@@ -394,7 +395,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             disabled={!props.canEdit}
             aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
           >
-            <legend class="font-body text-gold-ink mb-1 text-[0.72rem] tracking-[0.2em] uppercase">
+            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
               Visibility
             </legend>
 
@@ -407,7 +408,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             </Show>
 
             <div class="flex flex-wrap gap-4">
-              <label class="font-body text-text flex items-center gap-2 text-[0.9rem]">
+              <label class="font-body text-text text-ui-base flex items-center gap-2">
                 <input
                   type="radio"
                   name="registry-visibility"
@@ -416,7 +417,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 />
                 Draft — only you can see it
               </label>
-              <label class="font-body text-text flex items-center gap-2 text-[0.9rem]">
+              <label class="font-body text-text text-ui-base flex items-center gap-2">
                 <input
                   type="radio"
                   name="registry-visibility"
@@ -432,7 +433,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── The couple's own words ─────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink mb-1 text-[0.72rem] tracking-[0.2em] uppercase">
+            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
               What it says
             </legend>
             <Field
@@ -467,7 +468,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Where parcels go ───────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink mb-1 text-[0.72rem] tracking-[0.2em] uppercase">
+            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
               Where to send things
             </legend>
             <Field
@@ -501,7 +502,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Money ──────────────────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-3 border-0 p-0">
-            <legend class="font-body text-gold-ink mb-1 text-[0.72rem] tracking-[0.2em] uppercase">
+            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
               Money gifts
             </legend>
 
@@ -558,7 +559,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </p>
             </Show>
 
-            <label class="font-body text-text mt-1 flex items-start gap-2 text-[0.9rem]">
+            <label class="font-body text-text text-ui-base mt-1 flex items-start gap-2">
               <input
                 type="checkbox"
                 data-testid="cash-gifts"
@@ -570,7 +571,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               <span>
                 Let guests give money
                 <Show when={stripeState() !== "ready"}>
-                  <span class="text-text-muted block text-[0.8rem]">
+                  <span class="text-text-muted text-ui-sm block">
                     Available once Stripe can take payments.
                   </span>
                 </Show>

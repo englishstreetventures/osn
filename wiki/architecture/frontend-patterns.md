@@ -20,15 +20,15 @@ related:
   - "[[cire-development]]"
 packages:
   - "@pulse/web"
-  - "@osn/ui"
-last-reviewed: 2026-09-09
+  - "@shared/ui"
+last-reviewed: 2026-09-16
 ---
 
 # Frontend Patterns
 
 ## Component Library
 
-UI primitives (Button, Input, Card, Dialog, etc.) live in `@osn/ui` as Zaidan-style components — copy-pasted source backed by Kobalte headless primitives and styled with Tailwind + CVA. See [[component-library]] for the full guide on adding, using, and testing components.
+UI primitives (Button, Input, Card, Dialog, etc.) live in `@shared/ui` as Zaidan-style components — copy-pasted source backed by Kobalte headless primitives and styled with Tailwind + CVA. See [[component-library]] for the full guide on adding, using, and testing components.
 
 ## Shared UI Tokens
 
@@ -63,7 +63,7 @@ The `RsvpAvatar` test asserts that the constant reaches the DOM, so you can chec
 
 ## Shared Auth Components
 
-Sign-in and registration UI lives in `@osn/ui/auth/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
+Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
 
 - `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, **mandatory** passkey enrollment)
 - `<SignIn />` — passkey-only login (identifier-bound or discoverable). Routes to `<RecoveryLoginForm>` via the "Lost your passkey?" link
@@ -73,7 +73,7 @@ Sign-in and registration UI lives in `@osn/ui/auth/*` (not in individual apps). 
 - `<PasskeysView />` — passkey rename / delete (step-up gated)
 - `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
 
-Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/ui/auth/*` and injects a client from `@osn/client`.
+Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/auth-ui/*` and injects a client from `@osn/client`.
 
 ## Lazy Loading
 
@@ -180,6 +180,22 @@ A full-bleed sticky action bar must instead have the scroll container drop its o
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
 — the `flushBottom` prop on `AnimatedModal`, used by cire's `RsvpModal`.
 
+For that to work the panel around the scrollport must not itself scroll, which is
+`Modal`'s `frame` — see [[wiki/architecture/component-library]] §Overlays, which
+also covers the `<dialog>` user-agent padding that put this exact bar 16px above
+the edge it seats on.
+
+### The top layer is above every `z-index`, and outside it everything is `inert`
+
+A `<dialog>` opened with `showModal()` paints above every stacking context in the
+document by definition, so nothing outside the top layer can be raised over it at
+any number — and a modal dialog additionally makes every node outside itself
+inert, so a popover or toast shown out there is *visible and dead*. Both halves
+matter the moment an app adopts `@shared/ui`'s `Modal`, and the second one is the
+half a `z-index` guard cannot see. The mechanism, the two doors into the top
+layer, and what it means for a menu opened from inside a sheet are in
+[[wiki/architecture/component-library]] §What has to sit above a modal.
+
 ### A width-only reflow guard cannot see a drag that only changes height
 
 `createAutoSize()` (`cire/vendor/src/lib/auto-size.ts`, byte-identical in
@@ -207,9 +223,9 @@ the caller's (xchromo/osn-tracker#130).
 
 ## Source Files
 
-- [osn/ui/src/components/ui/](../../osn/ui/src/components/ui/) — Zaidan component primitives
-- [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `cn()` utility
+- [shared/ui/src/ui/](../../shared/ui/src/ui/) — Zaidan component primitives
+- [shared/ui/src/lib/utils.ts](../../shared/ui/src/lib/utils.ts) — `cn()` utility
 - [pulse/web/src/lib/ui.ts](../../pulse/web/src/lib/ui.ts) — shared UI tokens
-- [osn/ui/src/auth/Register.tsx](../../osn/ui/src/auth/Register.tsx) — shared registration component
-- [osn/ui/src/auth/SignIn.tsx](../../osn/ui/src/auth/SignIn.tsx) — shared sign-in component
+- [osn/auth-ui/src/Register.tsx](../../osn/auth-ui/src/Register.tsx) — shared registration component
+- [osn/auth-ui/src/SignIn.tsx](../../osn/auth-ui/src/SignIn.tsx) — shared sign-in component
 - [CLAUDE.md](../../CLAUDE.md) — conventions and commands

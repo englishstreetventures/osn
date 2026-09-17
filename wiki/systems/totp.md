@@ -242,7 +242,7 @@ the shared secret in operator logs.
 
 ## Surfaces
 
-`<TotpView>` (`osn/ui/src/auth/TotpView.tsx`) is the only place a user meets
+`<TotpView>` (`osn/auth-ui/src/TotpView.tsx`) is the only place a user meets
 this system. `@musubi/social` mounts it in Settings → Security, between
 `<PasskeysView>` and `<RecoveryCodesView>`, inside the lazy `SecuritySection`
 chunk that already carries `@simplewebauthn/browser`.
@@ -263,8 +263,8 @@ Three properties of that panel are load-bearing rather than cosmetic:
   graphic is and points at that key; it never carries the `otpauth://` URI,
   because an accessible name is read aloud and copied into tooling and that URI
   *is* the secret.
-- **The QR is generated in-repo** (`osn/ui/src/lib/qr.ts`, rendered by
-  `osn/ui/src/components/ui/qr-code.tsx`) — byte mode, error-correction level M,
+- **The QR is generated in-repo** (`shared/ui/src/lib/qr.ts`, rendered by
+  `shared/ui/src/ui/qr-code.tsx`) — byte mode, error-correction level M,
   versions 1 to 15. Nothing in the monorepo could draw one and `bunfig.toml`
   sets a three-day `minimumReleaseAge`, so this cost no dependency. Its tests
   pin the parts a rendering assertion cannot see: the specification's

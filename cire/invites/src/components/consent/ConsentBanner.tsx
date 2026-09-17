@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { onCleanup, onMount, Show } from "solid-js";
 
 import {
@@ -62,7 +63,7 @@ export function ConsentBanner() {
           class={`fixed inset-x-0 bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
         >
           <div class="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p class="font-body text-text-muted text-[0.78rem] leading-relaxed">
+            <p class="font-body text-text-muted text-ui-sm leading-relaxed">
               We use a little storage to keep you signed in to your invite. Some parts — the venue
               map and the Pinterest moodboard — are loaded from Google and Pinterest, who can see
               your IP address and browser. That's switched on; you can turn it off here, or any time
@@ -96,13 +97,9 @@ export function ConsentBanner() {
  */
 function BannerButton(props: { onClick: () => void; children: string }) {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
-    >
+    <Button variant="cta" size="sm" onClick={props.onClick}>
       {props.children}
-    </button>
+    </Button>
   );
 }
 

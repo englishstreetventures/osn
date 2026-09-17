@@ -23,7 +23,7 @@
     "check": "turbo check",
     "test": "turbo test --continue",
     "test:d1": "turbo test:d1 --continue --concurrency=1",
-    "test:browser": "turbo test:browser --continue",
+    "test:browser": "turbo test:browser --continue --concurrency=1",
     "test:scripts": "bun test ./scripts/",
     "check:release-age-excludes": "bun run scripts/check-release-age-excludes.ts",
     "check:jest-dom-markers": "bash scripts/check-jest-dom-markers.sh",

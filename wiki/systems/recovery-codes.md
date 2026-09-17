@@ -12,7 +12,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-  - "@osn/ui"
+  - "@osn/auth-ui"
 last-reviewed: 2026-09-14
 ---
 # Recovery Codes
@@ -236,7 +236,7 @@ Step-up gates `/recovery/generate`, but a compromised session with inbox access 
 1. **Audit row — generate.** Every `generateRecoveryCodesForAccount` call inserts a `security_events` row (kind `"recovery_code_generate"`) in the same transaction as the code swap. If the audit write fails, the codes don't commit either.
 2. **Audit row — consume (S-H1).** Every successful `consumeRecoveryCode` inserts a `security_events` row (kind `"recovery_code_consume"`) in the same transaction as the sessions wipe. Failed consume attempts (wrong code, unknown identifier) do NOT record — only genuine takeovers.
 3. **Email notification.** Both kinds fire a best-effort email (S-L5 framed, codes never included). Dispatch runs through `forkBackground` (`osn/api/src/lib/background.ts`) with a 10 s `Effect.timeout`, so mailer health does not affect user-visible request latency (P-W2). `forkBackground`, not a bare `Effect.forkDetach`: on workerd a promise never handed to `ExecutionContext.waitUntil` may not run at all once the response is returned — see [[backend-patterns#Background work must reach waitUntil]]. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
-4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL` — P-W1). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token (S-M1)** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/ui/auth/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
+4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL` — P-W1). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token (S-M1)** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/auth-ui/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
 
    Where that banner mounts is the host application's choice, and `@musubi/social` mounts it in the **application shell** — every route once a session exists, not the Settings page alone. A channel that survives email filtering is worth little behind a page the user has no reason to open. See [[social#Account-health banners]]. The component renders nothing rather than throwing when the list cannot be read, because a Solid resource rethrows on read and shell code has no page-sized blast radius.
 
@@ -258,7 +258,7 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 
 ## UI
 
-`RecoveryCodesView` (`@osn/ui/auth/RecoveryCodesView`) is the settings surface. It:
+`RecoveryCodesView` (`@osn/auth-ui/RecoveryCodesView`) is the settings surface. It:
 
 - reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
@@ -267,14 +267,14 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox;
 - fails soft on a status read error — the count goes unknown, generation still works.
 
-Props: `client`, `stepUpClient`, `accessToken`, plus optional `runPasskeyCeremony` (kept caller-side so `@osn/ui` doesn't depend on `@simplewebauthn/browser`), `passkeyOnly`, `onSaved`.
+Props: `client`, `stepUpClient`, `accessToken`, plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `passkeyOnly`, `onSaved`.
 
 Mounted in:
 
 - `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list.
 - `cire/host/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
 
-`RecoveryLoginForm` is the redemption side, mounted in `@osn/ui/auth/SignIn`.
+`RecoveryLoginForm` is the redemption side, mounted in `@osn/auth-ui/SignIn`.
 
 ### Getting people to the view in the first place
 

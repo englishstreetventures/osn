@@ -71,8 +71,6 @@ describe("AddToCalendar", () => {
   it("renders a Google Calendar link with the correct href when open", () => {
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
-    // The popover is portalled to <body>, so query the whole document, not the
-    // render container.
     const link = screen.getByText("Google Calendar") as HTMLAnchorElement;
     expect(link.href).toContain("https://calendar.google.com/calendar/render");
     expect(link.href).toContain("text=Reception%2C+Cocktail+Hour+%26+Dinner");
@@ -93,24 +91,27 @@ describe("AddToCalendar", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
-  it("portals the popover to document.body so it escapes the EventCard stacking context", () => {
+  it("renders the menu in place, so a modal sheet cannot make it inert", () => {
+    // The details sheet is a `showModal()` dialog, and a modal dialog makes
+    // every node outside it inert — not hit-testable, not reachable by
+    // assistive technology, however it is painted. A menu portalled to
+    // `document.body` is therefore visible and dead, which is the same bug
+    // report as #203 from the guest's side. Rendering in place is what keeps it
+    // live; being a `popover` is what gets it out of every ancestor stacking
+    // context, which is the whole job a portal would be doing.
     const { getByRole, container } = render(() => (
       <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />
     ));
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
     const menu = screen.getByRole("menu");
-    // Walk up from the menu — it must be a sibling of the render container,
-    // not a descendant. That's what guarantees z-index isn't trapped inside
-    // an ancestor stacking context.
-    expect(container.contains(menu)).toBe(false);
-    expect(document.body.contains(menu)).toBe(true);
+    expect(container.contains(menu)).toBe(true);
   });
 
-  it("paints the popover above the details modal layer (z-110 > modal z-100)", () => {
-    // Regression: AddToCalendar is opened from inside the details modal
-    // (AnimatedModal, z-100). At z-90 the portalled menu rendered behind the
-    // modal backdrop and was invisible/unclickable ("Add to Calendar doesn't
-    // work"). It must sit above the modal.
+  it("keeps its z-index for the case the top layer does not cover", () => {
+    // Opened from an event card rather than from the sheet, the menu is an
+    // ordinary fixed box competing with the page: at z-90 it rendered behind
+    // the cards it was opened over. That the top layer settles the other case
+    // is asserted in `lib/z-index.browser.test.tsx`, which needs an engine.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
     const menu = screen.getByRole("menu");

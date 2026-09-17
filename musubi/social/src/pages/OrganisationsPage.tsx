@@ -1,11 +1,11 @@
 import { useAuth } from "@osn/client/solid";
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
-import { Dialog, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
-import { Input } from "@osn/ui/ui/input";
-import { Label } from "@osn/ui/ui/label";
-import { Textarea } from "@osn/ui/ui/textarea";
 import { toast } from "@shared/toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
+import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Input } from "@shared/ui/ui/input";
+import { Label } from "@shared/ui/ui/label";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
@@ -190,7 +190,7 @@ export function OrganisationsPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                class="text-body rounded-pill max-md:h-10"
+                class="text-body max-md:h-10"
                 onClick={() => setShowCreate(false)}
               >
                 Cancel
@@ -198,7 +198,7 @@ export function OrganisationsPage() {
               <Button
                 type="submit"
                 size="sm"
-                class="text-body rounded-pill max-md:h-10"
+                class="text-body max-md:h-10"
                 disabled={creating() || !handle() || !name()}
               >
                 {creating() ? "Creating..." : "Create"}

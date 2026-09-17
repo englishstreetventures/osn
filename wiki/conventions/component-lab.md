@@ -4,10 +4,11 @@ description: The in-repo Storybook replacement for prototyping components, three
 tags: [convention, frontend, tooling]
 related:
   - "[[component-library]]"
+  - "[[design-tokens]]"
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-09-17
 ---
 
 # Component Lab
@@ -30,10 +31,53 @@ the decisions behind it.
 
 ## The catalogue
 
-`osn/ui` → **Everything** is every component `@osn/ui` exports on one page, each
-with its import path — the "what do we already have" view. Per-component groups
-(`osn/ui/Button`, `osn/ui/display`, `osn/ui/forms`, `osn/ui/overlays`) carry the
-variants and states.
+`shared/ui` → **Everything** is every component `@shared/ui` exports on one page, each
+with its import path — the "what do we already have" view. Six sibling groups
+carry the variants and states, and all seven stories live together in
+`tools/lab/src/stories/shared-ui/`:
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `shared/ui` | `overview.story.tsx` | Everything, one state each |
+| `shared/ui/Button` | `button.story.tsx` | All variants, all sizes, live playground |
+| `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
+| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
+| `shared/ui/data` | `data.story.tsx` | Table, Meter |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, Tabs |
+
+A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
+something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
+three helpers beside them that the registry ignores because they are not
+`*.story.tsx` (`utilities.ts`, `measure.ts`, `chrome.tsx`):
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `design-system/colour` | `colour.story.tsx` | Every colour role in use, with the rule from `tokens.css` beside it; the same tokens by contrast obligation |
+| `design-system/contrast` | `contrast.story.tsx` | Every pair `contrastPairs()` hands the conformance harness, measured from the painted cell |
+| `design-system/type` | `type.story.tsx` | The type, tracking, leading and measure scales, stacked; contract value beside painted value |
+| `design-system/shape-motion` | `shape.story.tsx` | Radius and the `control` role, elevation, the focus ring, durations × easings |
+| `design-system/theming` | `theming.story.tsx` | The same `@shared/ui` components under three mappings — musubi's, cire's, none |
+
+Three decisions carry the group. **The lists are derived, not typed**: every
+iteration runs over the contract's exports, and the literal utility a token needs
+(Tailwind emits nothing for a class assembled at runtime) sits in a table that is
+`satisfies`-checked against the same export, so a token added to the contract
+without a spelling is a type error. **The captions are measured, not quoted**:
+each swatch reads its own `getComputedStyle`, re-run on a `MutationObserver` of
+`<html class>` rather than on the lab's `theme()` signal, because `setTheme`
+writes the signal before it toggles the class. Headless, every caption reads
+`unmeasured` and the story still mounts, which is what the smoke test checks.
+**The theming story is the contract's central claim made visible**: cire's ramp
+is a `div` with inline `--ui-*` custom properties, and a third column sets every
+token to `initial` to show the package's fallbacks. It only works because the
+contract is `@theme inline` — see [[design-tokens]] §`@theme inline`.
+
+The sidebar title comes from each file's `meta.title`, not from its path, so
+moving a story does not move its row. The other two component layers —
+`@osn/auth-ui` and `@cire/ui`, see [[component-library]] — have no catalogue
+story: every auth view takes an `@osn/client` and a live session, which is the
+fixture problem below.
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they
 exist for the behaviour no test tier can reach. Their unit suites assert the
@@ -60,7 +104,9 @@ and an auth session; standing those up in a story means fixtures the repo
 deliberately keeps out of app source — see [[component-library]]. The path is
 open where a component needs no such context: `pulse/Icon` is catalogued from
 a story sitting in `pulse/web/src/components/Icon.story.tsx`, which imports
-nothing from the lab and so stays an ordinary file in its own package. The two
+nothing from the lab and so stays an ordinary file in its own package, and
+`cire/host/src/components/ModuleSidebar.story.tsx` does the same for a component
+that supplies its own fixtures and imports its own `global.css`. The two
 `shared/*` benches are the same shape — bare component exports, no lab imports,
 typechecked and linted in their own package like any other file.
 
@@ -89,15 +135,18 @@ addons, or if the design system needs published docs for people outside the repo
 | three / canvas | `src/lab/three.tsx` | `ThreeCanvas`, `Canvas2D`, `htmlToCanvas`, `htmlToTexture`, CSS3D layer. |
 | Shell | `src/Lab.tsx` | Sidebar, backdrops, viewports, theme, remount, `?bare`. |
 
-Stories live either in `tools/lab/src/stories/` (spikes) or next to a real
-component under any workspace's `src/` (permanent bench). Both are found.
+Stories live either under `tools/lab/src/stories/` — the `shared/ui` catalogue
+in `stories/shared-ui/`, the token contract in `stories/design-system/`, spikes
+at the top level; the glob is recursive — or
+next to a real component under any workspace's `src/` (permanent bench). Both
+are found.
 
 ## Decisions worth keeping
 
 **The lab imports `musubi/social/src/App.css` rather than copying tokens.** That
 file is the source of truth for `--background`, the `.dark` block and the `base:`
-variant every `@osn/ui` class is written against. A second copy drifts. The cost
-is that the OSN look is the lab's default; a story with its own design language
+variant every `@shared/ui` class is written against. A second copy drifts. The cost
+is that Musubi's look is the lab's default; a story with its own design language
 imports its own CSS.
 
 **No iframe.** Stories render in the same document as the chrome. Hot reload

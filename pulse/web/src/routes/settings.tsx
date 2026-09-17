@@ -1,9 +1,9 @@
-import { Button } from "@osn/ui/ui/button";
-import { Card } from "@osn/ui/ui/card";
-import { Label } from "@osn/ui/ui/label";
-import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Label } from "@shared/ui/ui/label";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { createSignal, Show } from "solid-js";
 
 import { updateMySettings } from "../lib/rsvps";
@@ -59,7 +59,7 @@ export function SettingsPage() {
         when={session()}
         fallback={<p class="text-muted-foreground text-sm">Sign in to change your settings.</p>}
       >
-        <Card class="flex flex-col gap-3 p-4">
+        <Card padding="sm" class="flex flex-col gap-3">
           <Label class="text-base font-semibold">Who can see events you're attending?</Label>
           <p class="text-muted-foreground text-xs">
             Note: if an event has a public guest list, attending it opts you in regardless of this

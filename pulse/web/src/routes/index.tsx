@@ -231,7 +231,7 @@ export function ExplorePage() {
             <Show when={liveEvents().length > 0}>
               <div class="mt-6 mb-2.5 flex items-baseline justify-between">
                 <h2
-                  class="m-0 text-[22px] font-normal"
+                  class="text-ui-lg m-0 font-normal"
                   style={{ "font-family": "var(--font-serif)", "letter-spacing": "-0.01em" }}
                 >
                   Happening now
@@ -264,7 +264,7 @@ export function ExplorePage() {
                 <>
                   <div class="mt-6 mb-2.5 flex items-baseline justify-between">
                     <h2
-                      class="m-0 text-[22px] font-normal"
+                      class="text-ui-lg m-0 font-normal"
                       style={{ "font-family": "var(--font-serif)", "letter-spacing": "-0.01em" }}
                     >
                       On your radar
@@ -291,7 +291,7 @@ export function ExplorePage() {
             <Show when={rest().length > 0}>
               <div class="mt-6 mb-2.5 flex items-baseline justify-between">
                 <h2
-                  class="m-0 text-[22px] font-normal"
+                  class="text-ui-lg m-0 font-normal"
                   style={{ "font-family": "var(--font-serif)", "letter-spacing": "-0.01em" }}
                 >
                   More this week
@@ -321,7 +321,7 @@ export function ExplorePage() {
             {/* Empty state */}
             <Show when={filtered().length === 0 && !discovery.loading}>
               <div class="text-muted-foreground py-16 text-center">
-                <div class="mb-1.5 text-[28px]" style={{ "font-family": "var(--font-serif)" }}>
+                <div class="text-ui-xl mb-1.5" style={{ "font-family": "var(--font-serif)" }}>
                   Nothing here yet.
                 </div>
                 <div>Try a different filter or broaden your search.</div>

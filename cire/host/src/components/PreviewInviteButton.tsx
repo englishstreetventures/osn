@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { createSignal } from "solid-js";
@@ -90,19 +91,33 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
   // accessible name is always the visible wording and never goes missing on the
   // width where nothing is drawn.
   return (
-    <button
+    // `cta`, which is the outline-at-rest, gold-on-hover shape this button was
+    // writing out by hand — the same one `InviteBuilder`'s Preview control
+    // already uses. The two sat side by side in the same portal with the same
+    // job and two hand-written class lists, and they had drifted: this one
+    // rested on `border-gold-dim` and `text-gold` where the variant uses the
+    // accent and its contrast-checked ink.
+    //
+    // The class is for what the variant does not decide: the top bar's own
+    // height, and a narrower horizontal padding than `sm` gives, because at the
+    // narrow width the button is a single glyph. Plain utilities rather than
+    // `base:` ones, so they beat the variant's on the same property instead of
+    // tying with it and being resolved by stylesheet order.
+    <Button
+      variant="cta"
+      size="sm"
       type="button"
       onClick={() => void preview()}
       disabled={loading()}
       aria-busy={loading()}
-      class="border-gold-dim font-body text-gold hover:bg-gold hover:text-bg hover:border-gold flex h-9 items-center justify-center gap-2 rounded-sm border bg-transparent px-2.5 text-[0.72rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent @2xl/frame:px-3.5"
+      class="h-9 px-2.5 disabled:cursor-default @2xl/frame:px-3.5"
     >
-      <span aria-hidden="true" class="text-[0.85rem] leading-none @2xl/frame:hidden">
+      <span aria-hidden="true" class="text-ui-sm leading-none @2xl/frame:hidden">
         ◎
       </span>
       <span class="sr-only @2xl/frame:not-sr-only">
         {loading() ? "Preparing…" : "Preview invite"}
       </span>
-    </button>
+    </Button>
   );
 }

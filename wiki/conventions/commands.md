@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-17
 ---
 
 # CLI Commands Reference
@@ -30,12 +30,20 @@ bun run test                              # Run all tests (turbo, skips packages
 bun run --cwd pulse/api test:run          # Pulse API tests
 bun run --cwd osn/api test:run            # OSN API (auth + graph + orgs) tests
 bun run --cwd osn/client test:run         # OSN Client SDK tests
-bun run --cwd osn/ui test:run             # Shared UI component tests
+bun run --cwd osn/auth-ui test:run        # OSN auth views (SignIn, Register, StepUpDialog, …)
+bun run --cwd shared/ui test:run          # Shared UI primitives — the unit project only
 bun run --cwd pulse/db test:run           # Pulse DB schema tests
 
 # Watch mode
 bun run --cwd pulse/api test              # Pulse API tests in watch mode
+
+# The real-Chromium tier, per package
+bun run --cwd shared/ui test:browser      # Modal, form and data primitives under real CSS
 ```
+
+`@shared/ui` splits its suite into a `unit` project and a `browser` one, so
+`test` and `test:run` there cover the unit project alone and `test:browser` is a
+separate script. `@osn/auth-ui` has a single config and no `test:browser`.
 
 Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag.
 

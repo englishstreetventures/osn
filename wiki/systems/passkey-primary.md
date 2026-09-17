@@ -10,7 +10,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/client"
-  - "@osn/ui"
+  - "@osn/auth-ui"
   - "@musubi/social"
 last-reviewed: 2026-09-10
 ---
@@ -74,7 +74,7 @@ Client SDK surface (`@osn/client`):
 - `LoginClient.passkeyBegin` / `passkeyComplete` — the only primary methods.
 - `RecoveryClient.loginWithRecoveryCode` — the escape hatch.
 
-UI surface (`@osn/ui/auth`):
+UI surface (`@osn/auth-ui`):
 
 - `<SignIn>` — WebAuthn-only. Renders a "Lost your passkey?" link that routes
   to `<RecoveryLoginForm>`. Feature-detects `browserSupportsWebAuthn()`; when
@@ -86,7 +86,7 @@ UI surface (`@osn/ui/auth`):
 - `<Register>` — WebAuthn-gated. The flow stops at the start if the
   environment lacks WebAuthn support, and completion stays blocked until
   first-credential enrolment succeeds.
-- `<PasskeysView>` (`@osn/ui/auth/PasskeysView`) — Settings → Security
+- `<PasskeysView>` (`@osn/auth-ui/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
   gated, S-M2), delete (last-passkey guarded), and **Add passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
@@ -107,7 +107,7 @@ UI surface (`@osn/ui/auth`):
 
 > [!info] `passkeyOnly` has no callers
 > With the cire mount gone, nothing in this repository sets it. It stays on the
-> component because `@osn/ui` is OSN-the-system rather than Musubi's own code
+> component because `@osn/auth-ui` is OSN-the-system rather than Musubi's own code
 > ([[osn-and-musubi]]) and any instance running without deliverable mail needs
 > it. That is also why the decision below settles its *meaning* rather than
 > deleting it.
@@ -426,7 +426,7 @@ authenticating access-token routes by accident.
 - **Client SDK methods**: `LoginClient.otpBegin/otpComplete/magicBegin/magicVerify`;
   `CompleteRegistrationResult.enrollmentToken`; `passkeyRegisterBegin/Complete`
   now take `accessToken` instead of `enrollmentToken`.
-- **UI components**: `@osn/ui/auth/MagicLinkHandler` (deleted).
+- **UI components**: `@osn/auth-ui/MagicLinkHandler` (deleted).
 - **Rate-limiter slots**: `otpBegin`, `otpComplete`, `magicBegin`.
 - **Metrics**: `osn.auth.magic_link.sent`; `AuthMethod` union narrowed to
   `"passkey" | "recovery_code" | "refresh"`; `AuthRateLimitedEndpoint`

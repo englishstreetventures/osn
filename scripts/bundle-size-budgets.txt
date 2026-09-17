@@ -23,11 +23,29 @@
 # guard-bundle-size.sh's comment for the full reasoning); ~11.7 KB is the
 # figure every row below uses and is a reasonable default to keep using.
 #
+# A re-measure is not automatically a re-baseline, and the two cases below are
+# why the distinction matters.
+#
+# All four cire apps joined the token contract with their thresholds unchanged,
+# so their headroom TIGHTENED — ~7.4 KB (host), ~4.3 KB (vendor), ~8.5 KB
+# (invites, whose two modal conversions moved it a little in each direction and
+# left it ~0.3 KB below where it started) — rather than the ~11.7 KB default.
+# That is the right direction: the rule caps headroom (it must stay smaller than
+# the smallest mistake the guard exists to catch) and does not require any, so
+# raising a ceiling to restore the default would only make the guard looser.
+#
+# `cire/landing` went the other way and so its threshold moved. Converting its
+# demo sheet to `@shared/ui`'s `Modal` deleted the one module importing `motion`,
+# and the library left the bundle with it: 185,383 -> 164,847 bytes. Leaving
+# 189,324 in place would have banked a 24.5 KB gap, which is larger than the
+# mistake this guard exists to catch, so the threshold followed the measurement
+# down to measured + ~11.7 KB.
+#
 # Blank lines and lines starting with # are ignored.
 
-cire/invites   worker  175000   # measured 163332
-cire/host      static  238617   # measured 226917
-cire/vendor    static  81644    # measured 69961
-cire/landing   static  189324   # measured 177641
+cire/invites   worker  175000   # measured 166510
+cire/host      static  238617   # measured 231255
+cire/vendor    static  81644    # measured 77305
+cire/landing   static  176547   # measured 164847
 musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683

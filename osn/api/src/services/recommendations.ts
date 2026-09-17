@@ -633,83 +633,17 @@ export function createRecommendationService() {
                 // them. The surviving organisations are hydrated in step 5,
                 // alongside the profiles, from a set that is already small.
                 //
-                // Batched `UNION ALL`: one statement per group of up to
-                // MAX_ORG_COMEMBER_ARMS_PER_QUERY (5) of the caller's
-                // organisations, the batches run concurrently and merged here
-                // in application code — see `MAX_ORG_COMEMBER_ARMS_PER_QUERY`'s
-                // comment for why 5, not the 50 this originally unioned in one
-                // statement. The query both versions replaced gave the whole
-                // budget to one global `ORDER BY (organisation_id, profile_id)
-                // LIMIT MAX_ORG_COMEMBER_ROWS`.
-                // Splitting the budget per organisation, with its own `ORDER
-                // BY profile_id LIMIT <share>`, is what fixes it: every
-                // organisation the caller belongs to contributes candidates,
-                // not just whichever one sorts first — batching changes how
-                // many round trips that takes, not which organisations
-                // contribute.
+                // Each organisation gets an equal share of
+                // MAX_ORG_COMEMBER_ROWS, with its own `ORDER BY profile_id
+                // LIMIT`, so every organisation the caller belongs to
+                // contributes candidates rather than whichever few sort first.
+                // Arms are wrapped as subqueries because SQLite gives a
+                // non-final UNION arm no ORDER BY/LIMIT of its own, and
+                // `myOrgIds` is sorted before batching so the merged order is
+                // deterministic — which is what makes "first organisation wins
+                // the label" in step 3 stable across requests.
                 //
-                // The issue that reported the starvation proposed a window
-                // function (`ROW_NUMBER() OVER (PARTITION BY organisation_id
-                // ORDER BY profile_id)`, filtered to `rn <= share`) instead.
-                // That is still the wrong fix: a window function's `PARTITION
-                // BY` filters *after* the window scan, so it still reads
-                // every membership row of every organisation the caller
-                // belongs to — exactly the unbounded read
-                // MAX_ORG_COMEMBER_ROWS exists to prevent. `json_each()` was
-                // also considered, for a single statement carrying the whole
-                // organisation list as one bound JSON array — D1 does expose
-                // that function, confirmed against Miniflare, but it does
-                // not fit this shape: giving each organisation its own
-                // `ORDER BY … LIMIT <share>` needs a per-row-correlated
-                // subquery in the `FROM` clause, and this SQLite build has no
-                // implicit `LATERAL` (`no such column: je.value` — confirmed
-                // against Miniflare rather than assumed). It stays useful
-                // elsewhere for a flat `IN`-style list past the
-                // 100-bound-parameter cap; it does not replace a per-group
-                // `LIMIT`.
-                //
-                // Measured on real (Miniflare/workerd) D1, three organisations
-                // of 600/300/100 members, cap 150, share 50: the single
-                // global query read 151 rows for 150 results, and the window
-                // function read 2,860 for the same 150. Both the single-
-                // statement `UNION ALL` this batching replaces and the
-                // batched form read exactly 150 — batching changes round-trip
-                // count, not rows read. A single organisation with 50,000
-                // members would still cost the window function 50,000+ rows
-                // read on every request, forever — the same failure this
-                // constant was added to stop.
-                //
-                // The share is MAX_ORG_COMEMBER_ROWS divided evenly by the
-                // caller's actual organisation count, not by the 50-org cap or
-                // the batch size — a caller in one organisation gets the whole
-                // budget (same as the query this replaces did), a caller in
-                // three splits it three ways, and a caller at the
-                // 50-organisation cap gets the same 40-per-organisation worst
-                // case a fixed division would have given throughout. Integer
-                // division: the remainder — at most `myOrgIds.length - 1` rows
-                // of budget — goes to no organisation. Handing it to whichever
-                // organisation sorts first would reintroduce, in miniature,
-                // the exact bias this change exists to remove.
-                //
-                // Each arm is wrapped as a subquery (`.as(...)` then an outer
-                // `.select().from(...)`) because SQLite's compound-select
-                // grammar does not give a non-final arm of a UNION its own
-                // ORDER BY/LIMIT — only a derived-table subquery gets one.
-                // Confirmed against a real SQLite engine: the unwrapped form
-                // (`... LIMIT ? UNION ALL SELECT ...`) is a syntax error
-                // ("ORDER BY clause should come after UNION ALL not before"),
-                // not merely unidiomatic.
-                //
-                // `myOrgIds` is sorted once, up front, and cut into batches in
-                // that order, so the merged result reproduces the old query's
-                // `(organisation_id, profile_id)` order: batch 0's rows are
-                // fully emitted before batch 1's, arm N's rows before arm
-                // N+1's within a batch, and each arm is itself ordered by
-                // `profile_id`. `Effect.all` returns results in input order
-                // regardless of which batch's query resolves first, so that
-                // order survives the concurrency below. That keeps "first
-                // organisation wins the label" in step 3 deterministic across
-                // requests, same as the comment there has always promised.
+                // @see wiki/decisions/org-comember-fanout-batched-union.md
                 const orgComemberShare = Math.floor(MAX_ORG_COMEMBER_ROWS / myOrgIds.length);
                 const sortedOrgIds = [...myOrgIds].toSorted();
                 const batches: string[][] = [];
@@ -821,57 +755,15 @@ export function createRecommendationService() {
         )
         .slice(0, safeLimit);
 
-      // Step 4.5: fresh re-check.
+      // Step 4.5: fresh re-check. Steps 1 and 2 are un-transacted, so an edge
+      // accepted for the caller between them can come back as a suggestion to
+      // themselves. Re-read fresh here for just the ids that survived ranking
+      // (≤ safeLimit). Each query binds the id list ONCE, against a subquery
+      // projecting the counterpart id — the two-`inArray` form is 102 params at
+      // safeLimit's ceiling of 50 and crosses D1's 100-per-statement cap. Any
+      // row counts, pending or accepted. A dropped candidate is not backfilled.
       //
-      // Steps 1 and 2 are two separate, un-transacted D1 round trips — no
-      // `db.batch`/`db.transaction` joins them. Step 1 snapshots the
-      // caller's edges into `myEdgeRows`; step 2's FOF seed subquery
-      // re-reads `connections` live, at whatever the table holds when step
-      // 2 actually runs, not when step 1 ran. If a connection is accepted
-      // for the caller in that window — the same account, a second request
-      // in flight from another tab or device — its id was never seen by
-      // `myEdgeRows`, so it is in neither `myConnectionIdSet` nor
-      // `excludeIds`, but it IS inside the live seed subquery's result. The
-      // fan-out row for that edge is then misclassified in step 3: neither
-      // `isMutualRequester` nor `isMutualAddressee` is true (both compare
-      // against the stale set), so the code takes the "candidate" branch,
-      // and `excludeIds.has(candidateId)` misses it too. The caller's own
-      // brand-new connection would come back as "someone you may know."
-      // `profileId` is always the caller's own, so this can only misfile
-      // the owner's freshest edge against themselves — never leak or
-      // block-bypass another account's state.
-      //
-      // Fixed by re-reading, fresh, immediately before hydration, for just
-      // the ids that survived ranking — at most `safeLimit` (≤ 50), so this
-      // cannot reopen the 100-bound cap. That safety is measured, not
-      // asserted: naively filtering with `or(inArray(requesterId, ids),
-      // inArray(addresseeId, ids))` binds the id list TWICE, the same
-      // mistake this shape exists to avoid, and at safeLimit's ceiling of 50 that is 102
-      // params (`bun run` against `.toSQL()` — 2 profileId equality binds +
-      // 2 × 50-id `inArray`s — over D1's 100-per-statement cap). Each query
-      // below instead runs the id filter once, against a subquery that
-      // projects the counterpart id itself, so the id list is bound once:
-      // 3 profileId binds (one in the `CASE`, two in the seed `WHERE`) + up
-      // to 50 for the single `inArray` = 53 params, confirmed the same way.
-      // No status filter on the connections re-check — any row, pending or
-      // accepted, means "no longer a suggestion", same as `excludeIds`
-      // above already treats every edge, not just accepted ones.
-      //
-      // `db.batch()` across steps 1 and 2 was considered instead and
-      // rejected without running it: D1's docs do not state that a batch is
-      // snapshot-isolated against a concurrent write from a different
-      // request, and this repo has already been burned three times (see
-      // MAX_MY_CONNECTIONS_FOR_FOF and MAX_ORG_COMEMBER_ARMS_PER_QUERY,
-      // above) by taking an engine property on faith instead of measuring
-      // it. A bounded re-check needs no such assumption: it is correct
-      // whether or not D1 batches are isolated, so it costs one extra
-      // pair of round trips to avoid depending on an unverified guarantee.
-      //
-      // No backfill: a dropped candidate is not replaced from the next rank
-      // down. That would need re-ranking against a larger candidate pool,
-      // which is a recall decision, not this fix's job — the caller sees a
-      // list one entry shorter on the rare request that races its own
-      // second tab, never a wrong one.
+      // @see wiki/decisions/post-rank-connection-recheck-over-d1-batch.md
       const rankedIds = sorted.map(([id]) => id);
       const recheckExcludedIds =
         rankedIds.length === 0

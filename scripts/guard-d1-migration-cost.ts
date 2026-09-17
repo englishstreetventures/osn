@@ -1,91 +1,22 @@
 /**
  * Guard the D1 cost of building a database from its migration chain.
  *
- * WHAT THIS IS FOR. The cire dev deploy crossed a hard free-tier ceiling by
- * growing, not by breaking. Every `ALTER TABLE ... DROP COLUMN` added to the
- * chain made each from-zero rebuild a little more expensive, and on 2026-09-09
- * thirteen merges spent 104,091 D1 rows written against a limit of 100,000 a
- * day across the whole account (xchromo/osn#979). No commit was wrong and no
- * test failed. This guard puts a committed number in front of that growth, the
- * way `scripts/guard-bundle-size.sh` puts one in front of a bundle.
+ * Replays every `.sql` in the chain into in-memory `bun:sqlite` and counts
+ * SCHEMA WRITES — one per schema-changing statement, two for an `ALTER TABLE
+ * ... DROP COLUMN` table rebuild — then prices them at
+ * {@link ROWS_WRITTEN_PER_SCHEMA_WRITE}. Rows a data statement in a migration
+ * actually writes are counted exactly, from SQLite's own `changes`. No D1 call.
  *
- * THE TWO RULES, from wiki/conventions/bundle-size-guards.md, unchanged:
- *
- *   1. A budget is a number somebody chose, re-baselined deliberately, with
- *      the reason in the commit. It lives in one committed file the guard
- *      reads — scripts/d1-migration-cost-budgets.txt — never as an argument at
- *      a call site.
- *   2. A guard that only ever gets raised is not a guard. Raising it is a
- *      decision with a paragraph attached, not a lockfile refresh. This guard
- *      has a second answer the bundle one does not: squashing the chain into a
- *      fresh baseline puts the number back DOWN, which is what
- *      xchromo/osn#984 did. Reach for that first.
- *
- * HOW IT MEASURES. Offline, with no D1 call: it replays every `.sql` file in
- * the chain into an in-memory `bun:sqlite` database and counts SCHEMA WRITES.
- * One per statement that changes the schema; two for a statement that makes
- * SQLite rebuild a whole table (`ALTER TABLE ... DROP COLUMN`). Rows that a
- * data statement in a migration actually writes are counted exactly, from
- * SQLite's own `changes`.
- *
- * WHY THAT CORRELATES WITH D1's BILL. A from-zero rebuild runs against empty
- * tables, so nearly all of what it spends is schema churn: SQLite rebuilds the
- * whole table for every dropped column, and D1 bills that against no data at
- * all. Each schema statement therefore costs a roughly fixed number of rows
- * whatever the table holds, which is the claim the constant rests on.
- *
- * ONE HARD ANCHOR fixes it. One `ALTER TABLE ... DROP COLUMN` on
- * `wedding_invite_customisations`, against a table with no rows in it, cost 54
- * D1 rows written — two schema writes at 27 apiece.
- *   measured 2026-09-10:
- *   bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes --limit=200
- *
- * ONE SOFT ANCHOR agrees within about 20%, and no better than that. The 57-file
- * chain squashed by xchromo/osn#984 measures 269 schema writes here. Its
- * rebuild cost 8,007 D1 rows written in total (unverified here — taken from
- * wiki/runbooks/free-tier-limits.md and the xchromo/osn#979 investigation, and
- * not re-derived by this branch), but that total covers drop, replay AND seed,
- * so it only bounds the chain once the seed is subtracted, and the seed's cost
- * is what is not known precisely:
- *
- *   - `cire/db/seed/dev-seed.sql` inserts 2,063 tuples, and D1 bills index
- *     entries as rows written too, so the seed cost AT LEAST that. The chain
- *     is then at most 8,007 - 2,063 = 5,944, or 22.1 rows per schema write.
- *     measured 2026-09-10: replay cire/db/migrations/0001_initial.sql then
- *     cire/db/seed/dev-seed.sql into bun:sqlite and sum SQLite's `changes`.
- *   - The often-quoted "89% schema, 11% seed" split does NOT settle it. That
- *     is the split within the 200 HEAVIEST queries — 56,852 rows written
- *     across those 200, against roughly 409,000 on the database over the
- *     week's rebuild days — not a share of one rebuild. The seed cost it
- *     implies, 881 rows, is below the seed's own floor of 2,063, which is the
- *     tell that the sample over-represents schema statements. Neither of those
- *     two sampling figures was re-derived on this branch.
- *
- * So the constant sits somewhere around 22 to 27, and this guard uses 27: the
- * top of the band, the only directly measured point, and the safe side, since
- * over-stating what a rebuild costs is the error that does not lose a day's
- * quota.
- *
- * WHAT THAT UNCERTAINTY DOES AND DOES NOT TOUCH. The schema-write count is
- * exact — it is counted, not modelled — and it is what a reader should trust.
- * Every ROW figure the guard prints, and every "replays a day" derived from
- * one, carries the 22-27 band: read them as indicative, and as pessimistic by
- * up to about a fifth rather than optimistic. The line the guard enforces is
- * printed in schema writes beside the budget for exactly that reason, so the
+ * The schema-write count is exact. Every ROW figure the guard prints carries a
+ * 22-27 band and is pessimistic by up to about a fifth, which is why the line
+ * the guard enforces is printed in schema writes beside the budget — the
  * threshold can be read without trusting the constant at all.
  *
- * WHAT IS NOT IN THE NUMBER. The seed. This guard prices the chain, because
- * the chain is what a pull request changes; a full dev rebuild drops, replays
- * and then seeds, and the seed's 2,063 tuples come on top. The per-file
- * `d1_migrations` ledger insert that `wrangler d1 migrations apply` makes is
- * inside the constant rather than modelled, since the calibration chain paid
- * for 57 of them — which over-charges a short chain slightly, again on the
- * safe side.
- *
- * The read ceiling is not guarded either. It is 5,000,000 a day against
- * 100,000 written, and the rebuild that spent 8% of the write allowance spent
- * 0.5% of the read one, so writes are the binding constraint and a second
- * threshold would only be a second number to keep true.
+ * @see wiki/conventions/bundle-size-guards.md — the budgets file, and the two
+ * rules any threshold obeys.
+ * @see wiki/decisions/d1-migration-cost-budget-calibration.md — how the
+ * constant was calibrated, and what is not in it (the seed, the ledger insert,
+ * the read ceiling).
  *
  * Usage:
  *   guard-d1-migration-cost.ts --all              every row in the budgets
@@ -104,10 +35,12 @@ import { join, resolve } from "node:path";
 
 /**
  * Rows written on D1 per schema write. The evidence puts it somewhere around
- * 22 to 27 — see this file's header for both anchors and why the band is that
- * wide — and 27 is the top of it, which is the safe side. Changing it changes
- * every printed row figure and every headroom figure, so it is a re-baseline
- * of the same weight as a budget row.
+ * 22 to 27, and 27 is the top of it, which is the safe side. Changing it
+ * changes every printed row figure and every headroom figure, so it is a
+ * re-baseline of the same weight as a budget row.
+ *
+ * @see wiki/decisions/d1-migration-cost-budget-calibration.md — both anchors,
+ * and why the band is that wide.
  */
 export const ROWS_WRITTEN_PER_SCHEMA_WRITE = 27;
 

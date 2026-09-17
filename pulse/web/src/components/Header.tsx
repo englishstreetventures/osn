@@ -1,5 +1,6 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
-import { Button } from "@osn/ui/ui/button";
+import { useAuth } from "@shared/rp-auth/solid";
+import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { Button } from "@shared/ui/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,8 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@osn/ui/ui/dropdown-menu";
-import { useAuth } from "@shared/rp-auth/solid";
+} from "@shared/ui/ui/dropdown-menu";
 import { A, useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, Show } from "solid-js";
 

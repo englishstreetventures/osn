@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-17
 ---
 
 # Testing Patterns
@@ -48,14 +48,20 @@ scripts/
   tests/
     check-astro-fonts.test.ts      # scripts/ is not a workspace; `bun test ./scripts/`
     changeset-required.test.sh     # shell tests too
-osn/ui/
+shared/ui/
   tests/
-    auth/Register.test.tsx          # Shared Register component (Solid + happy-dom)
-    auth/SignIn.test.tsx            # Shared SignIn component (passkey-only)
-    auth/RecoveryLoginForm.test.tsx # Lost-passkey recovery flow
-    auth/StepUpDialog.test.tsx      # Sudo-token ceremony for sensitive actions
-    auth/SessionsView.test.tsx      # Session list / revoke
-    auth/PasskeysView.test.tsx      # Passkey management
+    test-support/browser-commands.ts # Vitest browser commands (emulateMedia)
+    lib/utils.test.ts                # cn() / clsx()
+    ui/otp-input.test.tsx            # unit tier (happy-dom) -- DOM shape and class lists
+    modal.browser.test.tsx           # browser tier (real Chromium) -- top layer, focus trap, ::backdrop
+osn/auth-ui/
+  tests/
+    SignIn.test.tsx                 # passkey-only sign-in view
+    Register.test.tsx               # registration view
+    RecoveryLoginForm.test.tsx      # lost-passkey recovery flow
+    StepUpDialog.test.tsx           # sudo-token ceremony for sensitive actions
+    SessionsView.test.tsx           # session list / revoke
+    PasskeysView.test.tsx           # passkey management
 ```
 
 ## Service Test Pattern
@@ -377,14 +383,24 @@ bun run test
 bun run --cwd pulse/api test:run
 bun run --cwd osn/api test:run
 bun run --cwd osn/client test:run
-bun run --cwd osn/ui test:run
+bun run --cwd osn/auth-ui test:run
+bun run --cwd shared/ui test:run          # unit project only
 bun run --cwd pulse/db test:run
 bun run --cwd zap/api test:run
 bun run --cwd zap/db test:run
 
 # Watch mode
 bun run --cwd pulse/api test
+
+# The browser tier, per package
+bun run --cwd shared/ui test:browser
 ```
+
+`@shared/ui` runs the two-project split — `unit` and `browser` — that
+`@cire/host`, `@musubi/social` and `@pulse/web` also run, so its `test` and
+`test:run` scripts name `--project unit` and the Chromium tier is the separate
+`test:browser` script. `@osn/auth-ui` has one plain config and therefore no
+`test:browser` to run.
 
 ## Related
 

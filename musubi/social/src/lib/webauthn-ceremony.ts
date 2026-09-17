@@ -1,14 +1,14 @@
-import type { RunPasskeyCeremony } from "@osn/ui/auth/StepUpDialog";
+import type { RunPasskeyCeremony } from "@osn/auth-ui/StepUpDialog";
 import { startAuthentication } from "@simplewebauthn/browser";
 
 /**
  * Runs the assertion (sign-in / step-up) ceremony.
  *
  * This app's WebAuthn assertion (sign-in / step-up) ceremony runner, handed
- * to the `@osn/ui` auth surfaces (`StepUpDialog`, `PasskeysView`,
+ * to the `@osn/auth-ui` auth surfaces (`StepUpDialog`, `PasskeysView`,
  * `SecurityEventsBanner`, …) as the `runPasskeyCeremony` prop.
  *
- * `@osn/ui` deliberately does not import the `@simplewebauthn/browser` runtime
+ * `@osn/auth-ui` deliberately does not import the `@simplewebauthn/browser` runtime
  * — hosts wire their own wrapper — so this module is where the two meet, and
  * it exists so that meeting happens exactly once instead of being re-typed
  * inline in every component that mounts one of those surfaces.

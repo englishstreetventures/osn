@@ -1,6 +1,6 @@
-import { Badge } from "@osn/ui/ui/badge";
-import { Card } from "@osn/ui/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Badge } from "@shared/ui/ui/badge";
+import { Card } from "@shared/ui/ui/card";
 import { A, useParams } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
@@ -69,7 +69,7 @@ function InstanceRow(props: { instance: SeriesInstance }) {
       {/* Date stamp — DESIGN.md: mixed-weight Geist, ember accent */}
       <div class="flex min-w-14 flex-col items-center">
         <span
-          class="text-[10px] font-medium tracking-wider uppercase"
+          class="text-ui-xs font-medium tracking-wider uppercase"
           style="color: var(--pulse-accent-strong, currentColor)"
         >
           {new Date(i.startTime).toLocaleString(undefined, { month: "short" })}
@@ -80,7 +80,7 @@ function InstanceRow(props: { instance: SeriesInstance }) {
         <div class="mb-1 flex items-center gap-2">
           <span class={`text-xs ${statusColour(i.status)}`}>{i.status}</span>
           <Show when={i.instanceOverride}>
-            <Badge variant="outline" class="text-[10px] tracking-wide uppercase">
+            <Badge variant="outline" class="text-ui-xs tracking-wide uppercase">
               Modified
             </Badge>
           </Show>
@@ -131,9 +131,9 @@ export function SeriesDetailPage() {
       <Show when={series()}>
         {(s) => (
           <article class="flex flex-col gap-6">
-            <Card class="p-5">
+            <Card padding="md">
               <div class="mb-2 flex items-center gap-2">
-                <Badge variant="secondary" class="text-[10px] tracking-wider uppercase">
+                <Badge variant="secondary" class="text-ui-xs tracking-wider uppercase">
                   Recurring
                 </Badge>
                 <Show when={s().status === "cancelled"}>
