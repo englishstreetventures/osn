@@ -67,8 +67,12 @@ describe("ModuleSidebar", () => {
     render(() => <ModuleSidebar active="overview" entitlements={ENTITLED} onSelect={onSelect} />);
 
     // The narrow-container surface: a trigger naming the current module, so a
-    // guest never has to open the sheet to know where they are.
-    const trigger = screen.getByRole("button", { name: /Modules/ });
+    // guest never has to open the sheet to know where they are. The visible
+    // text names only the module; "currently Overview" lives in the
+    // accessible name so the button isn't announced as the page it's already on.
+    const trigger = screen.getByRole("button", {
+      name: /Open wedding navigation, currently Overview/,
+    });
     expect(trigger.textContent).toContain("Overview");
     fireEvent.click(trigger);
 
@@ -267,7 +271,9 @@ describe("ModuleSidebar", () => {
       // still passes while the phone loses its only way in.
       const onSelect = vi.fn();
       render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={onSelect} />);
-      fireEvent.click(screen.getByRole("button", { name: /Modules/ }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
+      );
       const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
 
       const row = within(sheet).getByRole("button", { name: /Registry/ });

@@ -277,6 +277,7 @@ export default function ModuleSidebar(props: {
           }}
         >
           <Dialog.Trigger
+            aria-label={`Open wedding navigation, currently ${current().label}`}
             class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
           >
             <span class="flex min-w-0 items-center gap-3">
@@ -286,7 +287,6 @@ export default function ModuleSidebar(props: {
               <span class="min-w-0 truncate">{current().label}</span>
             </span>
             <span class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2">
-              Modules
               <span aria-hidden="true" class="text-gold text-ui-base tracking-normal">
                 ☰
               </span>
