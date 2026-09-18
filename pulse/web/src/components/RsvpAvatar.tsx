@@ -21,11 +21,8 @@ export function RsvpAvatar(props: { rsvp: Rsvp; size?: "sm" | "md" }) {
 
   return (
     <Avatar
-      class={clsx(
-        sizeClass(),
-        "border-2 border-card",
-        props.rsvp.isCloseFriend && CLOSE_FRIEND_RING_CLASS,
-      )}
+      ring="surface"
+      class={clsx(sizeClass(), props.rsvp.isCloseFriend && CLOSE_FRIEND_RING_CLASS)}
       title={label()}
       aria-label={label()}
     >

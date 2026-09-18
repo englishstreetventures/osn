@@ -258,7 +258,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                         onClick={() => void handleRevert(entry)}
                         disabled={revertingId() !== null}
                         aria-busy={reverting()}
-                        class="shrink-0 self-start transition @lg/panel:self-auto"
+                        class="shrink-0 self-start @lg/panel:self-auto"
                       >
                         {reverting() ? "Reverting…" : "Revert"}
                       </Button>
@@ -266,7 +266,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
                     <Show when={agedOut()}>
                       <span
-                        class="font-body text-text-muted text-ui-xs shrink-0 self-start italic @lg/panel:max-w-[12rem] @lg/panel:self-auto @lg/panel:text-right"
+                        class="font-body text-text-muted text-ui-xs shrink-0 self-start italic @lg/panel:max-w-48 @lg/panel:self-auto @lg/panel:text-right"
                         title="Only the ten most recent changes keep a restore point."
                       >
                         Restore point no longer available

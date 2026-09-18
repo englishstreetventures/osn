@@ -85,7 +85,7 @@ export function Sidebar() {
               <div class="flex flex-col gap-1.5">
                 <Button
                   size="sm"
-                  class="text-body w-full"
+                  class="w-full"
                   onClick={() => {
                     setShowSignIn(false);
                     setShowRegister(true);
@@ -96,7 +96,7 @@ export function Sidebar() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  class="text-body w-full"
+                  class="w-full"
                   onClick={() => {
                     setShowRegister(false);
                     setShowSignIn(true);
@@ -122,9 +122,7 @@ export function Sidebar() {
                     />
                   )}
                 </Show>
-                <AvatarFallback class="text-meta">
-                  {profileInitials(activeProfile())}
-                </AvatarFallback>
+                <AvatarFallback>{profileInitials(activeProfile())}</AvatarFallback>
               </Avatar>
               <div class="flex min-w-0 flex-1 flex-col">
                 <span class="text-foreground text-body truncate font-medium">

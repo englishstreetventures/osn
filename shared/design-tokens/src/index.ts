@@ -59,6 +59,11 @@ export const CONTRACT_SCALAR_TOKENS = {
     // shared control that picked a sized step instead gets overridden at every
     // call site in at least one app.
     "--ui-radius-control",
+    // The other role radius: the TOP corners of a bottom sheet, whose own
+    // bottom corners are square against the screen edge. Independent of `lg`
+    // because a sheet's grip scales with the edge it is pulled from rather
+    // than with a card's corner — cire wants 28px there with 10px cards.
+    "--ui-radius-sheet",
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],

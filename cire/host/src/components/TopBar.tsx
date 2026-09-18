@@ -122,12 +122,12 @@ export default function TopBar(props: {
         {/* ── Actions ──────────────────────────────────────────────────────── */}
         <div class="ml-auto flex shrink-0 items-center gap-2">
           <Button
-            variant="quiet"
+            variant="tile"
             type="button"
             aria-label="Search and jump to"
             aria-keyshortcuts="Meta+K Control+K"
             onClick={() => props.onOpenPalette()}
-            class="bg-surface/40 flex h-9 items-center gap-2"
+            class="flex h-9 items-center"
           >
             <span aria-hidden="true" class="text-ui-sm leading-none">
               ⌕

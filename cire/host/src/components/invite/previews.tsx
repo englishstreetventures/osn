@@ -60,12 +60,11 @@ export function DeviceToggle(props: {
 }) {
   const option = (device: PreviewDevice, label: string) => (
     <Button
-      variant="quiet"
+      variant="choice"
       size="sm"
       type="button"
       aria-pressed={props.value === device}
       onClick={() => props.onChange(device)}
-      class="aria-pressed:border-gold aria-pressed:text-gold transition"
     >
       {label}
     </Button>
@@ -394,9 +393,7 @@ export function SectionSample(props: {
         class={`flex flex-1 flex-col justify-center gap-1.5 ${
           leftAligned() ? "items-start text-left" : "items-center text-center"
         } ${
-          props.panel && layout().welcome === "panel"
-            ? "m-4 max-w-[11rem] rounded-sm border p-3"
-            : "p-4"
+          props.panel && layout().welcome === "panel" ? "m-4 max-w-44 rounded-sm border p-3" : "p-4"
         }`}
         style={
           props.panel && layout().welcome === "panel"
@@ -450,7 +447,7 @@ export function SectionSample(props: {
         <Show when={props.card}>
           {(card) => (
             <div
-              class="mt-1 flex w-full max-w-[14rem] flex-col gap-1 rounded-sm border p-2 text-left"
+              class="mt-1 flex w-full max-w-56 flex-col gap-1 rounded-sm border p-2 text-left"
               style={{
                 "background-color": "var(--color-surface)",
                 "border-color": "var(--color-border)",

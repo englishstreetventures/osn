@@ -42,6 +42,26 @@
   --color-cat-5: var(--cat-5);
   --color-cat-6: var(--cat-6);
 
+  /* The mono meta tier, below the body scale: the uppercase category tag and
+     the meta line on a floating chip. Named here rather than snapped to the
+     nearest step because both sit under the smallest one — `text-xs` is 12px,
+     and rounding a 9.6px eyebrow up to it changes the hero rather than tidying
+     it. */
+  --text-tag: 0.6rem;
+  --text-meta: 0.65rem;
+
+  /* Tracking for the mono face set in upper case, three steps beyond where the
+     default scale stops. Its widest step is 0.1em; lettering this small needs
+     one and a half to three times that before the caps read as spaced rather
+     than collided. */
+  --tracking-mono-wide: 0.14em;
+  --tracking-mono-wider: 0.18em;
+  --tracking-mono-widest: 0.28em;
+
+  /* The display headline's leading. Tight enough that a hero that wraps to two
+     or three lines reads as one block of type rather than separate sentences. */
+  --leading-display: 1.05;
+
   /* All three faces are self-hosted by Astro's font pipeline, which defines
      `--font-instrument-serif` / `--font-geist` / `--font-geist-mono` on :root
      with their metric-matched fallbacks already in the chain (see

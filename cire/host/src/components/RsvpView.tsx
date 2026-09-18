@@ -297,7 +297,7 @@ export default function RsvpView(props: RsvpViewProps) {
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-[120px] animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface h-30 animate-pulse rounded-sm" />}
           </For>
         </div>
       </Show>
@@ -319,7 +319,7 @@ export default function RsvpView(props: RsvpViewProps) {
             wedding, and each section keeps its own tallies below regardless. */}
         <div class="flex flex-col gap-2">
           <div class="border-border bg-surface/20 flex flex-wrap items-center gap-3 rounded-sm border p-4">
-            <Field label="Search guests" labelHidden class="min-w-[12rem] flex-1">
+            <Field label="Search guests" labelHidden class="min-w-48 flex-1">
               {(field) => (
                 <Input
                   {...field}
@@ -468,7 +468,6 @@ export default function RsvpView(props: RsvpViewProps) {
                                       variant="quiet"
                                       size="sm"
                                       type="button"
-                                      class="hover:border-gold/40"
                                       aria-label={`${row.responded ? "Edit" : "Record"} reply for ${row.firstName} ${row.lastName}`}
                                       onClick={() => openRow(section.event.id, row)}
                                     >

@@ -108,13 +108,29 @@ export function AnimatedModal(props: AnimatedModalProps) {
       label={props.label}
       labelledBy={props.labelledBy}
       frame
-      style={filterThemeVars(props.themeVars)}
+      // Bottom-anchored on a phone, centred above `md`, with the grip radius
+      // the invite's own `--ui-radius-sheet` sets. One choice rather than eight
+      // margin, radius and max-height utilities, because those only mean
+      // anything together: square the bottom corners without the bottom anchor
+      // and the result is a centred card with a corner missing.
+      presentation="sheet"
+      // The 480px cap rides here rather than in `class` because
+      // `shadcn/no-restyle` classifies a call-site class with its own grammar,
+      // and that grammar models `max-w-*` only on Tailwind's built-in steps —
+      // it rejects `max-w-column-md` outright, even though the plugin can see
+      // the class and `no-unknown-classes` is silent on it. Every built-in step
+      // is rem, and rem is the one thing this cap must not be: the app steps its
+      // root font-size to 17px at 1024px, which would make a 480px panel 510px
+      // on a laptop.
+      style={{ "max-width": "var(--container-column-md)", ...filterThemeVars(props.themeVars) }}
       // Plain utilities, not `base:`-prefixed ones, for everything that
       // overrides a `Modal` default. `base:` compiles to `:where(&)`, which has
       // zero specificity by design — so a `base:` class here would tie with the
       // component's own and be resolved by Tailwind's stylesheet order rather
-      // than by this file. A plain utility simply wins.
-      class="border-border bg-surface mt-auto mb-0 max-h-[85dvh] max-w-[480px] rounded-t-[1.75rem] rounded-b-none md:m-auto md:mb-8 md:max-h-[85vh] md:rounded-lg"
+      // than by this file. A plain utility simply wins. `md:mb-8` is exactly
+      // that: it lifts the centred desktop panel off the viewport floor, and
+      // has to beat the presentation's own `md:m-auto`.
+      class="md:mb-8"
     >
       {/* No z-index: a positioned box already paints over its non-positioned
           in-flow siblings, so this stays above the scroller without adding a

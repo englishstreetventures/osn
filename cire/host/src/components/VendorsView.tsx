@@ -265,7 +265,7 @@ export default function VendorsView(props: VendorsViewProps) {
           onSubmit={addVendor}
           class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
         >
-          <Field label="Vendor name" class="min-w-[12rem] flex-1">
+          <Field label="Vendor name" class="min-w-48 flex-1">
             {(field) => (
               <Input
                 {...field}
@@ -354,7 +354,7 @@ export default function VendorsView(props: VendorsViewProps) {
                   {(v) => (
                     <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
                       <div class="flex flex-wrap items-center gap-3">
-                        <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
+                        <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                           {v.name}
                         </span>
                         {/* Category chip */}

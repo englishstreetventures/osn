@@ -54,7 +54,7 @@ function summariseRRule(rrule: string): string {
 }
 
 function statusColour(status: SeriesInstance["status"]): string {
-  if (status === "ongoing") return "font-semibold text-green-600";
+  if (status === "ongoing") return "font-semibold text-success";
   if (status === "cancelled") return "text-destructive";
   return "text-muted-foreground";
 }
@@ -80,7 +80,7 @@ function InstanceRow(props: { instance: SeriesInstance }) {
         <div class="mb-1 flex items-center gap-2">
           <span class={`text-xs ${statusColour(i.status)}`}>{i.status}</span>
           <Show when={i.instanceOverride}>
-            <Badge variant="outline" class="text-ui-xs tracking-wide uppercase">
+            <Badge variant="outline" treatment="eyebrow">
               Modified
             </Badge>
           </Show>
@@ -133,7 +133,7 @@ export function SeriesDetailPage() {
           <article class="flex flex-col gap-6">
             <Card padding="md">
               <div class="mb-2 flex items-center gap-2">
-                <Badge variant="secondary" class="text-ui-xs tracking-wider uppercase">
+                <Badge variant="secondary" treatment="eyebrow">
                   Recurring
                 </Badge>
                 <Show when={s().status === "cancelled"}>

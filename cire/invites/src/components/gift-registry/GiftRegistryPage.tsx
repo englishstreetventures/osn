@@ -345,7 +345,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
         "background-color": "var(--invite-section-bg)",
       }}
     >
-      <div class="mx-auto max-w-[540px] md:max-w-[64rem]">
+      <div class="md:max-w-ui-2xl max-w-column-lg mx-auto">
         <Switch
           fallback={
             /* Before the first answer. The read is credentialed, so it cannot
@@ -366,7 +366,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 couple invited, and the code that proves it lives on the
                 invitation — a different document now, so this is a link, never
                 "scroll up". Not an error: nothing has gone wrong. */}
-            <div data-gift-locked class="mx-auto max-w-[34rem] py-10 text-center">
+            <div data-gift-locked class="max-w-ui-md mx-auto py-10 text-center">
               <p class="font-body text-text text-ui-base leading-ui-relaxed mb-4">
                 This gift list is for the couple’s guests. Enter your invite code on the invitation
                 and it opens here.
@@ -419,7 +419,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               {(arrival) => (
                 <p
                   data-gift-payment={arrival()}
-                  class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
+                  class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
                 >
                   {arrival() === "thanks"
                     ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
@@ -430,7 +430,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
 
             <Show when={intro()}>
               {(text) => (
-                <p class="font-body text-text-muted text-ui-base leading-ui-relaxed mx-auto mb-8 max-w-[34rem] text-center break-words whitespace-pre-line">
+                <p class="font-body text-text-muted text-ui-base leading-ui-relaxed max-w-ui-md mx-auto mb-8 text-center break-words whitespace-pre-line">
                   {text()}
                 </p>
               )}
@@ -443,7 +443,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <Show when={!signedIn()}>
               <p
                 data-gift-signed-out
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
+                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
               >
                 Your invite session has ended. Enter your invite code again on{" "}
                 <a
@@ -460,7 +460,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               {(address) => (
                 <div
                   data-gift-shipping
-                  class="border-border mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center"
+                  class="border-border max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
                 >
                   <p class="font-body text-text-muted text-ui-xs tracking-ui-widest mb-1 uppercase">
                     Send gifts to
@@ -479,7 +479,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <output
               data-gift-status
               aria-live="polite"
-              class="font-body text-text text-ui-sm leading-ui-normal mx-auto mb-8 block min-h-[1.25rem] max-w-[34rem] text-center"
+              class="font-body text-text text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 block min-h-5 text-center"
             >
               {status()}
             </output>

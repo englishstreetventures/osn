@@ -2,6 +2,17 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { clsx } from "clsx";
 import { splitProps, type Component, type ComponentProps } from "solid-js";
 
+/**
+ * `ghostDanger` destroys something, and says so only when you reach for it —
+ * the "Remove" at the end of a connection row, where every row above and below
+ * carries the same control.
+ *
+ * It is one variant rather than `ghost` plus a `text-ui-danger` at the call
+ * site because the red belongs to the hover, not to the rest state: a column of
+ * red labels down a list reads as an error state rather than as a column of
+ * controls. `destructive` is the other end of the same axis — red at rest, for
+ * the button that finally commits the destruction, not the one that offers it.
+ */
 const buttonVariants = cva(
   "base:inline-flex base:cursor-pointer base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:rounded-ui-control base:text-ui-base base:font-medium base:transition-colors base:focus-visible:outline-none base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:disabled:pointer-events-none base:disabled:opacity-50",
   {
@@ -13,6 +24,8 @@ const buttonVariants = cva(
           "base:border base:border-ui-hairline-strong base:bg-ui-ground base:hover:bg-ui-surface-sunk base:hover:text-ui-ink",
         secondary: "base:bg-ui-surface-sunk base:text-ui-ink base:hover:bg-ui-surface-sunk/80",
         ghost: "base:hover:bg-ui-surface-sunk base:hover:text-ui-ink",
+        ghostDanger:
+          "base:text-ui-ink-secondary base:hover:bg-ui-surface-sunk base:hover:text-ui-danger",
         link: "base:text-ui-accent-ink base:underline-offset-4 base:hover:underline",
       },
       size: {

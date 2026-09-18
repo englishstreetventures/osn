@@ -152,6 +152,17 @@
    * gets its own mid radius and not this package's. */
   --radius-ui-control: var(--ui-radius-control, var(--ui-radius-md, 6px));
 
+  /* `sheet` is the other role radius: how round the TOP corners of a bottom
+   * sheet are, once it is anchored to the bottom edge and its own bottom
+   * corners are square. It is independent of `lg` because a sheet's grip
+   * scales with the edge it is pulled from rather than with a card's corner —
+   * cire's guest site wants a pronounced 28px there while its cards stay at
+   * 10px, and reading `lg` would have forced one of the two to be wrong.
+   *
+   * It defaults to `lg`, so an app with no opinion gets its own large radius
+   * rather than a number from this package. */
+  --radius-ui-sheet: var(--ui-radius-sheet, var(--ui-radius-lg, 10px));
+
   /* ── Type families ────────────────────────────────────────────────────────
    * Families only — the sizes are the scale below. */
   --font-ui-body: var(--ui-font-body, ui-sans-serif, system-ui, sans-serif);
@@ -252,5 +263,82 @@
     --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
     --ui-elev-1: 0 1px 2px rgb(0 0 0 / 0.06);
     --ui-elev-2: 0 8px 24px rgb(0 0 0 / 0.12);
+  }
+}
+
+/*
+ * Enter/exit utilities for the Kobalte-backed overlays.
+ *
+ * `Dialog`, `DropdownMenu` and `Popover` spell their transitions the way
+ * shadcn/ui does — `data-[expanded]:animate-in`, `fade-out-0`, `zoom-in-95`.
+ * Those class names come from the `tailwindcss-animate` plugin, which this
+ * repository does not install, so until now they generated no CSS at all and
+ * the three overlays did not animate. They are defined here instead: one
+ * mechanism, built on the motion tokens above, with no dependency and nothing
+ * for an app to install.
+ *
+ * The shape is the plugin's, because the class names are: each modifier
+ * contributes a custom property and `animate-in`/`animate-out` run the single
+ * keyframe that reads them. That is what lets `fade-in-0` and `zoom-in-95`
+ * compose on one element instead of fighting over `animation-name`.
+ *
+ * `Modal` does NOT use these. It is the platform `<dialog>` and animates
+ * through `@starting-style` and the top layer — see
+ * wiki/decisions/native-dialog-over-kobalte.md.
+ */
+@keyframes ui-enter {
+  from {
+    opacity: var(--ui-enter-opacity, 1);
+    transform: scale(var(--ui-enter-scale, 1)) translate3d(var(--ui-enter-x, 0), var(--ui-enter-y, 0), 0);
+  }
+}
+
+@keyframes ui-exit {
+  to {
+    opacity: var(--ui-exit-opacity, 1);
+    transform: scale(var(--ui-exit-scale, 1)) translate3d(var(--ui-exit-x, 0), var(--ui-exit-y, 0), 0);
+  }
+}
+
+@utility animate-in {
+  animation-name: ui-enter;
+  animation-duration: var(--ui-dur-fast, 120ms);
+  animation-timing-function: var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  animation-fill-mode: both;
+}
+
+@utility animate-out {
+  animation-name: ui-exit;
+  animation-duration: var(--ui-dur-fast, 120ms);
+  animation-timing-function: var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  animation-fill-mode: both;
+}
+
+@utility fade-in-0 {
+  --ui-enter-opacity: 0;
+}
+
+@utility fade-out-0 {
+  --ui-exit-opacity: 0;
+}
+
+@utility zoom-in-95 {
+  --ui-enter-scale: 0.95;
+}
+
+@utility zoom-out-95 {
+  --ui-exit-scale: 0.95;
+}
+
+/*
+ * A reader who has turned motion down gets the state change without the
+ * movement. `animation: none` rather than a 1ms duration, because these are
+ * discrete enter/exit animations with `fill-mode: both` — cancelling the
+ * animation leaves the element at its natural state, which is what is wanted.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out {
+    animation: none;
   }
 }

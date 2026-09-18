@@ -255,7 +255,7 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(section.style.opacity).toBe("1"));
   });
 
-  it("widens the events column to max-w-[960px], left-aligned", async () => {
+  it("widens the events column to max-w-column-2xl, left-aligned", async () => {
     vi.stubGlobal(
       "fetch",
       noSession(
@@ -277,7 +277,7 @@ describe("gala InvitePage", () => {
 
     await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
     const column = getByTestId("events-column");
-    expect(column.className).toContain("max-w-[960px]");
+    expect(column.className).toContain("max-w-column-2xl");
     expect(column.className).not.toContain("mx-auto");
     expect(column.className).not.toContain("text-center");
   });

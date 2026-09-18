@@ -65,7 +65,7 @@ export function ExploreNav(props: {
           style={{ "font-family": "var(--font-serif)" }}
         >
           <span
-            class="grid h-[26px] w-[26px] place-items-center rounded-full"
+            class="grid h-6.5 w-6.5 place-items-center rounded-full"
             style={{
               background: "var(--pulse-accent)",
               "box-shadow": "0 0 0 4px color-mix(in oklab, var(--pulse-accent) 22%, transparent)",
@@ -106,7 +106,7 @@ export function ExploreNav(props: {
         {/* Right side */}
         <div class="ml-auto flex items-center gap-2.5">
           {/* Search */}
-          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-[360px] flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-shadow focus-within:ring-4">
+          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-90 flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-shadow focus-within:ring-4">
             <Icon name="search" size={14} />
             <input
               type="text"
@@ -116,7 +116,7 @@ export function ExploreNav(props: {
               class="text-foreground placeholder:text-muted-foreground text-ui-sm flex-1 border-0 bg-transparent outline-none"
             />
             <kbd
-              class="border-border bg-card text-muted-foreground text-ui-xs rounded-[5px] border px-1.5 py-0.5"
+              class="border-border bg-card text-muted-foreground text-ui-xs rounded-sm border px-1.5 py-0.5"
               style={{ "font-family": "var(--font-mono)" }}
             >
               ⌘K
@@ -144,19 +144,17 @@ export function ExploreNav(props: {
 
             {/* Avatar dropdown */}
             <DropdownMenu>
-              <DropdownMenuTrigger class="focus-visible:ring-ring cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-2">
-                <Avatar class="h-[34px] w-[34px]">
+              <DropdownMenuTrigger treatment="pill">
+                <Avatar class="h-8.5 w-8.5">
                   <Show when={avatar()}>
                     {(url) => <AvatarImage src={url()} alt={name() ?? "You"} />}
                   </Show>
-                  <AvatarFallback class="text-xs">{initialOf(name())}</AvatarFallback>
+                  <AvatarFallback>{initialOf(name())}</AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel class="text-muted-foreground font-normal">
-                    {name() ?? "…"}
-                  </DropdownMenuLabel>
+                  <DropdownMenuLabel tone="identity">{name() ?? "…"}</DropdownMenuLabel>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => navigate("/settings")}>Settings</DropdownMenuItem>
@@ -175,11 +173,11 @@ export function ExploreNav(props: {
       >
         <div>
           <div
-            class="text-muted-foreground mb-2.5 inline-flex items-center gap-[7px] text-xs tracking-wider"
+            class="text-muted-foreground mb-2.5 inline-flex items-center gap-1.75 text-xs tracking-wider"
             style={{ "font-family": "var(--font-mono)" }}
           >
             <span
-              class="live-dot inline-block h-[7px] w-[7px] rounded-full"
+              class="live-dot inline-block h-1.75 w-1.75 rounded-full"
               style={{
                 background: "var(--badge-live)",
                 "box-shadow": "0 0 0 3px color-mix(in oklab, var(--badge-live) 30%, transparent)",
@@ -198,7 +196,7 @@ export function ExploreNav(props: {
             </b>
           </div>
           <h1
-            class="m-0 max-w-[16ch] font-normal"
+            class="max-w-hero m-0 font-normal"
             style={{
               "font-family": "var(--font-serif)",
               "font-size": "clamp(32px, 4.4vw, 56px)",
@@ -207,7 +205,7 @@ export function ExploreNav(props: {
               "text-wrap": "pretty",
             }}
           >
-            <span class="mr-[0.2em]">Here's what's</span>{" "}
+            <span class="mr-accent-word">Here's what's</span>{" "}
             <span class="italic" style={{ color: "var(--pulse-accent)" }}>
               pulsing
             </span>{" "}

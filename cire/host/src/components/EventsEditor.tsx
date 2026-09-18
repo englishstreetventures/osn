@@ -307,7 +307,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       <Show when={!store.loaded() && !loadError()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-[72px] animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface h-18 animate-pulse rounded-sm" />}
           </For>
         </div>
       </Show>
@@ -388,7 +388,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         open={preview() !== null}
         onClose={() => setPreview(null)}
         label="Review changes before applying"
-        class="max-h-[85vh] w-full max-w-lg overflow-y-auto"
+        class="w-full max-w-lg overflow-y-auto"
       >
         <Show when={shownPreview()}>
           {(p) => (
@@ -494,10 +494,10 @@ function EventRowCard(props: {
    *  pressing into nothing. */
   const moveButton = (delta: -1 | 1) => (
     <Button
-      variant="quiet"
+      variant="primary"
       size="sm"
       {...props.sortableItem.moveProps(delta)}
-      class="bg-surface sr-only focus:not-sr-only focus:relative focus:z-20"
+      class="sr-only focus:not-sr-only focus:relative focus:z-20"
     >
       {props.sortableItem.moveLabel(delta)}
     </Button>
@@ -539,7 +539,7 @@ function EventRowCard(props: {
           {...props.sortableItem.gripProps()}
           // `py-2` is not decoration: it brings the handle to the WCAG 2.5.8
           // 24px minimum target, on the row's only re-order affordance.
-          class="focus-visible:text-gold cursor-grab touch-none leading-none active:cursor-grabbing"
+          class="cursor-grab touch-none active:cursor-grabbing"
         >
           ⠿
         </Button>
@@ -693,26 +693,17 @@ function EventDrawer(props: {
     });
 
   return (
-    /* A right-hand drawer rather than a centred sheet, so it overrides the
-       UA's `margin: auto` on a modal dialog: `ml-auto mr-0` pins it to the
-       edge, and a full height with no max keeps it a drawer rather than a card.
-       Everything else it used to hand-roll — the scrim, the `z-50`, the portal
-       past the shell's `container-type`, the dialog ARIA — is the element's. */
-    <Modal
-      open
-      onClose={props.onClose}
-      label="Edit event"
-      class="border-border my-0 mr-0 ml-auto h-full max-h-none w-full max-w-md overflow-y-auto rounded-none border-l p-6"
-    >
+    /* A right-hand drawer rather than a centred sheet: pinned to the trailing
+       edge, full height, square corners and a single left border. That is one
+       shape rather than six utilities, which is why it is a `presentation`
+       rather than a class list — set any part of it without the rest and the
+       result is a centred card with a corner missing. Everything else it used
+       to hand-roll — the scrim, the `z-50`, the portal past the shell's
+       `container-type`, the dialog ARIA — is the element's. */
+    <Modal open onClose={props.onClose} label="Edit event" presentation="drawer" class="max-w-md">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="font-display text-gold-dim text-ui-lg">Event details</h2>
-        <Button
-          variant="bare"
-          type="button"
-          onClick={props.onClose}
-          aria-label="Close"
-          class="text-ui-lg"
-        >
+        <Button variant="bare" size="icon" type="button" onClick={props.onClose} aria-label="Close">
           ✕
         </Button>
       </div>

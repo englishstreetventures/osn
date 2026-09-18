@@ -110,6 +110,20 @@ export type TdProps = Omit<SafeProps<"td">, "align"> & {
   numeric?: boolean;
   /** {@link CellAlign}. Ignored when `numeric` is set, which already means `end`. */
   align?: CellAlign;
+  /**
+   * An opaque identifier — a public ID, a hash, a reference code. Mono face and
+   * wide tracking, which is what makes a run of look-alike characters readable
+   * without turning it into a number: unlike {@link TdProps.numeric} it does
+   * not right-align, because an identifier is not a quantity and lining its
+   * last character up with the one above says nothing.
+   */
+  code?: boolean;
+  /**
+   * A row nested under the one above it — a household member under the
+   * household. The indent is the cell's rather than a wrapper's so it applies
+   * to the cell's whole box, including its hover and selection fill.
+   */
+  indent?: boolean;
   /** `muted` for a cell that is context rather than content — a timestamp, a note. */
   tone?: "default" | "muted";
   /**
@@ -126,13 +140,23 @@ const TD_TONE = {
 } as const;
 
 export function Td(props: TdProps) {
-  const [own, rest] = splitProps(props, ["numeric", "align", "tone", "valign", "class"]);
+  const [own, rest] = splitProps(props, [
+    "numeric",
+    "code",
+    "indent",
+    "align",
+    "tone",
+    "valign",
+    "class",
+  ]);
   return (
     <td
       {...rest}
       class={`base:border-ui-hairline/40 base:border-b base:px-4 base:py-3 base:text-ui-base ${
         TD_TONE[own.tone ?? "default"]
       } ${own.valign === "middle" ? "base:align-middle" : ""} ${
+        own.indent ? "base:pl-8" : ""
+      } ${own.code ? "base:font-ui-mono base:tracking-ui-wide" : ""} ${
         own.numeric
           ? "base:text-right base:font-ui-mono base:tabular-nums"
           : ALIGN[own.align ?? "start"]

@@ -80,11 +80,11 @@ export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () =
               <Show when={event().createdByName}>
                 {(name) => (
                   <span class="flex items-center gap-1.5">
-                    <Avatar class="h-[18px] w-[18px]">
+                    <Avatar class="h-4.5 w-4.5">
                       <Show when={event().createdByAvatar}>
                         {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                       </Show>
-                      <AvatarFallback class="text-ui-xs">{initials(name())}</AvatarFallback>
+                      <AvatarFallback>{initials(name())}</AvatarFallback>
                     </Avatar>
                     Hosted by <b class="text-foreground font-semibold">{name()}</b>
                   </span>

@@ -185,9 +185,7 @@ export function ConnectionsPage() {
                   {(conn: ConnectionEntry) => (
                     <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-meta">
-                          {conn.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
+                        <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
                         <p class="text-foreground text-title font-medium">
@@ -199,9 +197,9 @@ export function ConnectionsPage() {
                       </div>
                       <div class="flex items-center gap-1.5">
                         <Button
-                          variant="ghost"
+                          variant="ghostDanger"
                           size="sm"
-                          class="text-destructive text-body h-7 max-md:h-10"
+                          class="h-7 max-md:h-10"
                           onClick={() => requestRemove(conn)}
                         >
                           Remove
@@ -227,9 +225,7 @@ export function ConnectionsPage() {
                   {(req: PendingRequestEntry) => (
                     <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-meta">
-                          {req.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
+                        <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
                         <p class="text-foreground text-title font-medium">
@@ -242,7 +238,7 @@ export function ConnectionsPage() {
                       <div class="flex items-center gap-1.5">
                         <Button
                           size="sm"
-                          class="text-body h-7 max-md:h-10"
+                          class="h-7 max-md:h-10"
                           onClick={() => acceptRequest(req.handle)}
                         >
                           Accept
@@ -250,7 +246,7 @@ export function ConnectionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-muted-foreground text-body h-7 max-md:h-10"
+                          class="h-7 max-md:h-10"
                           onClick={() => rejectRequest(req.handle)}
                         >
                           Decline
@@ -276,9 +272,7 @@ export function ConnectionsPage() {
                   {(req: SentRequestEntry) => (
                     <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-meta">
-                          {req.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
+                        <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
                         <p class="text-foreground text-title font-medium">
@@ -290,9 +284,9 @@ export function ConnectionsPage() {
                       </div>
                       <div class="flex items-center gap-1.5">
                         <Button
-                          variant="ghost"
+                          variant="ghostDanger"
                           size="sm"
-                          class="text-destructive text-body h-7 max-md:h-10"
+                          class="h-7 max-md:h-10"
                           onClick={() => cancelSentRequest(req.handle)}
                         >
                           Cancel
@@ -321,31 +315,31 @@ export function ConnectionsPage() {
                 Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
               </DialogTitle>
             </DialogHeader>
-            <div class="flex flex-col gap-4 p-4">
+            <div class="p-4">
               <DialogDescription>You can always add them again later.</DialogDescription>
-              <DialogFooter class="border-0 p-0">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  class="text-body max-md:h-10"
-                  onClick={() => setRemoveTarget(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  class="text-body max-md:h-10"
-                  onClick={() => {
-                    void confirmRemove();
-                  }}
-                >
-                  Remove
-                </Button>
-              </DialogFooter>
             </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                class="max-md:h-10"
+                onClick={() => setRemoveTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                class="max-md:h-10"
+                onClick={() => {
+                  void confirmRemove();
+                }}
+              >
+                Remove
+              </Button>
+            </DialogFooter>
           </ResponsiveDialogContent>
         </Dialog>
 
@@ -361,9 +355,7 @@ export function ConnectionsPage() {
                   {(profile: ProfileEntry) => (
                     <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-meta">
-                          {profile.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
+                        <AvatarFallback>{profile.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
                         <p class="text-foreground text-title font-medium">@{profile.handle}</p>
@@ -371,7 +363,7 @@ export function ConnectionsPage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        class="text-body h-7 max-md:h-10"
+                        class="h-7 max-md:h-10"
                         onClick={() => unblock(profile.handle)}
                       >
                         Unblock

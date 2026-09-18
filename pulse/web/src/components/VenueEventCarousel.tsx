@@ -96,7 +96,7 @@ export function VenueEventCarousel(props: Props) {
                 <div class="p-3">
                   <div class="mb-1 flex items-center gap-2">
                     <Show when={event.category}>
-                      <Badge variant="secondary" class="tracking-wide uppercase">
+                      <Badge variant="secondary" treatment="eyebrow">
                         {event.category}
                       </Badge>
                     </Show>

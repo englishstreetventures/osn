@@ -150,7 +150,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
             "background-color": "var(--invite-section-bg)",
           }}
         >
-          <div class="mx-auto max-w-[540px] text-center md:max-w-[46rem]">
+          <div class="md:max-w-ui-xl max-w-column-lg mx-auto text-center">
             <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
               {eyebrow()}
             </p>
@@ -160,7 +160,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
 
             <Show when={body()}>
               {(text) => (
-                <p class="font-body text-text-muted text-ui-base leading-ui-normal mx-auto mb-8 max-w-[34rem] break-words whitespace-pre-line">
+                <p class="font-body text-text-muted text-ui-base leading-ui-normal max-w-ui-md mx-auto mb-8 break-words whitespace-pre-line">
                   {text()}
                 </p>
               )}
@@ -178,7 +178,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
               <ul
                 data-gift-teaser-preview
                 aria-hidden="true"
-                class="mx-auto mb-8 grid max-w-[34rem] list-none grid-cols-3 gap-3 md:grid-cols-4"
+                class="max-w-ui-md mx-auto mb-8 grid list-none grid-cols-3 gap-3 md:grid-cols-4"
               >
                 <For each={previewItems()}>
                   {(item, index) => (
@@ -196,7 +196,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
                         alt=""
                         loading="lazy"
                         decoding="async"
-                        class="border-border aspect-[4/3] w-full rounded-sm border object-cover"
+                        class="border-border aspect-4/3 w-full rounded-sm border object-cover"
                       />
                     </li>
                   )}

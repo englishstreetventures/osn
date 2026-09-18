@@ -218,7 +218,7 @@ export default function ColorPicker(props: {
           >
             <ColorSwatch
               value={display()}
-              class="border-border h-5 w-5 shrink-0 rounded-[3px] border"
+              class="border-border rounded-hair h-5 w-5 shrink-0 border"
             />
             <Show
               when={props.value}
@@ -240,7 +240,7 @@ export default function ColorPicker(props: {
                 class="relative"
               >
                 <ColorArea.Background class="relative h-32 w-full rounded-sm">
-                  <ColorArea.Thumb class="h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] outline-none">
+                  <ColorArea.Thumb class="h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white ring-1 ring-black/40 outline-none">
                     <ColorArea.HiddenInputX aria-label={`${props.label} saturation`} />
                     <ColorArea.HiddenInputY aria-label={`${props.label} brightness`} />
                   </ColorArea.Thumb>
@@ -255,7 +255,7 @@ export default function ColorPicker(props: {
                 class="flex flex-col"
               >
                 <ColorSlider.Track class="relative h-3 w-full rounded-full">
-                  <ColorSlider.Thumb class="top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] outline-none">
+                  <ColorSlider.Thumb class="top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white ring-1 ring-black/40 outline-none">
                     <ColorSlider.Input aria-label={`${props.label} hue`} />
                   </ColorSlider.Thumb>
                 </ColorSlider.Track>
@@ -284,7 +284,7 @@ export default function ColorPicker(props: {
                   autocorrect="off"
                   spellcheck={false}
                   placeholder="#RRGGBB"
-                  class="tabular-nums"
+                  face="code"
                 />
                 <Show when={discarded()}>
                   {(kept) => (

@@ -242,7 +242,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           )}
         </Field>
 
-        <Field label="Keyword" class="min-w-[10rem] flex-1">
+        <Field label="Keyword" class="min-w-40 flex-1">
           {(field) => (
             <Input
               {...field}
@@ -357,7 +357,6 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                           type="button"
                           disabled
                           aria-label="Already added to this wedding"
-                          class="opacity-60"
                         >
                           Added ✓
                         </Button>
@@ -568,7 +567,6 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                       type="button"
                       disabled
                       aria-label="Already added to this wedding"
-                      class="opacity-60"
                     >
                       Added ✓
                     </Button>

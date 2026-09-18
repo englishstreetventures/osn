@@ -256,6 +256,18 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
+  /* The blur behind a modal scrim. Deliberately small: enough that the page
+     below reads as out of reach, not so much that an organiser loses the row
+     they were looking at and has to re-find it when the dialog closes. */
+  --blur-scrim: 2px;
+
+  /* A module glyph in the navigation, sized against the row it sits in rather
+     than against the type scale — the row is `text-ui-sm` on the rail and
+     larger in the mobile sheet, and one glyph has to sit right in both. Just
+     under `1em` because a solid glyph at the label's own size out-weighs the
+     word beside it. */
+  --text-glyph: 0.95em;
+
   /* Focus — one ring everywhere, never animated, always visible. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;

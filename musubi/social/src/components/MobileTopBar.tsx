@@ -43,7 +43,7 @@ export function MobileTopBar() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="text-body h-9"
+                    class="h-9"
                     onClick={() => {
                       setShowRegister(false);
                       setShowSignIn(true);
@@ -53,7 +53,7 @@ export function MobileTopBar() {
                   </Button>
                   <Button
                     size="sm"
-                    class="text-body h-9"
+                    class="h-9"
                     onClick={() => {
                       setShowSignIn(false);
                       setShowRegister(true);
@@ -79,9 +79,7 @@ export function MobileTopBar() {
                       />
                     )}
                   </Show>
-                  <AvatarFallback class="text-meta">
-                    {profileInitials(activeProfile())}
-                  </AvatarFallback>
+                  <AvatarFallback>{profileInitials(activeProfile())}</AvatarFallback>
                 </Avatar>
               </AccountMenu>
             </Show>

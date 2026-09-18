@@ -149,7 +149,7 @@ export function ExploreCard(props: {
           </Show>
 
           {/* Date stamp */}
-          <div class="date-stamp bg-card absolute top-3 left-3 w-[46px] rounded-[10px] border border-white/50 py-1 text-center shadow-sm">
+          <div class="date-stamp bg-card absolute top-3 left-3 w-11.5 rounded-lg border border-white/50 py-1 text-center shadow-sm">
             <div
               class="text-ui-xs font-semibold tracking-widest uppercase"
               style={{ color: "var(--pulse-accent-strong)" }}
@@ -165,11 +165,11 @@ export function ExploreCard(props: {
           {/* Status tags */}
           <Show when={e().status === "ongoing"}>
             <div
-              class="text-ui-xs absolute bottom-2.5 left-2.5 inline-flex items-center gap-[5px] rounded-full px-2 py-[3px] font-medium text-white"
+              class="text-ui-xs absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.25 rounded-full px-2 py-0.75 font-medium text-white"
               style={{ background: "oklch(0.15 0 0 / 0.7)", "backdrop-filter": "blur(8px)" }}
             >
               <span
-                class="live-dot inline-block h-[5px] w-[5px] rounded-full"
+                class="live-dot inline-block h-1.25 w-1.25 rounded-full"
                 style={{
                   background: "var(--badge-live)",
                   "box-shadow": "0 0 0 3px oklch(0.72 0.17 22 / 0.4)",
@@ -203,7 +203,7 @@ export function ExploreCard(props: {
               <span>{e().venue}</span>
             </Show>
             <Show when={e().venue && e().location}>
-              <span class="bg-foreground/20 inline-block h-[3px] w-[3px] rounded-full" />
+              <span class="bg-foreground/20 inline-block h-0.75 w-0.75 rounded-full" />
             </Show>
             <Show when={e().location}>
               <span>{e().location}</span>
@@ -214,11 +214,11 @@ export function ExploreCard(props: {
           <Show when={e().createdByName}>
             {(name) => (
               <div class="text-muted-foreground text-ui-xs flex items-center gap-1.5">
-                <Avatar class="h-[18px] w-[18px]">
+                <Avatar class="h-4.5 w-4.5">
                   <Show when={e().createdByAvatar}>
                     {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                   </Show>
-                  <AvatarFallback class="text-ui-xs">{initials(name())}</AvatarFallback>
+                  <AvatarFallback>{initials(name())}</AvatarFallback>
                 </Avatar>
                 Hosted by <b class="text-foreground font-semibold">{name()}</b>
               </div>

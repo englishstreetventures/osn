@@ -165,7 +165,7 @@ export function ConnectionsHero(props: ConnectionsHeroProps) {
 
   return (
     <section
-      class="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 py-24 text-center"
+      class="relative flex min-h-svh flex-col items-center justify-center overflow-hidden px-6 py-24 text-center"
       aria-label="Musubi — your social graph, your control"
     >
       {/* The connections graph, behind the headline. */}
@@ -176,22 +176,22 @@ export function ConnectionsHero(props: ConnectionsHeroProps) {
       />
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2"
+        class="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-160 w-160 -translate-x-1/2 -translate-y-1/2"
         style={{
           background: "radial-gradient(circle, var(--color-accent-dim), transparent 62%)",
         }}
       />
 
-      <div class="relative mx-auto w-full max-w-[48rem]">
-        <p class="font-body text-accent mb-5 text-[0.74rem] font-medium tracking-[0.26em] uppercase">
+      <div class="relative mx-auto w-full max-w-3xl">
+        <p class="font-body text-accent tracking-eyebrow mb-5 text-xs font-medium uppercase">
           Musubi
         </p>
-        <h1 class="font-display text-text text-[clamp(2.1rem,7.5vw,5rem)] leading-[1.05] font-bold tracking-[-0.02em] text-balance">
+        <h1 class="font-display text-text leading-display text-[clamp(2.1rem,7.5vw,5rem)] font-bold tracking-tight text-balance">
           Your social graph,
           <br />
           your control.
         </h1>
-        <p class="font-body text-text-muted mx-auto mt-6 max-w-[36rem] text-[1.05rem] leading-[1.7]">
+        <p class="font-body text-text-muted mx-auto mt-6 max-w-xl text-base leading-relaxed">
           Musubi decouples your identity and relationships from the apps that use them. Own your
           connections, set your rules once, and switch on only the apps you want — they never get to
           keep your graph. Built on OSN, the open social network.
@@ -199,13 +199,13 @@ export function ConnectionsHero(props: ConnectionsHeroProps) {
         <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <a
             href={props.appUrl}
-            class="border-accent bg-accent text-bg hover:text-accent font-body w-full rounded-md border px-7 py-3.5 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
+            class="border-accent bg-accent text-bg hover:text-accent font-body w-full rounded-md border px-7 py-3.5 text-sm font-medium tracking-wide transition-colors duration-200 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
           >
             Get started
           </a>
           <a
             href={props.exploreHref}
-            class="border-border font-body text-text hover:border-accent hover:text-accent w-full rounded-md border bg-transparent px-7 py-3.5 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
+            class="border-border font-body text-text hover:border-accent hover:text-accent w-full rounded-md border bg-transparent px-7 py-3.5 text-sm font-medium tracking-wide transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
           >
             Explore the ecosystem
           </a>

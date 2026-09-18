@@ -40,14 +40,14 @@ export function SearchPage() {
           </div>
         }
       >
-        <div class="relative mb-6">
+        {/* The "@" sits ahead of the box rather than over it: `Input` owns its
+            padding, and this is the treatment `@shared/ui`'s own `UsernameInput`
+            gives the same glyph. */}
+        <div class="mb-6 flex items-center gap-2">
           <label class="sr-only" for="search-page-input">
             Search people and organisations
           </label>
-          <span
-            class="text-muted-foreground pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-sm"
-            aria-hidden="true"
-          >
+          <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
             @
           </span>
           <Input
@@ -56,7 +56,7 @@ export function SearchPage() {
             type="search"
             autocomplete="off"
             placeholder="Search by name or @handle"
-            class="h-11 pl-8"
+            class="h-11 flex-1"
             value={controller.query()}
             onInput={(event) => controller.setQuery(event.currentTarget.value)}
           />

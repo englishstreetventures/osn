@@ -95,8 +95,10 @@ describe("RsvpSection", () => {
     await waitFor(() => {
       // Close-friend ring is on the outer Avatar wrapper (span.base\\:relative).
       const avatar = container.querySelector("span.base\\:relative") as HTMLElement;
-      // ring-green-500 is the centralised marker — see lib/ui.ts.
-      expect(avatar?.classList.contains("ring-green-500")).toBe(true);
+      // `ring-success` is the centralised marker — see lib/ui.ts. A theme
+      // token rather than a palette colour, so it follows dark mode; the
+      // `green-500` it replaced did not.
+      expect(avatar?.classList.contains("ring-success")).toBe(true);
     });
   });
 

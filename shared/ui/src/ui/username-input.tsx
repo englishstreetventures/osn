@@ -47,7 +47,7 @@ const UsernameInput: Component<UsernameInputProps> = (props) => {
           autocomplete="username"
           value={local.value}
           onInput={(e) => local.onInput(e.currentTarget.value)}
-          class="base:flex-1"
+          class="flex-1"
           {...others}
         />
       </div>

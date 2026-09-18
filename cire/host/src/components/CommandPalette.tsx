@@ -227,7 +227,7 @@ export default function CommandPalette(props: {
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay class="sheet-scrim bg-bg/70 fixed inset-0 z-40 backdrop-blur-[2px]" />
+        <Dialog.Overlay class="sheet-scrim bg-bg/70 backdrop-blur-scrim fixed inset-0 z-40" />
         <div class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
           <Dialog.Content class="sheet-panel border-border bg-surface flex w-full max-w-lg flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
             <Dialog.Title class="sr-only">Command palette</Dialog.Title>
@@ -290,13 +290,13 @@ export default function CommandPalette(props: {
                         active() === index() ? "bg-gold/10 text-gold" : "text-text-muted"
                       }`}
                     >
-                      <span aria-hidden="true" class="w-4 shrink-0 text-center text-[0.9em]">
+                      <span aria-hidden="true" class="text-ui-base w-4 shrink-0 text-center">
                         {command.glyph}
                       </span>
                       <span class="text-ui-sm min-w-0 flex-1 truncate">{command.label}</span>
                       <Show when={command.hint}>
                         {(hint) => (
-                          <span class="text-text-faint text-ui-xs hidden max-w-[45%] shrink-0 truncate sm:block">
+                          <span class="text-text-faint text-ui-xs hidden max-w-9/20 shrink-0 truncate sm:block">
                             {hint()}
                           </span>
                         )}

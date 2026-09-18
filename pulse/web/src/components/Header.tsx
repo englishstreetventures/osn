@@ -83,19 +83,17 @@ export function Header() {
 
           {/* Avatar dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger class="focus-visible:ring-ring cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-2">
+            <DropdownMenuTrigger treatment="pill">
               <Avatar class="h-9 w-9">
                 <Show when={avatar()}>
                   {(url) => <AvatarImage src={url()} alt={name() ?? "You"} />}
                 </Show>
-                <AvatarFallback class="text-xs">{initialOf(name())}</AvatarFallback>
+                <AvatarFallback>{initialOf(name())}</AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuGroup>
-                <DropdownMenuLabel class="text-muted-foreground font-normal">
-                  {name() ?? "…"}
-                </DropdownMenuLabel>
+                <DropdownMenuLabel tone="identity">{name() ?? "…"}</DropdownMenuLabel>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => navigate("/close-friends")}>

@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1062,
+    "branch": "claude/nifty-cerf-lint",
+    "base_sha": "7130d007d1a14252706d66f1bbd2621623fc1d32",
+    "head_sha": "38d4c89be55f46cb3bde771f00c7cfe94fd228ea",
+    "generated_at": "2026-09-17T21:11:12.365Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1049,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-17T01:13:14.151Z",
+    "last_ts": "2026-09-17T21:11:08.980Z",
+    "span_seconds": 71875,
+    "active_seconds": 6889,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 116.17055874999994,
+    "tokens": {
+      "input": 1272,
+      "output": 152426,
+      "thinking": 41857,
+      "cache_write_5m": 848402,
+      "cache_write_1h": 1001229,
+      "cache_read": 191138717
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 948,
+          "output": 151610,
+          "thinking": 41857,
+          "cache_write_5m": 813121,
+          "cache_write_1h": 1001229,
+          "cache_read": 188684994
+        },
+        "usd_equivalent": 113.23178324999995,
+        "messages": 474
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 10
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 324,
+          "output": 816,
+          "thinking": 0,
+          "cache_write_5m": 35281,
+          "cache_write_1h": 0,
+          "cache_read": 2453723
+        },
+        "usd_equivalent": 2.9387754999999998,
+        "messages": 12
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 544,
+          "output": 150421,
+          "thinking": 41857,
+          "cache_write_5m": 0,
+          "cache_write_1h": 1001229,
+          "cache_read": 165441436
+        },
+        "usd_equivalent": 96.496253,
+        "messages": 277
+      },
+      "subagent": {
+        "tokens": {
+          "input": 728,
+          "output": 2005,
+          "thinking": 0,
+          "cache_write_5m": 848402,
+          "cache_write_1h": 0,
+          "cache_read": 25697281
+        },
+        "usd_equivalent": 19.67430575,
+        "messages": 219
+      }
+    },
+    "effort": {
+      "high": 284,
+      "xhigh": 202
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 54,
+      "test": 79,
+      "docs": 50,
+      "config": 27,
+      "source": 299
+    },
+    "loc": {
+      "generated": {
+        "added": 1699,
+        "deleted": 80
+      },
+      "test": {
+        "added": 4257,
+        "deleted": 1037
+      },
+      "docs": {
+        "added": 2231,
+        "deleted": 304
+      },
+      "config": {
+        "added": 6222,
+        "deleted": 106
+      },
+      "source": {
+        "added": 10618,
+        "deleted": 5501
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/theme",
+      "cire/ui",
+      "cire/vendor",
+      "cire/{vendor",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "osn/ui",
+      "osn/{ui",
+      "osn/{ui => auth-ui}",
+      "pulse/web",
+      "shared/color",
+      "shared/design-tokens",
+      "shared/swift",
+      "shared/toast",
+      "shared/ui",
+      "tools/lab",
+      "tools/metrics",
+      "tools/oxlint",
+      "zap/README.md"
+    ],
+    "touches_migration": false,
+    "commits": 54
+  },
+  "interaction": {
+    "user_turns": 6,
+    "corrective_turns": 6,
+    "tokens_before_first_edit": 2921700,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 481,
+      "ReadNotifications": 8,
+      "mcp__github__get_job_logs": 6,
+      "Agent": 6,
+      "mcp__github__pull_request_read": 5,
+      "Read": 5,
+      "mcp__github__add_issue_comment": 4,
+      "mcp__github__actions_list": 4,
+      "mcp__Claude_Code_Remote__send_later": 3,
+      "mcp__github__actions_get": 2,
+      "Skill": 2,
+      "ToolSearch": 2,
+      "Write": 2,
+      "SubagentHandback": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__Claude_Code_Remote__subscribe_pr_activity": 1,
+      "mcp__Claude_Code_Remote__update_trigger": 1,
+      "mcp__github__update_pull_request": 1,
+      "AskUserQuestion": 1,
+      "Edit": 1,
+      "mcp__github__issue_read": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "implementer": 6
+    }
+  }
+}

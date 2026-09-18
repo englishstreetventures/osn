@@ -128,10 +128,12 @@ export default function ChangePreview(props: ChangePreviewProps) {
           <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
             Before you apply
           </p>
-          <ul class="text-text-muted text-ui-sm flex flex-col gap-1">
-            <For each={props.warnings}>
-              {(w) => <li class="before:mr-2 before:content-['•']">{w}</li>}
-            </For>
+          {/* A real list with the platform's own markers, rather than a flex
+              column with a `::before` glyph: a flex item is blockified and
+              loses its `::marker`, and a bullet that is generated content is
+              read out as content by some screen readers. */}
+          <ul class="text-text-muted text-ui-sm list-disc space-y-1 pl-5">
+            <For each={props.warnings}>{(w) => <li>{w}</li>}</For>
           </ul>
         </div>
       </Show>
@@ -142,7 +144,6 @@ export default function ChangePreview(props: ChangePreviewProps) {
           type="button"
           onClick={() => props.onConfirm()}
           disabled={props.busy}
-          class="hover:bg-gold-dim transition"
         >
           {props.busy ? "Applying…" : (props.confirmLabel ?? "Apply changes")}
         </Button>

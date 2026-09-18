@@ -355,6 +355,10 @@
   --ui-radius-pill: 999px;
   /* Sharp, like every other control here: the house look is stationery. */
   --ui-radius-control: var(--ui-radius-sm);
+  /* The exception the house rule allows for, and the only one. A bottom sheet
+     is not a card: its top corners are the grip the thumb reads as "drag me",
+     and at a card's 6px there is nothing there to read. */
+  --ui-radius-sheet: 1.75rem;
 
   --ui-font-body: var(--font-body);
   --ui-font-display: var(--font-display);

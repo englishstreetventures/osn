@@ -29,10 +29,13 @@ import type { EventSummary } from "../../src/components/types";
  *   font-size steps 16px → 17px (`src/styles/global.css`), every rem grows at
  *   once, and the two buttons stop fitting the two-column card's text half.
  *
- * Both cases render into `mx-auto max-w-[640px]`, which is the **classic** pack's
- * events-column cap (`designs/classic/InvitePage.tsx`). Gala caps its column at
- * `max-w-[960px]`, leaving its text half roughly half as full again as it needs,
- * so gala has no wrapped case to measure; its DOM order is covered in
+ * Both cases render into `mx-auto max-w-column-xl`, which is the **classic**
+ * pack's events-column cap (`designs/classic/InvitePage.tsx`). That token is
+ * 640 real pixels, and it has to be: the wrapped case below lives past the
+ * 1024px root-size step, so a cap on the rem-based spacing scale would be 680px
+ * there and the row would stop wrapping. Gala caps its column at
+ * `max-w-column-2xl`, leaving its text half roughly half as full again as it
+ * needs, so gala has no wrapped case to measure; its DOM order is covered in
  * `tests/designs/gala/InvitePage.test.tsx`.
  */
 
@@ -74,7 +77,7 @@ const noop = () => {};
  */
 function renderCard(withImage: boolean) {
   return render(() => (
-    <div class="mx-auto max-w-[640px]">
+    <div class="max-w-column-xl mx-auto">
       <EventCard
         event={withImage ? { ...baseEvent, imageUrl: "/invite/w/event/e/image?v=abc" } : baseEvent}
         apiUrl={withImage ? "/api" : undefined}

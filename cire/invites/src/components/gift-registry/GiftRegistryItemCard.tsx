@@ -15,7 +15,7 @@ import { buildSrcSet, variantSrc } from "../invite-images";
 
 /**
  * The image box's shape. Exported for the drift guard in the tests: it exists
- * BOTH as the literal `aspect-[4/3]` inside {@link GIFT_CARD_IMAGE_CLASS} — the
+ * BOTH as the literal `aspect-4/3` inside {@link GIFT_CARD_IMAGE_CLASS} — the
  * Tailwind scanner reads source text, so a computed class emits no CSS at all —
  * and as this number in the card's `contain-intrinsic-size` reserve. The two
  * have to be asserted equal rather than trusted.
@@ -24,7 +24,7 @@ export const GIFT_CARD_IMAGE_ASPECT = 4 / 3;
 
 /** The image box: a fixed 4∶3 frame, centre-cropped, so a grid of mixed source
  *  shapes reads as one list rather than a ragged collage. */
-export const GIFT_CARD_IMAGE_CLASS = "aspect-[4/3] w-full object-cover";
+export const GIFT_CARD_IMAGE_CLASS = "aspect-4/3 w-full object-cover";
 
 export interface GiftRegistryItemCardProps {
   item: GiftRegistryItem;
@@ -290,11 +290,10 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
             </Show>
             <Show when={props.claim}>
               <Button
-                variant="bare"
+                variant="touchLink"
                 type="button"
                 disabled={props.busy}
                 onClick={() => props.onRelease()}
-                class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
               >
                 Release
               </Button>
@@ -369,11 +368,10 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 {props.busy ? "Saving" : "Confirm"}
               </Button>
               <Button
-                variant="bare"
+                variant="touchLink"
                 type="button"
                 disabled={props.busy}
                 onClick={() => setOpen(false)}
-                class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
               >
                 Cancel
               </Button>

@@ -442,7 +442,7 @@ export default function BudgetView(props: BudgetViewProps) {
               </Select>
             )}
           </Field>
-          <Field label="Item" class="min-w-[12rem] flex-1">
+          <Field label="Item" class="min-w-48 flex-1">
             {(field) => (
               <Input
                 {...field}
@@ -500,9 +500,7 @@ export default function BudgetView(props: BudgetViewProps) {
                       {(item, i) => (
                         <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
                           <div class="flex flex-wrap items-center gap-3">
-                            <span class="text-text text-ui-base min-w-[8rem] flex-1">
-                              {item.name}
-                            </span>
+                            <span class="text-text text-ui-base min-w-32 flex-1">{item.name}</span>
                             <MoneyCell
                               label="Est"
                               minor={item.estimateMinor}
@@ -539,7 +537,6 @@ export default function BudgetView(props: BudgetViewProps) {
                                   aria-label="Move up"
                                   disabled={i() === 0}
                                   onClick={() => move(group.category.key, i(), -1)}
-                                  class="disabled:opacity-30"
                                 >
                                   ↑
                                 </Button>
@@ -549,7 +546,6 @@ export default function BudgetView(props: BudgetViewProps) {
                                   aria-label="Move down"
                                   disabled={i() === group.items.length - 1}
                                   onClick={() => move(group.category.key, i(), 1)}
-                                  class="disabled:opacity-30"
                                 >
                                   ↓
                                 </Button>

@@ -280,7 +280,7 @@ export function InviteClosing(props: InviteClosingProps) {
               // `whitespace-pre-line` honours the line breaks an organiser typed;
               // `break-words` stops a long unbroken line overflowing on a phone.
               // Not the muted grey — this is the couple speaking.
-              class="font-body text-text mx-auto max-w-[34rem] text-[clamp(1rem,2vw,1.125rem)] leading-relaxed break-words whitespace-pre-line italic"
+              class="font-body text-text max-w-ui-md mx-auto text-[clamp(1rem,2vw,1.125rem)] leading-relaxed break-words whitespace-pre-line italic"
               // Not a styling hook (the block above owns the spacing) — it
               // records that the couple's words follow their image, which the
               // tests pin so the two can't silently swap order.

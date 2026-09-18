@@ -23,6 +23,42 @@ Three font families, all SIL Open Font License 1.1 (free commercial use):
 - Meta/eyebrow text: Geist Mono, 10.5–11.5px, uppercase, wide tracking
 - Date stamps: Geist, mixed weights (9–18px depending on element)
 
+### Named type tokens
+
+Each Pulse surface names its own off-scale type decisions in its own theme block.
+None of them belong in the shared `ui-*` contract, which is library-facing — an
+app's headline measure and its eyebrow size are that app's, not every consumer's.
+
+`@pulse/landing` — `pulse/landing/src/styles/global.css` (`@theme`):
+
+| Token | Utility | Value | Sets |
+|-------|---------|-------|------|
+| `--text-tag` | `text-tag` | `0.6rem` | The uppercase mono category tag on a floating chip |
+| `--text-meta` | `text-meta` | `0.65rem` | The mono meta line beneath it |
+| `--tracking-mono-wide` | `tracking-mono-wide` | `0.14em` | Mono caps at body length — the location line |
+| `--tracking-mono-wider` | `tracking-mono-wider` | `0.18em` | Mono caps on a chip tag |
+| `--tracking-mono-widest` | `tracking-mono-widest` | `0.28em` | Mono caps as a section eyebrow |
+| `--leading-display` | `leading-display` | `1.05` | Instrument Serif at hero size |
+
+Both text steps sit below the smallest step of any scale available here —
+Tailwind's own `text-xs` is 12px, and these are 9.6px and 10.4px. Snapping them
+up would change the hero rather than tidy it, which is why they are named.
+
+The three tracking steps continue past where the default scale stops (`widest`
+is 0.1em). Mono caps at these sizes need one and a half to three times that
+before the letters read as spaced rather than collided.
+
+`@pulse/web` — `pulse/web/src/app.css` (`@theme inline`):
+
+| Token | Utility | Value | Sets |
+|-------|---------|-------|------|
+| `--container-hero` | `max-w-hero` | `16ch` | The explore hero headline's measure |
+| `--spacing-accent-word` | `mr-accent-word` | `0.2em` | Optical gap before the italic accent word |
+
+The hero measure is counted in characters rather than rem because a display
+line's length is a property of the face it is set in, and the `ui-*` measure
+scale is in rem.
+
 ## Color System
 
 Built on oklch for perceptual uniformity. Extends the base shadcn token system with Pulse-specific accent tokens.
@@ -106,6 +142,10 @@ Horizontal card: 180px media thumbnail + body. Featured cards go full-width with
 4. **Glyph placeholders** — events without images get category-colored gradients + serif glyphs instead of grey boxes
 5. **Heatmap over real tiles** — stylized SVG map avoids tile provider dependency; heatmap shows where activity clusters
 6. **Card ↔ map hover sync** — hovering a card highlights its map pin and vice versa
+7. **Category badges are eyebrows** — a category pill takes `@shared/ui`'s
+   `Badge treatment="eyebrow"` (small caps, a step down in size, tracked to
+   match) rather than upper case and tracking spelled out beside it. The three
+   only work together, so they travel as one name
 
 ## Onboarding illustrations
 

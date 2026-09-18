@@ -52,7 +52,7 @@ export function EventCard(props: {
         <div class="p-4 pb-0">
           <div class="mb-2 flex items-center gap-2">
             <Show when={props.event.category}>
-              <Badge variant="secondary" class="tracking-wide uppercase">
+              <Badge variant="secondary" treatment="eyebrow">
                 {props.event.category}
               </Badge>
             </Show>
@@ -62,7 +62,7 @@ export function EventCard(props: {
             <span
               class={`text-xs ${
                 props.event.status === "ongoing"
-                  ? "font-semibold text-green-600"
+                  ? "text-success font-semibold"
                   : props.event.status === "cancelled"
                     ? "text-destructive"
                     : "text-muted-foreground"

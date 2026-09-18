@@ -133,7 +133,7 @@ export function LoginSection(props: LoginSectionProps) {
         "background-color": "var(--invite-section-bg)",
       }}
     >
-      <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
+      <div class="max-w-column-lg md:max-w-column-xl mx-auto text-center">
         {/* Login form — visible before claim */}
         <div ref={props.formRef} style={{ display: showWelcome() ? "none" : "" }}>
           <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
@@ -145,7 +145,7 @@ export function LoginSection(props: LoginSectionProps) {
           <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
             Enter the code from your invitation to see your events.
           </p>
-          <form class="mx-auto flex max-w-[360px] flex-col gap-3" onSubmit={claim.handleSubmit}>
+          <form class="max-w-column-2xs mx-auto flex flex-col gap-3" onSubmit={claim.handleSubmit}>
             {/* maxLength 48 comfortably fits the worst-case code: SURNAME(16) +
                 "-" + longest word(10) + "-" + secure hash "XXXXX-XXXXX"(11) = 39
                 chars, so a long code like THENGUYENFAMILY-BANISTER-DM65HQ (31) is
@@ -227,7 +227,7 @@ export function LoginSection(props: LoginSectionProps) {
         <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
           <Show when={props.result?.preview}>
             <p
-              class="border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 uppercase"
+              class="border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider max-w-column-sm mx-auto mb-6 rounded-sm border px-4 py-3 uppercase"
               role="status"
             >
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
@@ -278,15 +278,10 @@ export function LoginSection(props: LoginSectionProps) {
             deadline={props.result?.rsvpDeadline}
             state={props.rsvpDeadlineState ?? null}
             variant="panel"
-            class="mx-auto mb-8 max-w-[420px]"
+            class="max-w-column-sm mx-auto mb-8"
           />
           <Show when={props.onSignOut}>
-            <Button
-              variant="bare"
-              type="button"
-              onClick={handleSignOut}
-              class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
-            >
+            <Button variant="touchLink" type="button" onClick={handleSignOut}>
               {signOutLabel()}
             </Button>
           </Show>

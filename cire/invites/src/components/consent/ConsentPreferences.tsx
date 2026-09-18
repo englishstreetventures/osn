@@ -67,7 +67,12 @@ export function ConsentPreferences() {
       onClose={closeConsentPreferences}
       labelledBy={titleId}
       aria-describedby={descriptionId}
-      class="border-border bg-bg mt-auto mb-0 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-lg rounded-b-none sm:m-auto sm:rounded-lg"
+      presentation="sheet"
+      // The page ground, not the raised surface a dialog normally floats on:
+      // this panel's own category rows ARE raised surfaces, and a panel painted
+      // the same colour stops them reading as rows.
+      surface="ground"
+      class="max-w-lg"
     >
       <h2 id={titleId} class="font-display text-text text-ui-lg leading-tight font-light">
         Your privacy choices

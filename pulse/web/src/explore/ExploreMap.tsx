@@ -350,7 +350,7 @@ function TimeScrubber(props: {
 function Legend() {
   return (
     <div
-      class="absolute bottom-4 left-4 z-[3] min-w-[180px] rounded-xl border border-white/60 p-2.5"
+      class="absolute bottom-4 left-4 z-3 min-w-45 rounded-xl border border-white/60 p-2.5"
       style={{
         background: "color-mix(in oklab, var(--card) 92%, transparent)",
         "backdrop-filter": "blur(14px)",
@@ -362,7 +362,7 @@ function Legend() {
       </div>
       <div class="legend-bar" />
       <div
-        class="text-muted-foreground text-ui-xs mt-[3px] flex justify-between tracking-wider"
+        class="text-muted-foreground text-ui-xs mt-0.75 flex justify-between tracking-wider"
         style={{ "font-family": "var(--font-mono)" }}
       >
         <span>quiet</span>
@@ -558,7 +558,7 @@ export function ExploreMap(props: {
                 onMouseLeave={() => setHoveredVenue(null)}
               >
                 <span
-                  class="border-foreground/70 bg-card text-foreground text-ui-xs flex size-5 items-center justify-center rounded-[6px] border shadow-sm"
+                  class="border-foreground/70 bg-card text-foreground text-ui-xs flex size-5 items-center justify-center rounded-sm border shadow-sm"
                   style={{ "font-family": "var(--font-mono)" }}
                 >
                   ◇
@@ -573,7 +573,7 @@ export function ExploreMap(props: {
       <Show when={hoveredVenue()}>
         {(pin) => (
           <div
-            class="pin-pop border-border bg-card absolute z-[5] rounded-[10px] border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
+            class="pin-pop border-border bg-card absolute z-5 rounded-lg border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
             style={{
               left: pin().x + "px",
               top: pin().y + "px",
@@ -602,7 +602,7 @@ export function ExploreMap(props: {
           };
           return (
             <div
-              class="pin-pop border-border bg-card absolute z-[5] flex flex-col gap-1.5 rounded-[10px] border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
+              class="pin-pop border-border bg-card absolute z-5 flex flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
               style={{
                 left: pin().x + "px",
                 top: pin().y + "px",
@@ -650,7 +650,7 @@ export function ExploreMap(props: {
       </Show>
 
       {/* Controls overlay */}
-      <div class="absolute top-4 right-4 left-4 z-[3]">
+      <div class="absolute top-4 right-4 left-4 z-3">
         <TimeScrubber hour={hour()} onHourChange={setHour} />
       </div>
 
@@ -659,10 +659,10 @@ export function ExploreMap(props: {
 
       {/* Zoom controls. The "Zoom in" and "Layers" buttons have never had a
           click handler and stay inert — the map itself is not zoomable. */}
-      <div class="bg-card border-border absolute right-4 bottom-4 z-[3] flex flex-col overflow-hidden rounded-[10px] border shadow-sm">
+      <div class="bg-card border-border absolute right-4 bottom-4 z-3 flex flex-col overflow-hidden rounded-lg border shadow-sm">
         <button
           type="button"
-          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
+          class="hover:bg-secondary grid h-8.5 w-8.5 place-items-center"
           title="Zoom in"
         >
           <Icon name="plus" size={14} />
@@ -670,7 +670,7 @@ export function ExploreMap(props: {
         <div class="bg-border h-px" />
         <button
           type="button"
-          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
+          class="hover:bg-secondary grid h-8.5 w-8.5 place-items-center"
           title="Layers"
         >
           <Icon name="layers" size={14} />

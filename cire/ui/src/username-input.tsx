@@ -34,7 +34,7 @@ export function UsernameInput(props: UsernameInputProps) {
       >
         @
       </span>
-      <Input {...rest} class="base:flex-1" />
+      <Input {...rest} class="flex-1" />
     </div>
   );
 }

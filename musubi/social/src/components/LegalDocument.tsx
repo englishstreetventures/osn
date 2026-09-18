@@ -23,7 +23,7 @@ export function LegalDocument(props: {
   return (
     <article class="prose-legal mx-auto w-full max-w-2xl px-6 py-12">
       {props.draft && (
-        <p class="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+        <p class="border-warn/40 bg-warn/10 mb-8 rounded border p-3 text-sm">
           <strong>Draft</strong> — this notice is not final. Some details of the operator are still
           to be confirmed, and this banner disappears once they are.
         </p>

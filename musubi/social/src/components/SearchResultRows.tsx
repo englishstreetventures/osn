@@ -77,7 +77,7 @@ function ResultAvatar(props: { url: string | null; label: string; size: string }
           <AvatarImage src={url()} alt={props.label} referrerpolicy="no-referrer" loading="lazy" />
         )}
       </Show>
-      <AvatarFallback class="text-meta">{props.label.slice(0, 2).toUpperCase()}</AvatarFallback>
+      <AvatarFallback>{props.label.slice(0, 2).toUpperCase()}</AvatarFallback>
     </Avatar>
   );
 }
@@ -133,7 +133,7 @@ export function PersonAction(props: {
     >
       <Button
         size="sm"
-        class="text-body h-7 shrink-0 max-md:h-9"
+        class="h-7 shrink-0 max-md:h-9"
         disabled={props.busy}
         onClick={() => (props.status === "none" ? props.onConnect() : props.onAccept())}
       >

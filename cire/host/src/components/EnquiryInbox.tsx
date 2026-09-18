@@ -57,7 +57,7 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
                     }}
                   >
                     {/* Vendor name */}
-                    <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
+                    <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                       {item.vendorName}
                     </span>
 

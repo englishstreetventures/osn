@@ -79,7 +79,7 @@ export function MapPreview(props: {
           <Show when={props.label}>
             <p class="text-muted-foreground truncate text-xs">{props.label}</p>
           </Show>
-          <Button size="sm" onClick={findDirections} class="shrink-0 text-xs">
+          <Button size="sm" onClick={findDirections} class="shrink-0">
             Find directions
           </Button>
         </div>

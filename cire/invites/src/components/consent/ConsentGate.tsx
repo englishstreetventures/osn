@@ -116,22 +116,10 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
         servers, which lets them see your IP address and browser.
       </p>
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-        <Button
-          variant="cta"
-          size="sm"
-          type="button"
-          onClick={() => grantCategory(props.category)}
-          class="focus-visible:ring-gold/60 duration-200 focus:outline-none focus-visible:ring-2"
-        >
+        <Button variant="cta" size="sm" type="button" onClick={() => grantCategory(props.category)}>
           Allow {categoryTitle()}
         </Button>
-        <Button
-          variant="bare"
-          size="sm"
-          type="button"
-          onClick={openConsentPreferences}
-          class="focus-visible:ring-gold/60 underline duration-200 focus:outline-none focus-visible:ring-2"
-        >
+        <Button variant="touchLink" size="sm" type="button" onClick={openConsentPreferences}>
           Privacy choices
         </Button>
       </div>

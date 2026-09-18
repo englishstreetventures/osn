@@ -418,12 +418,12 @@ export default function Overview(props: {
     <div class="flex flex-col gap-8">
       <Show when={data.loading}>
         <div class="flex flex-col gap-4">
-          <div class="bg-surface h-[120px] animate-pulse rounded-sm" />
+          <div class="bg-surface h-30 animate-pulse rounded-sm" />
           {/* Same intrinsic grid as the real cards, so the skeleton has the
               same column count at every width. */}
           <div class="auto-grid [--auto-grid-min:15rem]">
             <For each={[1, 2, 3]}>
-              {() => <div class="bg-surface h-[130px] animate-pulse rounded-sm" />}
+              {() => <div class="bg-surface h-32.5 animate-pulse rounded-sm" />}
             </For>
           </div>
         </div>

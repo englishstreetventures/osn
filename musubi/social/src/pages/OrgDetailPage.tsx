@@ -139,20 +139,10 @@ export function OrgDetailPage() {
                 </div>
               </div>
               <div class="flex gap-1.5">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  class="text-body max-md:h-10"
-                  onClick={openEdit}
-                >
+                <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
                   Edit
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="text-destructive max-md:h-10"
-                  onClick={handleDelete}
-                >
+                <Button variant="ghostDanger" size="sm" class="max-md:h-10" onClick={handleDelete}>
                   Delete
                 </Button>
               </div>
@@ -188,7 +178,7 @@ export function OrgDetailPage() {
                               />
                             )}
                           </Show>
-                          <AvatarFallback class="text-meta">
+                          <AvatarFallback>
                             {member.profile.handle.slice(0, 2).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
@@ -200,14 +190,12 @@ export function OrgDetailPage() {
                             <p class="text-subtle text-meta">@{member.profile.handle}</p>
                           </Show>
                         </div>
-                        <Badge variant="secondary" class="text-meta">
-                          {member.role}
-                        </Badge>
+                        <Badge variant="secondary">{member.role}</Badge>
                         <Show when={member.role !== "admin"}>
                           <Button
                             variant="ghost"
                             size="sm"
-                            class="text-muted-foreground text-body h-7 max-md:h-10"
+                            class="h-7 max-md:h-10"
                             onClick={() => removeMember(member.profile.id, member.profile.handle)}
                           >
                             Remove
@@ -253,12 +241,12 @@ export function OrgDetailPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                class="text-body max-md:h-10"
+                class="max-md:h-10"
                 onClick={() => setShowEdit(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" class="text-body max-md:h-10" disabled={saving()}>
+              <Button type="submit" size="sm" class="max-md:h-10" disabled={saving()}>
                 {saving() ? "Saving..." : "Save"}
               </Button>
             </div>

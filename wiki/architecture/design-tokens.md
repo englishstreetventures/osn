@@ -101,7 +101,8 @@ which name a new package, token or identifier takes.
 
 Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
-`rounded-ui-hair` … `pill` plus `rounded-ui-control`, `font-ui-body` /
+`rounded-ui-hair` … `pill` plus the two role radii `rounded-ui-control` and
+`rounded-ui-sheet`, `font-ui-body` /
 `-display` / `-mono`, and the measure scale `max-w-ui-xs` … `3xl` — declared
 as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
 
@@ -113,6 +114,14 @@ Aliasing those would generate utilities nobody spells. `CONTRACT_COLOR_TOKENS`
 and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
+
+**`control` and `sheet` are roles, not sizes**, the same way `focus` is its own
+colour rather than an alias of the accent. How round a *button* is turns out to
+be independent of how round a card is — musubi's house style is pill CTAs,
+cire's a sharp 4px — and so is how pronounced the top edge of a *bottom sheet*
+is, where cire wants 28px against its own 10px cards. Both default to a sized
+step (`control` to `md`, `sheet` to `lg`), so an app with no opinion gets its own
+value rather than one from the package.
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark

@@ -66,10 +66,7 @@ export function RsvpModal(props: {
       <DialogContent class="flex max-h-[85vh] flex-col">
         <DialogHeader>
           <DialogTitle>Guest list</DialogTitle>
-          <DialogClose
-            aria-label="Close"
-            class="text-muted-foreground hover:text-foreground text-xl leading-none"
-          >
+          <DialogClose aria-label="Close" treatment="glyph">
             ×
           </DialogClose>
         </DialogHeader>
@@ -79,7 +76,7 @@ export function RsvpModal(props: {
             <TabsList>
               <For each={tabs.filter((t) => t.show())}>
                 {(t) => (
-                  <TabsTrigger value={t.id} class="text-xs">
+                  <TabsTrigger value={t.id} size="sm">
                     {t.label}
                   </TabsTrigger>
                 )}

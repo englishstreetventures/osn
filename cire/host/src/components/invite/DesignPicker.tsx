@@ -114,7 +114,7 @@ export default function DesignPicker(props: {
                     props.onSelect(design.id);
                   }}
                   onKeyDown={(e) => onDesignKeyDown(e, design.id)}
-                  class="flex min-w-[8rem] flex-col items-start gap-1 text-left aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                  class="flex min-w-32 flex-col items-start gap-1 text-left aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 >
                   <DesignThumbnail id={design.id} />
                   <span class="font-body text-ui-sm">{design.name}</span>

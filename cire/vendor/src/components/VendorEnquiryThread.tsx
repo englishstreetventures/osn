@@ -143,7 +143,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                     class={`flex ${mine ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      class={`font-body text-ui-base max-w-[75%] rounded-sm px-4 py-2.5 ${
+                      class={`font-body text-ui-base max-w-3/4 rounded-sm px-4 py-2.5 ${
                         mine
                           ? "bg-brand text-on-brand"
                           : "border-border bg-surface/50 text-text border"
@@ -235,7 +235,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                 value={quoteAmount()}
                 onInput={(e) => setQuoteAmount(e.currentTarget.value)}
                 disabled={quoting()}
-                class="max-w-[12rem]"
+                class="max-w-48"
               />
             </div>
           )}

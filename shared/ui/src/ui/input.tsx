@@ -1,6 +1,6 @@
 import { splitProps, type Component } from "solid-js";
 
-import { controlClass, type ControlSize } from "./control";
+import { controlClass, type ControlFace, type ControlSize } from "./control";
 import type { SafeProps } from "./props";
 
 /**
@@ -13,6 +13,8 @@ import type { SafeProps } from "./props";
 type InputProps = Omit<SafeProps<"input">, "size"> & {
   /** {@link ControlSize} — the shared control box, not the native character count. */
   size?: ControlSize;
+  /** {@link ControlFace} — `code` for a field holding an identifier rather than prose. */
+  face?: ControlFace;
 };
 
 /** Height is `Input`'s own: a `Textarea` sized this way would be a single line. */
@@ -25,10 +27,10 @@ const FILE =
   "base:file:border-0 base:file:bg-transparent base:file:text-ui-base base:file:font-medium";
 
 const Input: Component<InputProps> = (props) => {
-  const [local, others] = splitProps(props, ["class", "size"]);
+  const [local, others] = splitProps(props, ["class", "size", "face"]);
   return (
     <input
-      class={`base:flex ${INPUT_HEIGHT[local.size ?? "md"]} ${FILE} ${controlClass(local.size, local.class)}`}
+      class={`base:flex ${INPUT_HEIGHT[local.size ?? "md"]} ${FILE} ${controlClass(local.size, local.class, local.face)}`}
       {...others}
     />
   );

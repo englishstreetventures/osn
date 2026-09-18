@@ -445,12 +445,7 @@ export function AuthorizePage() {
                   <span class="text-subtle text-meta truncate">@{profile().handle}</span>
                 </div>
                 <Show when={profiles().length > 1}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    class="text-meta"
-                    onClick={() => setPickerOpen(true)}
-                  >
+                  <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
                     Change
                   </Button>
                 </Show>
@@ -503,7 +498,7 @@ function ProfileAvatar(props: { profile: PublicProfile }) {
           <AvatarImage src={url()} alt={props.profile.handle} referrerpolicy="no-referrer" />
         )}
       </Show>
-      <AvatarFallback class="text-meta">{profileInitials(props.profile)}</AvatarFallback>
+      <AvatarFallback>{profileInitials(props.profile)}</AvatarFallback>
     </Avatar>
   );
 }
@@ -547,9 +542,7 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           </p>
         }
       >
-        <p class="text-caption mt-3 font-medium text-emerald-600 dark:text-emerald-400">
-          Verified OSN app
-        </p>
+        <p class="text-caption text-success mt-3 font-medium">Verified OSN app</p>
       </Show>
     </div>
   );

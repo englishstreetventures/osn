@@ -37,7 +37,7 @@ export function AuthDialogs(props: {
   return (
     <>
       <Dialog open={props.showRegister && !session()} onOpenChange={props.onShowRegisterChange}>
-        <ResponsiveDialogContent class="max-w-sm p-0">
+        <ResponsiveDialogContent class="max-w-sm">
           <Register
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
@@ -48,7 +48,7 @@ export function AuthDialogs(props: {
         </ResponsiveDialogContent>
       </Dialog>
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
-        <ResponsiveDialogContent class="max-w-sm p-0">
+        <ResponsiveDialogContent class="max-w-sm">
           <SignIn
             client={loginClient}
             recoveryClient={recoveryClient}

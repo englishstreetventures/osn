@@ -464,10 +464,12 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
             </Show>
             <PlanCounts plan={p().plan} />
             <Show when={p().plan.warnings.length > 0}>
-              <ul class="text-text-muted text-ui-sm flex flex-col gap-1">
-                <For each={p().plan.warnings}>
-                  {(w) => <li class="before:mr-2 before:content-['•']">{w}</li>}
-                </For>
+              {/* A real list with the platform's own markers, rather than a
+                  flex column with a `::before` glyph: a flex item is blockified
+                  and loses its `::marker`, and a bullet that is generated
+                  content is read out as content by some screen readers. */}
+              <ul class="text-text-muted text-ui-sm list-disc space-y-1 pl-5">
+                <For each={p().plan.warnings}>{(w) => <li>{w}</li>}</For>
               </ul>
             </Show>
             <Button variant="primary" class="self-start" onClick={handleApply} disabled={busy()}>
@@ -516,7 +518,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
 function Col(props: { children: string; required?: boolean }) {
   return (
     <code
-      class="text-ui-xs rounded-[2px] border px-1.5 py-0.5 font-mono"
+      class="text-ui-xs rounded-hair border px-1.5 py-0.5 font-mono"
       classList={{
         "text-gold-ink bg-gold/12 border-gold/45": props.required === true,
         "text-text-muted bg-bg/60 border-border": props.required !== true,
@@ -590,7 +592,7 @@ function StepBadge(props: { n: number }) {
  */
 function MiniMatrix() {
   return (
-    <div class="border-border/70 overflow-hidden rounded-[3px] border">
+    <div class="border-border/70 rounded-hair overflow-hidden border">
       <table class="text-ui-xs w-full border-collapse font-mono">
         <thead>
           <tr class="bg-bg/50 text-gold-ink">

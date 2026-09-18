@@ -134,7 +134,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
   return (
     <>
       <Show when={visibleEvents().length > 0}>
-        <div class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+        <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
           <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
           <For each={visibleEvents()}>
             {(event: SecurityEventSummary) => (

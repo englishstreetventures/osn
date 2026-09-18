@@ -133,7 +133,7 @@ function MapCard(props: { href: string; venue: string | null }) {
           drawn entirely in CSS so it ships no image and needs no key. */}
       <div
         aria-hidden="true"
-        class="relative h-36 w-full motion-safe:transition-transform motion-safe:duration-500 motion-safe:group-hover:scale-[1.03]"
+        class="relative h-36 w-full motion-safe:transition-transform motion-safe:duration-500 motion-safe:group-hover:scale-103"
         style={{
           "background-color": "var(--color-surface)",
           "background-image": [
@@ -149,7 +149,7 @@ function MapCard(props: { href: string; venue: string | null }) {
         }}
       >
         {/* Marker pin, centred over the contour glow. */}
-        <div class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-[60%] flex-col items-center">
+        <div class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-3/5 flex-col items-center">
           <svg
             width="26"
             height="26"
@@ -159,14 +159,14 @@ function MapCard(props: { href: string; venue: string | null }) {
             stroke-width="1.6"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="text-gold drop-shadow-[0_2px_6px_oklch(0%_0_0/0.45)]"
+            class="text-gold drop-shadow-pin"
             aria-hidden="true"
           >
             <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
             <circle cx="12" cy="10" r="2.4" />
           </svg>
           {/* pin shadow ellipse on the "ground" */}
-          <span class="bg-gold/30 mt-0.5 h-1 w-3 rounded-full blur-[1px]" />
+          <span class="bg-gold/30 blur-ground-shadow mt-0.5 h-1 w-3 rounded-full" />
         </div>
       </div>
 

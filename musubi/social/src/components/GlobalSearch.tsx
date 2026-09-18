@@ -120,11 +120,11 @@ export function GlobalSearch(props: { token: string }) {
       <label class="sr-only" for="global-search-input">
         Search people and organisations
       </label>
-      <div class="relative">
-        <span
-          class="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm"
-          aria-hidden="true"
-        >
+      {/* The "@" sits ahead of the box rather than over it: `Input` owns its
+          padding, and this is the treatment `@shared/ui`'s own `UsernameInput`
+          gives the same glyph. */}
+      <div class="flex items-center gap-2">
+        <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
           @
         </span>
         <Input
@@ -132,7 +132,7 @@ export function GlobalSearch(props: { token: string }) {
           type="search"
           autocomplete="off"
           placeholder="Search"
-          class="h-9 pl-7"
+          class="h-9 flex-1"
           role="combobox"
           aria-expanded={showPanel()}
           aria-controls={LISTBOX_ID}

@@ -120,4 +120,34 @@ describe("the contract reaches the pixel", () => {
     const { getByRole } = render(() => <Button class="bg-ui-danger">Save</Button>);
     expect(getComputedStyle(getByRole("button")).backgroundColor).toBe(paint(token("--ui-danger")));
   });
+  it("emits `text-success` and `text-warn`, which the app had no utility for", () => {
+    // These are new, and they are the reason five call sites could stop writing
+    // `text-green-600` and `bg-emerald-500`. A `@theme inline` entry that is
+    // dropped or renamed makes Tailwind emit NO rule — no error, no warning —
+    // so the label falls back to inherited ink and reads as ordinary text. The
+    // raw palette colour it replaced could not fail that way, which is what
+    // makes this assertion the price of the change.
+    document.documentElement.classList.remove("dark");
+    const probeSuccess = document.createElement("span");
+    probeSuccess.className = "text-success";
+    const probeWarn = document.createElement("span");
+    probeWarn.className = "text-warn";
+    document.body.append(probeSuccess, probeWarn);
+
+    expect(getComputedStyle(probeSuccess).color).toBe(paint(token("--toast-accent-success")));
+    expect(getComputedStyle(probeWarn).color).toBe(paint(token("--toast-accent-warn")));
+  });
+
+  it("moves both with the theme, which the palette colours they replaced did not", () => {
+    const probe = document.createElement("span");
+    probe.className = "text-success";
+    document.body.append(probe);
+
+    document.documentElement.classList.remove("dark");
+    const light = getComputedStyle(probe).color;
+    document.documentElement.classList.add("dark");
+    const dark = getComputedStyle(probe).color;
+
+    expect(dark).not.toBe(light);
+  });
 });

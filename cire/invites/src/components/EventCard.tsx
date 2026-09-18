@@ -222,7 +222,7 @@ export function EventCard(props: EventCardProps) {
           <div class="flex flex-wrap gap-3">
             <Button
               variant="quiet"
-              class="min-h-11 flex-1 duration-200 sm:flex-none sm:py-2.5"
+              class="min-h-11 flex-1 sm:flex-none"
               onClick={() => props.onDetails(props.event)}
             >
               Event Details
@@ -331,7 +331,7 @@ export function EventCard(props: EventCardProps) {
                     sizes="(min-width: 768px) 480px, 100vw"
                     alt={`${props.event.name} event`}
                     loading="lazy"
-                    class="border-border max-h-[320px] w-full rounded-sm border object-cover"
+                    class="border-border max-h-80 w-full rounded-sm border object-cover"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
                   />
                 }
@@ -344,7 +344,7 @@ export function EventCard(props: EventCardProps) {
                     // source dims), so the uniformly-scaled region fills it with no
                     // distortion and no empty bars. A legacy crop (no dims) falls
                     // back to the card's default 4∶3 shape.
-                    class="border-border max-h-[320px] w-full overflow-hidden rounded-sm border"
+                    class="border-border max-h-80 w-full overflow-hidden rounded-sm border"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
                     style={{
                       ...style(),

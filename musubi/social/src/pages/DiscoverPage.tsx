@@ -106,7 +106,7 @@ export function DiscoverPage() {
                             />
                           )}
                         </Show>
-                        <AvatarFallback class="text-meta">
+                        <AvatarFallback>
                           {suggestion.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -125,7 +125,7 @@ export function DiscoverPage() {
                       </span>
                       <Button
                         size="sm"
-                        class="text-body h-7 max-md:h-10"
+                        class="h-7 max-md:h-10"
                         disabled={sending().has(suggestion.handle)}
                         onClick={() => connect(suggestion.handle)}
                       >

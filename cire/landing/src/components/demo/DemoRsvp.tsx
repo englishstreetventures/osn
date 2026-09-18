@@ -61,7 +61,7 @@ export function DemoRsvp() {
   const [rsvpEvent, setRsvpEvent] = createSignal<DemoEvent | null>(null);
 
   return (
-    <div class="border-border bg-surface-raised mx-auto max-w-[640px] overflow-hidden rounded-lg border shadow-2xl">
+    <div class="border-border bg-surface-raised mx-auto max-w-160 overflow-hidden rounded-lg border shadow-2xl">
       {/* An honest frame header — a plain label, not imitation browser chrome. */}
       <div class="border-border flex items-center justify-center border-b px-4 py-3">
         <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">

@@ -719,7 +719,7 @@ export function RsvpModal(props: RsvpModalProps) {
           <Button
             variant="quiet"
             type="button"
-            class="flex-1 duration-200"
+            class="flex-1"
             ref={dismissRef}
             onClick={() => props.onClose()}
             // Nothing left to cancel once the reply is in and the sheet is

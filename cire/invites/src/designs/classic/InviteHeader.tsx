@@ -345,7 +345,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
             cell), so the text spans the full width at every breakpoint.
           */}
           <div
-            class="group/story mx-auto grid max-w-[540px] items-center gap-10 text-center md:max-w-[640px] data-[has-image=true]:md:max-w-[960px] data-[has-image=true]:md:grid-cols-2 data-[has-image=true]:md:gap-14 data-[has-image=true]:md:text-left"
+            class="group/story max-w-column-lg md:max-w-column-xl data-[has-image=true]:md:max-w-column-2xl mx-auto grid items-center gap-10 text-center data-[has-image=true]:md:grid-cols-2 data-[has-image=true]:md:gap-14 data-[has-image=true]:md:text-left"
             data-has-image={storyImageUrl() ? "true" : "false"}
           >
             <Show when={storyImageUrl()}>
@@ -368,7 +368,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         sizes="(min-width: 768px) 480px, 100vw"
                         alt=""
                         // Hidden below md — the photo is not even laid out on mobile.
-                        class="border-border hidden max-h-[420px] w-full rounded-sm border object-cover md:block"
+                        class="border-border hidden max-h-105 w-full rounded-sm border object-cover md:block"
                       />
                     }
                   >
@@ -380,7 +380,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         // it with no distortion and no empty bars. A legacy crop (no
                         // dims) falls back to the story default 3∶2. Hidden below md,
                         // like the <img> path.
-                        class="border-border hidden max-h-[420px] w-full overflow-hidden rounded-sm border md:block"
+                        class="border-border hidden max-h-105 w-full overflow-hidden rounded-sm border md:block"
                         style={{
                           ...style(),
                           "aspect-ratio": String(
@@ -400,7 +400,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {story()?.heading ?? "How It All Began"}
               </h2>
-              <div class="mx-auto max-w-[480px] group-data-[has-image=true]/story:md:mx-0">
+              <div class="max-w-column-md mx-auto group-data-[has-image=true]/story:md:mx-0">
                 <Show
                   when={story()?.body}
                   // Neutral fallback for a shown story with no body (heading- or

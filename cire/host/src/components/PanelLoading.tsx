@@ -16,10 +16,7 @@
  *  `aria-busy` is what tells a screen reader the panel is still coming. */
 export default function PanelLoading() {
   return (
-    <p
-      class="font-body text-text-muted text-ui-sm flex min-h-[20rem] items-start py-8"
-      aria-busy="true"
-    >
+    <p class="font-body text-text-muted text-ui-sm flex min-h-80 items-start py-8" aria-busy="true">
       Loading…
     </p>
   );

@@ -63,7 +63,7 @@ export function ProfileSwitcherDialog(props: {
                         />
                       )}
                     </Show>
-                    <AvatarFallback class="text-meta">{profileInitials(profile)}</AvatarFallback>
+                    <AvatarFallback>{profileInitials(profile)}</AvatarFallback>
                   </Avatar>
                   <span class="flex-1 truncate">
                     @{profile.handle}

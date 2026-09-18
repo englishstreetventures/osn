@@ -366,7 +366,6 @@ export default function GuestTable(props: GuestTableProps) {
               type="button"
               onClick={() => void exportCsv("guests")}
               disabled={exporting() !== null}
-              class="transition"
             >
               {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
             </Button>
@@ -376,7 +375,6 @@ export default function GuestTable(props: GuestTableProps) {
               type="button"
               onClick={() => void exportCsv("rsvps")}
               disabled={exporting() !== null}
-              class="transition"
             >
               {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
             </Button>
@@ -387,7 +385,7 @@ export default function GuestTable(props: GuestTableProps) {
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4, 5]}>
-            {() => <div class="bg-surface h-[52px] animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface h-13 animate-pulse rounded-sm" />}
           </For>
         </div>
       </Show>
@@ -409,7 +407,7 @@ export default function GuestTable(props: GuestTableProps) {
             {guests().length} {guests().length === 1 ? "guest" : "guests"} across{" "}
             {families().length} {families().length === 1 ? "household" : "households"}
           </p>
-          <Field label="Search guests" labelHidden class="w-full max-w-[16rem]">
+          <Field label="Search guests" labelHidden class="w-full max-w-64">
             {(field) => (
               <Input
                 {...field}
@@ -525,12 +523,11 @@ export default function GuestTable(props: GuestTableProps) {
                                       when={confirmingId() === family.familyId}
                                       fallback={
                                         <Button
-                                          variant="quiet"
+                                          variant="quietDanger"
                                           size="sm"
                                           type="button"
                                           onClick={() => setConfirmingId(family.familyId)}
                                           disabled={togglingId() === family.familyId}
-                                          class="hover:border-error/60"
                                           title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
                                         >
                                           Deactivate
@@ -584,7 +581,7 @@ export default function GuestTable(props: GuestTableProps) {
                       <For each={visibleMembers()}>
                         {(member, index) => (
                           <tr class="hover:[&>td]:bg-surface">
-                            <Td valign="middle" class="pl-8 font-normal">
+                            <Td valign="middle" indent>
                               {member.firstName} {member.lastName}
                             </Td>
                             <Td valign="middle">
@@ -604,7 +601,7 @@ export default function GuestTable(props: GuestTableProps) {
                                 </Show>
                               </div>
                             </Td>
-                            <Td tone="muted" valign="middle" class="tracking-ui-wide font-mono">
+                            <Td tone="muted" valign="middle" code>
                               <Show when={index() === 0}>{family.publicId}</Show>
                             </Td>
                           </tr>

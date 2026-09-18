@@ -160,7 +160,7 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
               min={startTime()}
               value={endTime()}
               onInput={(e) => setEndTime(e.currentTarget.value)}
-              class={endTimeError() ? "border-destructive" : ""}
+              aria-invalid={endTimeError() ? "true" : undefined}
             />
             <Show when={endTimeError()}>
               {(err) => <p class="text-destructive text-xs">{err()}</p>}
@@ -250,7 +250,8 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
               placeholder="0"
               value={priceInput()}
               onInput={(e) => setPriceInput(e.currentTarget.value)}
-              class={priceError() ? "border-destructive flex-1" : "flex-1"}
+              class="flex-1"
+              aria-invalid={priceError() ? "true" : undefined}
             />
             <select
               aria-label="Currency"

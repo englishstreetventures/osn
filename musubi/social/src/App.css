@@ -8,6 +8,16 @@
 @import "@shared/design-tokens/tokens.css";
 
 @theme inline {
+  /* Success and warning, which the shadcn ramp has neither of. Both existed
+     already as `--toast-accent-*`, contrast-checked and dark-mode-aware; what
+     was missing was a utility, which is why the amber legal banner and the
+     emerald "authorized" line each wrote a raw Tailwind palette colour. Those
+     are fixed sRGB and do not follow the theme.
+
+     *Measured 2026-09-17 — `contrastRatio` from `@shared/color`; success reads
+     6.16:1 on this background.* */
+  --color-success: var(--toast-accent-success);
+  --color-warn: var(--toast-accent-warn);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

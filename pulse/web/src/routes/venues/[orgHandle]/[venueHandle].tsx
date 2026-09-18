@@ -181,7 +181,7 @@ export function VenueDetailPage() {
                       <span
                         class="inline-block size-2 rounded-full"
                         classList={{
-                          "bg-emerald-500": s().isOpen,
+                          "bg-success": s().isOpen,
                           "bg-muted-foreground": !s().isOpen,
                         }}
                       />

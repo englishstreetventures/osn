@@ -99,10 +99,10 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
     // accent and its contrast-checked ink.
     //
     // The class is for what the variant does not decide: the top bar's own
-    // height, and a narrower horizontal padding than `sm` gives, because at the
-    // narrow width the button is a single glyph. Plain utilities rather than
-    // `base:` ones, so they beat the variant's on the same property instead of
-    // tying with it and being resolved by stylesheet order.
+    // height, and the cursor on a control that is busy rather than disabled.
+    // Plain utilities rather than `base:` ones, so they beat the variant's on
+    // the same property instead of tying with it and being resolved by
+    // stylesheet order.
     <Button
       variant="cta"
       size="sm"
@@ -110,7 +110,7 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
       onClick={() => void preview()}
       disabled={loading()}
       aria-busy={loading()}
-      class="h-9 px-2.5 disabled:cursor-default @2xl/frame:px-3.5"
+      class="h-9 disabled:cursor-default"
     >
       <span aria-hidden="true" class="text-ui-sm leading-none @2xl/frame:hidden">
         ◎

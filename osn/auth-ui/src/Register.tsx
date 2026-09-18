@@ -408,7 +408,7 @@ export function Register(props: RegisterProps) {
               <p class="text-muted-foreground text-sm">Verifying your code…</p>
             </Show>
             <Show when={otpStatus() === "accepted"}>
-              <p class="text-sm text-green-600">Accepted</p>
+              <p class="text-ui-success text-sm">Accepted</p>
             </Show>
             <Button type="submit" disabled={otp().length !== 6 || busy()}>
               {busy() ? "Verifying…" : "Verify email"}

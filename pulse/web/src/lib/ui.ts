@@ -16,4 +16,4 @@
  * Change the colour here and every close-friend affordance in the app
  * updates automatically.
  */
-export const CLOSE_FRIEND_RING_CLASS = "ring-2 ring-green-500 ring-offset-2 ring-offset-card";
+export const CLOSE_FRIEND_RING_CLASS = "ring-2 ring-success ring-offset-2 ring-offset-card";

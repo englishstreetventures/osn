@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-18
 ---
 
 # Component Library (Zaidan)
@@ -497,6 +497,41 @@ padding. **The user-agent stylesheet gives every `<dialog>` `padding: 1em`**, so
 a component that writes no padding rule ships a 16px band its caller cannot see
 in its own markup.
 
+#### `presentation`, for where the panel sits
+
+`centred` (the default), `sheet` and `drawer`. It is one prop rather than a
+handful of utilities because the classes only mean anything together: a sheet is
+not "a centred dialog with `rounded-b-none`" — it is bottom-anchored, which is
+what makes its bottom corners square, which is what makes its top corners the
+thing the eye reads as a grip. Set one without the others and the result is a
+centred card with a corner missing.
+
+Five call sites across three products had each spelled the combination out, and
+they disagreed on the radius (28px against 8px), on the breakpoint (`sm` against
+`md`) and on whether `env(safe-area-inset-bottom)` was accounted for at all.
+
+| | Anchor | Radius | Surface it defaults to |
+|---|---|---|---|
+| `centred` | centred, `85vh` cap | `rounded-ui-lg` | `raised` |
+| `sheet` | bottom edge below `md`, centred at `md`+ | `rounded-ui-sheet` on top, square below | `surface` |
+| `drawer` | right edge, full height | none | `surface` |
+
+In the non-`frame` shape, `sheet` also carries the padding a sheet needs — room
+at the top for a close button, and a bottom `max()`-ed against the home
+indicator's inset.
+
+The plane is its own prop, `surface`, because it varies independently of the
+anchor. A sheet and a drawer default to `surface` rather than `surface-raised`
+on purpose — a panel flush with an edge reads as part of the page, while a
+centred dialog floats above it — but an app can want either at either anchor.
+The third value, `ground`, is for the case where the panel's own contents are
+cards: cire's consent sheet holds raised category rows, so the sheet behind them
+has to sit *below* them or the rows stop reading as rows, and
+`cire/invites/tests/components/consent/consent-dialog-surface.browser.test.tsx`
+is what holds that.
+
+`DialogContent` takes the same `sheet`, for the Kobalte-backed dialog.
+
 #### What has to sit above a modal — and why a `z-index` will not do it
 
 The top layer is the reason to use `Modal`, and it is also the trap. It paints
@@ -554,6 +589,68 @@ ModalMotion**, with the two durations on sliders ([[component-lab]]). Whether a
 curve looks right is not a question a test can answer; whether the exit *runs*,
 and whether the dialog stays in the top layer until it finishes, are — and
 `shared/ui/tests/modal.browser.test.tsx` asserts both.
+
+## What a call site may set, and what it may not
+
+`shadcn/no-restyle` is at `error` in `oxlintrc.json`. It reports a call site that
+changes a shared component's **colour, shape, spacing, typography or effects**
+from outside. Two things stay the caller's, and the rule is configured to allow
+both:
+
+- **Layout** — `mt-*`, `w-full`, `flex-1`, `self-start`, `col-span-*`,
+  `max-w-*`, `absolute`, `order-*`. Where a component sits is the page's
+  business, not the component's.
+- **`gap-*` on a container whose children are the caller's** — `Card`,
+  `CardContent`, `CardFooter`, `CardHeader`, `Modal`, `DialogFooter`,
+  `DialogHeader`, `PopoverTrigger`, `DropdownMenuTrigger`. The rhythm between a
+  caller's own children belongs to the caller. `gap-*` on `Button` does not: the
+  space between a button's icon and its label is the button's.
+
+Everything else has four legitimate answers, in order of preference: use a
+variant that exists; add one, named and documented, when the treatment appears
+more than once or is a real design concept; delete the class when it restates
+the component's own default; move it onto a wrapper when it is really page
+layout. Suppressing the rule is not one of them, and neither is picking a class
+that happens to slip past it.
+
+The reason the rule can be trusted at `error` is that it reads the component's
+own variants and names them in the diagnostic — `Use a variant: default,
+destructive, outline, secondary, ghost, link` — so the fix arrives with the
+error rather than needing a trip to the source.
+
+### cire's `Button`, as a vocabulary
+
+`@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
+tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
+call site's colour, shape and padding have to come from. Fourteen variants,
+grouped by the job rather than by the look:
+
+| Group | Variants | What each is for |
+|---|---|---|
+| Commit | `primary`, `cta` | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
+| Secondary | `outline`, `quiet`, `dashed` | A gold wash, a neutral action, and the empty slot — a dashed box promises that something *appears*, a solid one that something *happens* |
+| Destructive | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state |
+| Text | `link`, `subtle`, `touchLink` | Accent ink, muted ink, and muted ink carrying its underline at rest. The last belongs to `@cire/invites`, which is read on a phone — there is no hover there to reveal one |
+| Glyph | `bare` | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline |
+| State and fill | `choice`, `tile` | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that *is* a block — a card, a row — where a hairline stops describing the target |
+
+Five sizes, and they are not one scale:
+
+| Size | What it gives | For |
+|---|---|---|
+| `sm`, `md`, `lg` | three steps of label padding and type | An ordinary control |
+| `swatch` | one hairline of padding, no type at all | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
+| `icon` | square, sized to the glyph rather than to a label | A single glyph |
+
+Three sizing tables, picked by the variant. The borderless ones take the type
+step and none of the box padding, because `px-4 py-2` around a text link is a
+word floating in a gap. `tile` takes square block padding, because its interior
+is a small layout — a numbered marker beside two lines of text — rather than a
+word. Everything else takes the ordinary one.
+
+`cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
+that is the bar for adding one: a variant is a design concept somebody can name,
+not a colour somebody wanted. `custom`, `alt` and `variant2` are not names.
 
 ## Adding a new component
 

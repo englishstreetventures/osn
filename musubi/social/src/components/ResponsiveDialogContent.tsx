@@ -1,24 +1,16 @@
-import { clsx } from "@shared/ui/lib/utils";
 import { DialogContent } from "@shared/ui/ui/dialog";
-import { splitProps, type ComponentProps, type ParentComponent } from "solid-js";
+import { type ComponentProps, type ParentComponent } from "solid-js";
 
 /**
- * `DialogContent` with a mobile face. Below `md` the centered card becomes a
- * bottom sheet: pinned to the bottom edge, full-width, square bottom corners,
- * scrollable within 85dvh so the soft keyboard and small screens never clip a
- * form. At `md+` it renders exactly the shared centered card. Classes only —
- * the `@shared/ui` primitive is untouched (its `base:` zero-specificity variant
- * lets these call-site classes win).
+ * The app's dialog, in its mobile face.
+ *
+ * Every dialog in `@musubi/social` is a bottom sheet below `md` and a centred
+ * card at `md` and up, so the choice is made here once rather than at each of
+ * the six call sites. `DialogContent`'s `presentation` variant is what draws it:
+ * the anchor, the squared bottom corners, the `--ui-radius-sheet` grip and the
+ * safe-area inset only mean anything together, which is why they are one name
+ * rather than a class string a call site can get two-thirds right.
  */
 export const ResponsiveDialogContent: ParentComponent<ComponentProps<"div">> = (props) => {
-  const [local, others] = splitProps(props, ["class"]);
-  return (
-    <DialogContent
-      class={clsx(
-        "rounded-card max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:max-h-[85dvh] max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:overflow-y-auto max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-safe",
-        local.class,
-      )}
-      {...others}
-    />
-  );
+  return <DialogContent presentation="sheet" {...props} />;
 };

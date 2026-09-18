@@ -41,12 +41,18 @@ export type ButtonVariant =
   | "cta"
   | "outline"
   | "quiet"
+  | "quietDanger"
+  | "choice"
+  | "tile"
+  | "dashed"
+  | "field"
   | "danger"
   | "link"
   | "subtle"
+  | "touchLink"
   | "bare"
   | "bareDanger";
-export type ButtonSize = "sm" | "md" | "lg" | "icon";
+export type ButtonSize = "sm" | "md" | "lg" | "swatch" | "icon";
 
 const BASE =
   "base:font-ui-body base:inline-flex base:items-center base:justify-center base:gap-2 " +
@@ -88,15 +94,101 @@ const VARIANT = {
     "base:border-ui-accent/40 base:text-ui-accent-ink base:hover:border-ui-accent base:hover:bg-ui-accent-soft",
   quiet:
     "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink",
+  /**
+   * Destroys something, and says so only when you reach for it — the
+   * "Deactivate" beside a household in the guest table, where the rows above
+   * and below carry the same control.
+   *
+   * `bareDanger`'s reasoning for an action that needs a box: a column of
+   * red-outlined buttons down a table reads as an error state rather than as a
+   * column of controls, so the warning waits for the pointer. Distinct from
+   * `danger`, which is red at rest and belongs on the button that finally
+   * commits the destruction — the confirm, not the control that offers it.
+   */
+  quietDanger:
+    "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
+  /**
+   * One option among several, with the chosen one marked — the desktop/phone
+   * preview toggle, the palette presets, the section-background picker, the
+   * registry's candidate pictures.
+   *
+   * `quiet`'s body plus the thing all four need and no two would spell the same
+   * way: an accent border, and a ring so the mark survives on a swatch whose
+   * own colour is already sitting against that border. It reads
+   * `aria-pressed` and `aria-checked` together because two of the four are
+   * toggle groups and two are radio groups — which ARIA property carries the
+   * state is a question about the group's semantics, not about how the chosen
+   * member should look.
+   *
+   * No focus treatment of its own. {@link BASE} already draws one from
+   * `--ui-focus`, the app's contrast-checked focus token, which is what the
+   * hand-rolled gold rings at these call sites were approximating.
+   */
+  choice:
+    "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink " +
+    "base:aria-pressed:border-ui-accent base:aria-pressed:text-ui-accent-ink " +
+    "base:aria-pressed:ring-1 base:aria-pressed:ring-ui-accent/60 " +
+    "base:aria-checked:border-ui-accent base:aria-checked:text-ui-accent-ink " +
+    "base:aria-checked:ring-1 base:aria-checked:ring-ui-accent/60",
+  /**
+   * The whole block is the control — a wedding in the portal's list, a step in
+   * the getting-started guide, the collapsed section menu in the invite
+   * builder, the command-palette chip in the top bar.
+   *
+   * Filled rather than outlined, and that is the distinction rather than a
+   * preference: past a certain size a hairline stops describing the control,
+   * because the eye reads the empty middle rather than the edge. Lifting the
+   * surface off the page is what makes a card-sized target read as pressable.
+   *
+   * It carries `ink` rather than `ink-secondary` because a tile's interior is
+   * composed content — a name, a description, a marker — and muting all of it
+   * is not the same thing as muting a label.
+   *
+   * One wash and one hover for all four, rather than a value per call site:
+   * left to themselves they reach for `surface/30`, `surface/40` and `bg/30`,
+   * which is three answers to a question with one.
+   */
+  tile: "base:border-ui-hairline base:bg-ui-surface/30 base:text-ui-ink base:hover:border-ui-accent base:hover:bg-ui-surface/60",
+  /**
+   * The empty slot — "+ Create a wedding", standing where a wedding would be.
+   *
+   * A dashed outline is this house's mark for a box with nothing in it yet: the
+   * empty enquiries pane and the events table's pending row both draw one. It
+   * is not `quiet` with a different border, because the two promise different
+   * things — a solid box promises that something happens, a dashed one promises
+   * that something appears.
+   */
+  dashed:
+    "base:border-ui-hairline base:border-dashed base:text-ui-ink-secondary " +
+    "base:hover:border-ui-accent base:hover:text-ui-accent-ink",
+  /**
+   * A control shaped like the field it stands in for — the dietary picker's
+   * collapsed trigger, which sits in a column of text inputs and says what is
+   * currently selected.
+   *
+   * Not `quiet` with different padding. The other variants are all *actions*
+   * and read as actions: uppercase, tracked, centred. This one holds a value a
+   * guest typed the meaning of — "Vegetarian, no nuts" — and shouting it in
+   * small caps beside the text box below makes the pair look like two different
+   * kinds of thing when they are one. So it takes {@link FIELD_SIZE}: sentence
+   * case, no tracking, and an input's padding rather than a button's.
+   *
+   * Transparent rather than washed, for the same reason — it has to sit level
+   * with the inputs around it, which are transparent over the form's own
+   * surface.
+   */
+  field:
+    "base:border-ui-hairline base:bg-transparent base:text-ui-ink " +
+    "base:hover:border-ui-accent-soft",
   danger:
     "base:border-ui-danger/40 base:text-ui-danger base:hover:border-ui-danger base:hover:bg-ui-danger/10",
 
   /*
-   * The three borderless ones.
+   * The four borderless ones.
    *
-   * Counted across `cire/host` before they existed: 9 accent text links, 17
-   * muted ones and 25 glyph buttons — 51 of that app's 98 raw `<button>`
-   * elements, each written out by hand. Three variants rather than one, because
+   * Counted across `cire/host`: 9 accent text links, 17 muted ones and 25 glyph
+   * buttons — 51 of that app's 98 raw `<button>` elements, each written out by
+   * hand, plus 5 more on the guest site. Four variants rather than one, because
    * the differences are not decoration:
    *
    * `link` is the affirmative text action — "View listing", "Today", "Back".
@@ -107,12 +199,22 @@ const VARIANT = {
    * and dropping the underline on 17 cancel actions is a redesign, not a
    * refactor.
    *
+   * `touchLink` is `subtle` with its underline at rest rather than on hover,
+   * and the difference is the surface rather than the taste: `@cire/invites` is
+   * opened on a phone, where there is no hover at all, so a hover-revealed
+   * underline is one that never appears. Five of the guest site's secondary
+   * actions take it — the two sign-outs, the consent gate's "Privacy choices",
+   * and a gift's "Release" and "Cancel".
+   *
    * `bare` is a glyph — a move-up arrow, a close cross, a disclosure caret. No
    * underline, because there is no word to underline.
    */
   link: "base:border-transparent base:bg-transparent base:text-ui-accent-ink base:underline-offset-4 base:hover:underline",
   subtle:
     "base:border-transparent base:bg-transparent base:text-ui-ink-secondary base:underline-offset-4 base:hover:text-ui-ink base:hover:underline",
+  touchLink:
+    "base:border-transparent base:bg-transparent base:text-ui-ink-secondary " +
+    "base:underline base:underline-offset-4 base:hover:text-ui-ink",
   bare: "base:border-transparent base:bg-transparent base:text-ui-ink-secondary base:hover:text-ui-ink",
   /**
    * A glyph that destroys something — the bin beside a budget line, a
@@ -138,7 +240,7 @@ const VARIANT = {
  * a link reads as a sentence fragment, and shouting it makes it a button
  * wearing a link's clothes.
  */
-const BORDERLESS = new Set<ButtonVariant>(["link", "subtle", "bare", "bareDanger"]);
+const BORDERLESS = new Set<ButtonVariant>(["link", "subtle", "touchLink", "bare", "bareDanger"]);
 
 const SIZE = {
   sm: "base:px-3 base:py-1.5 base:text-ui-xs base:tracking-ui-wider base:uppercase",
@@ -147,6 +249,12 @@ const SIZE = {
   // claim-code submit, an RSVP commit. Also the minimum comfortable touch
   // target on a phone, which is where most invites are opened.
   lg: "base:px-6 base:py-3.5 base:text-ui-base base:tracking-ui-wider base:uppercase",
+  // The control's content is the thing itself — a colour swatch, a product
+  // thumbnail, a design preview. One hairline of padding, so the border reads
+  // as a frame around the picture rather than a box around a label, and the
+  // picture's own dimensions are what size the control. No type treatment,
+  // because there is no type.
+  swatch: "base:p-1",
   // Square, for a single glyph. No tracking — there is nothing to track.
   icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:uppercase",
 } satisfies Readonly<Record<ButtonSize, string>>;
@@ -156,8 +264,52 @@ const BORDERLESS_SIZE = {
   sm: "base:text-ui-xs",
   md: "base:text-ui-sm",
   lg: "base:text-ui-base",
+  // Nothing at all: an unframed picture is flush with its own hit area.
+  swatch: "base:p-0",
   icon: "base:px-1 base:text-ui-md base:leading-none",
 } satisfies Readonly<Record<ButtonSize, string>>;
+
+/**
+ * {@link SIZE} for `tile`.
+ *
+ * Square padding and a wider gap, because a tile's interior is a small layout —
+ * a numbered marker beside two lines of text, a label opposite a counter —
+ * rather than a word. `px-4 py-2` around that reads as a paragraph that has
+ * been squeezed into a button.
+ *
+ * The type steps are {@link SIZE}'s own, so a tile and an ordinary button in
+ * the same row are the same size of thing; only the room inside differs.
+ */
+const TILE_SIZE = {
+  sm: "base:gap-3 base:p-3 base:text-ui-xs base:tracking-ui-wider base:uppercase",
+  md: "base:gap-3 base:p-4 base:text-ui-sm base:tracking-ui-wider base:uppercase",
+  lg: "base:gap-3 base:p-6 base:text-ui-base base:tracking-ui-wider base:uppercase",
+  swatch: "base:p-1",
+  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:uppercase",
+} satisfies Readonly<Record<ButtonSize, string>>;
+
+/**
+ * {@link SIZE} for `field`.
+ *
+ * An input's padding and sentence case — the two things that make a control
+ * read as a form field rather than as a button. The type steps are
+ * {@link SIZE}'s own, so a field and the text box under it are the same size of
+ * thing.
+ */
+const FIELD_SIZE = {
+  sm: "base:px-3 base:py-2 base:text-ui-sm",
+  md: "base:px-3 base:py-2.5 base:text-ui-base",
+  lg: "base:px-4 base:py-3 base:text-ui-md",
+  swatch: "base:p-1",
+  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
+} satisfies Readonly<Record<ButtonSize, string>>;
+
+/** Which of the four tables a variant sizes from. */
+function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
+  if (variant === "tile") return TILE_SIZE[size];
+  if (variant === "field") return FIELD_SIZE[size];
+  return BORDERLESS.has(variant) ? BORDERLESS_SIZE[size] : SIZE[size];
+}
 
 /**
  * The classes on their own, for a call site that needs a different element — an
@@ -167,8 +319,7 @@ const BORDERLESS_SIZE = {
 export function buttonClass(options: { variant?: ButtonVariant; size?: ButtonSize } = {}): string {
   const variant = options.variant ?? "quiet";
   const size = options.size ?? "md";
-  const sizing = BORDERLESS.has(variant) ? BORDERLESS_SIZE[size] : SIZE[size];
-  return `${BASE} ${VARIANT[variant]} ${sizing}`;
+  return `${BASE} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
 }
 
 export type ButtonProps = SafeProps<"button"> & {

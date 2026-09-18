@@ -2,6 +2,7 @@ import { DIETARY_PRESET_LABEL, type DietaryPreset } from "@cire/dietary";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { createSignal, onCleanup, Show, type JSX } from "solid-js";
 
+import Button from "./button";
 import DietaryPresets, { type DietaryPresetsProps } from "./dietary-presets";
 
 /*
@@ -83,19 +84,35 @@ export default function DietaryPresetsPopover(props: DietaryPresetsProps): JSX.E
   return (
     <Show when={wide()} fallback={<DietaryPresets {...props} />}>
       <Popover gutter={6} placement="bottom-start">
+        {/* `as={Button}`, so the trigger's border, padding, type and focus ring
+            are the `field` variant's rather than a class list here — the one
+            shape in cire's button set that reads as a form control instead of
+            an action, which is what this is: it stands where the free-text box
+            below it stands, and holds a value rather than a verb.
+
+            `justify-between` and the width are placement, and stay: the caret
+            belongs at the far edge whatever the summary's length. */}
         <PopoverTrigger
+          as={Button}
+          variant="field"
           disabled={props.disabled}
-          class="font-body border-ui-hairline text-ui-ink hover:border-ui-accent-soft focus-visible:ring-ui-focus rounded-ui-sm flex w-full cursor-pointer items-center justify-between gap-2 border bg-transparent px-3 py-2.5 text-left text-[0.88rem] transition-colors duration-200 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          class="w-full justify-between text-left"
         >
           <span classList={{ "text-ui-ink-muted": props.value.length === 0 }}>
             {summarise(props.value)}
           </span>
-          <span aria-hidden="true" class="text-ui-ink-muted text-[0.7em]">
+          <span aria-hidden="true" class="text-ui-ink-muted text-ui-xs">
             ▾
           </span>
         </PopoverTrigger>
-        <PopoverContent class="base:w-auto base:max-w-[22rem] base:p-4">
-          <DietaryPresets {...props} wrap />
+        {/* `padding="none"` and a plain wrapper, rather than the panel's own
+            inset: a wrapped grid of sixteen pills wants more room than the
+            popover's default, and the room a caller wants is the caller's to
+            put in a box of its own. */}
+        <PopoverContent padding="none" class="w-auto max-w-xs">
+          <div class="p-4">
+            <DietaryPresets {...props} wrap />
+          </div>
         </PopoverContent>
       </Popover>
     </Show>

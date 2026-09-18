@@ -102,7 +102,7 @@ export function CloseFriendsPage() {
                 {(entry) => (
                   <li class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors">
                     <Avatar class="h-9 w-9">
-                      <AvatarFallback class="text-xs">
+                      <AvatarFallback>
                         {(entry.handle ?? "?").slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
@@ -115,9 +115,9 @@ export function CloseFriendsPage() {
                       </Show>
                     </div>
                     <Button
-                      variant="ghost"
+                      variant="ghostDanger"
                       size="sm"
-                      class="text-muted-foreground h-7 text-xs"
+                      class="h-7"
                       disabled={busy() === entry.profileId}
                       onClick={() => {
                         void remove(entry);
@@ -155,7 +155,7 @@ export function CloseFriendsPage() {
                   {(candidate) => (
                     <li class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-xs">
+                        <AvatarFallback>
                           {candidate.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -169,7 +169,7 @@ export function CloseFriendsPage() {
                       </div>
                       <Button
                         size="sm"
-                        class="h-7 text-xs"
+                        class="h-7"
                         disabled={busy() === candidate.profileId}
                         onClick={() => {
                           void add(candidate);

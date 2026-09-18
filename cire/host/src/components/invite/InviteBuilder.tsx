@@ -882,7 +882,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     never to orient — the thing the scrolling strip could not do
                     for the sections parked off its right edge. */}
                   <Button
-                    variant="quiet"
+                    variant="tile"
                     type="button"
                     ref={(el) => (sectionMenuTrigger = el)}
                     aria-expanded={sectionMenuOpen()}
@@ -900,7 +900,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       e.preventDefault();
                       closeSectionMenu();
                     }}
-                    class="bg-surface/40 text-text flex min-h-11 w-full items-center justify-between gap-3 @3xl/builder:hidden"
+                    class="flex min-h-11 w-full items-center justify-between @3xl/builder:hidden"
                   >
                     <span class="flex min-w-0 items-center gap-2">
                       <Show when={activeShown() !== undefined}>
@@ -994,7 +994,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   size="sm"
                   type="button"
                   onClick={() => setPreviewModalOpen(true)}
-                  class="flex min-h-11 shrink-0 items-center @3xl/builder:min-h-0 @3xl/builder:py-1 @4xl/builder:hidden"
+                  class="flex min-h-11 shrink-0 items-center @3xl/builder:min-h-0 @4xl/builder:hidden"
                 >
                   Preview
                 </Button>
@@ -1509,11 +1509,10 @@ function ToneField(props: {
         <For each={SECTION_TONES}>
           {(tone) => (
             <Button
-              variant="quiet"
+              variant="choice"
               type="button"
               aria-pressed={current() === tone}
               onClick={() => props.onChange(tone === "ground" ? null : tone)}
-              class="focus-visible:border-gold focus-visible:ring-gold/40 aria-pressed:border-gold aria-pressed:ring-gold/60 transition outline-none focus-visible:ring-2 aria-pressed:ring-1"
               style={{ "background-color": surfaceFor[tone], color: "var(--color-text)" }}
             >
               {TONE_LABELS[tone]}

@@ -87,8 +87,94 @@ export type ModalProps = Omit<ComponentProps<"dialog">, "open" | "onClose" | "ch
    * `max-height` (with its own `min-h-0`).
    */
   frame?: boolean;
+  /**
+   * Where the dialog sits and what shape that makes it. See {@link MODAL_PRESENTATION}.
+   *
+   * Default `centred`.
+   */
+  presentation?: ModalPresentation;
+  /**
+   * Which plane the panel is painted on. See {@link MODAL_SURFACE}.
+   *
+   * Defaults with the presentation: `raised` for `centred`, `surface` for
+   * `sheet` and `drawer`.
+   */
+  surface?: ModalSurface;
   children: JSX.Element;
 };
+
+export type ModalPresentation = "centred" | "sheet" | "drawer";
+
+export type ModalSurface = "raised" | "surface" | "ground";
+
+/**
+ * The plane the panel is painted on, as a choice rather than a `bg-` utility.
+ *
+ * It is separate from {@link MODAL_PRESENTATION} because the two vary
+ * independently: a dialog is `raised` when it floats above the page and
+ * `surface` when it is flush with an edge, but an app can want either at either
+ * anchor. `ground` is the third case and a real one — a panel whose own
+ * contents are cards has to sit *below* them, or the cards stop reading as
+ * cards. cire's consent sheet is exactly that: its category rows are raised
+ * surfaces, so the sheet behind them takes the page's own ground.
+ */
+const MODAL_SURFACE = {
+  raised: "base:bg-ui-surface-raised",
+  surface: "base:bg-ui-surface",
+  ground: "base:bg-ui-ground",
+} satisfies Readonly<Record<ModalSurface, string>>;
+
+/** What each presentation paints on unless the caller says otherwise. */
+const PRESENTATION_SURFACE = {
+  centred: "raised",
+  sheet: "surface",
+  drawer: "surface",
+} satisfies Readonly<Record<ModalPresentation, ModalSurface>>;
+
+/**
+ * The three places a modal can sit, as one choice rather than a handful of
+ * margin, radius and max-height utilities at the call site.
+ *
+ * It is a variant because the classes only mean anything together. A sheet is
+ * not "a centred dialog with `rounded-b-none`" — it is bottom-anchored, which
+ * is what makes its bottom corners square, which is what makes its top corners
+ * the thing the eye reads as a grip. Set any one of those without the others
+ * and the result is a centred card with a corner missing. Five call sites
+ * across three products had each spelled the combination out, and they
+ * disagreed on the radius, on the breakpoint and on whether the safe-area inset
+ * was accounted for.
+ *
+ * `sheet` reads `--ui-radius-sheet` rather than `--ui-radius-lg` so an app can
+ * make that grip pronounced without touching its cards — cire's guest site
+ * wants 28px there against 10px cards.
+ *
+ * The surface differs on purpose too: a `centred` dialog floats above the page
+ * and takes `surface-raised`, while a `sheet` or `drawer` is flush with an edge
+ * and reads as part of the page, so it takes `surface`.
+ */
+const MODAL_PRESENTATION = {
+  centred: "base:m-auto base:max-h-[85vh] base:rounded-ui-lg",
+  sheet:
+    "base:mt-auto base:mb-0 base:max-h-[85dvh] base:rounded-t-ui-sheet base:rounded-b-none " +
+    "md:base:m-auto md:base:max-h-[85vh] md:base:rounded-ui-lg",
+  drawer:
+    "base:my-0 base:mr-0 base:ml-auto base:h-full base:max-h-none base:rounded-none base:border-l",
+} satisfies Readonly<Record<ModalPresentation, string>>;
+
+/**
+ * The padding a non-`frame` panel carries, per presentation.
+ *
+ * A sheet's is not the centred dialog's with a different number: the extra room
+ * at the top is where its close button sits, and the bottom is `max()`-ed
+ * against `env(safe-area-inset-bottom)` because a sheet is flush with the
+ * screen edge and the home indicator is drawn over it. A centred dialog is
+ * nowhere near either.
+ */
+const MODAL_PADDING = {
+  centred: "base:p-6",
+  sheet: "base:px-6 base:pt-8 base:pb-[max(2.5rem,env(safe-area-inset-bottom))] md:base:pb-10",
+  drawer: "base:p-6",
+} satisfies Readonly<Record<ModalPresentation, string>>;
 
 /**
  * The stylesheet `Modal` injects once per document.
@@ -240,6 +326,8 @@ export function Modal(props: ModalProps) {
     "labelledBy",
     "dismissable",
     "frame",
+    "presentation",
+    "surface",
     "class",
     "children",
   ]);
@@ -439,8 +527,10 @@ export function Modal(props: ModalProps) {
         // `m-auto` is what centres it there — the UA default is `margin: auto`
         // on a modal dialog, and a utility that overrode it would drop the
         // dialog to the top-left corner.
-        "base:m-auto base:max-h-[85vh] base:w-full base:max-w-ui-sm",
-        "base:rounded-ui-lg base:border base:border-ui-hairline base:bg-ui-surface-raised",
+        "base:w-full base:max-w-ui-sm",
+        MODAL_PRESENTATION[own.presentation ?? "centred"],
+        MODAL_SURFACE[own.surface ?? PRESENTATION_SURFACE[own.presentation ?? "centred"]],
+        "base:border base:border-ui-hairline",
         "base:text-ui-ink base:shadow-[var(--ui-elev-2)]",
         // Two shapes, never both: see {@link ModalProps.frame}.
         // `base:p-0` rather than simply omitting the padding: the user-agent
@@ -450,7 +540,7 @@ export function Modal(props: ModalProps) {
         // bar 16px above the bottom edge it is supposed to sit on.
         own.frame
           ? "base:flex base:flex-col base:overflow-hidden base:p-0"
-          : "base:overflow-y-auto base:p-6",
+          : `base:overflow-y-auto ${MODAL_PADDING[own.presentation ?? "centred"]}`,
         own.class,
       )}
       {...rest}

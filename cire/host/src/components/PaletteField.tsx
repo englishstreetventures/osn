@@ -122,11 +122,11 @@ export default function PaletteField(props: {
               const selected = () => (props.value.preset ?? DEFAULT_PRESET) === key;
               return (
                 <Button
-                  variant="quiet"
+                  variant="choice"
                   type="button"
                   aria-pressed={selected()}
                   onClick={() => choosePreset(key)}
-                  class="focus-visible:border-gold focus-visible:ring-gold/40 aria-pressed:border-gold flex items-center gap-2 transition outline-none focus-visible:ring-2"
+                  class="flex items-center"
                 >
                   {/* The five colours themselves are the label — a scheme is
                       easier to recognise than to read. */}
@@ -134,7 +134,7 @@ export default function PaletteField(props: {
                     <For each={[preset.ground, preset.card, preset.ink, preset.gilt, preset.bloom]}>
                       {(colour) => (
                         <span
-                          class="border-border h-5 w-3 border-y first:rounded-l-[3px] first:border-l last:rounded-r-[3px] last:border-r"
+                          class="border-border first:rounded-l-hair last:rounded-r-hair h-5 w-3 border-y first:border-l last:border-r"
                           style={{ "background-color": colour }}
                         />
                       )}

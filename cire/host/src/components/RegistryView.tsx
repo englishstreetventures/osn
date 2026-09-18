@@ -549,7 +549,7 @@ export default function RegistryView(props: RegistryViewProps) {
             onSubmit={addItem}
             class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
           >
-            <Field label="Gift" class="min-w-[12rem] flex-1">
+            <Field label="Gift" class="min-w-48 flex-1">
               {(field) => (
                 <Input
                   {...field}
@@ -623,7 +623,7 @@ export default function RegistryView(props: RegistryViewProps) {
               {(item, i) => (
                 <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
                   <div class="flex flex-wrap items-center gap-3">
-                    <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
+                    <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                       {item.title}
                     </span>
                     <Show when={item.category}>
@@ -672,7 +672,6 @@ export default function RegistryView(props: RegistryViewProps) {
                           aria-label={`Move ${item.title} up`}
                           disabled={i() === 0}
                           onClick={() => move(i(), -1)}
-                          class="disabled:opacity-30"
                         >
                           ↑
                         </Button>
@@ -682,7 +681,6 @@ export default function RegistryView(props: RegistryViewProps) {
                           aria-label={`Move ${item.title} down`}
                           disabled={i() === items().length - 1}
                           onClick={() => move(i(), 1)}
-                          class="disabled:opacity-30"
                         >
                           ↓
                         </Button>
@@ -716,7 +714,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       onSubmit={(e) => saveEdit(e, item)}
                       class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
                     >
-                      <Field label="Gift" class="min-w-[12rem] flex-1">
+                      <Field label="Gift" class="min-w-48 flex-1">
                         {(field) => (
                           <Input
                             {...field}
@@ -776,7 +774,7 @@ export default function RegistryView(props: RegistryViewProps) {
                           />
                         )}
                       </Field>
-                      <Field label="Description" class="min-w-[14rem] flex-1">
+                      <Field label="Description" class="min-w-56 flex-1">
                         {(field) => (
                           <Textarea
                             {...field}
@@ -940,7 +938,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   <li class="border-border bg-surface/10 flex flex-col gap-1 rounded-sm border px-3 py-2">
                     <div class="flex flex-wrap items-center gap-3">
                       {/* Guest-authored — a text node, never markup (S-L3). */}
-                      <span class="text-text text-ui-base min-w-[10rem] flex-1 font-medium">
+                      <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                         {giftFrom(gift)}
                       </span>
                       <span class="text-text-muted text-ui-sm">

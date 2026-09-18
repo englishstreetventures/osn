@@ -148,6 +148,7 @@ export const ROUNDED = {
   "--ui-radius-lg": "rounded-ui-lg",
   "--ui-radius-pill": "rounded-ui-pill",
   "--ui-radius-control": "rounded-ui-control",
+  "--ui-radius-sheet": "rounded-ui-sheet",
 } as const satisfies Record<RadiusToken, string>;
 
 export const FONT = {

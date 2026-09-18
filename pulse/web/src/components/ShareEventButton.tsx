@@ -184,13 +184,12 @@ export function ShareEventButton(props: ShareEventButtonProps) {
         when={isMobile()}
         fallback={
           <Popover open={open()} onOpenChange={setOpen}>
-            <PopoverTrigger
-              aria-label="Share event"
-              class="base:bg-secondary base:text-secondary-foreground base:hover:bg-secondary/80 base:inline-flex base:h-8 base:cursor-pointer base:items-center base:justify-center base:rounded-md base:px-3 base:text-xs base:font-medium"
-            >
+            <PopoverTrigger as={Button} variant="secondary" size="sm" aria-label="Share event">
               Share
             </PopoverTrigger>
-            <PopoverContent class="base:w-72 base:p-0">{grid}</PopoverContent>
+            <PopoverContent padding="none" class="w-72">
+              {grid}
+            </PopoverContent>
           </Popover>
         }
       >
@@ -208,13 +207,10 @@ export function ShareEventButton(props: ShareEventButtonProps) {
             if (!o) setOpen(false);
           }}
         >
-          <DialogContent class="base:w-full base:max-w-md base:rounded-t-xl base:rounded-b-none base:top-auto base:bottom-0 base:translate-y-0 base:left-1/2 base:-translate-x-1/2">
+          <DialogContent presentation="sheet">
             <DialogHeader>
               <DialogTitle>Share event</DialogTitle>
-              <DialogClose
-                aria-label="Close"
-                class="text-muted-foreground hover:text-foreground text-xl leading-none"
-              >
+              <DialogClose aria-label="Close" treatment="glyph">
                 ×
               </DialogClose>
             </DialogHeader>

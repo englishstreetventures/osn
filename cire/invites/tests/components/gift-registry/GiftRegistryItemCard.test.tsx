@@ -427,13 +427,13 @@ describe("the image", () => {
   });
 
   /**
-   * DRIFT GUARD. The aspect ratio exists twice: as the LITERAL `aspect-[4/3]`
+   * DRIFT GUARD. The aspect ratio exists twice: as the LITERAL `aspect-4/3`
    * inside the class string (Tailwind reads source as text, so a computed class
    * emits no CSS at all) and as the number the card reasons about. Neither can
    * be derived from the other at runtime, so assert they agree.
    */
   it("keeps GIFT_CARD_IMAGE_CLASS and GIFT_CARD_IMAGE_ASPECT in step", () => {
-    const match = /aspect-\[(\d+)\/(\d+)\]/.exec(GIFT_CARD_IMAGE_CLASS);
+    const match = /aspect-(\d+)\/(\d+)\b/.exec(GIFT_CARD_IMAGE_CLASS);
     expect(match).not.toBeNull();
     const [, width, height] = match as RegExpExecArray;
     expect(Number(width) / Number(height)).toBeCloseTo(GIFT_CARD_IMAGE_ASPECT, 6);

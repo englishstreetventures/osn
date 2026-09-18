@@ -21,6 +21,18 @@
   --font-display: var(--font-space-grotesk);
   --font-body: var(--font-inter);
   --default-font-family: var(--font-body);
+
+  /* The uppercase kicker that heads the hero and every section below it. The
+     tracking is the whole treatment: at this size, upper case set solid reads
+     as a word rather than a label, and it is the one place on the site that
+     opens its letterspacing. Named because six components set it, and a number
+     repeated six times drifts. */
+  --tracking-eyebrow: 0.26em;
+
+  /* The hero headline's leading — the tightest step on the page, for the only
+     type large enough that 1.5 would open a visible gap between its two lines.
+     Section headings stay looser at 1.2; body copy at 1.5. */
+  --leading-display: 1.05;
 }
 
 @layer base {

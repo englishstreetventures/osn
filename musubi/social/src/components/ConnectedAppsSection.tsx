@@ -89,7 +89,7 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="text-body h-7 shrink-0"
+                    class="h-7 shrink-0"
                     disabled={revoking() === conn.clientId}
                     onClick={() => void revoke(conn.clientId)}
                   >

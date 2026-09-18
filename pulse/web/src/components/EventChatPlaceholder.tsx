@@ -11,7 +11,7 @@ import { Card } from "@shared/ui/ui/card";
  */
 export function EventChatPlaceholder(props: { eventId: string }) {
   return (
-    <Card padding="lg" class="bg-card/50 border-dashed text-center">
+    <Card padding="lg" variant="dashed" class="text-center">
       <h3 class="text-foreground mb-1 text-sm font-semibold">Event chat</h3>
       <p class="text-muted-foreground text-xs">
         Chat for this event will live here — powered by <span class="font-semibold">Zap</span>,

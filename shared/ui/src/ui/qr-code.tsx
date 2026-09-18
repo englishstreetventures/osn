@@ -76,7 +76,7 @@ export const QrCode: Component<QrCodeProps> = (props) => {
           // Modules must land on whole pixels or a camera sees blurred edges
           // where it needs hard ones.
           shape-rendering="crispEdges"
-          class={clsx("base:h-auto base:w-full base:max-w-[240px]", props.class)}
+          class={clsx("base:h-auto base:w-full base:max-w-60", props.class)}
         >
           {/* The light ground is part of the symbol, so it is drawn rather
               than inherited — a dark page behind a transparent QR does not

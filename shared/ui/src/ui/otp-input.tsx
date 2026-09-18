@@ -86,14 +86,17 @@ const OtpInput: Component<OtpInputProps> = (props) => {
 
   function borderClass(index: number) {
     const s = status();
-    if (s === "error") return "base:border-red-500";
-    if (s === "accepted") return "base:border-green-600";
+    // Contract tokens, not palette. A `border-red-500` is fixed sRGB: it does
+    // not move when the theme flips, and it is the one colour on this control
+    // that has to read as an error on whatever ground the host paints.
+    if (s === "error") return "base:border-ui-danger";
+    if (s === "accepted") return "base:border-ui-success";
     if (s === "verifying" && focusedIndex() === index)
-      return "base:border-blue-500 base:ring-1 base:ring-blue-500";
-    if (s === "verifying") return "base:border-border";
+      return "base:border-ui-focus base:ring-1 base:ring-ui-focus";
+    if (s === "verifying") return "base:border-ui-hairline";
     // idle
     if (focusedIndex() === index) return "base:border-ui-ink base:ring-1 base:ring-ui-ink";
-    return "base:border-border";
+    return "base:border-ui-hairline";
   }
 
   return (

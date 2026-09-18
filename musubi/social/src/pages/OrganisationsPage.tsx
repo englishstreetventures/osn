@@ -113,9 +113,7 @@ export function OrganisationsPage() {
                           />
                         )}
                       </Show>
-                      <AvatarFallback class="text-meta">
-                        {org.name.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
+                      <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div class="min-w-0 flex-1">
                       <p class="text-foreground text-title font-medium">{org.name}</p>
@@ -190,7 +188,7 @@ export function OrganisationsPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                class="text-body max-md:h-10"
+                class="max-md:h-10"
                 onClick={() => setShowCreate(false)}
               >
                 Cancel
@@ -198,7 +196,7 @@ export function OrganisationsPage() {
               <Button
                 type="submit"
                 size="sm"
-                class="text-body max-md:h-10"
+                class="max-md:h-10"
                 disabled={creating() || !handle() || !name()}
               >
                 {creating() ? "Creating..." : "Create"}

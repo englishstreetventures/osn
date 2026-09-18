@@ -10,7 +10,7 @@ packages:
   - "@cire/host"
   - "@musubi/social"
   - "@pulse/web"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-18
 ---
 # Browser Tests
 

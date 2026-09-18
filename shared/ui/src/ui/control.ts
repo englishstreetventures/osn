@@ -42,6 +42,21 @@ const CONTROL_BASE =
   "base:aria-[invalid=true]:border-ui-danger " +
   "base:disabled:cursor-not-allowed base:disabled:opacity-50";
 
+/**
+ * The face the value inside the control is set in.
+ *
+ * `code` is for a field holding an identifier the reader has to check character
+ * by character — a profile ID, an API key, a claim code. Mono and wide tracking
+ * together, for the same reason `Td`'s `code` sets both: mono alone still runs
+ * `l1I` and `0O` into each other at a control's size.
+ */
+export type ControlFace = "text" | "code";
+
+const CONTROL_FACE = {
+  text: "",
+  code: "base:font-ui-mono base:tracking-ui-wide",
+} satisfies Readonly<Record<ControlFace, string>>;
+
 const CONTROL_SIZE = {
   sm: "base:px-2 base:py-1 base:text-ui-sm",
   md: "base:px-3 base:py-2 base:text-ui-base",
@@ -54,6 +69,10 @@ const CONTROL_SIZE = {
  * above is `base:`-prefixed and therefore zero-specificity, so ordering in the
  * generated stylesheet is what decides, and later wins.
  */
-export function controlClass(size: ControlSize | undefined, extra: string | undefined): string {
-  return `${CONTROL_BASE} ${CONTROL_SIZE[size ?? "md"]}${extra ? ` ${extra}` : ""}`;
+export function controlClass(
+  size: ControlSize | undefined,
+  extra: string | undefined,
+  face?: ControlFace,
+): string {
+  return `${CONTROL_BASE} ${CONTROL_SIZE[size ?? "md"]} ${CONTROL_FACE[face ?? "text"]}${extra ? ` ${extra}` : ""}`;
 }

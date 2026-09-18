@@ -131,7 +131,7 @@ function LockedRow(props: {
               setOpen(false);
               props.onUpgrade();
             }}
-            class="tracking-ui-widest mt-1"
+            class="mt-1"
           >
             Upgrade
           </Button>
@@ -231,7 +231,7 @@ export default function ModuleSidebar(props: {
           class="bg-gold/10 pointer-events-none absolute top-0 left-0 rounded-sm"
           style={pill.style()}
         >
-          <span class="bg-gold absolute inset-y-1 left-0 w-[2px] rounded-full" />
+          <span class="bg-gold absolute inset-y-1 left-0 w-0.5 rounded-full" />
         </span>
         <For each={MODULE_NAV}>
           {(mod) => {
@@ -239,7 +239,7 @@ export default function ModuleSidebar(props: {
             const locked = () => isModuleLocked(mod.id, props.entitlements);
             const Body = () => (
               <>
-                <span aria-hidden="true" class="w-4 shrink-0 text-center text-[0.95em] opacity-80">
+                <span aria-hidden="true" class="text-glyph w-4 shrink-0 text-center opacity-80">
                   {mod.glyph}
                 </span>
                 <span class="min-w-0 truncate">{mod.label}</span>
@@ -300,7 +300,7 @@ export default function ModuleSidebar(props: {
             class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
           >
             <span class="flex min-w-0 items-center gap-3">
-              <span aria-hidden="true" class="text-gold w-4 shrink-0 text-center text-[1em]">
+              <span aria-hidden="true" class="text-gold w-4 shrink-0 text-center">
                 {current().glyph}
               </span>
               <span class="min-w-0 truncate">{current().label}</span>
@@ -342,7 +342,7 @@ export default function ModuleSidebar(props: {
                       <>
                         <span
                           aria-hidden="true"
-                          class={`w-4 shrink-0 pt-0.5 text-center text-[1em] ${
+                          class={`w-4 shrink-0 pt-0.5 text-center ${
                             isActive() ? "text-gold" : "text-gold-dim"
                           }`}
                         >

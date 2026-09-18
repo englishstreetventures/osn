@@ -8,6 +8,21 @@ const PopoverAnchor = KobaltePopover.Anchor;
 const PopoverClose = KobaltePopover.CloseButton;
 
 /**
+ * How much room the popover keeps around whatever the caller puts in it.
+ *
+ * `none` is for content that owns the edges itself — a menu of full-width rows,
+ * an image, a form with its own footer band — where the default padding leaves
+ * a strip of popover surface no row can reach into. `tight` is the same idea
+ * one step back: a list whose rows carry their own padding still wants a hair
+ * of inset so the first row's hover state does not touch the border.
+ */
+const POPOVER_PADDING = {
+  none: "",
+  tight: "base:p-1",
+  default: "base:p-2",
+} satisfies Readonly<Record<"none" | "tight" | "default", string>>;
+
+/**
  * Where the panel's portal should land.
  *
  * `<body>` normally. But {@link Modal} is `<dialog>` + `showModal()`, and a
@@ -41,14 +56,18 @@ function portalMount(): HTMLElement | undefined {
 }
 
 const PopoverContent: ParentComponent<
-  ComponentProps<"div"> & { onOpenAutoFocus?: (e: Event) => void }
+  ComponentProps<"div"> & {
+    onOpenAutoFocus?: (e: Event) => void;
+    padding?: keyof typeof POPOVER_PADDING;
+  }
 > = (props) => {
-  const [local, others] = splitProps(props, ["class", "onOpenAutoFocus"]);
+  const [local, others] = splitProps(props, ["class", "onOpenAutoFocus", "padding"]);
   return (
     <KobaltePopover.Portal mount={portalMount()}>
       <KobaltePopover.Content
         class={clsx(
-          "base:bg-ui-surface-raised base:text-ui-ink base:border-border base:z-50 base:w-60 base:rounded-ui-md base:border base:p-2 base:text-ui-sm base:shadow-md base:outline-none",
+          "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:w-60 base:rounded-ui-md base:border base:text-ui-sm base:shadow-md base:outline-none",
+          POPOVER_PADDING[local.padding ?? "default"],
           "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95",
           local.class,
         )}

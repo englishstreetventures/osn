@@ -78,13 +78,13 @@ export function PulseHero(props: PulseHeroProps) {
 
   return (
     <section
-      class="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 py-24 text-center"
+      class="relative flex min-h-svh flex-col items-center justify-center overflow-hidden px-6 py-24 text-center"
       aria-label="Pulse — find your scene"
     >
       {/* Soft coral bloom behind the headline. */}
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2"
+        class="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-160 w-160 -translate-x-1/2 -translate-y-1/2"
         style={{
           background: "radial-gradient(circle, var(--pulse-accent-soft), transparent 62%)",
           opacity: "0.7",
@@ -105,37 +105,35 @@ export function PulseHero(props: PulseHeroProps) {
               }}
             >
               <p
-                class="font-mono text-[0.6rem] tracking-[0.18em] uppercase"
+                class="text-tag tracking-mono-wider font-mono uppercase"
                 style={{ color: chip.color }}
               >
                 {chip.tag}
               </p>
-              <p class="font-body text-[0.9rem] font-semibold text-[var(--color-text)]">
-                {chip.title}
-              </p>
-              <p class="font-mono text-[0.65rem] text-[var(--color-text-muted)]">{chip.meta}</p>
+              <p class="font-body text-sm font-semibold text-[var(--color-text)]">{chip.title}</p>
+              <p class="text-meta font-mono text-[var(--color-text-muted)]">{chip.meta}</p>
             </div>
           )}
         </For>
       </div>
 
-      <div class="pulse-rise relative mx-auto w-full max-w-[46rem]">
-        <p class="mb-5 inline-flex items-center gap-2 font-mono text-[0.72rem] tracking-[0.28em] text-[var(--pulse-accent-strong)] uppercase">
+      <div class="pulse-rise relative mx-auto w-full max-w-184">
+        <p class="tracking-mono-widest mb-5 inline-flex items-center gap-2 font-mono text-xs text-[var(--pulse-accent-strong)] uppercase">
           <span class="dot-mark" aria-hidden="true" />
           What&rsquo;s happening near you
         </p>
-        <h1 class="font-display text-[clamp(2.2rem,8vw,5rem)] leading-[1.05] font-normal text-balance text-[var(--color-text)]">
+        <h1 class="font-display leading-display text-[clamp(2.2rem,8vw,5rem)] font-normal text-balance text-[var(--color-text)]">
           Find what&rsquo;s <span class="text-[var(--pulse-accent)] italic">happening</span>{" "}
           tonight.
         </h1>
-        <p class="font-body mx-auto mt-6 max-w-[34rem] text-[1.05rem] leading-[1.7] text-[var(--color-text-muted)]">
+        <p class="font-body mx-auto mt-6 max-w-136 text-base leading-relaxed text-[var(--color-text-muted)]">
           Discover events by location, category, friends and interests. RSVP in a tap, keep everyone
           in the loop, and let your calendar do the remembering.
         </p>
 
         {/* Location-aware "what's on near you" line (IP geo, not account data). */}
         <p
-          class="mx-auto mt-8 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.14em] text-[var(--color-text-muted)] uppercase"
+          class="tracking-mono-wide mx-auto mt-8 inline-flex items-center gap-2 font-mono text-xs text-[var(--color-text-muted)] uppercase"
           aria-live="polite"
         >
           <span class="dot-mark" aria-hidden="true" />
@@ -145,13 +143,13 @@ export function PulseHero(props: PulseHeroProps) {
         <div class="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <a
             href={ctaHref()}
-            class="font-body w-full rounded-full bg-[var(--pulse-accent)] px-7 py-3.5 text-[0.9rem] font-semibold text-[var(--color-bg)] transition-transform duration-200 hover:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
+            class="font-body w-full rounded-full bg-[var(--pulse-accent)] px-7 py-3.5 text-sm font-semibold text-[var(--color-bg)] transition-transform duration-200 hover:scale-103 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
           >
             {ctaLabel()}
           </a>
           <a
             href={props.howHref}
-            class="font-body w-full rounded-full border border-[var(--color-border)] bg-transparent px-7 py-3.5 text-[0.9rem] font-semibold text-[var(--color-text)] transition-colors duration-200 hover:border-[var(--pulse-accent)] hover:text-[var(--pulse-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
+            class="font-body w-full rounded-full border border-[var(--color-border)] bg-transparent px-7 py-3.5 text-sm font-semibold text-[var(--color-text)] transition-colors duration-200 hover:border-[var(--pulse-accent)] hover:text-[var(--pulse-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
           >
             How it works
           </a>

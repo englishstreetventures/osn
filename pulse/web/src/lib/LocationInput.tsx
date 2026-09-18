@@ -77,7 +77,7 @@ export function LocationInput(props: {
         onFocus={() => suggestions().length > 0 && setOpen(true)}
       />
       <Show when={open() && suggestions().length > 0}>
-        <Card class="absolute z-10 mt-1 w-full rounded-md shadow-lg">
+        <Card radius="md" elevation="raised" class="absolute z-10 mt-1 w-full">
           <ul>
             <For each={suggestions()}>
               {(feature) => (

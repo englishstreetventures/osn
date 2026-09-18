@@ -41,10 +41,11 @@ export default function WeddingList(props: {
             {(wedding) => (
               <li class="flex">
                 <Button
-                  variant="quiet"
+                  variant="tile"
+                  size="lg"
                   type="button"
                   onClick={() => props.onSelect(wedding)}
-                  class="bg-surface/30 hover:bg-surface/60 group relative flex w-full flex-col gap-2 overflow-hidden p-6 text-left"
+                  class="group relative flex w-full flex-col overflow-hidden text-left"
                 >
                   {/* A gold rule that draws down the left edge on hover — the
                       same marker vocabulary the module rail uses for "you are
@@ -52,7 +53,7 @@ export default function WeddingList(props: {
                       for". Scale, so it costs no layout. */}
                   <span
                     aria-hidden="true"
-                    class="bg-gold absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
+                    class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                   />
                   <span class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">
                     {wedding.slug}
@@ -91,7 +92,7 @@ export default function WeddingList(props: {
 
 function CreateAffordance(props: { onClick: () => void }) {
   return (
-    <Button variant="quiet" type="button" onClick={props.onClick} class="self-start border-dashed">
+    <Button variant="dashed" type="button" onClick={props.onClick} class="self-start">
       + Create a wedding
     </Button>
   );

@@ -164,7 +164,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
     // invite is untouched.
     <Show when={probe()?.kind === "ready"}>
       <section
-        class="border-gold/30 bg-gold/5 mx-auto mt-10 max-w-[420px] rounded-sm border px-5 py-6 text-left"
+        class="border-gold/30 bg-gold/5 max-w-column-sm mx-auto mt-10 rounded-sm border px-5 py-6 text-left"
         aria-labelledby="pulse-link-heading"
       >
         <h3
@@ -194,7 +194,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
                 variant="cta"
                 type="button"
                 onClick={() => signIn(window.location.href)}
-                class="self-start duration-200"
+                class="self-start"
               >
                 Sign in with musubi
               </Button>
@@ -267,7 +267,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
               if (id) void linkMember(id);
             }}
             disabled={!selected() || linking()}
-            class="mt-4 duration-200"
+            class="mt-4"
           >
             {linking() ? "Linking…" : "Link my account"}
           </Button>

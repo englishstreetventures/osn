@@ -197,7 +197,7 @@ interface SectionProps {
 
 function Section(props: SectionProps) {
   return (
-    <Card class="p-0">
+    <Card>
       <CardHeader>
         <CardTitle>{props.title}</CardTitle>
         <CardDescription>{props.question}</CardDescription>

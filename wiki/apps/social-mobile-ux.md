@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-18
 ---
 
 # Social — Mobile UX analysis & plan
@@ -179,11 +179,15 @@ mobile shell; at and above it, today's rail is unchanged.
 
 ### Phase 2 — Bottom-sheet dialogs (fixes F5)
 
-- New app-local `ResponsiveDialogContent` wrapping `@shared/ui`'s
-  `DialogContent` with classes only: below `md` — pinned to bottom,
-  full-width, `rounded-t-card` (square bottom corners), slide-up motion,
-  `max-h-[85dvh] overflow-y-auto`, `pb-safe`; at `md+` — exactly today's
-  centered card.
+- App-local `ResponsiveDialogContent` selects `DialogContent`'s
+  `presentation="sheet"` variant: below `md` — pinned to bottom, full-width,
+  square bottom corners with the top ones reading `--ui-radius-sheet`,
+  `max-h-[85dvh] overflow-y-auto` and the bottom safe-area inset; at `md+` —
+  exactly the centered card. The anchor, the radius and the inset only mean
+  anything together, which is why they are one variant name rather than a class
+  string each call site can get two-thirds right. musubi leaves
+  `--ui-radius-sheet` unmapped, so it falls back through `--ui-radius-lg` to the
+  16 px card radius.
 - Migrate all six dialog call sites; keyboard test each form on iOS Safari
   (identifier input, OTP boxes, org create textarea).
 - Amend `DESIGN.md` radii section: sheets are the mobile face of dialogs,

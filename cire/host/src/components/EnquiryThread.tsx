@@ -118,7 +118,7 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
             return (
               <div
                 data-mine={String(isMine)}
-                class={`text-ui-base max-w-[75%] rounded-sm px-3 py-2 ${
+                class={`text-ui-base max-w-3/4 rounded-sm px-3 py-2 ${
                   isMine ? "bg-gold/20 text-text self-end" : "bg-surface/30 text-text self-start"
                 }`}
               >

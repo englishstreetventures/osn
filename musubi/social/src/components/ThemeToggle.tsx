@@ -1,4 +1,5 @@
 import { clsx } from "@shared/ui/lib/utils";
+import { Button } from "@shared/ui/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { For, type JSX } from "solid-js";
 
@@ -66,13 +67,16 @@ export function ThemeToggle() {
   return (
     <Popover>
       <PopoverTrigger
-        class="text-subtle hover:bg-muted hover:text-foreground flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors outline-none"
+        as={Button}
+        variant="ghost"
+        size="icon"
+        class="h-7 w-7"
         aria-label={`Theme: ${current().label}`}
         title={`Theme: ${current().label}`}
       >
         {current().icon()}
       </PopoverTrigger>
-      <PopoverContent class="rounded-card w-40 p-1">
+      <PopoverContent padding="tight" class="w-40">
         <For each={OPTIONS}>
           {(opt) => {
             const active = () => themePref() === opt.value;

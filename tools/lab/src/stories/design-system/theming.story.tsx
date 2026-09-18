@@ -88,6 +88,9 @@ const CIRE_RADIUS = {
   "--ui-radius-lg": "6px",
   "--ui-radius-pill": "999px",
   "--ui-radius-control": "4px",
+  /* The one place the stationery house is round: a sheet's grip is measured
+     against the screen edge it is pulled from, not against a card's corner. */
+  "--ui-radius-sheet": "28px",
 } as const satisfies Record<RadiusToken, string>;
 
 const CIRE_TEXT = {
@@ -308,26 +311,28 @@ export const Nested = () => (
       </>
     }
   >
-    <Card class="max-w-ui-md">
-      <CardHeader>
-        <CardTitle>Invite preview</CardTitle>
-        <CardDescription>The portal's card, in the page's mapping.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div
-          class="rounded-ui-md border-ui-hairline bg-ui-ground flex flex-col gap-3 border p-4"
-          style={cireStyle("dark")}
-        >
-          <Eyebrow>inside: cire, dark</Eyebrow>
-          <p class="text-ui-base leading-ui-normal text-ui-ink">
-            You are invited. Every token this paragraph and these controls read is the panel's.
-          </p>
-          <div class="flex items-center gap-2">
-            <Button>RSVP</Button>
-            <Chip tone="accent">quoted</Chip>
+    <div class="max-w-ui-md">
+      <Card>
+        <CardHeader>
+          <CardTitle>Invite preview</CardTitle>
+          <CardDescription>The portal's card, in the page's mapping.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div
+            class="rounded-ui-md border-ui-hairline bg-ui-ground flex flex-col gap-3 border p-4"
+            style={cireStyle("dark")}
+          >
+            <Eyebrow>inside: cire, dark</Eyebrow>
+            <p class="text-ui-base leading-ui-normal text-ui-ink">
+              You are invited. Every token this paragraph and these controls read is the panel's.
+            </p>
+            <div class="flex items-center gap-2">
+              <Button>RSVP</Button>
+              <Chip tone="accent">quoted</Chip>
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   </Gallery>
 );

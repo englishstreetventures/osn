@@ -1,5 +1,6 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
+import { noBaseVariantAtCallSiteRule } from "./rules/no-base-variant-at-call-site.ts";
 import { noInOperatorKeyGuardRule } from "./rules/no-in-operator-key-guard.ts";
 import { noNonSubscribingStoreReadRule } from "./rules/no-non-subscribing-store-read.ts";
 import { noStackedDocBlockRule } from "./rules/no-stacked-doc-block.ts";
@@ -9,6 +10,7 @@ import { noTrackerRefInCommentRule } from "./rules/no-tracker-ref-in-comment.ts"
 const housePlugin = eslintCompatPlugin({
   meta: { name: "house" },
   rules: {
+    "no-base-variant-at-call-site": noBaseVariantAtCallSiteRule,
     "no-in-operator-key-guard": noInOperatorKeyGuardRule,
     "no-non-subscribing-store-read": noNonSubscribingStoreReadRule,
     "no-stacked-doc-block": noStackedDocBlockRule,

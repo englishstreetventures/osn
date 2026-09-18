@@ -120,7 +120,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   return (
     <section
       data-gift-money
-      class="border-border mx-auto mb-10 max-w-[34rem] rounded-sm border px-5 py-6 text-center"
+      class="border-border max-w-ui-md mx-auto mb-10 rounded-sm border px-5 py-6 text-center"
     >
       <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-2 uppercase">Give money</p>
       <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5">
@@ -187,7 +187,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           </label>
         </Show>
 
-        <div class="mx-auto mb-5 flex max-w-[26rem] flex-col gap-3 text-left">
+        <div class="mx-auto mb-5 flex max-w-104 flex-col gap-3 text-left">
           <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">Your name (optional)</span>
             <input
@@ -225,7 +225,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           data-gift-money-status
           role="status"
           aria-live="polite"
-          class="font-body text-text text-ui-sm leading-ui-normal mt-3 min-h-[1.25rem]"
+          class="font-body text-text text-ui-sm leading-ui-normal mt-3 min-h-5"
         >
           {status()}
         </p>

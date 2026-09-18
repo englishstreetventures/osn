@@ -179,7 +179,6 @@ export default function EventTable(props: EventTableProps) {
               type="button"
               onClick={() => void exportEvents()}
               disabled={exporting()}
-              class="transition"
             >
               {exporting() ? "Exporting…" : "Download events (CSV)"}
             </Button>
@@ -190,7 +189,7 @@ export default function EventTable(props: EventTableProps) {
       <Show when={loading()}>
         <div class="auto-grid [--auto-grid-min:26rem]">
           <For each={[1, 2, 3, 4]}>
-            {() => <div class="bg-surface h-[140px] animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface h-35 animate-pulse rounded-sm" />}
           </For>
         </div>
       </Show>

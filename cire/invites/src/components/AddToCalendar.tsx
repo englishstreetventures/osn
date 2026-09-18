@@ -113,7 +113,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
     if (!buttonRef) return;
     const rect = buttonRef.getBoundingClientRect();
     // Clamp the (position:fixed) popover into the viewport so it never spills off
-    // the right edge on a narrow screen. The popover is min-w-[14rem] (224px);
+    // the right edge on a narrow screen. The popover is min-w-56 (224px);
     // keeping an 8px gutter, the left is bounded by viewport width - panel width.
     const margin = 8;
     const panelWidth = 224;
@@ -260,7 +260,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
           // (`inset: 0; margin: auto`), which would otherwise fight the
           // measured `top`/`left` below and stretch the box across the
           // viewport.
-          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg`}
+          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-56 flex-col gap-1 rounded-sm border p-2 shadow-lg`}
           style={{ top: `${position().top}px`, left: `${position().left}px` }}
         >
           <a

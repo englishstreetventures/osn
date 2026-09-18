@@ -425,7 +425,7 @@ export default function InvitePage(props: InvitePageProps) {
               "background-color": "var(--invite-section-bg)",
             }}
           >
-            <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
+            <div class="max-w-column-lg md:max-w-column-xl mx-auto text-center">
               <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
                 {detailsEyebrow()}
               </p>

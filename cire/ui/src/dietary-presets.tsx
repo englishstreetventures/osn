@@ -95,7 +95,7 @@ function PresetCheckbox(props: {
   onChange: (on: boolean) => void;
 }): JSX.Element {
   return (
-    <label class="font-body border-ui-hairline text-ui-ink has-[:checked]:border-ui-accent has-[:checked]:bg-ui-accent-wash has-[:focus-visible]:ring-ui-focus flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 text-[0.82rem] whitespace-nowrap transition-colors duration-200 select-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-2">
+    <label class="font-body border-ui-hairline text-ui-ink has-[:checked]:border-ui-accent has-[:checked]:bg-ui-accent-wash has-[:focus-visible]:ring-ui-focus text-ui-sm flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 whitespace-nowrap transition-colors duration-200 select-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-2">
       {/* A real checkbox, visually hidden rather than replaced: the checked
           state, the space key, the screen-reader announcement and the label
           association all come from the platform. `sr-only` keeps it focusable,
@@ -107,7 +107,7 @@ function PresetCheckbox(props: {
         disabled={props.disabled}
         onChange={(e) => props.onChange(e.currentTarget.checked)}
       />
-      <span aria-hidden="true" class="text-ui-accent text-[0.9em] leading-none">
+      <span aria-hidden="true" class="text-ui-accent text-ui-xs leading-none">
         {props.checked ? "✓" : "+"}
       </span>
       {DIETARY_PRESET_LABEL[props.preset]}
@@ -165,7 +165,7 @@ export default function DietaryPresets(props: DietaryPresetsProps): JSX.Element 
               }}
             >
               <Show when={BAND_LABEL[group.band] !== ""}>
-                <p class="font-body text-ui-ink-muted shrink-0 text-[0.68rem] tracking-[0.12em] uppercase">
+                <p class="font-body text-ui-ink-muted tracking-ui-wider text-ui-xs shrink-0 uppercase">
                   {BAND_LABEL[group.band]}
                 </p>
               </Show>

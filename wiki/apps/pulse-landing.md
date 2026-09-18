@@ -10,7 +10,8 @@ related:
   - "[[osn-landing]]"
   - "[[cire-landing]]"
   - "[[venues]]"
-last-reviewed: 2026-07-22
+  - "[[design-tokens]]"
+last-reviewed: 2026-09-18
 ---
 
 # Pulse Landing
@@ -35,6 +36,13 @@ Branding follows the Pulse design system — see `pulse/DESIGN.md`:
 - Tokens in `src/styles/global.css` (`@theme`): the coral/ember/peach accent
   family shared with the app (`--pulse-accent*`), warm-tinted neutrals on a
   warm-light base, plus a vivid `--cat-1..6` palette for the category showcase.
+- Type tokens in the same block, named because they sit outside every scale
+  available here: `--text-tag` / `--text-meta` (0.6rem / 0.65rem, the mono chip
+  tag and meta line — both below Tailwind's 12px `text-xs`),
+  `--tracking-mono-wide|wider|widest` (0.14em / 0.18em / 0.28em, mono caps past
+  the 0.1em the default scale stops at) and `--leading-display` (1.05). A value
+  that is a design decision is named in this block, never in the library-facing
+  `ui-*` contract — see [[design-tokens]]. The table is in `pulse/DESIGN.md`.
 - Shared primitives ported from `cire/landing`: the `[data-reveal]` scroll-reveal
   utility + its `IntersectionObserver` bootstrap, and the reduced-motion opt-out.
 

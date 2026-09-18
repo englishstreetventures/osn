@@ -137,21 +137,19 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
             class="border-border bg-bg flex w-full max-w-md flex-col gap-4 rounded-sm border p-6"
           >
             <header class="flex flex-col gap-1">
-              <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Upgrade</p>
-              <h3 class="font-display text-text text-[1.2rem] font-light">
+              <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">Upgrade</p>
+              <h3 class="font-display text-text text-ui-lg font-light">
                 {entry()?.title ?? props.title}
               </h3>
-              <p class="text-text-muted text-[0.82rem] leading-snug">
-                {entry()?.blurb ?? props.blurb}
-              </p>
+              <p class="text-text-muted text-ui-sm leading-snug">{entry()?.blurb ?? props.blurb}</p>
             </header>
 
             <Switch>
               <Match when={loading()}>
-                <p class="text-text-muted text-[0.82rem]">Checking the price…</p>
+                <p class="text-text-muted text-ui-sm">Checking the price…</p>
               </Match>
               <Match when={failed()}>
-                <p class="text-text-muted text-[0.82rem]">
+                <p class="text-text-muted text-ui-sm">
                   Could not load the price just now. Please try again.
                 </p>
               </Match>
@@ -159,15 +157,13 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
                 {/* The nav row is driven by the wedding's entitlements and this
                     by the catalogue; they can disagree for one render after a
                     purchase settles. Saying so beats offering a second sale. */}
-                <p class="text-text-muted text-[0.82rem]">
-                  You already have this. Refresh to open it.
-                </p>
+                <p class="text-text-muted text-ui-sm">You already have this. Refresh to open it.</p>
               </Match>
               <Match when={entry()}>
                 {(priced) => (
-                  <p class="font-display text-text text-[1.6rem] font-light">
+                  <p class="font-display text-text text-ui-xl font-light">
                     {formatMinor(priced().amountMinor, priced().currency)}
-                    <span class="text-text-muted ml-2 text-[0.72rem] tracking-[0.14em] uppercase">
+                    <span class="text-text-muted tracking-ui-widest text-ui-xs ml-2 uppercase">
                       one-off
                     </span>
                   </p>
@@ -176,7 +172,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
               <Match when={catalogue() !== null}>
                 {/* Catalogue loaded and this key is not in it: no Stripe Price
                     configured in this deployment, or no Stripe at all. */}
-                <p class="text-text-muted text-[0.82rem]">
+                <p class="text-text-muted text-ui-sm">
                   Upgrades are not available on this site yet.
                 </p>
               </Match>
@@ -187,20 +183,20 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
                 type="button"
                 disabled={submitting() || entry() === null || entry()?.held === true}
                 onClick={() => void handleBuy()}
-                class="bg-gold text-bg rounded-sm px-4 py-1.5 text-[0.78rem] tracking-[0.08em] uppercase disabled:opacity-60"
+                class="bg-gold text-bg tracking-ui-wider text-ui-sm rounded-sm px-4 py-1.5 uppercase disabled:opacity-60"
               >
                 {submitting() ? "Opening checkout…" : "Continue to payment"}
               </button>
               <button
                 type="button"
                 onClick={dismiss}
-                class="text-text-muted hover:text-text text-[0.78rem]"
+                class="text-text-muted hover:text-text text-ui-sm"
               >
                 Cancel
               </button>
             </div>
 
-            <p class="text-text-faint text-[0.68rem] leading-snug">
+            <p class="text-text-faint text-ui-xs leading-snug">
               Payment is handled by Stripe. You will come back here once it is done.
             </p>
           </div>

@@ -93,7 +93,7 @@ export const Cards = () => (
       </CardHeader>
     </Card>
 
-    <Card class="w-80 p-4">
+    <Card class="w-80" padding="sm">
       <p class="text-body text-muted-foreground">
         A bare card. The parts are optional — this one is just the surface.
       </p>

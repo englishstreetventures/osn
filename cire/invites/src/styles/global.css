@@ -478,6 +478,13 @@
   --toast-border: oklch(94.62% 0.0111 89.72 / 0.18);
   --toast-error: oklch(72% 0.1401 21.48);
   --toast-success: oklch(64% 0.1421 146.94);
+  /* The map preview's pin, which floats above a flat contour drawing. The
+     drop shadow is what separates it from the paper; the 1px blur is the
+     ellipse beneath it, soft enough to read as a shadow on the ground rather
+     than as a second mark on the map. */
+  --drop-shadow-pin: 0 2px 6px oklch(0% 0 0 / 0.45);
+  --blur-ground-shadow: 1px;
+
   --font-display: "Cormorant Garamond", "Cormorant Garamond Fallback", Georgia, serif;
   --font-body: "Lato", "Lato Fallback", system-ui, sans-serif;
   --default-font-family: var(--font-body);
@@ -495,6 +502,25 @@
      Reduced motion needs no special case here: the global block below clamps
      animation-duration and -delay, so the path simply starts drawn. */
   --animate-tick-draw: tick-draw 340ms ease-out 180ms both;
+
+  /* Content caps, in real pixels rather than on the spacing scale.
+     This app steps its root font-size 16px → 17px at 1024px (the `@media`
+     block further down), so every rem grows at once on desktop. A cap written
+     in rem grows with it; these must not, because each bounds a column
+     against the viewport rather than against the text inside it — `max-w-135`
+     and `max-w-column-lg` agree at 540px on a phone and differ by 34px on a
+     laptop. A measure that should track the type scale belongs on the
+     contract's `max-w-ui-*` instead, which is what the gift-registry columns
+     use. */
+  --container-column-2xs: 360px;
+  --container-column-xs: 400px;
+  --container-column-sm: 420px;
+  --container-column-md: 480px;
+  --container-column-lg: 540px;
+  --container-column-xl: 640px;
+  --container-column-2xl: 960px;
+  --container-column-3xl: 1100px;
+  --container-column-4xl: 1200px;
 }
 
 @keyframes tick-draw {
@@ -726,6 +752,10 @@
   --ui-radius-pill: 999px;
   /* Sharp, like every other control here: the house look is stationery. */
   --ui-radius-control: var(--ui-radius-sm);
+  /* The exception the house rule allows for, and the only one. A bottom sheet
+     is not a card: its top corners are the grip the thumb reads as "drag me",
+     and at a card's 6px there is nothing there to read. */
+  --ui-radius-sheet: 1.75rem;
 
   --ui-font-body: var(--font-body);
   --ui-font-display: var(--font-display);

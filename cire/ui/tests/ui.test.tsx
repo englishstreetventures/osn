@@ -136,6 +136,79 @@ describe("Button — the borderless variants", () => {
   });
 });
 
+describe("Button — the variants that carry state or fill", () => {
+  it("keeps a destructive worded action muted at rest, like its glyph twin", () => {
+    // Same reasoning as `bareDanger`, for the control that OFFERS the
+    // destruction rather than the one that commits it. `danger` is the commit.
+    const quiet = render(() => <Button variant="quietDanger">Deactivate</Button>);
+    const cls = quiet.getByRole("button").className;
+    expect(cls).toContain("text-ui-ink-secondary");
+    expect(cls).toContain("hover:text-ui-danger");
+    expect(cls).not.toMatch(/base:text-ui-danger\b/);
+    quiet.unmount();
+
+    const commit = render(() => <Button variant="danger">Delete</Button>);
+    expect(commit.getByRole("button").className).toMatch(/base:text-ui-danger\b/);
+  });
+
+  it("marks the chosen option whichever ARIA property the group uses", () => {
+    // Two of the four call sites are toggle groups (`aria-pressed`) and two are
+    // radio groups (`aria-checked`). Which one carries the state is the group's
+    // business; the mark has to be the same either way.
+    const { getByRole } = render(() => <Button variant="choice">Phone</Button>);
+    const cls = getByRole("button").className;
+    expect(cls).toContain("aria-pressed:border-ui-accent");
+    expect(cls).toContain("aria-checked:border-ui-accent");
+  });
+
+  it("leaves the focus ring to the shared base rather than drawing its own", () => {
+    // The call sites this replaces each hand-rolled a gold ring. `--ui-focus`
+    // is the app's own contrast-checked token and is already on every button.
+    const { getByRole } = render(() => <Button variant="choice">Phone</Button>);
+    const cls = getByRole("button").className;
+    expect(cls).toContain("focus-visible:outline-ui-focus");
+    expect(cls).not.toContain("focus-visible:ring");
+  });
+
+  it("fills a tile, because a hairline stops describing a card-sized target", () => {
+    const tile = render(() => <Button variant="tile">Open dashboard</Button>);
+    const tileClass = tile.getByRole("button").className;
+    expect(tileClass).toContain("bg-ui-surface/30");
+    // Full ink, not the muted label ink: a tile's interior is composed content.
+    expect(tileClass).toMatch(/base:text-ui-ink(?![\w-])/);
+    tile.unmount();
+
+    const quiet = render(() => <Button variant="quiet">Open dashboard</Button>);
+    expect(quiet.getByRole("button").className).not.toContain("bg-ui-surface/30");
+  });
+
+  it("gives a tile room for a layout rather than for a label", () => {
+    // `px-4 py-2` around a marker and two lines of text reads as a paragraph
+    // squeezed into a button.
+    const { getByRole } = render(() => (
+      <Button variant="tile" size="lg">
+        Open dashboard
+      </Button>
+    ));
+    const cls = getByRole("button").className;
+    expect(cls).toContain("base:p-6");
+    expect(cls).not.toMatch(/base:px-6|base:py-3\.5/);
+  });
+
+  it("sizes a swatch from its picture, not from type it does not have", () => {
+    const { getByRole } = render(() => (
+      <Button variant="choice" size="swatch" aria-label="Second picture">
+        <img src="/x.png" alt="" width={80} height={80} />
+      </Button>
+    ));
+    const cls = getByRole("button").className;
+    expect(cls).toContain("base:p-1");
+    // The size contributes no type at all — there is no type to size.
+    expect(cls).not.toMatch(/base:text-ui-(xs|sm|base|md|lg)\b/);
+    expect(cls).not.toContain("base:uppercase");
+  });
+});
+
 describe("Card", () => {
   it("renders its children in a plain box", () => {
     const { getByText } = render(() => (
