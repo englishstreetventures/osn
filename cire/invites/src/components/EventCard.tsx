@@ -232,8 +232,15 @@ export function EventCard(props: EventCardProps) {
                 native `disabled` attribute there is no WCAG 1.4.3
                 inactive-component exemption to lean on, and the outlined pair
                 beside it is a contrast combination this card already ships. */}
+            {/* `overflow-clip`, not `overflow-hidden`. Both clip the fill layer
+                below to this button's rounded box, which is the whole reason
+                either is here — but `hidden` also makes the button a scroll
+                container, and a scroll container's automatic minimum size is
+                zero. As a `flex-1` item beside a `whitespace-nowrap` sibling
+                that is the difference between shrinking to a half-word at
+                320px and keeping the width of its own label. */}
             <button
-              class="font-body text-ui-sm tracking-ui-wider relative min-h-11 flex-1 overflow-hidden rounded-sm border px-5 py-3 uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+              class="font-body text-ui-sm tracking-ui-wider relative min-h-11 flex-1 overflow-clip rounded-sm border px-5 py-3 uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
               classList={{
                 "bg-gold text-bg hover:bg-gold/85 border-transparent": !props.rsvpClosed,
                 "border-border text-text-muted cursor-not-allowed bg-transparent": props.rsvpClosed,

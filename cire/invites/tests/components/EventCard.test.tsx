@@ -279,6 +279,22 @@ describe("EventCard", () => {
     expect(respond.hasAttribute("aria-describedby")).toBe(false);
   });
 
+  it("clips the answer button without making it a scroll container", () => {
+    // The mechanism behind `EventCard.actions.browser.test.tsx`'s Reflow case:
+    // a scroll container's automatic minimum size is zero, so `overflow-hidden`
+    // on a `flex-1` item beside a `whitespace-nowrap` sibling lets this button
+    // shrink past its own label. `overflow-clip` clips the fill to the same
+    // rounded box and keeps the minimum. The browser tier proves the outcome;
+    // this names the class that delivers it.
+    const { getByRole } = render(() => (
+      <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
+    ));
+    const respond = getByRole("button", { name: "Respond" });
+    expect(respond.className).toContain("overflow-clip");
+    expect(respond.className).not.toContain("overflow-hidden");
+    expect(respond.className).toContain("rounded-sm");
+  });
+
   it("keeps Event Details reachable after the deadline (only the answer locks)", () => {
     const onDetails = vi.fn();
     const { getByRole } = render(() => (

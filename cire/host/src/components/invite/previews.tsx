@@ -277,8 +277,11 @@ export function SectionSample(props: {
   /**
    * Optional image (today only the closing section's). It renders EDGE TO EDGE
    * across the top of the sample, mirroring the guest invite, where the closing
-   * image is a full-bleed band above the note — a centred thumbnail here would
-   * understate what the organiser is about to publish.
+   * image is a band above the note — a centred thumbnail here would understate
+   * what the organiser is about to publish. The guest band settles onto the
+   * pack's events column above 1536px, which this sample never reaches: at the
+   * frame's width the guest band is edge to edge too, so edge to edge is what
+   * the preview owes it.
    */
   imageUrl?: string | null;
   /**
@@ -332,11 +335,11 @@ export function SectionSample(props: {
       style={{ "background-color": props.surface, "font-family": "var(--font-body)" }}
       class={`flex flex-col [font-weight:var(--invite-body-weight,400)] [font-style:var(--invite-body-style,normal)] ${props.class ?? ""}`}
     >
-      {/* The closing band: full width, at the shape the guest page will publish
-          — the saved crop's own aspect (its exact region, same background
-          technique as the invite), or the image's natural proportions when
-          nothing is cropped. It sits OUTSIDE the padded content block below,
-          which is what lets it reach the sample's edges.
+      {/* The closing band: the frame's full width, at the shape the guest page
+          will publish — the saved crop's own aspect (its exact region, same
+          background technique as the invite), or the image's natural
+          proportions when nothing is cropped. It sits OUTSIDE the padded
+          content block below, which is what lets it reach the sample's edges.
 
           `BAND_MAX_HEIGHT` mirrors the guest cap, scaled to this small frame,
           and — like the invite — a tall crop gives up WIDTH rather than being
@@ -374,8 +377,7 @@ export function SectionSample(props: {
                   // `width: 100%` + this cap is `min(100%, cap × aspect)`, the
                   // guest band's rule — a tall crop narrows rather than being
                   // clipped, so the preview shows it whole exactly as it
-                  // publishes. (`min()` itself is written this way because the
-                  // test tier's CSS parser discards it.)
+                  // publishes.
                   "max-width": `calc(${BAND_MAX_HEIGHT} * ${bandAspect()})`,
                 }}
               />

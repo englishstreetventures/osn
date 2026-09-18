@@ -21,23 +21,77 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 export const BAND_MAX_HEIGHT = "85dvh";
 
 /**
- * The uncropped band: full-bleed, the source's own proportions (`h-auto`),
- * bounded by the screen. `object-cover` bites only when that bound does, and
- * crops centred — acceptable for an image the organiser never framed.
+ * The uncropped band: the full width its column allows, the source's own
+ * proportions (`h-auto`), bounded by the screen. `object-cover` bites only when
+ * that bound does, and crops centred — acceptable for an image the organiser
+ * never framed.
  */
 export const BAND_IMG_CLASS = "block h-auto max-h-[85dvh] w-full object-cover";
 
 /**
  * The widest a CROPPED band may be, so the screen-height bound never becomes a
  * `max-height` clip: paired with `width: 100%` this is `min(100%, cap × aspect)`
- * — full-bleed at any ordinary landscape shape, a centred column only when the
- * band would otherwise outgrow the screen. Written as a `max-width` rather than
- * a literal `min()` because `min()` is the one form the test tier's CSS parser
- * discards, and a contract nothing can assert is a contract that rots.
+ * — the column's full width at any ordinary landscape shape, a narrower centred
+ * box only when the band would otherwise outgrow the screen.
  */
 export function bandMaxWidth(aspect: number): string {
   return `calc(${BAND_MAX_HEIGHT} * ${aspect})`;
 }
+
+/**
+ * The width the band is allowed to occupy, as a custom property the section
+ * declares and the band's own box reads. `100vw` is the base — edge to edge —
+ * and {@link BAND_CAP_CLASS} narrows it at `2xl`.
+ *
+ * One property rather than a `max-width` utility so the band's box and the
+ * section's `contain-intrinsic-size` reserve read the same number: the reserve
+ * is a closed-form expression over the band's width, and a reserve computed
+ * against a width the band no longer takes moves the scrollbar under the guest.
+ */
+const BAND_WIDTH_VAR = "--invite-band-width";
+
+/**
+ * The band's cap above `2xl` (1536px), keyed by the content-cap token the pack
+ * measures its events column with — so a change to the column moves the band
+ * with it rather than leaving a third copy of the number behind.
+ *
+ * The class strings are LITERAL because Tailwind's scanner reads source text: a
+ * computed class emits no CSS at all.
+ */
+export const BAND_CAP_CLASS = {
+  "column-xl": "2xl:[--invite-band-width:var(--container-column-xl)]",
+  "column-2xl": "2xl:[--invite-band-width:var(--container-column-2xl)]",
+} as const;
+
+/** A pack's events-column cap, as {@link BAND_CAP_CLASS} keys it. */
+export type BandCap = keyof typeof BAND_CAP_CLASS;
+
+/**
+ * The same caps in CSS pixels, for `sizes` — which has no access to a custom
+ * property and so must restate the number. `InviteClosing.test.tsx` reads the
+ * token block in `src/styles/global.css` and fails if either value drifts from
+ * the token its class above points at.
+ */
+export const BAND_CAP_PX = {
+  "column-xl": "640px",
+  "column-2xl": "960px",
+} as const satisfies Record<BandCap, string>;
+
+/**
+ * Where the cap takes effect, in the one form an `img` `sizes` attribute can
+ * state it. Tailwind's `2xl` is `96rem` against the initial 16px font size, and
+ * a media query's `rem` ignores the document's own root size — so the two agree
+ * at 1536px even though this page steps its root to 17px at 1024px.
+ */
+const BAND_CAP_MIN_WIDTH = "1536px";
+
+/**
+ * How long the band takes to settle into or out of its cap. Only a live resize
+ * across 1536px ever plays it; a guest who loads at a wide width sees the
+ * capped band already in place. The global `prefers-reduced-motion` clamp in
+ * `src/styles/global.css` overrides this to 0.01ms.
+ */
+export const BAND_WIDTH_TRANSITION_CLASS = "transition-[max-width] duration-500 ease-out";
 
 /**
  * The band's shape when a crop carries no captured source dims (a legacy
@@ -59,6 +113,11 @@ export interface InviteClosingProps {
   imageCrop?: ImageCrop | null;
   /** cire-api origin the image path is resolved against. */
   apiUrl: string;
+  /**
+   * The pack's events-column width, which the band is capped to above 1536px.
+   * Omitted ⇒ the band runs edge to edge at every width.
+   */
+  bandCap?: BandCap;
   /**
    * Validated CSS-variable map for this section's surface — the WELCOME
    * section's vars (`sectionVars(theme, "welcome")`), since this section
@@ -91,10 +150,17 @@ export interface InviteClosingProps {
  * nor an image it renders NOTHING — no empty surface, no stray band above the
  * footer.
  *
- * IMAGE SHAPE — the image is a full-bleed band spanning the viewport edge to
- * edge, with the note (when there is one) reading below it on the section
- * surface. The section carries no horizontal padding of its own; the note's
- * block does, because the band has to reach past it.
+ * IMAGE SHAPE — the image is a band spanning the viewport edge to edge, with the
+ * note (when there is one) reading below it on the section surface. The section
+ * carries no horizontal padding of its own; the note's block does, because the
+ * band has to reach past it.
+ *
+ * Above 1536px the band stops growing and centres on its pack's events column
+ * ({@link InviteClosingProps.bandCap}): edge to edge on a 2560px display makes
+ * the sign-off several times larger than the event cards it closes, which reads
+ * as a banner rather than as the couple's last word. Below that width it is
+ * still edge to edge, and a live resize across the boundary eases between the
+ * two ({@link BAND_WIDTH_TRANSITION_CLASS}).
  *
  * THE CROP DECIDES THE SHAPE. Full width, and then the HEIGHT follows what the
  * organiser framed: the box takes the crop's true pixel aspect and renders the
@@ -181,13 +247,24 @@ export function InviteClosing(props: InviteClosingProps) {
   const bandAspect = () => cropAspectRatio(props.imageCrop, LEGACY_CROP_ASPECT);
 
   // While the section is skipped by `content-visibility`, this is the height the
-  // browser reserves for it. The band is exactly `100vw` wide at the crop's
-  // aspect, so its height is a closed-form expression rather than a guess; the
-  // `+ 24rem` covers the note block's padding. A flat placeholder under-reserved
-  // a full-bleed band by 2–3×, which moves the scrollbar under the guest at the
-  // moment they scroll into it. `auto` means only the first pass pays even this.
+  // browser reserves for it. The band is exactly as wide as the band-width
+  // property at the crop's aspect, so its height is a closed-form expression
+  // rather than a guess; the `+ 24rem` covers the note block's padding. Reading
+  // the same property the band's own box reads is what keeps the reserve right
+  // on both sides of the cap — a flat placeholder under-reserved an edge-to-edge
+  // band by 2–3×, which moves the scrollbar under the guest at the moment they
+  // scroll into it. `auto` means only the first pass pays even this.
   const intrinsicSize = () =>
-    imageSrc() ? `auto calc(100vw / ${bandAspect()} + 24rem)` : "auto 24rem";
+    imageSrc() ? `auto calc(var(${BAND_WIDTH_VAR}) / ${bandAspect()} + 24rem)` : "auto 24rem";
+
+  // The cap, as the two places that can express it: a literal Tailwind class
+  // narrowing the band-width property at `2xl`, and the same width restated for
+  // `sizes`, which has no access to a custom property.
+  const capClass = () => (props.bandCap ? BAND_CAP_CLASS[props.bandCap] : "");
+  const bandSizes = () =>
+    props.bandCap
+      ? `(min-width: ${BAND_CAP_MIN_WIDTH}) ${BAND_CAP_PX[props.bandCap]}, 100vw`
+      : "100vw";
 
   return (
     <Show when={show()}>
@@ -197,9 +274,9 @@ export function InviteClosing(props: InviteClosingProps) {
         // and the note below carries its own. `content-visibility: auto` defers
         // layout/paint (and the crop path's background fetch) until this
         // off-screen section approaches the viewport; the intrinsic size above
-        // is what the browser reserves while it does, and now that the band is
-        // full-bleed a wrong reserve is a scroll jump rather than a rounding.
-        class="text-center [content-visibility:auto]"
+        // is what the browser reserves while it does, and at a band this size a
+        // wrong reserve is a scroll jump rather than a rounding.
+        class={`text-center [--invite-band-width:100vw] [content-visibility:auto] ${capClass()}`.trim()}
         // Paints the welcome section's surface; the text tokens below resolve
         // from the root palette, which already carries the organiser's scheme.
         style={{
@@ -210,12 +287,24 @@ export function InviteClosing(props: InviteClosingProps) {
       >
         <Show when={imageSrc()}>
           {(url) => (
-            <Show
-              when={wideCropStyle()}
-              fallback={
-                /* Two candidates so `sizes` has a real choice to make: `card`
+            // The band's own box. Both paths below fill it, so the cap applies
+            // to the framed image and the unframed one alike, and `mx-auto`
+            // centres it in either pack — gala's events column runs flush left
+            // inside a centred container, and a band inheriting that would read
+            // as a mistake rather than as a choice.
+            <div
+              class={`mx-auto w-full ${BAND_WIDTH_TRANSITION_CLASS}`}
+              style={{ "max-width": `var(${BAND_WIDTH_VAR})` }}
+            >
+              <Show
+                when={wideCropStyle()}
+                fallback={
+                  /* Two candidates so `sizes` has a real choice to make: `card`
                    (800w) covers the band on a phone, `hero` (1600w) from a
-                   laptop up (and on a retina phone). The bare `src` names
+                   laptop up (and on a retina phone). `sizes` states the cap
+                   above 1536px as well, because the band stops tracking the
+                   viewport there and a bare `100vw` would ask a 2560px screen
+                   for a render three times the box it fills. The bare `src` names
                    `card` explicitly — an absent `variant` resolves to `card`
                    server-side anyway, and naming it keeps the browser from
                    minting a second transform-cache entry for a URL it never
@@ -224,57 +313,58 @@ export function InviteClosing(props: InviteClosingProps) {
                    guaranteed off-screen at mount: without it the fetch races
                    the in-viewport cards that ARE deferred, and bills a
                    per-call Images transform for guests who never scroll here. */
-                <img
-                  src={variantSrc(url(), "card")}
-                  srcset={buildSrcSet(url(), ["card", "hero"])}
-                  sizes="100vw"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  class={BAND_IMG_CLASS}
-                  // `aspect-ratio: auto <ratio>` — the FALLBACK form: the
-                  // browser reserves a 16∶9 box until the bytes arrive, then
-                  // the image's own ratio wins, so "nothing was cropped ⇒
-                  // nothing is cut" survives the fix. Without it this box is
-                  // 0px tall until a lazy, content-visibility-deferred image
-                  // decodes, and the note plus the whole site footer jump down
-                  // by up to a screen height — CLS on the one page that sells.
-                  style={{ "aspect-ratio": `auto ${LEGACY_CROP_ASPECT}` }}
-                />
-              }
-            >
-              {(style) => (
-                <>
-                  {/* Below md: — image-set() 1x=card/2x=hero, so a DPR-1 phone
-                      doesn't fetch the same 1600w desktop needs. */}
-                  <div
-                    aria-hidden="true"
-                    class="mx-auto block w-full md:hidden"
-                    style={narrowCropStyle() ?? undefined}
+                  <img
+                    src={variantSrc(url(), "card")}
+                    srcset={buildSrcSet(url(), ["card", "hero"])}
+                    sizes={bandSizes()}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    class={BAND_IMG_CLASS}
+                    // `aspect-ratio: auto <ratio>` — the FALLBACK form: the
+                    // browser reserves a 16∶9 box until the bytes arrive, then
+                    // the image's own ratio wins, so "nothing was cropped ⇒
+                    // nothing is cut" survives the fix. Without it this box is
+                    // 0px tall until a lazy, content-visibility-deferred image
+                    // decodes, and the note plus the whole site footer jump down
+                    // by up to a screen height — CLS on the one page that sells.
+                    style={{ "aspect-ratio": `auto ${LEGACY_CROP_ASPECT}` }}
                   />
-                  {/* md: and up — exactly today's behaviour: plain `hero` url,
+                }
+              >
+                {(style) => (
+                  <>
+                    {/* Below md: — image-set() 1x=card/2x=hero, so a DPR-1 phone
+                      doesn't fetch the same 1600w desktop needs. */}
+                    <div
+                      aria-hidden="true"
+                      class="mx-auto block w-full md:hidden"
+                      style={narrowCropStyle() ?? undefined}
+                    />
+                    {/* md: and up — exactly today's behaviour: plain `hero` url,
                       the box owns its size (an empty div has no intrinsic
                       dimensions): the CROP's aspect, at the full width the
                       screen-height bound allows. Never a `max-height` clip —
                       that would cut the framing this whole path exists to
                       honour. */}
-                  <div
-                    aria-hidden="true"
-                    class="mx-auto hidden w-full md:block"
-                    style={{
-                      ...style(),
-                      "aspect-ratio": String(bandAspect()),
-                      "max-width": bandMaxWidth(bandAspect()),
-                    }}
-                  />
-                </>
-              )}
-            </Show>
+                    <div
+                      aria-hidden="true"
+                      class="mx-auto hidden w-full md:block"
+                      style={{
+                        ...style(),
+                        "aspect-ratio": String(bandAspect()),
+                        "max-width": bandMaxWidth(bandAspect()),
+                      }}
+                    />
+                  </>
+                )}
+              </Show>
+            </div>
           )}
         </Show>
         <Show when={note()}>
-          {/* The note's own block owns the section padding now that the band
-              above it is full-bleed. */}
+          {/* The note's own block owns the section padding — the band above it
+              carries none. */}
           <div class="px-6 py-16 md:px-8 md:py-20">
             <p
               // `whitespace-pre-line` honours the line breaks an organiser typed;

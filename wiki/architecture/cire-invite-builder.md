@@ -5,6 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
+  - "[[closing-band-width-bound-over-height-clip]]"
 last-reviewed: 2026-09-18
 ---
 # Invite Builder
@@ -42,17 +43,18 @@ migrations: `0049_invite_footer_message.sql` (the note),
 `0050_invite_footer_image.sql` (`footer_image_key` + `footer_image_crop`, the
 image above it). Note and image are INDEPENDENT: either alone renders.
 
-**The image is a closing hero — full-bleed, edge to edge** (2026-07-31). It
-shipped as a small centred square sized for a monogram or signature; couples
-reach for a photograph here, and at 200px the sign-off read like a stray avatar
-rather than the invite's closing image. It now spans the viewport:
+**The image is a closing hero — edge to edge, capped at the events column.** A
+monogram-sized square is what a 200px thumbnail suits; couples reach for a
+photograph here, and at that size the sign-off read like a stray avatar rather
+than the invite's closing image.
 
-| | Before | Now |
-|---|---|---|
-| Box | `w-[min(200px,45vw)]`, centred, rounded | `w-full`, viewport edge to edge, square corners |
-| Height | the crop's pixel aspect, **square** fallback | the crop's pixel aspect (**16∶9** fallback), or the source's natural ratio when uncropped; bounded at `85dvh` |
-| Crop | exact region (`cropBackgroundStyle`) | unchanged — still the exact region |
-| Variants | `thumb` 320w / `card` 800w, `sizes="200px"` | `card` 800w / `hero` 1600w, `sizes="100vw"` |
+| | The band today |
+|---|---|
+| Box | `w-full`, square corners, viewport edge to edge below 1536px |
+| Cap | at 1536px and above, the pack's events-column token — `classic` `column-xl` (640px), `gala` `column-2xl` (960px) — centred in both, with a `max-width` transition across the boundary |
+| Height | the crop's pixel aspect (**16∶9** fallback), or the source's natural ratio when uncropped; bounded at `85dvh` |
+| Crop | exact region (`cropBackgroundStyle`) |
+| Variants | `card` 800w / `hero` 1600w, `sizes="(min-width: 1536px) <cap>, 100vw"` |
 
 **The crop decides the shape, and that is the point.** The band takes the crop's
 own aspect, so a 3∶1 panorama publishes as a 3∶1 panorama and a 4∶3 scene as a
@@ -84,9 +86,12 @@ guest, both of which the 200px square didn't need. The `<img>` carries
 lazy, `content-visibility`-deferred image decodes, and the source's own ratio
 still wins afterwards; without it the note and the site footer jumped down by up
 to a screen height on decode. And `contain-intrinsic-size` is computed
-(`auto calc(100vw / aspect + 24rem)`) rather than a flat guess, because the band
-is exactly `100vw` wide at a known aspect — a placeholder 2–3× short of the
-rendered height moves the scrollbar at the moment the guest scrolls in.
+(`auto calc(var(--invite-band-width) / aspect + 24rem)`) rather than a flat
+guess, because the band is exactly that property wide at a known aspect — a
+placeholder 2–3× short of the rendered height moves the scrollbar at the moment
+the guest scrolls in. The property is the same one the band's own box reads as
+its `max-width`, which is what keeps the reserve right on both sides of the
+1536px cap. See [[closing-band-width-bound-over-height-clip]].
 
 That contract is only honest if the builder shows it, so `SectionSample` — the
 markup behind BOTH the inline per-section preview and the composed `PreviewPane`

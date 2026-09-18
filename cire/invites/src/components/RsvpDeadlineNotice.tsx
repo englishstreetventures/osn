@@ -75,6 +75,9 @@ export function RsvpDeadlineNotice(props: RsvpDeadlineNoticeProps) {
         <p
           id={props.id}
           class={`font-body text-ui-base ${treatment(shown().state)} ${props.class ?? ""}`.trim()}
+          // A live region because `createRsvpDeadlineState`'s timer rewrites
+          // this sentence under a guest who is only reading. Not `<output>`,
+          // which carries the same implicit role but is form-associated.
           role={props.announce ? "status" : undefined}
         >
           {shown().text}

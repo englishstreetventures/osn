@@ -520,6 +520,10 @@ export default function InvitePage(props: InvitePageProps) {
         {(data) => (
           <InviteClosing
             apiUrl={props.apiUrl}
+            // This pack's events column, so the closing band settles onto the
+            // same measure as the cards above it once the screen is wider than
+            // the invite needs.
+            bandCap="column-xl"
             message={data().closing?.message}
             imageUrl={data().closing?.imageUrl}
             imageCrop={data().closing?.imageCrop}

@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  BAND_CAP_CLASS,
+  BAND_CAP_PX,
   BAND_IMG_CLASS,
   BAND_MAX_HEIGHT,
+  BAND_WIDTH_TRANSITION_CLASS,
   bandMaxWidth,
   InviteClosing,
 } from "../../src/components/InviteClosing";
@@ -102,7 +108,7 @@ describe("InviteClosing", () => {
     });
   });
 
-  describe("image rendering (the full-bleed closing hero)", () => {
+  describe("image rendering (the closing hero band)", () => {
     it("resolves the path against the API origin and names a bounded variant", () => {
       const { container } = render(() => <InviteClosing apiUrl={API} imageUrl={IMG} />);
       const img = (closing(container) as HTMLElement).querySelector("img") as HTMLImageElement;
@@ -198,7 +204,7 @@ describe("InviteClosing", () => {
       // parses the pair is pinned in `InviteClosing.browser.test.tsx`.
     });
 
-    it("asks for the hero width, the one a full-bleed band actually needs", () => {
+    it("asks for the hero width, the one an edge-to-edge band actually needs", () => {
       const { container } = render(() => (
         <InviteClosing
           apiUrl={API}
@@ -224,7 +230,7 @@ describe("InviteClosing", () => {
       const layer = wideCropLayer(closing(container) as HTMLElement) as HTMLElement;
 
       // `width: 100%` + a max-width of cap × aspect IS `min(100%, cap × aspect)`
-      // — full-bleed at any ordinary landscape shape, a centred column only when
+      // — the column's full width at any ordinary landscape shape, a narrower box only when
       // the band would otherwise outgrow the screen. A `max-height` clip here
       // would instead show a top-anchored crop's TOP STRIP ONLY (measured in
       // Chromium), silently cutting the framing this path exists to honour.
@@ -273,6 +279,81 @@ describe("InviteClosing", () => {
     });
   });
 
+  /*
+   * The band's width cap, as a CLASS AND ATTRIBUTE contract. What it renders to
+   * is measured in `InviteClosing.browser.test.tsx`; this names the mechanism —
+   * the literal Tailwind class that narrows the band-width property at `2xl`,
+   * and the `sizes` string that restates the same width for the fetch.
+   */
+  describe("the events-column cap", () => {
+    const bandBox = (el: HTMLElement) =>
+      el.querySelector("[data-invite-closing] > div") as HTMLElement;
+
+    it("narrows the band-width property at 2xl to the pack's column", () => {
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} imageUrl={IMG} bandCap="column-xl" />
+      ));
+      const section = closing(container) as HTMLElement;
+      // Both halves present: the base the band runs at, and the cap that
+      // replaces it. A cap with no base would leave the property unset below
+      // 2xl and the band's `max-width` invalid.
+      expect(section.className).toContain("[--invite-band-width:100vw]");
+      expect(section.className).toContain("2xl:[--invite-band-width:var(--container-column-xl)]");
+      expect(BAND_CAP_CLASS["column-2xl"]).toBe(
+        "2xl:[--invite-band-width:var(--container-column-2xl)]",
+      );
+    });
+
+    it("keeps the pixel caps `sizes` reports in step with the column tokens", () => {
+      // `sizes` cannot read a custom property, so it restates the width the
+      // class above points at. Nothing but this couples the two, and a drifted
+      // `sizes` is silent: it costs the guest bytes, never a broken layout.
+      const css = readFileSync(join(import.meta.dirname, "../../src/styles/global.css"), "utf8");
+      for (const [cap, px] of Object.entries(BAND_CAP_PX)) {
+        const token = `--container-${cap}`;
+        const declared = new RegExp(`${token}:\\s*([^;]+);`).exec(css);
+        expect(declared, `${token} is not declared in global.css`).not.toBeNull();
+        expect(declared![1].trim()).toBe(px);
+      }
+    });
+
+    it("stays edge to edge at every width when no column is named", () => {
+      const { container } = render(() => <InviteClosing apiUrl={API} imageUrl={IMG} />);
+      const section = closing(container) as HTMLElement;
+      expect(section.className).toContain("[--invite-band-width:100vw]");
+      expect(section.className).not.toContain("2xl:[--invite-band-width");
+    });
+
+    it("puts both image paths in one box that reads the property", () => {
+      for (const crop of [undefined, { x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 }]) {
+        cleanup();
+        const { container } = render(() => (
+          <InviteClosing apiUrl={API} imageUrl={IMG} imageCrop={crop} bandCap="column-2xl" />
+        ));
+        const box = bandBox(container);
+        expect(box.style.getPropertyValue("max-width")).toBe("var(--invite-band-width)");
+        // Centred in both packs — gala's own column is flush left inside a
+        // wider centred container, and a band inheriting that reads as a
+        // misalignment.
+        expect(box.className).toContain("mx-auto");
+        expect(box.className).toContain(BAND_WIDTH_TRANSITION_CLASS);
+        // The cropped path renders two layers and the plain path one; whichever
+        // it is, it hangs off this box.
+        expect(box.querySelector("img, [aria-hidden='true']")).toBeTruthy();
+      }
+    });
+
+    it("tells the fetch where the band stops tracking the viewport", () => {
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} imageUrl={IMG} bandCap="column-xl" />
+      ));
+      const img = (closing(container) as HTMLElement).querySelector("img") as HTMLImageElement;
+      // A bare `100vw` would ask a 2560px screen for a render three times the
+      // box it fills.
+      expect(img.getAttribute("sizes")).toBe("(min-width: 1536px) 640px, 100vw");
+    });
+  });
+
   describe("surface", () => {
     it("paints the section background from the tone vars it is handed", () => {
       const { container } = render(() => (
@@ -294,16 +375,19 @@ describe("InviteClosing", () => {
       const section = closing(container) as HTMLElement;
 
       // `content-visibility: auto` skips this off-screen section entirely; with
-      // no intrinsic size a now-full-bleed band collapses to zero and the page's
+      // no intrinsic size an edge-to-edge band collapses to zero and the page's
       // scroll height jumps as the guest approaches it. Unobservable in the test
       // tier (no layout engine), so the class contract is the pin.
       expect(section.className).toContain("[content-visibility:auto]");
-      // Derived from the band's real geometry (100vw at the crop's aspect), not
-      // a flat guess: a placeholder 2-3x short of the rendered height moves the
-      // scrollbar under the guest at the moment they scroll into the section.
+      // Derived from the band's real geometry — the band-width property at the
+      // crop's aspect — not a flat guess: a placeholder 2-3x short of the
+      // rendered height moves the scrollbar under the guest at the moment they
+      // scroll into the section. Reading the same property the band's own box
+      // reads is what keeps the reserve right on both sides of the cap.
       expect(section.style.getPropertyValue("contain-intrinsic-size")).toBe(
-        `auto calc(100vw / ${16 / 9} + 24rem)`,
+        `auto calc(var(--invite-band-width) / ${16 / 9} + 24rem)`,
       );
+      expect(section.className).toContain("[--invite-band-width:100vw]");
     });
 
     it("reserves only the note's own height when there is no band", () => {

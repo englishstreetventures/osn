@@ -38,8 +38,9 @@ export interface ImageCrop {
  *                     slot — the same hero image, framed a second time.
  *   - `story`       — the two-column story photo; a gentle 3∶2.
  *   - `footer`      — the closing section's image; a wide 16∶9 frame, since it
- *                     renders as a full-bleed closing band spanning the guest
- *                     page edge to edge (it was a small centred square before).
+ *                     renders as a closing band spanning the guest page edge to
+ *                     edge, up to the pack's events column on a display wider
+ *                     than the invite needs.
  *                     Unlike the hero — whose box is the screen it fills, so the
  *                     rectangle is demoted to a focal point — this band takes
  *                     the crop's OWN aspect and shows exactly the framed region.
