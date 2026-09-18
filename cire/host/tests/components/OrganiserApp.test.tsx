@@ -115,7 +115,7 @@ function listResponse(
     id: string;
     slug: string;
     displayName: string;
-    role?: "owner" | "editor" | "viewer";
+    role?: string;
     entitlements?: string[];
     guestCap?: number;
   }[],
@@ -206,6 +206,40 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("module-shell").getAttribute("data-can-edit")).toBe("false");
     // The header badge says Viewer.
     expect(screen.getByText("Viewer")).toBeTruthy();
+  });
+
+  it("opens a HELPER onto their seat, not onto a dashboard that would 403", async () => {
+    // A helper's wedding is listed — that is how they reach the run sheet at
+    // all — but every dashboard read is refused for them upstream, so the shell
+    // must not mount. Nothing here is about hiding: it is that there is nothing
+    // behind those panels for this seat.
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_h", slug: "h", displayName: "Helped", role: "helper" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+    // The preview button mints a code through a member-gated route, so it is
+    // not offered either.
+    expect(screen.queryByTestId("preview-button")).toBeNull();
+  });
+
+  it("treats a role it has never heard of as the narrowest one, not as an editor", async () => {
+    // The check this replaced was `role !== "viewer"`, which is true of any
+    // unknown value — so a role the portal did not recognise was handed every
+    // write surface. It now falls to the bottom of the rank instead.
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_x", slug: "x", displayName: "Strange", role: "planner" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByText(/Helper access/i)).toBeTruthy();
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

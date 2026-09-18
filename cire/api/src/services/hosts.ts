@@ -16,8 +16,9 @@ export type StoredHostRole = (typeof weddingHosts.$inferSelect)["role"];
 /**
  * A co-host's role in the app layer. `editor` gets full module writes (guests,
  * schedule, invite, import — a partner or hired planner); `viewer` is
- * read-only. The owner is never rowed into `wedding_hosts`, so "owner" is not
- * a stored role.
+ * read-only across the dashboard; `helper` is the day-of run sheet and nothing
+ * else. The owner is never rowed into `wedding_hosts`, so "owner" is not a
+ * stored role.
  *
  * `host` is excluded: it is the legacy pre-roles value and still the column's
  * DDL DEFAULT (unchangeable without a table rebuild), but no reader treats it
@@ -26,12 +27,31 @@ export type StoredHostRole = (typeof weddingHosts.$inferSelect)["role"];
 export type HostRole = Exclude<StoredHostRole, "host">;
 
 /**
- * The roles the organiser API may WRITE. Deliberately narrower than
- * {@link HostRole}: `add()` and `setRole()` take this, so the compiler proves
- * no route can assign a role outside it, independently of the runtime bar that
- * `HostRoleSchema` puts on the request body.
+ * Which stored values a route may WRITE onto a seat — one answer per value the
+ * column is declared to hold. Exhaustive over {@link StoredHostRole}, so a
+ * value added to the column has to be told whether it can be assigned before
+ * this compiles, and the answer it cannot acquire by silence is "yes".
+ *
+ * `host` is `false` and stays that way: it is the column's DDL default and its
+ * pre-roles value, not a role anyone holds, and {@link normaliseHostRole} folds
+ * it away before any reader sees it.
  */
-export type AssignableHostRole = "editor" | "viewer";
+const ASSIGNABLE_HOST_ROLES = {
+  host: false,
+  editor: true,
+  viewer: true,
+  helper: true,
+} as const satisfies Record<StoredHostRole, boolean>;
+
+/**
+ * The roles the organiser API may WRITE, derived from the map above rather than
+ * written out beside it. `add()` and `setRole()` take this, so the compiler
+ * proves no route can assign anything outside it — independently of the runtime
+ * bar `HostRoleSchema` puts on the request body.
+ */
+export type AssignableHostRole = {
+  [K in StoredHostRole]: (typeof ASSIGNABLE_HOST_ROLES)[K] extends true ? K : never;
+}[StoredHostRole];
 
 /**
  * Each role's privilege rank, lowest first. Exhaustive over {@link HostRole} by

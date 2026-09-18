@@ -35,6 +35,7 @@ import {
   readUpgradeReturn,
 } from "../lib/upgrade-return";
 import { invalidateCatalogue } from "../lib/upgrade-store";
+import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
@@ -54,6 +55,19 @@ const CommandPalette = lazy(() => import("./CommandPalette"));
 type WeddingsState =
   | { kind: "error"; message: string }
   | { kind: "ready"; weddings: WeddingSummary[] };
+
+/**
+ * The boundary where a role off the wire becomes one the portal knows.
+ *
+ * `WeddingSummary.role` is a union asserted over parsed JSON, which makes it a
+ * claim rather than a fact. Everything downstream decides what to offer from
+ * this field, so a role the portal has never heard of is narrowed to the lowest
+ * rank here instead of reaching `surfacesFor()` as an unhandled value.
+ */
+const withKnownRole = (wedding: WeddingSummary): WeddingSummary => ({
+  ...wedding,
+  role: normaliseWeddingRole(wedding.role),
+});
 
 function Loading(props: { label: string }) {
   return (
@@ -95,13 +109,12 @@ function RequireAuth(props: ParentProps) {
  *  panel), scoped to whichever wedding the organiser opened. It has no header
  *  of its own: which wedding is open, the role badge and "preview invite" all
  *  live in the top bar now, so the first thing under the chrome is the work.
- *  Access follows the caller's role: EDITOR co-hosts get the full read/edit
- *  dashboard (import, invite design, event locations, and the settings panel's
- *  RSVP-by date — the API gates writes with weddingEditor); VIEWER co-hosts get
- *  the read views only (`canEdit` hides the write surfaces). The owner-only
- *  management actions (co-hosts, re-minting codes, deactivating household
- *  codes, the rest of the settings save) stay gated on `isOwner` via
- *  `canManage`.
+ *
+ *  Access follows the caller's role, and `surfacesFor()` in `lib/wedding-roles`
+ *  is what says so — this component asks it and never compares a role itself.
+ *  A role with no dashboard surface at all gets {@link RunSheetSeat} instead of
+ *  the shell: the API refuses its every read, so rendering the shell would be a
+ *  rail of modules that each answer 403.
  *
  *  The active module + sub are fully controlled by the parent (URL-hash driven)
  *  so a deep link / hard refresh restores the exact view; the shell reports
@@ -119,27 +132,46 @@ function WeddingDashboard(props: {
    *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
 }) {
-  const isOwner = () => props.wedding.role === "owner";
-  // Editors (and owners) get the write surfaces; viewers are read-only — the
-  // API enforces this with weddingEditor()/weddingOwner(); the flags just keep
-  // the portal from offering actions that would 403.
-  const canEdit = () => props.wedding.role !== "viewer";
+  // One decision, taken once, for every surface below. The API enforces all of
+  // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
+  // keep the portal from offering what those gates would refuse.
+  const surfaces = () => surfacesFor(props.wedding.role);
 
   return (
-    <ModuleShell
-      weddingId={props.wedding.id}
-      weddingName={props.wedding.displayName}
-      weddingSlug={props.wedding.slug}
-      canManage={isOwner()}
-      canEdit={canEdit()}
-      module={props.module()}
-      sub={props.sub()}
-      onModule={props.onModule}
-      onSub={props.onSub}
-      onWeddingUpdated={props.onWeddingUpdated}
-      entitlements={props.wedding.entitlements ?? []}
-      guestCap={props.wedding.guestCap ?? 100}
-    />
+    <Show when={surfaces().canOpenDashboard} fallback={<RunSheetSeat />}>
+      <ModuleShell
+        weddingId={props.wedding.id}
+        weddingName={props.wedding.displayName}
+        weddingSlug={props.wedding.slug}
+        canManage={surfaces().canManage}
+        canEdit={surfaces().canEdit}
+        module={props.module()}
+        sub={props.sub()}
+        onModule={props.onModule}
+        onSub={props.onSub}
+        onWeddingUpdated={props.onWeddingUpdated}
+        entitlements={props.wedding.entitlements ?? []}
+        guestCap={props.wedding.guestCap ?? 100}
+      />
+    </Show>
+  );
+}
+
+/** What a seat with no dashboard surface opens onto.
+ *
+ *  A helper is handed a job on the day, not the wedding: the guest list, the
+ *  budget, the registry and the replies are all refused for them upstream. The
+ *  wedding is still listed for them — that is how they reach it at all — so
+ *  this says what the seat covers rather than leaving them on a dashboard whose
+ *  every panel errors. */
+function RunSheetSeat() {
+  return (
+    <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
+      <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
+      <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
+        {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
+      </p>
+    </div>
   );
 }
 
@@ -288,8 +320,9 @@ function Dashboard() {
       }
       if (!res.ok) return { kind: "error", message: `Could not load weddings (${res.status}).` };
       const body = (await res.json()) as { weddings: WeddingSummary[] };
-      setWeddings(body.weddings);
-      return { kind: "ready", weddings: body.weddings };
+      const loadedWeddings = body.weddings.map(withKnownRole);
+      setWeddings(loadedWeddings);
+      return { kind: "ready", weddings: loadedWeddings };
     } catch (err) {
       if (isAuthExpired(err)) {
         redirectToLogin();
@@ -381,7 +414,7 @@ function Dashboard() {
             const res = await authFetch(apiUrl("/api/organiser/weddings"));
             if (res.ok) {
               const body = (await res.json()) as { weddings: WeddingSummary[] };
-              if (!cancelled) setWeddings(body.weddings);
+              if (!cancelled) setWeddings(body.weddings.map(withKnownRole));
             }
           } catch {
             // The purchase landed even if this refresh did not; a reload shows

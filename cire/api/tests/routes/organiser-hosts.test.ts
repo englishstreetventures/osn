@@ -8,6 +8,7 @@ import { createApp } from "../../src/app";
 import type { AppOptions } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import type { AssignableHostRole } from "../../src/services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -76,8 +77,10 @@ function seedWedding(db: Db) {
     .run();
 }
 
-/** Row a co-host seat directly, so a test can call as an editor or a viewer. */
-function seedHostSeat(db: Db, osnProfileId: string, role: "editor" | "viewer") {
+/** Row a co-host seat directly, so a test can call as any of the roles a seat
+ *  may hold. Typed off the service rather than listed, so a role the API starts
+ *  assigning can be seeded here without the literal being widened by hand. */
+function seedHostSeat(db: Db, osnProfileId: string, role: AssignableHostRole) {
   db.insert(weddingHosts)
     .values({
       id: `whost_${osnProfileId}`,
@@ -149,7 +152,10 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
       .from(weddingHosts)
       .where(eq(weddingHosts.osnProfileId, "usr_carol"))
       .all();
-    expect(row).toEqual({ addedBy: COHOST, role: "editor" });
+    // The role is the roleless-add default (`viewer`), which is what an editor
+    // seating someone without naming a role gets — the subject here is the
+    // attribution beside it.
+    expect(row).toEqual({ addedBy: COHOST, role: "viewer" });
   });
 
   it("lets an editor add a VIEWER too — the grantable roles are unrestricted", async () => {
@@ -241,14 +247,36 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(400);
   });
 
-  it("defaults a roleless add to editor (pre-roles portal builds keep working)", async () => {
+  it("defaults a roleless add to viewer (a seat starts at what it may read)", async () => {
+    // A body naming no role asks for the least a seat can be given, not the
+    // most. The portal raises it afterwards through PUT …/role, where the owner
+    // is the only caller and the promotion is a deliberate act.
     const { db, app } = buildApp();
     const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { host: { role: string } };
-    expect(body.host.role).toBe("editor");
+    expect(body.host.role).toBe("viewer");
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
-    expect(row!.role).toBe("editor");
+    expect(row!.role).toBe("viewer");
+  });
+
+  it("persists an explicit helper role on add", async () => {
+    const { db, app } = buildApp();
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "helper" });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { host: { role: string } };
+    expect(body.host.role).toBe("helper");
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("helper");
+  });
+
+  it("lets an EDITOR seat a helper — below their own ceiling, so not escalation", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, "usr_editor", "editor");
+    const res = await req(app, "POST", hostsPath, "usr_editor", { handle: "bob", role: "helper" });
+    expect(res.status).toBe(201);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("helper");
   });
 
   it("persists an explicit viewer role on add", async () => {
@@ -318,6 +346,17 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string }[] };
     expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+  });
+
+  it("carries a helper seat's role through to the panel", async () => {
+    // The portal's dropdown renders whatever this says. A helper folded to
+    // another role here would show the owner a seat they did not create.
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; role: string }[] };
+    expect(body.hosts).toEqual([expect.objectContaining({ osnProfileId: COHOST, role: "helper" })]);
   });
 
   it("lists hosts for a CO-HOST too (member read)", async () => {
@@ -483,7 +522,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
 });
 
 describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () => {
-  function seedCohost(db: Db, role?: "editor" | "viewer") {
+  function seedCohost(db: Db, role?: AssignableHostRole) {
     db.insert(weddingHosts)
       .values({
         id: "whost_bob",
@@ -532,6 +571,30 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(res.status).toBe(200);
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("editor");
+  });
+
+  it("moves a seat down to helper for the owner", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { host: { osnProfileId: string; role: string } };
+    expect(body.host).toMatchObject({ osnProfileId: COHOST, role: "helper" });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("helper");
+  });
+
+  it("raises a helper back up to editor, leaving the stored run-sheet scope alone", async () => {
+    // `run_sheet_scope` means nothing for an editor — `runSheetScopeFor()`
+    // answers `full` for one whatever the column says — so a promotion has no
+    // business rewriting it, and a later demotion finds it as the host left it.
+    const { db, app } = buildApp();
+    seedCohost(db, "helper");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
+    expect(res.status).toBe(200);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("editor");
+    expect(row!.runSheetScope).toBe("own");
   });
 
   it("returns 404 host_not_found for a profile that isn't a co-host", async () => {

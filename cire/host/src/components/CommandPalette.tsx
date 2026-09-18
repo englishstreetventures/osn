@@ -5,6 +5,7 @@ import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
 import { setThemePreference, theme } from "../lib/theme";
+import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 
 /** One runnable row. `group` is the heading it sits under; `keywords` widen the
@@ -71,7 +72,10 @@ export default function CommandPalette(props: {
     const list: Command[] = [];
 
     const wedding = props.wedding;
-    if (wedding) {
+    // A seat with no dashboard surface has nowhere for these rows to go: the
+    // modules they name are refused for it, so the hash would change and the
+    // page would not. Same reason a locked module is skipped below.
+    if (wedding && surfacesFor(normaliseWeddingRole(wedding.role)).canOpenDashboard) {
       for (const mod of MODULE_NAV) {
         // A locked module is not a place this wedding can go: the shell sends it
         // back to Overview. The upgrade is offered on the nav row, which stays

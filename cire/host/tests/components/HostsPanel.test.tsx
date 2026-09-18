@@ -39,9 +39,21 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** The add-host input: a combobox (`role="combobox"`) now it has autocomplete.
+ *  Found by its accessible name rather than by role alone — a co-host row's
+ *  role dropdown is a native `<select>`, which is a combobox too, so a bare
+ *  role query matches several the moment the list has anyone in it. */
+function handleInput() {
+  return screen.getByRole("combobox", { name: /OSN handle/i });
+}
+
 function typeHandle(value: string) {
-  // The add-host input is a combobox (role="combobox") now it has autocomplete.
-  fireEvent.input(screen.getByRole("combobox"), { target: { value } });
+  fireEvent.input(handleInput(), { target: { value } });
+}
+
+/** A co-host row's role dropdown, by the person it belongs to. */
+function roleSelect(name: string) {
+  return screen.getByRole("combobox", { name: new RegExp(`Role for ${name}`, "i") });
 }
 
 describe("HostsPanel", () => {
@@ -71,7 +83,7 @@ describe("HostsPanel", () => {
     // typing (or pasting) a leading "@" into the box doesn't double it up.
     expect(screen.getByText("@")).toBeTruthy();
     typeHandle("@bob");
-    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("bob");
+    expect((handleInput() as HTMLInputElement).value).toBe("bob");
   });
 
   it("shows the wedding's owner above the co-hosts, with no role badge or remove control", async () => {
@@ -113,38 +125,42 @@ describe("HostsPanel", () => {
     const [url, init] = authFetchMock.mock.calls[1]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts");
     expect((init as RequestInit).method).toBe("POST");
-    // Role defaults to editor unless the owner picks viewer in the form.
-    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
-      handle: "@bob",
-      role: "editor",
-    });
-    expect(toastSuccess).toHaveBeenCalled();
-  });
-
-  it("sends role viewer when the owner picks the viewer option", async () => {
-    authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
-    authFetchMock.mockResolvedValueOnce(
-      json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 2 } }, 201),
-    );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
-    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
-
-    typeHandle("@bob");
-    fireEvent.click(screen.getByRole("radio", { name: /Viewer/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
-
-    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
-    const [, init] = authFetchMock.mock.calls[1]!;
+    // Everyone joins as a viewer. The role is chosen afterwards, on their row.
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({
       handle: "@bob",
       role: "viewer",
     });
-    // The freshly-added row carries a Viewer badge (scoped to the list — the
-    // add form's radio label also says "Viewer").
-    expect(within(screen.getByRole("listitem")).getByText("Viewer")).toBeTruthy();
+    expect(toastSuccess).toHaveBeenCalled();
   });
 
-  it("changes a host's role via the Make viewer control (PUT …/role)", async () => {
+  it("offers no role picker in the add form — a seat starts at viewer", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    // Nothing in the form sets a role: choosing one before the person exists is
+    // what this replaced. What the form carries instead is the explainers.
+    expect(screen.queryAllByRole("radio")).toEqual([]);
+    expect(screen.getByRole("group", { name: /What a co-host can do/i })).toBeTruthy();
+  });
+
+  it("puts the role explainers ahead of the handle input", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    const explainers = screen.getByRole("group", { name: /What a co-host can do/i });
+    // Reading order, not styling: the decision the explainers inform is made
+    // before the box that names a person, so they precede it in the document.
+    expect(explainers.compareDocumentPosition(handleInput())).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    for (const role of ["Editor", "Viewer", "Helper"]) {
+      expect(within(explainers).getByText(role)).toBeTruthy();
+    }
+  });
+
+  it("changes a host's role from the row's dropdown (PUT …/role)", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
     );
@@ -154,36 +170,132 @@ describe("HostsPanel", () => {
     render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: /Make @bob a viewer/i }));
+    // A demotion goes straight through — nothing is being handed over.
+    fireEvent.change(roleSelect("@bob"), { target: { value: "viewer" } });
 
-    await waitFor(() =>
-      expect(within(screen.getByRole("listitem")).getByText("Viewer")).toBeTruthy(),
-    );
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const [url, init] = authFetchMock.mock.calls[1]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_bob/role");
     expect((init as RequestInit).method).toBe("PUT");
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "viewer" });
     expect(toastSuccess).toHaveBeenCalled();
-    // The control now offers the reverse flip.
-    expect(screen.getByRole("button", { name: /Make @bob an editor/i })).toBeTruthy();
+    // The dropdown now reads as what the seat became.
+    expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("viewer");
+  });
+
+  it("asks before promoting someone to editor, and sends nothing until it is answered", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }] }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
+
+    // The dialog is up and the request is not: editor is the widest a seat can
+    // be given, so it is the one grant that stops to ask.
+    expect(screen.getByText(/Make @bob an editor\?/i)).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the promotion once it is confirmed", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", role: "editor", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
+    fireEvent.click(screen.getByRole("button", { name: /Yes, make them editor/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const [url, init] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_bob/role");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "editor" });
+    await waitFor(() => expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("editor"));
+  });
+
+  it("sends nothing and puts the dropdown back when the confirmation is dismissed", async () => {
+    // The select changed in the DOM the moment the option was picked, so a
+    // dismissal that only closed the dialog would leave it showing a role
+    // nobody granted.
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }] }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("viewer");
+  });
+
+  it("does not ask when the change takes something away", async () => {
+    // A demotion is reversible by the same person in the same place, so a
+    // prompt on it is a prompt that teaches people to click through prompts.
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", role: "helper", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String((authFetchMock.mock.calls[1]![1] as RequestInit).body))).toEqual({
+      role: "helper",
+    });
+  });
+
+  it("shows a helper seat as a helper, and offers all three roles on the row", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "helper", createdAt: 1 }] }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("helper");
+    const options = within(roleSelect("@bob")).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Editor", "Viewer", "Helper"]);
+  });
+
+  it("shows a role it does not recognise as the narrowest seat", async () => {
+    // Including the API's legacy `host`, which no response should carry. The
+    // row reads as the least a seat can be rather than being guessed upward.
+    // Rendered for a non-owner so the badge is the only thing naming the role.
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "planner", createdAt: 1 }] }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    expect(within(screen.getByRole("listitem")).getByText("Helper")).toBeTruthy();
   });
 
   it("gives an EDITOR the add form but not the role + remove controls", async () => {
     // The additive/subtractive split, mirroring the API's two gates: an editor
     // can bring someone else on board (`weddingEditor()` on POST /hosts) but
     // cannot demote or evict anyone (`weddingOwner()` on PUT/DELETE). Offering
-    // either of those buttons here would just produce a 403.
+    // either of those controls here would just produce a 403.
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
     );
     render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
     expect(screen.getByRole("button", { name: /Add host/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Make @bob/i })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /Role for @bob/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Remove/i })).toBeNull();
-    // The role badge still shows. Matched by its title, not its text: with the
-    // add form now rendered, "Editor" also appears as the role picker's label.
-    expect(screen.getByTitle("Can edit guests, events, and the invite").textContent).toBe("Editor");
+    // The role badge still shows — the read stays, only the write is withheld.
+    // Scoped to the list, since the explainers above also say "Editor".
+    expect(within(screen.getByRole("listitem")).getByText("Editor")).toBeTruthy();
   });
 
   it("lets an editor actually submit an add (the form is wired, not decorative)", async () => {
@@ -301,7 +413,7 @@ describe("HostsPanel", () => {
 
   /** Focus the add-co-host combobox — triggers the on-focus connections fetch. */
   function focusHandle() {
-    fireEvent.focus(screen.getByRole("combobox"));
+    fireEvent.focus(handleInput());
   }
 
   it("debounces the search and fetches suggestions for a 2+ char prefix", async () => {
@@ -381,7 +493,7 @@ describe("HostsPanel", () => {
 
     focusHandle();
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
-    fireEvent.blur(screen.getByRole("combobox"));
+    fireEvent.blur(handleInput());
     focusHandle();
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
 
@@ -441,7 +553,7 @@ describe("HostsPanel", () => {
 
     typeHandle("al");
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
-    fireEvent.blur(screen.getByRole("combobox"));
+    fireEvent.blur(handleInput());
     focusHandle();
 
     // Refetching "" here would swap their filtered matches for the unfiltered
@@ -549,7 +661,7 @@ describe("HostsPanel", () => {
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("listbox")).toBeNull();
     // Manual typing is untouched by a search outage.
-    expect((screen.getByRole("combobox") as HTMLInputElement).disabled).toBe(false);
+    expect((handleInput() as HTMLInputElement).disabled).toBe(false);
   });
 
   it("fills the input when a suggestion is selected", async () => {
@@ -568,7 +680,7 @@ describe("HostsPanel", () => {
     // own value never carries the "@" — that's the fixed prefix rendered
     // beside it.
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("alice");
+    expect((handleInput() as HTMLInputElement).value).toBe("alice");
   });
 
   it("fails soft (no listbox) when the search endpoint errors", async () => {

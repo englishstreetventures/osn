@@ -4,15 +4,22 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
+import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { Select } from "@shared/ui/ui/select";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import {
+  ASSIGNABLE_ROLES,
+  type AssignableRole,
+  asSeatRole,
+  needsPromotionConfirmation,
+  NEW_SEAT_ROLE,
+  ROLE_COPY,
+} from "../lib/wedding-roles";
 import SectionIntro from "./SectionIntro";
-/** A co-host's role — mirrors the API's closed enum (`editor` writes modules,
- *  `viewer` is read-only). Legacy `host` rows are normalised server-side. */
-type HostRole = "editor" | "viewer";
 
 /** The wedding's owner — never a row in `wedding_hosts` (the API always rows
  *  them in separately), so it needs its own shape: no role, no add/remove. */
@@ -27,7 +34,7 @@ interface HostRow {
   /** Present only on a freshly-added host (the add response echoes the handle);
    *  the list endpoint returns ids only, so existing rows show the id. */
   handle?: string;
-  role: HostRole;
+  role: AssignableRole;
   createdAt: number;
   /** Who created this seat. Absent on the add response (it is by definition the
    *  caller) and on a mid-deploy payload from an older API. */
@@ -36,18 +43,22 @@ interface HostRow {
   addedByHandle?: string;
 }
 
-const ROLE_OPTIONS: { value: HostRole; label: string; hint: string }[] = [
-  {
-    value: "editor",
-    label: "Editor",
-    hint: "Can edit guests, events, and the invite — a partner or planner.",
-  },
-  {
-    value: "viewer",
-    label: "Viewer",
-    hint: "Can see everything but change nothing.",
-  },
-];
+/**
+ * A role change waiting on the owner to say yes.
+ *
+ * Held rather than applied because the grant it carries is the widest a seat
+ * can be given. While it is held, the row's select shows `to` — the option the
+ * owner picked — and dropping this puts the select back on the seat's own role,
+ * which is still whatever it was: nothing has been sent.
+ */
+interface PendingPromotion {
+  host: HostRow;
+  to: AssignableRole;
+}
+
+/** Every row the API hands back, with its role narrowed to one this panel has a
+ *  dropdown option for. */
+const withSeatRole = (host: HostRow): HostRow => ({ ...host, role: asSeatRole(host.role) });
 
 /** One autocomplete suggestion from `GET /api/organiser/handle-search`. */
 interface HandleSuggestion {
@@ -101,11 +112,17 @@ export default function HostsPanel(props: HostsPanelProps) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [handle, setHandle] = createSignal("");
-  const [role, setRole] = createSignal<HostRole>("editor");
   const [adding, setAdding] = createSignal(false);
   const [addError, setAddError] = createSignal<string | null>(null);
-  // Profile id of the host whose role change is in flight (disables its button).
+  // Profile id of the host whose role change is in flight (disables its select).
   const [roleBusyId, setRoleBusyId] = createSignal<string | null>(null);
+  // The promotion waiting on a yes, or null. Held rather than sent: see
+  // `PendingPromotion`.
+  const [pending, setPending] = createSignal<PendingPromotion | null>(null);
+  // What the dialog renders. `Modal` unmounts its children only once the exit
+  // has played, and the body names a person — without this it would blank
+  // mid-fade. Built once, here: each call makes its own signal and effect.
+  const shownPromotion = heldWhileClosing(pending);
   // True row count from the API; compared against what we rendered.
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
@@ -298,7 +315,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         owner?: WeddingOwnerRow;
       };
       setOwner(body.owner ?? null);
-      setHosts(body.hosts);
+      setHosts(body.hosts.map(withSeatRole));
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
       // who can read their guests' data is missing from it.
@@ -325,7 +342,10 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: `@${value}`, role: role() }),
+        // Sent rather than left to the API's own default, so the seat this
+        // panel creates is the one it shows in the row's dropdown a moment
+        // later whatever version of the API answered.
+        body: JSON.stringify({ handle: `@${value}`, role: NEW_SEAT_ROLE }),
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 404) {
@@ -354,9 +374,9 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       const body = (await res.json()) as { host: HostRow };
-      setHosts((prev) => [...prev, body.host]);
+      const added = withSeatRole(body.host);
+      setHosts((prev) => [...prev, added]);
       setHandle("");
-      setRole("editor");
       setSuggestions([]);
       // The just-added host is now an existing co-host, so the cached connection
       // list is stale — let the next focus pull a fresh one. Left cached, it
@@ -365,9 +385,9 @@ export default function HostsPanel(props: HostsPanelProps) {
       cachedConnections = [];
       haptic("commit");
       toast.success(
-        `Added ${body.host.handle ? `@${body.host.handle}` : "host"} as ${
-          body.host.role === "viewer" ? "a viewer" : "an editor"
-        }.`,
+        `Added ${added.handle ? `@${added.handle}` : "host"} as a ${ROLE_COPY[
+          added.role
+        ].label.toLowerCase()}. Change that from their row.`,
       );
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
@@ -400,9 +420,35 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
-  /** Flip a host between editor and viewer (owner-only; the API re-checks). */
-  async function changeRole(host: HostRow, nextRole: HostRole) {
-    const label = host.handle ? `@${host.handle}` : host.osnProfileId;
+  /** A name for a host that reads in a sentence. */
+  const nameOf = (host: HostRow) => (host.handle ? `@${host.handle}` : host.osnProfileId);
+
+  /** The role this host's select should show while a promotion of theirs is
+   *  waiting on a yes, or `null` when nothing of theirs is pending. */
+  const pendingRoleFor = (host: HostRow): AssignableRole | null => {
+    const promotion = pending();
+    return promotion?.host.osnProfileId === host.osnProfileId ? promotion.to : null;
+  };
+
+  /**
+   * The dropdown moved. Either ask first or go straight through.
+   *
+   * Nothing is sent from here when a confirmation is owed — the select has
+   * already changed in the DOM, so the pending change also carries where it
+   * came from, and dismissing the dialog puts it back.
+   */
+  function selectRole(host: HostRow, nextRole: AssignableRole) {
+    if (nextRole === host.role) return;
+    if (needsPromotionConfirmation(host.role, nextRole)) {
+      setPending({ host, to: nextRole });
+      return;
+    }
+    void changeRole(host, nextRole);
+  }
+
+  /** Set a host's role (owner-only; the API re-checks). */
+  async function changeRole(host: HostRow, nextRole: AssignableRole) {
+    const label = nameOf(host);
     setRoleBusyId(host.osnProfileId);
     try {
       const res = await authFetch(`${endpoint()}/${encodeURIComponent(host.osnProfileId)}/role`, {
@@ -420,7 +466,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
       );
       haptic("commit");
-      toast.success(`${label} is now ${nextRole === "viewer" ? "a viewer" : "an editor"}.`);
+      toast.success(`${label} is now a ${ROLE_COPY[nextRole].label.toLowerCase()}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
@@ -437,19 +483,39 @@ export default function HostsPanel(props: HostsPanelProps) {
         title="Share this wedding's dashboard"
         description={
           props.canManage
-            ? "Invite a partner or planner to help. Pick someone from your OSN connections, or add them by handle — editors can change everything here and bring in more helpers, viewers can only look around, and only you, the owner, can change a role or remove someone."
+            ? "Invite a partner or planner to help. Pick someone from your OSN connections, or add them by handle — everyone joins as a viewer, and you set what they can do from their row. Only you, the owner, can change a role or remove someone."
             : props.canAdd
-              ? "Invite a partner or planner to help — pick someone from your OSN connections, or add them by handle. Editors can change everything here, viewers can only look around. Changing a role or removing someone is the owner's call."
-              : "These co-hosts help run this wedding — editors can make changes, viewers can only look around. Ask the owner for editor access to add someone."
+              ? "Invite a partner or planner to help — pick someone from your OSN connections, or add them by handle. They join as a viewer; changing a role or removing someone is the owner's call."
+              : "These co-hosts help run this wedding. Ask the owner for editor access to add someone."
         }
       />
 
       <Show when={props.canAdd}>
         <form class="flex flex-col gap-3" onSubmit={add}>
+          {/* What each role carries, ahead of the box that names the person.
+              Before the handle rather than after it because it is what the
+              decision needs: who to add is a different question from what they
+              will be able to do, and the second one is answered on their row
+              once they are here. */}
+          <Fieldset legend="What a co-host can do">
+            <dl class="flex flex-col gap-2 @lg/panel:flex-row">
+              <For each={ASSIGNABLE_ROLES}>
+                {(option) => (
+                  <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
+                    <dt class="font-body text-text text-ui-base">{ROLE_COPY[option].label}</dt>
+                    <dd class="font-body text-text-muted text-ui-sm leading-snug">
+                      {ROLE_COPY[option].summary}
+                    </dd>
+                  </div>
+                )}
+              </For>
+            </dl>
+          </Fieldset>
+
           {/* `Field` owns the label, the id and the error wiring. The message
-              used to sit at the very bottom of the form, below the role cards —
-              far enough from the box it was about that reading the two together
-              took a scroll. */}
+              sits with the box it is about rather than at the foot of the form,
+              which was far enough away that reading the two together took a
+              scroll. */}
           <Field label="OSN handle" errors={addErrors()}>
             {(field) => (
               <div class="flex flex-wrap items-center gap-3">
@@ -548,38 +614,6 @@ export default function HostsPanel(props: HostsPanelProps) {
               </div>
             )}
           </Field>
-
-          <Fieldset legend="Access">
-            <div class="flex flex-col gap-2 @lg/panel:flex-row">
-              <For each={ROLE_OPTIONS}>
-                {(option) => (
-                  <label
-                    class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors ${
-                      role() === option.value
-                        ? "border-gold bg-gold/5"
-                        : "border-border bg-bg hover:border-gold/50"
-                    } ${adding() ? "opacity-40" : ""}`}
-                  >
-                    <span class="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="hostRole"
-                        value={option.value}
-                        checked={role() === option.value}
-                        disabled={adding()}
-                        onChange={() => setRole(option.value)}
-                        class="accent-gold"
-                      />
-                      <span class="font-body text-text text-ui-base">{option.label}</span>
-                    </span>
-                    <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
-                      {option.hint}
-                    </span>
-                  </label>
-                )}
-              </For>
-            </div>
-          </Fieldset>
         </form>
       </Show>
 
@@ -667,15 +701,14 @@ export default function HostsPanel(props: HostsPanelProps) {
                         {host.osnProfileId}
                       </span>
                     )}
+                    {/* The badge is the read of the seat. An owner also gets the
+                        select below, which is the write — both name the role
+                        from the same place, so they cannot disagree. */}
                     <span
                       class="border-gold/40 text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
-                      title={
-                        host.role === "viewer"
-                          ? "Can see everything but change nothing"
-                          : "Can edit guests, events, and the invite"
-                      }
+                      title={ROLE_COPY[host.role].summary}
                     >
-                      {host.role === "viewer" ? "Viewer" : "Editor"}
+                      {ROLE_COPY[host.role].label}
                     </span>
                     {/* Who seated them. Shown only to the owner, and only when
                         it wasn't the owner's own doing — an editor can create
@@ -698,25 +731,23 @@ export default function HostsPanel(props: HostsPanelProps) {
                   </span>
                   <Show when={props.canManage}>
                     <span class="flex items-center gap-3">
-                      <Button
-                        variant="subtle"
+                      {/* The value is the pending promotion's target while one
+                          is being confirmed, and the seat's own role otherwise.
+                          That is what puts the select back when the dialog is
+                          dismissed: the option changed in the DOM the moment it
+                          was picked, and only a change to this expression can
+                          undo it. */}
+                      <Select
                         size="sm"
-                        type="button"
-                        onClick={() =>
-                          void changeRole(host, host.role === "viewer" ? "editor" : "viewer")
-                        }
+                        value={pendingRoleFor(host) ?? host.role}
                         disabled={roleBusyId() === host.osnProfileId}
-                        class="transition"
-                        aria-label={`Make ${host.handle ? `@${host.handle}` : "host"} ${
-                          host.role === "viewer" ? "an editor" : "a viewer"
-                        }`}
+                        aria-label={`Role for ${nameOf(host)}`}
+                        onChange={(e) => selectRole(host, e.currentTarget.value as AssignableRole)}
                       >
-                        {roleBusyId() === host.osnProfileId
-                          ? "Saving…"
-                          : host.role === "viewer"
-                            ? "Make editor"
-                            : "Make viewer"}
-                      </Button>
+                        <For each={ASSIGNABLE_ROLES}>
+                          {(option) => <option value={option}>{ROLE_COPY[option].label}</option>}
+                        </For>
+                      </Select>
                       <Button
                         variant="subtle"
                         size="sm"
@@ -735,6 +766,58 @@ export default function HostsPanel(props: HostsPanelProps) {
           </ul>
         </Show>
       </Show>
+
+      {/* Kept mounted across the close so the exit animates; `shownPromotion`
+          is what keeps the person's name on screen through it.
+
+          `onClose` is the single place the pending change is dropped, not the
+          Cancel button: the dialog closes on Escape and on a backdrop click
+          too, and a revert wired only to Cancel would leave the select showing
+          a role nobody granted. */}
+      <Modal
+        open={pending() !== null}
+        onClose={() => setPending(null)}
+        label="Confirm this role change"
+        class="w-full max-w-md"
+      >
+        <Show when={shownPromotion()}>
+          {(promotion) => (
+            <div class="flex flex-col gap-4">
+              <p class="font-display text-text text-ui-md font-light">
+                Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
+                {ROLE_COPY[promotion().to].label.toLowerCase()}?
+              </p>
+              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                {ROLE_COPY[promotion().to].summary} You can change it back at any time.
+              </p>
+              <div class="flex flex-wrap justify-end gap-2">
+                <Button variant="quiet" type="button" onClick={() => setPending(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={() => {
+                    // Read from the signal rather than from the held copy above,
+                    // which survives the close for the exit animation and so is
+                    // no longer what is pending by the time this runs.
+                    const confirmed = pending();
+                    setPending(null);
+                    if (confirmed) void changeRole(confirmed.host, confirmed.to);
+                  }}
+                >
+                  Yes, make them {ROLE_COPY[promotion().to].label.toLowerCase()}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Show>
+      </Modal>
     </div>
   );
 }
+
+/** "an" before a vowel, "a" otherwise — the labels are ours, so this only ever
+ *  meets the handful of words in `ROLE_COPY`. */
+const anArticleFor = (role: AssignableRole) =>
+  /^[aeiou]/i.test(ROLE_COPY[role].label) ? "an" : "a";

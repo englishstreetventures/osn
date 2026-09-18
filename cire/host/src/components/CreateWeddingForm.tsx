@@ -7,14 +7,15 @@ import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import type { WeddingRole } from "../lib/wedding-roles";
 export interface WeddingSummary {
   id: string;
   slug: string;
   displayName: string;
-  /** The signed-in organiser's role on this wedding. Owners manage hosts,
-   *  codes, settings + destructive actions; editors get full module writes
-   *  (import, invite builder, event locations); viewers are read-only. */
-  role: "owner" | "editor" | "viewer";
+  /** The signed-in organiser's role on this wedding. What each one is offered
+   *  is `surfacesFor()` in `lib/wedding-roles` — the only place the portal
+   *  decides anything from this field. */
+  role: WeddingRole;
   /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
    *  Populated by the `/api/organiser/weddings` list endpoint. */
   entitlements: string[];

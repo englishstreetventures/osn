@@ -149,13 +149,14 @@ export const createOrganiserHostsReadRoutes = (
  * stay `weddingOwner()`. The split is deliberate and the line is
  * additive-versus-subtractive:
  *
- *   - An editor's ceiling is `editor`. `role` is `editor | viewer` and the owner
- *     is never rowed into `wedding_hosts`, so there is no seat above the
- *     caller's own to grant. Adding a peer is not escalation.
+ *   - An editor's ceiling is `editor`. Every assignable role ranks at or below
+ *     it and the owner is never rowed into `wedding_hosts`, so there is no seat
+ *     above the caller's own to grant. Adding a peer is not escalation, and
+ *     adding a `viewer` or a `helper` is less than one.
  *   - An editor cannot remove or demote ANYONE, so they cannot evict the owner's
- *     other co-hosts, cannot demote a rival to `viewer`, and cannot take the
- *     wedding over. The owner keeps `DELETE`, so every addition an editor makes
- *     is reversible by the one person who can't be removed.
+ *     other co-hosts, cannot demote a rival, and cannot take the wedding over.
+ *     The owner keeps `DELETE`, so every addition an editor makes is reversible
+ *     by the one person who can't be removed.
  *
  * That asymmetry is the whole safety argument: the worst an editor can do is add
  * someone unwanted, and the owner can always undo it. Same shape as the
@@ -295,8 +296,8 @@ export const createOrganiserHostsWriteRoutes = (
       group
         .use(weddingOwner(db))
         .use(rateLimitMiddlewareByUser(limiter))
-        // Flip a co-host between editor and viewer. Owner-only, unlike the add
-        // above — demoting an editor to viewer is a subtractive act, and the
+        // Set a co-host's role to any assignable one. Owner-only, unlike the
+        // add above — moving a seat down is a subtractive act, and the
         // asymmetry in this file's header is what keeps an editor from using
         // host management to entrench themselves. 404 when the profile isn't a
         // co-host of this wedding (covers the owner too: never rowed in).

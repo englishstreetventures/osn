@@ -128,6 +128,8 @@ describe("TopBar", () => {
     // Roles come off the API. An unknown one must still render something honest
     // rather than a blank chip or a crash — and it must understate rather than
     // overstate, so nobody is told they can edit a wedding the API will refuse.
+    // The floor is the lowest-RANKED role the portal knows, so it moves when a
+    // narrower role is added instead of staying at whatever was lowest once.
     render(() => (
       <TopBar
         session={SESSION}
@@ -141,7 +143,46 @@ describe("TopBar", () => {
         onOpenPalette={() => {}}
       />
     ));
-    expect(screen.getByTitle(/ask the owner for editor access/i).textContent).toBe("Viewer");
+    expect(screen.getByText("Helper")).toBeTruthy();
+    // And it is offered nothing that seat cannot reach: the preview button
+    // mints a code through a member-gated route.
+    expect(screen.queryByTestId("preview")).toBeNull();
+  });
+
+  it("badges a helper, and offers them no invite preview", () => {
+    render(() => (
+      <TopBar
+        session={SESSION}
+        wedding={{ ...RUTH, role: "helper" }}
+        weddings={[RUTH]}
+        sectionLabel="All weddings"
+        onWedding={() => {}}
+        onAll={() => {}}
+        onSecurity={() => {}}
+        onSignOut={() => {}}
+        onOpenPalette={() => {}}
+      />
+    ));
+    expect(screen.getByText("Helper")).toBeTruthy();
+    expect(screen.queryByTestId("preview")).toBeNull();
+  });
+
+  it("still offers the invite preview to a viewer, whose reads the API allows", () => {
+    render(() => (
+      <TopBar
+        session={SESSION}
+        wedding={{ ...RUTH, role: "viewer" }}
+        weddings={[RUTH]}
+        sectionLabel="All weddings"
+        onWedding={() => {}}
+        onAll={() => {}}
+        onSecurity={() => {}}
+        onSignOut={() => {}}
+        onOpenPalette={() => {}}
+      />
+    ));
+    expect(screen.getByText("Viewer")).toBeTruthy();
+    expect(screen.getByTestId("preview")).toBeTruthy();
   });
 
   it("opens the palette, and advertises its shortcut", () => {

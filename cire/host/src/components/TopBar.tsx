@@ -2,22 +2,11 @@ import Button from "@cire/ui/button";
 import type { RpSession } from "@shared/rp-auth";
 import { onMount, Show } from "solid-js";
 
+import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import PreviewInviteButton from "./PreviewInviteButton";
 import ProfileMenu from "./ProfileMenu";
 import WeddingSwitcher from "./WeddingSwitcher";
-
-/** Role chips. The label is what the badge says; the title is why it matters,
- *  which is the part a co-host who has just been told "you can't edit that"
- *  actually needs. */
-const ROLE_BADGE = {
-  owner: { label: "Owner", title: "You created this wedding and manage who hosts it" },
-  editor: { label: "Editor", title: "You can view and edit this wedding" },
-  viewer: {
-    label: "Viewer",
-    title: "You can view this wedding — ask the owner for editor access to make changes",
-  },
-} satisfies Record<string, { label: string; title: string }>;
 
 /**
  * The portal's only chrome.
@@ -62,10 +51,16 @@ export default function TopBar(props: {
   // does. Roles come off the API, and a chip that overstates what a co-host may
   // do is worse than one that understates it — the API is the real gate either
   // way, so the only thing at stake here is what the host is told.
-  const badge = () => {
+  const role = () => {
     const wedding = props.wedding;
-    if (!wedding) return null;
-    return ROLE_BADGE[wedding.role] ?? ROLE_BADGE.viewer!;
+    return wedding ? normaliseWeddingRole(wedding.role) : null;
+  };
+
+  /** The open wedding, but only for a seat that may read it. */
+  const previewable = () => {
+    const wedding = props.wedding;
+    const known = role();
+    return wedding && known && surfacesFor(known).canOpenDashboard ? wedding : null;
   };
 
   return (
@@ -110,13 +105,13 @@ export default function TopBar(props: {
                 onSelect={props.onWedding}
                 onAll={props.onAll}
               />
-              <Show when={badge()}>
-                {(role) => (
+              <Show when={role()}>
+                {(known) => (
                   <span
                     class="border-gold-dim text-gold-ink font-body text-ui-xs tracking-ui-widest hidden shrink-0 rounded-full border px-2 py-0.5 uppercase @2xl/frame:inline"
-                    title={role().title}
+                    title={ROLE_COPY[known()].badgeTitle}
                   >
-                    {role().label}
+                    {ROLE_COPY[known()].label}
                   </span>
                 )}
               </Show>
@@ -150,8 +145,12 @@ export default function TopBar(props: {
               here: seeing the invite as a guest sees it is one of the three
               from-anywhere actions this row exists to carry, and there is no
               other route to it — the palette lists modules, weddings and
-              account, not preview. */}
-          <Show when={props.wedding}>
+              account, not preview.
+
+              It mints a preview code through a member-gated route, so it needs
+              the same surface the dashboard does: a seat without that one has
+              nothing to preview and would get a 403 for pressing it. */}
+          <Show when={previewable()}>
             {(wedding) => <PreviewInviteButton weddingId={wedding().id} />}
           </Show>
 
