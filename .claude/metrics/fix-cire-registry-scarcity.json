@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1109,
+    "branch": "fix/cire-registry-scarcity",
+    "base_sha": "3a84bfb0f428a78e17756c6b02abf773657811e6",
+    "head_sha": "be7c168f3092a8b6388d895328ca88fb6baafad0",
+    "generated_at": "2026-09-18T02:17:31.429Z",
+    "merged_at": "2026-09-17T22:09:00Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 1073,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "not-fetched"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-09-17T10:46:06.122Z",
+    "last_ts": "2026-09-17T22:07:54.235Z",
+    "span_seconds": 40908,
+    "active_seconds": 3179,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 19.26280449999999,
+    "tokens": {
+      "input": 557,
+      "output": 35381,
+      "thinking": 0,
+      "cache_write_5m": 950003,
+      "cache_write_1h": 0,
+      "cache_read": 22040096
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 37,
+          "output": 16673,
+          "thinking": 0,
+          "cache_write_5m": 168009,
+          "cache_write_1h": 0,
+          "cache_read": 1193783
+        },
+        "usd_equivalent": 2.0639577499999997,
+        "messages": 22
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 290,
+          "output": 599,
+          "thinking": 0,
+          "cache_write_5m": 147833,
+          "cache_write_1h": 0,
+          "cache_read": 955093
+        },
+        "usd_equivalent": 2.8358555,
+        "messages": 10
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 230,
+          "output": 18109,
+          "thinking": 0,
+          "cache_write_5m": 634161,
+          "cache_write_1h": 0,
+          "cache_read": 19891220
+        },
+        "usd_equivalent": 14.362991250000004,
+        "messages": 115
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 37,
+          "output": 16673,
+          "thinking": 0,
+          "cache_write_5m": 168009,
+          "cache_write_1h": 0,
+          "cache_read": 1193783
+        },
+        "usd_equivalent": 2.0639577499999997,
+        "messages": 22
+      },
+      "subagent": {
+        "tokens": {
+          "input": 520,
+          "output": 18708,
+          "thinking": 0,
+          "cache_write_5m": 781994,
+          "cache_write_1h": 0,
+          "cache_read": 20846313
+        },
+        "usd_equivalent": 17.19884674999999,
+        "messages": 126
+      }
+    },
+    "effort": {
+      "high": 10,
+      "xhigh": 115
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 1,
+      "config": 0,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 193,
+        "deleted": 91
+      },
+      "docs": {
+        "added": 16,
+        "deleted": 4
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 121,
+        "deleted": 109
+      }
+    },
+    "packages": [
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 124,
+      "Read": 26,
+      "Write": 20,
+      "Skill": 4,
+      "SubagentHandback": 3,
+      "StructuredOutput": 3,
+      "Edit": 2,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "Grep": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1099,
+    "branch": "fix/cire-host-double-header",
+    "base_sha": "e48feae103cab5e2b76cc67c68bf6c7bcdd00378",
+    "head_sha": "8c75b3a9f689967a6d8449052f833b71512411db",
+    "generated_at": "2026-09-18T02:17:31.446Z",
+    "merged_at": "2026-09-17T21:20:05Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 1069,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "not-fetched"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-09-17T10:46:29.501Z",
+    "last_ts": "2026-09-17T21:04:15.256Z",
+    "span_seconds": 37066,
+    "active_seconds": 1762,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 11.581574250000001,
+    "tokens": {
+      "input": 874,
+      "output": 16142,
+      "thinking": 0,
+      "cache_write_5m": 554312,
+      "cache_write_1h": 0,
+      "cache_read": 11318370
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 18,
+          "output": 1994,
+          "thinking": 0,
+          "cache_write_5m": 61190,
+          "cache_write_1h": 0,
+          "cache_read": 201220
+        },
+        "usd_equivalent": 0.5329875000000001,
+        "messages": 8
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 150,
+          "output": 12087,
+          "thinking": 0,
+          "cache_write_5m": 360939,
+          "cache_write_1h": 0,
+          "cache_read": 8779509
+        },
+        "usd_equivalent": 6.948548250000002,
+        "messages": 75
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 706,
+          "output": 2061,
+          "thinking": 0,
+          "cache_write_5m": 132183,
+          "cache_write_1h": 0,
+          "cache_read": 2337641
+        },
+        "usd_equivalent": 4.1000385,
+        "messages": 23
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 18,
+          "output": 1994,
+          "thinking": 0,
+          "cache_write_5m": 61190,
+          "cache_write_1h": 0,
+          "cache_read": 201220
+        },
+        "usd_equivalent": 0.5329875000000001,
+        "messages": 8
+      },
+      "subagent": {
+        "tokens": {
+          "input": 856,
+          "output": 14148,
+          "thinking": 0,
+          "cache_write_5m": 493122,
+          "cache_write_1h": 0,
+          "cache_read": 11117150
+        },
+        "usd_equivalent": 11.04858675,
+        "messages": 100
+      }
+    },
+    "effort": {
+      "xhigh": 75,
+      "high": 23
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 1,
+      "docs": 0,
+      "config": 0,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 26,
+        "deleted": 0
+      },
+      "test": {
+        "added": 190,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 2,
+        "deleted": 7
+      }
+    },
+    "packages": [
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 82,
+      "Read": 10,
+      "Write": 6,
+      "Edit": 6,
+      "Skill": 4,
+      "Agent": 2,
+      "SubagentHandback": 2,
+      "StructuredOutput": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 2
+    },
+    "subagents": {
+      "attacker": 2
+    }
+  }
+}

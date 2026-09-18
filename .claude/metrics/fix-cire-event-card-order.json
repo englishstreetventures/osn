@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1108,
+    "branch": "fix/cire-event-card-order",
+    "base_sha": "0c567709784b2bc2cf57aacd891bfd80069f0e6a",
+    "head_sha": "a981ed0a2198d092ae665cdcbf8837bca1d12042",
+    "generated_at": "2026-09-18T02:17:31.437Z",
+    "merged_at": "2026-09-17T21:57:48Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 1071,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "not-fetched"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-09-17T10:48:13.907Z",
+    "last_ts": "2026-09-17T21:48:44.551Z",
+    "span_seconds": 39631,
+    "active_seconds": 2098,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 14.220400000000001,
+    "tokens": {
+      "input": 558,
+      "output": 14791,
+      "thinking": 0,
+      "cache_write_5m": 486869,
+      "cache_write_1h": 0,
+      "cache_read": 18685223
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 24,
+          "output": 2069,
+          "thinking": 0,
+          "cache_write_5m": 43756,
+          "cache_write_1h": 0,
+          "cache_read": 186484
+        },
+        "usd_equivalent": 0.418562,
+        "messages": 9
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 290,
+          "output": 1622,
+          "thinking": 0,
+          "cache_write_5m": 143673,
+          "cache_write_1h": 0,
+          "cache_read": 1044672
+        },
+        "usd_equivalent": 2.9245844999999995,
+        "messages": 10
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 244,
+          "output": 11100,
+          "thinking": 0,
+          "cache_write_5m": 299440,
+          "cache_write_1h": 0,
+          "cache_read": 17454067
+        },
+        "usd_equivalent": 10.877253500000005,
+        "messages": 122
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 24,
+          "output": 2069,
+          "thinking": 0,
+          "cache_write_5m": 43756,
+          "cache_write_1h": 0,
+          "cache_read": 186484
+        },
+        "usd_equivalent": 0.418562,
+        "messages": 9
+      },
+      "subagent": {
+        "tokens": {
+          "input": 534,
+          "output": 12722,
+          "thinking": 0,
+          "cache_write_5m": 443113,
+          "cache_write_1h": 0,
+          "cache_read": 18498739
+        },
+        "usd_equivalent": 13.801838,
+        "messages": 133
+      }
+    },
+    "effort": {
+      "high": 10,
+      "xhigh": 122
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 0,
+      "config": 0,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 19,
+        "deleted": 0
+      },
+      "test": {
+        "added": 193,
+        "deleted": 2
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 12,
+        "deleted": 10
+      }
+    },
+    "packages": [
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 154,
+      "Edit": 6,
+      "Write": 4,
+      "Read": 4,
+      "Skill": 3,
+      "StructuredOutput": 3,
+      "SubagentHandback": 2,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 7
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
+  }
+}
