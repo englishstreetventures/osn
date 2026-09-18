@@ -7,7 +7,7 @@ vi.mock("../../src/lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }));
 import { buildInviteMessage } from "../../src/lib/invite-message";
 
 describe("buildInviteMessage", () => {
-  it("produces the 3-line default shape (default prose, then URL, then code)", () => {
+  it("produces the 3-line default shape (default prose, then URL, then labelled code)", () => {
     const message = buildInviteMessage(
       "Nadia & Sam",
       "SHARMA-WIDGET-AB3K9-X7QPM",
@@ -16,7 +16,7 @@ describe("buildInviteMessage", () => {
     expect(message).toBe(
       "You're invited to Nadia & Sam! View your invitation and RSVP below.\n" +
         "https://guests.test/nadia-sam-abc123\n" +
-        "SHARMA-WIDGET-AB3K9-X7QPM",
+        "Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM",
     );
     // Exactly three lines.
     expect(message.split("\n")).toHaveLength(3);
@@ -33,8 +33,10 @@ describe("buildInviteMessage", () => {
     // path-routed, so a bare-origin link would open the primary wedding, not this
     // one.
     expect(lines[1]).toBe("https://guests.test/nadia-sam-abc123");
-    // Line 3 is the family's claim code.
-    expect(lines[2]).toBe("SHARMA-WIDGET-AB3K9-X7QPM");
+    // Line 3 is the family's claim code, labelled in the words the guest site's
+    // own field uses — the message has to tell a first-time guest what the
+    // string is for.
+    expect(lines[2]).toBe("Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM");
   });
 
   it("replaces line 1 with the host's custom message, keeping the URL + code", () => {
@@ -47,7 +49,9 @@ describe("buildInviteMessage", () => {
     const lines = message.split("\n");
     expect(lines[0]).toBe("Come celebrate with us in Goa!");
     expect(lines[1]).toBe("https://guests.test/nadia-sam-abc123");
-    expect(lines[2]).toBe("SHARMA-WIDGET-AB3K9-X7QPM");
+    // The label is composed, not part of the default prose, so a host's own
+    // line 1 still ships a labelled code.
+    expect(lines[2]).toBe("Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM");
     // The default prose must NOT appear when a custom message is set.
     expect(message).not.toContain("View your invitation and RSVP below");
   });

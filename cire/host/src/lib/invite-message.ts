@@ -8,16 +8,20 @@ import { CIRE_WEB_URL } from "./osn";
  *
  *   {message}
  *   {guestSiteUrl}
- *   {familyCode}
+ *   Your invitation code: {familyCode}
  *
  * Line 1 is the host's `customMessage` if they set one, else the built-in default
  * prose. Line 2 is this wedding's path on the public guest site
  * (`CIRE_WEB_URL/<slug>` / `PUBLIC_CIRE_WEB_URL/<slug>`). The guest site is SSR +
  * path-routed, so the link must carry the wedding slug in the PATH — sending the
  * bare origin would render whatever the bare domain resolves to (the primary
- * wedding), not necessarily this one. Line 3 is the family's claim code; guests
- * claim by entering it on that page (no `?code=` needed — the code is in the
- * message for the guest to type).
+ * wedding), not necessarily this one. Line 3 is the family's claim code, under
+ * the same words the guest site's own field uses (`Invitation code`), so a guest
+ * who has never seen the product knows what the string is for; they claim by
+ * typing it on that page (no `?code=` needed).
+ *
+ * The label is composed HERE rather than baked into the default prose, so a host
+ * who writes their own line 1 still sends a labelled code.
  *
  * `customMessage` is the optional per-wedding override (trimmed; an empty/
  * whitespace-only value falls back to the default prose), so the URL + code are
@@ -33,7 +37,7 @@ export function buildInviteMessage(
   const message =
     customMessage?.trim() ||
     `You're invited to ${weddingName}! View your invitation and RSVP below.`;
-  return `${message}\n${guestUrl}\n${familyCode}`;
+  return `${message}\n${guestUrl}\nYour invitation code: ${familyCode}`;
 }
 
 /**

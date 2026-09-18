@@ -125,7 +125,7 @@ export interface InviteCustomisation {
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
   // Optional host override for the first line of the copyable invite message
-  // (the line above the auto-appended guest-site URL + family code).
+  // (the line above the auto-appended guest-site URL and labelled claim code).
   inviteMessage: string | null;
   designId?: string;
 }

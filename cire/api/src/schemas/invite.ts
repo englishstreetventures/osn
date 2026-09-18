@@ -244,9 +244,10 @@ export const InviteTextBody = Schema.Struct({
   // welcome greeting.
   footerMessage: copyField(300),
   // Optional host override for the FIRST line of the copyable invite message
-  // (the line above the guest-site URL + family code). A free-text string capped
-  // at 600 chars — a couple of short sentences, enough for a warm personal note
-  // without letting a compromised token stuff the clipboard payload unbounded.
+  // (the line above the guest-site URL and the labelled claim code). A
+  // free-text string capped at 600 chars — a couple of short sentences, enough
+  // for a warm personal note without letting a compromised token stuff the
+  // clipboard payload unbounded.
   // Copied as plain text, never rendered as HTML, so no escaping; trimmed +
   // empty/whitespace-to-null by the service like the other copy fields.
   inviteMessage: copyField(600),

@@ -169,10 +169,12 @@ describe("GuestTable", () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const copied = writeText.mock.calls[0]![0];
-    // The custom message replaces line 1; the URL + code are still appended on
-    // their own lines beneath it (3-line shape).
+    // The custom message replaces line 1; the URL and the labelled code are
+    // still appended on their own lines beneath it (3-line shape).
     expect(copied).toBe(
-      "Come celebrate with us in Goa!\nhttps://guests.test/nadia-sam-abc123\nSHARMA-WIDGET-AB3K9-X7QPM",
+      "Come celebrate with us in Goa!\n" +
+        "https://guests.test/nadia-sam-abc123\n" +
+        "Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM",
     );
   });
 

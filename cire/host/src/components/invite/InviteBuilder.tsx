@@ -1373,7 +1373,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id="invite-message"
                     legend="Invite message"
                     hidden={activeSection() !== "invite-message"}
-                    description="Not part of the invite page — this is the first line of the message you copy from the Guests tab to send a household. Leave it blank to use the default. The guest-site link and the household's code are added automatically on the two lines below it."
+                    description="Not part of the invite page — this is the first line of the message you copy from the Guests tab to send a household. Leave it blank to use the default. The guest-site link and the household's labelled invitation code are added automatically on the two lines below it."
                   >
                     <TextAreaField
                       label="Invite message (optional)"
@@ -1381,7 +1381,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       placeholder="You're invited to our wedding! View your invitation and RSVP below."
                       value={draft.inviteMessage}
                       maxLength={COPY_CAPS.inviteMessage}
-                      hint="The wedding link and family code are appended automatically — don't include them here."
+                      hint="The wedding link and the household's invitation code are appended automatically — don't include them here."
                       onInput={(v) => setDraft("inviteMessage", v)}
                     />
                   </SectionCard>

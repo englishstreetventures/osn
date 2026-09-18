@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-18
 ---
 # Invite Builder
 
@@ -785,7 +785,12 @@ resolves to):
   returns `{ publicId, slug }`.
 - **Copy invite message** (`cire/host/.../invite-message.ts`, used by
   `GuestTable`): links to `${CIRE_WEB_URL}/<slug>`. The slug is threaded
-  `OrganiserApp → DashboardTabs → GuestTable → buildInviteMessage`.
+  `OrganiserApp → DashboardTabs → GuestTable → buildInviteMessage`. Three lines
+  — the host's line, that link, then `Your invitation code: <code>`. The label
+  is composed around the code rather than written into the default prose, so a
+  host who replaces line 1 still sends a code a first-time guest can place; the
+  words match the guest site's own field (`Invitation code`), not the
+  organiser-facing `Family Code` column.
 
 **Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
 `Cache-Control: no-store`, and both islands fetch it with `{ cache: "no-store" }`.
