@@ -1,5 +1,126 @@
 # @osn/ui
 
+## 3.0.0
+
+### Major Changes
+
+- 21f3cff: Split `@osn/ui` into `@shared/ui` and `@osn/auth-ui`, and re-key the design-token
+  contract from `--osn-*` to `--ui-*`.
+
+  `wiki/architecture/osn-and-musubi.md` states the discriminator: if an independent
+  implementation must use the same string to interoperate, it is OSN; otherwise it
+  is not. A `Button` fails that test — nobody has to spell it the way we do — so
+  the primitives were never OSN's, and the old page carved them out by hand
+  ("it keeps its name because `@pulse/web` and `tools/lab` consume it as well")
+  rather than applying the rule. The carve-out is gone.
+
+  | Was                                 | Is                                        | Holds                                                                   |
+  | ----------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------- |
+  | `@osn/ui/ui/*`, `@osn/ui/lib/utils` | `@shared/ui/ui/*`, `@shared/ui/lib/utils` | The primitives: `Button`, `Card`, `Modal`, `Field`, `Table`, `cn()`     |
+  | `@osn/ui/auth`, `@osn/ui/auth/*`    | `@osn/auth-ui`, `@osn/auth-ui/*`          | The auth views: `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, … |
+
+  `@osn/auth-ui` stays under `osn/` because every view in it is the client half of
+  a named ceremony in the spec — its shape is fixed by the protocol, not by our
+  styling — and it now depends on `@shared/ui` like any other consumer. Its
+  subpaths flatten (`@osn/ui/auth/SignIn` → `@osn/auth-ui/SignIn`), and the
+  package's bare specifier is the barrel that `@osn/ui/auth` used to be.
+
+  The token prefix moves with it. `--ui-surface` becomes `--ui-surface`,
+  `bg-ui-ground` becomes `bg-ui-ground`, `.ui-toast` becomes `.ui-toast`, and
+  `--ui-modal-enter` becomes `--ui-modal-enter`. A prefix naming the system a
+  component is _not_ part of was the last thing asserting the old shape. Apps map
+  the new names in exactly one place each, the contract block in their global
+  stylesheet.
+
+  The rename was driven by an explicit allowlist of the contract's own token
+  suffixes rather than a blanket `osn-` → `ui-` substitution, because the same
+  compound shape carries protocol identifiers that must not move: `osn-access`,
+  `osn-step-up`, `osn-kid`, `osn-pairwise-salt`, the `osn-api`/`osn-social`
+  Cloudflare project names. A missed token fails safe by staying `osn-`; a
+  mangled audience string would not.
+
+  One string is deliberately left spelled the old way: `ProfileOnboarding`'s
+  `localStorage` key. Every browser that has already dismissed that prompt holds
+  it under `@osn/ui:profile_onboarding_dismissed`, and renaming the key would show
+  the prompt again to exactly the people who said no.
+
+### Patch Changes
+
+- 21f3cff: Final `@shadcn/lint` pass over the musubi surfaces: `no-restyle` and
+  `no-arbitrary-values` both reach zero there.
+
+  `ResponsiveDialogContent` is now `<DialogContent presentation="sheet">` rather
+  than a hand-spelled anchor, radius and safe-area inset. Collapsing it onto the
+  shared variant made the plugin recognise it as a forwarding wrapper and start
+  tracking its own call sites, which surfaced two more: `p-0` on
+  `<ResponsiveDialogContent>` in `AuthDialogs`, a no-op on desktop that below `md`
+  was cancelling the sheet's `env(safe-area-inset-bottom)` padding.
+
+  **Two gaps in `@shared/ui` that the migration found by hitting them.** Both were
+  first met by dropping the call-site class, and both turned out to be real
+  regressions rather than surplus styling:
+
+  - `AvatarFallback` takes a `size`. The circle is sized by the caller and the
+    image inside it is `h-full w-full`, so it follows for free — initials are
+    type, and type does not. Left at one size, the 64px avatar on musubi's
+    settings page rendered its initials at 12px. Two steps, `sm` and `lg`,
+    because two is what the call sites actually distinguish.
+  - `Button` takes a `ghostDanger`. Four quiet destructive actions in list rows
+    had been carrying `variant="ghost"` plus a `text-destructive`; folding them
+    into `destructive` made them filled red at rest, which reads as an error
+    state down a column of rows. `cire/ui`'s own `bareDanger` documents having
+    already made and reverted this exact mistake.
+
+  `@musubi/landing` gains `--tracking-eyebrow` and `--leading-display` in its own
+  theme block. The eyebrow letter-spacing was written out at six sites and only
+  the one `.tsx` is linted, so all six moved or the token would have prevented no
+  drift. Verified against the built CSS, not assumed: the emitted rules carry the
+  same computed values, and renaming the utility makes `no-unknown-classes` fire.
+
+- 21f3cff: First pass of the `@shadcn/lint` migration: 183 of 530 call sites cleared.
+
+  `no-arbitrary-values` sites move onto the contract's scales, and `no-restyle`
+  sites either drop a class the component already applies or switch to a variant
+  that already exists. Neither rule is at `error` yet — the remaining 347 sites
+  are in a second pass, and a rule goes to `error` only when its count is zero.
+
+  Where a `no-restyle` site genuinely needs a variant that does not exist, the
+  call site is left alone and the proposal recorded rather than guessed at. Those
+  land with the variant, not before.
+
+  One test changed. `ResponsiveDialogContent` was overriding `DialogContent`'s
+  radius with `rounded-card`, and `musubi/social/src/App.css` maps
+  `--ui-radius-lg: var(--radius-card)` — so the component's own default already
+  resolved to musubi's 16px and the override restated it. The wrapper drops it and
+  the test now asserts `rounded-ui-lg`, which is the class that has to keep
+  resolving to 16px for the two to stay equivalent.
+
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+  - @shared/ui@0.2.0
+  - @shared/toast@0.3.0
+
 ## 2.0.1
 
 ### Patch Changes

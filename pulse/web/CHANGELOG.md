@@ -1,5 +1,333 @@
 # @osn/pulse
 
+## 0.24.0
+
+### Minor Changes
+
+- 21f3cff: Give `@musubi/social` and `@pulse/web` the browser test tier neither had, and
+  use it to prove the token contract reaches the pixel.
+
+  Until now `test:browser` was declared in exactly two packages, both cire, so
+  the root `turbo test:browser` covered cire alone and the two apps that consume
+  `@shared/ui` had no way to see rendered CSS at all. Their fast tier computes no
+  styles: it can assert a component carries `base:bg-ui-accent` as a string, but
+  not that the class emitted any CSS, that it won the cascade, or what colour was
+  painted. A Tailwind utility the scanner cannot resolve emits **nothing** — no
+  error, no rule — and every string assertion still passes.
+
+  Each app's `vitest.config.ts` splits into `unit` and `browser` projects on the
+  `cire/host` model, including the `VITEST_BROWSER_EXECUTABLE_PATH` escape hatch
+  for environments shipping a prebuilt Chromium whose build number does not match
+  the pinned Playwright.
+
+  The tests check the whole chain as colour rather than as text:
+  `bg-ui-accent` → `--color-ui-accent` → `--ui-accent` → the app's own
+  `--primary`, compared against that token resolved through the browser. They
+  also pin the two things a stylesheet-level test cannot see — that `base:` still
+  compiles to `:where(…)`, so a call-site `class` beats a component default; and,
+  in pulse, that `--ui-accent` paints the neutral `--primary` and **not** the
+  coral `--pulse-accent`, so nobody can "fix" the mapping to the brand colour and
+  silently repaint every shared button.
+
+  One trap is documented in `wiki/conventions/browser-tests.md`: every primitive
+  carries `transition-colors`, so `getComputedStyle` read immediately after
+  toggling `.dark` returns the value part-way through the transition — at t=0,
+  the old colour. A theme-switching test must kill transitions first, or it fails
+  while the token chain underneath it is entirely correct.
+
+- 21f3cff: Map `@pulse/web` onto the `@shared/design-tokens` contract, and fix two
+  contrast failures the conformance test found.
+
+  **`--ring` was below the focus-indicator floor in both themes** — 2.38:1 light
+  and 2.66:1 dark, against 3:1 (WCAG 2.2 SC 1.4.11). A focus ring is the one
+  component where failing contrast removes the feature outright: a keyboard user
+  has no other way to tell where they are. Now L=0.58 light (3.82:1 on the worst
+  ground) and L=0.62 dark (4.39:1), still reading as a ring rather than a border.
+
+  **`--destructive-foreground` in dark mode** was near-white on a lightened red
+  at 2.77:1, against 4.5:1 — the same defect and the same remedy as
+  `@musubi/social`'s. Now near-black at 6.62:1.
+
+  The mapping itself sends `--ui-accent` to the neutral `--primary`, **not** to
+  `--pulse-accent`. Pulse carries two accents; the contract means "the ground of
+  a primary button", which here is the near-black. Mapping the coral would
+  repaint every shared `<Button>` in the app — a redesign wearing the costume of
+  a refactor. The coral keeps its own names and stays app-level, which is where
+  it is used from. For the same reason `--ui-accent-soft` takes `--muted`
+  rather than `--pulse-accent-soft`: it is a tint of whatever the accent is, and
+  the accent is ink. A test pins both.
+
+  Two tokens shadcn's ramp has no name for are added: `--primary-hover` (shadcn
+  writes the pressed state as `bg-primary/90` at each call site, so a named role
+  has nothing to point at) and `--subtle` (pulse had no tertiary ink at all —
+  `--muted-foreground` is its faintest and carries the 4.5:1 body contract).
+
+  `--ui-hairline-strong` is mapped but waived: `--input` measures 1.10–1.31:1
+  against pulse's own grounds. Same class as `@musubi/social`'s and the same
+  design decision, tracked.
+
+### Patch Changes
+
+- 21f3cff: `Card` gains a `padding` prop, and the libraries themselves go on the scale
+
+  15 call sites across `@pulse/web` and `@musubi/social` were spelling a card's
+  padding as `class="p-4"`, `"p-5"` or `"p-6"`. It is `padding="sm" | "md" |
+"lg"` now.
+
+  `none` stays the default, and that is not an oversight: a card built from
+  `CardHeader` / `CardContent` / `CardFooter` takes its padding from those, and a
+  default here would double it. The two shapes are genuinely different cards, and
+  a test asserts the composed one picks up no padding of its own.
+
+  The scale codemod had only been run over the six apps, never over `@shared/ui`,
+  `@cire/ui`, `@shared/toast` or `@shared/sortable` — so the libraries still
+  carried four arbitrary type values of their own, including
+  `AvatarFallback`'s `text-[10px]`. They are on the contract's steps now.
+
+- 21f3cff: A house lint rule for the `base:` tie, and the forty sites it found
+
+  `base:` compiles to `:where(&)` — zero specificity — so a component's defaults
+  lose to a caller's **plain** utility by design. A caller who writes `base:` too
+  ties with them, and the tie is resolved by the order Tailwind emitted the rules
+  in: not the class-attribute order, and nothing visible at the call site.
+
+  `house/no-base-variant-at-call-site` reports it, at `error`, with the count
+  already cleared to zero rather than tolerated.
+
+  The rule has two conditions and needs both. The tag must start upper-case — a
+  `base:` on a plain `<div>` is a component styling its own markup, which is the
+  entire point of the variant. And the component must be **ours**, resolved
+  through its import: `@shared/ui`, `@osn/auth-ui`, `@cire/ui`, or a relative path. A wrapper handing
+  `base:fixed` down to Kobalte's `Dialog.Overlay` is not a tie at all, because
+  Kobalte sets no `base:` defaults — that wrapper is declaring the zero-specificity
+  default its own consumer will override. Without the second condition the rule
+  reports 199 sites, essentially every component in the shared layers, and says nothing true about any
+  of them.
+
+  Forty real sites, all fixed here: `ShareEventButton` in pulse (23, including a
+  share dialog that was not the width it asked for), `InfoPopover`'s trigger, and
+  both `UsernameInput`s passing `base:flex-1` to an `Input` that has `base:`
+  defaults of its own.
+
+- 21f3cff: The primitives move onto the contract's size scales, and controls get a radius of their own
+
+  The #1045 re-key moved every primitive's **colours** onto the contract and left
+  its **sizes and radii** on Tailwind's defaults — 14 of 23 components still wrote
+  `text-sm`, `rounded-md`, `rounded-full`. That is what the apps had been
+  overriding: 82 component-override sites between `@musubi/social` and
+  `@pulse/web`, and the commonest shapes were all "your default size is not our
+  size". 36 utilities are now contract steps, mapped by value through
+  `SCALE_MIGRATION` rather than by name.
+
+  **`--ui-radius-control` is new**, and it is a role rather than a size — the
+  same way `--ui-focus` is its own colour rather than an alias of the accent.
+  How round a _control_ is turns out to be an app-level decision independent of
+  how round a card is: musubi's house style is pill CTAs, cire's is a sharp 4px,
+  pulse sits between. A shared control picking one of the sized steps gets
+  overridden at every call site in at least one app, which is exactly what
+  `<Button class="rounded-pill">` ×18 in musubi was. Those 18 are deleted.
+
+  **`@pulse/web` had no type scale mapped at all.** It maps colours and radii, so
+  every `text-ui-*` in a shared component was resolving to the contract package's
+  neutral fallback — a different type system showing through in the middle of that
+  one, and invisible, because a fallback renders legibly. Its seven steps are now
+  written down, taken from `pulse/DESIGN.md` and from what the tree actually uses,
+  and they land within half a pixel of the contract's own steps. Two tests hold
+  them: all seven present, and the list ascending.
+
+  `leading-none` stays Tailwind's in four single-line labels. The contract's
+  `none` is 1.1 — a tight line, not literally none — so the two mean different
+  things, and the contract now says so where the step is declared.
+
+- 21f3cff: The explore nav's three pills, the filter rail's two chips and the carousel's two arrows each become one component
+
+  Seven hand-written buttons, three shapes. Every pair had drifted in the way
+  copies do: the sign-in pill had no hover state and the Host pill did, while the
+  filter rail's two chips differed only in a label colour.
+
+  `--pulse-accent` is now in the Tailwind theme (`--color-pulse-accent` and
+  friends), which is what made `NavPill` possible at all. The coral was previously
+  reachable only through an inline `style={{ background: "var(--pulse-accent)" }}`
+  plus a `text-[var(--pulse-accent-fg)]` arbitrary value, because no utility
+  existed. A browser test asserts the new utility actually paints the coral — an
+  inline style cannot silently fail, and a utility Tailwind never compiled emits
+  no rule at all.
+
+  `FilterChip` adds `aria-pressed`, which neither call site had. The rail marked
+  its selected chip by inverting its colours and nothing else, so every chip read
+  the same in both states to anyone not looking at it.
+
+- 21f3cff: Raw Tailwind palette colours become theme tokens, and two of them were failing contrast
+
+  `@shadcn/lint`'s `no-raw-colors` is the rule that makes the token contract
+  enforceable rather than aspirational, and it cannot go to `error` while these
+  exist. Fixing them first is the prerequisite, not the cleanup.
+
+  `musubi/social` and `pulse/web` gain `--color-success` and `--color-warn`. Both
+  values already existed as `--toast-accent-*`, contrast-checked and dark-mode
+  aware; what was missing was a _utility_, which is why nine call sites reached
+  for `text-green-600`, `bg-emerald-500` and `border-amber-500/40` instead. A raw
+  palette colour is fixed sRGB and does not move when the theme flips.
+
+  Two of them were live defects rather than only inconsistencies. Against pulse's
+  background, `text-green-600` measures **3.08:1** — below the 4.5:1 floor WCAG 2.2
+  SC 1.4.3 sets for text — and the `bg-emerald-500` "open now" dot measures
+  **2.36:1**, below the 3:1 floor SC 1.4.11 sets for a non-text indicator. The
+  tokens read 5.38:1 to 10.09:1.
+
+  _Measured 2026-09-17 — `contrastRatio` from `@shared/color`, each value against
+  `--background` in both themes._
+
+  In `@shared/ui`, `OtpInput`'s red/green/blue borders and two auth views become
+  contract tokens, and ten `border-border` / `bg-border` in the primitives become
+  `border-ui-hairline`. An app-vocabulary name inside a library package is the
+  thing the contract exists to stop; every app happens to define `--color-border`
+  today, so this was a latent break rather than a live one.
+
+- 21f3cff: Arbitrary type values move onto the contract's scales
+
+  `scripts/codemod-scale.ts` rewrote 64 values across the two Solid apps — 62 in
+  `@pulse/web`, 2 in `@musubi/social` — from `text-[…]`, `tracking-[…]` and
+  `leading-[…]` onto the contract's steps, driven by `SCALE_MIGRATION` in
+  `@shared/design-tokens`.
+
+  `FilterRail`'s drift guard named the old `text-[13px]` and now names
+  `text-ui-sm`, which is the same size on the scale; the glyphs it counts are
+  unchanged.
+
+- 21f3cff: Final `@shadcn/lint` pass over the Pulse surfaces and the lab: `no-restyle` and
+  `no-arbitrary-values` both reach zero there.
+
+  **Two `shared/ui` defects the migration found by being blocked on them.**
+
+  `DropdownMenuTrigger` was a bare Kobalte re-export with no styling and no focus
+  treatment at all, so an avatar-as-trigger — the account menu in both the Pulse
+  header and the explore nav — had no focus ring a call site was allowed to give
+  it. It now takes a `treatment`, `bare` by default so the `as={Button}` spelling is
+  untouched, and `pill` for the trigger that is itself the control. The ring and
+  the radius are one choice because they cannot disagree: a rectangular focus ring
+  around a circular avatar is the defect, not a variation on it. Both call sites
+  render identically — Pulse maps `--ui-focus` to its own `--ring` and
+  `--ui-radius-pill` to `9999px`.
+
+  `DialogClose` had been given a concrete `ComponentProps<"button">`, which
+  dropped Kobalte's polymorphic `as` from the type while leaving it working at
+  runtime. Its own doc comment names `<DialogClose as={Button}>Cancel</DialogClose>`
+  as the pattern the `bare` treatment exists to serve, and `tools/lab` is the only
+  consumer of it repo-wide, so the type regression broke that package's typecheck
+  and nothing else. Both are polymorphic again.
+
+  Pulse's arbitrary values become named entries in each app's own theme block
+  rather than the library-facing contract: `@pulse/landing` gains `--text-tag`,
+  `--text-meta`, three `--tracking-mono-*` steps and `--leading-display`;
+  `@pulse/web` gains `--container-hero` and `--spacing-accent-word`. The two hero
+  font sizes are named rather than snapped — 9.6px and 10.4px both sit below the
+  scale's smallest step, so rounding them up would change the eyebrow rather than
+  tidy it. Verified against the built CSS, since a wrong `@theme` entry emits no
+  rule at all rather than an error.
+
+  `tools/lab`'s radius maps gain `--ui-radius-sheet`, which the contract had
+  added without them catching up.
+
+- 21f3cff: Second migration pass over the Pulse surfaces: 64 more `@shadcn/lint` sites
+  cleared, and two real defects with them.
+
+  **`CreateEventForm` painted its validation errors and announced nothing.** Two
+  inputs set `border-destructive` by hand and no `aria-invalid` at all, so the
+  error was visible to a sighted user and invisible to a screen reader. They set
+  `aria-invalid` now and the border comes from `controlClass`'s own
+  `base:aria-[invalid=true]:border-ui-danger`, which was already there and unused.
+
+  **`ShareEventButton` drew two different Share buttons depending on viewport.**
+  The desktop branch hand-wrote `bg-secondary … rounded-md px-3 text-xs` onto a
+  `PopoverTrigger`; the mobile branch eleven lines below already rendered
+  `<Button variant="secondary" size="sm">`. Every class matched except the radius
+  — 8px against the component's 10px. The trigger is now
+  `<PopoverTrigger as={Button} variant="secondary" size="sm">`.
+
+  The arbitrary values move onto the scales value-for-value where one exists
+  (`w-[46px]` → `w-11.5`, `min-w-[180px]` → `min-w-45`, `rounded-[10px]` →
+  `rounded-lg`, which is pulse's own `--radius`). One value moved: `rounded-[5px]`
+  → `rounded-sm`, 5px to 6px.
+
+  `pulse/web/src/lib/ui.ts` was considered for the repeated call-site classes and
+  deliberately not used. Replacing a flagged literal with `class={SOME_CONST}`
+  makes the rule report nothing, because the attribute stops being a string
+  literal — measured, not assumed. That would silence the rule without changing
+  one byte of what lands on the shared component, and hide the backlog from the
+  ratchet. `lib/ui.ts` stays right for an app treatment on an app element, which
+  is what `CLOSE_FRIEND_RING_CLASS` is; none of these are that.
+
+- 21f3cff: Split `@osn/ui` into `@shared/ui` and `@osn/auth-ui`, and re-key the design-token
+  contract from `--osn-*` to `--ui-*`.
+
+  `wiki/architecture/osn-and-musubi.md` states the discriminator: if an independent
+  implementation must use the same string to interoperate, it is OSN; otherwise it
+  is not. A `Button` fails that test — nobody has to spell it the way we do — so
+  the primitives were never OSN's, and the old page carved them out by hand
+  ("it keeps its name because `@pulse/web` and `tools/lab` consume it as well")
+  rather than applying the rule. The carve-out is gone.
+
+  | Was                                 | Is                                        | Holds                                                                   |
+  | ----------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------- |
+  | `@osn/ui/ui/*`, `@osn/ui/lib/utils` | `@shared/ui/ui/*`, `@shared/ui/lib/utils` | The primitives: `Button`, `Card`, `Modal`, `Field`, `Table`, `cn()`     |
+  | `@osn/ui/auth`, `@osn/ui/auth/*`    | `@osn/auth-ui`, `@osn/auth-ui/*`          | The auth views: `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, … |
+
+  `@osn/auth-ui` stays under `osn/` because every view in it is the client half of
+  a named ceremony in the spec — its shape is fixed by the protocol, not by our
+  styling — and it now depends on `@shared/ui` like any other consumer. Its
+  subpaths flatten (`@osn/ui/auth/SignIn` → `@osn/auth-ui/SignIn`), and the
+  package's bare specifier is the barrel that `@osn/ui/auth` used to be.
+
+  The token prefix moves with it. `--ui-surface` becomes `--ui-surface`,
+  `bg-ui-ground` becomes `bg-ui-ground`, `.ui-toast` becomes `.ui-toast`, and
+  `--ui-modal-enter` becomes `--ui-modal-enter`. A prefix naming the system a
+  component is _not_ part of was the last thing asserting the old shape. Apps map
+  the new names in exactly one place each, the contract block in their global
+  stylesheet.
+
+  The rename was driven by an explicit allowlist of the contract's own token
+  suffixes rather than a blanket `osn-` → `ui-` substitution, because the same
+  compound shape carries protocol identifiers that must not move: `osn-access`,
+  `osn-step-up`, `osn-kid`, `osn-pairwise-salt`, the `osn-api`/`osn-social`
+  Cloudflare project names. A missed token fails safe by staying `osn-`; a
+  mangled audience string would not.
+
+  One string is deliberately left spelled the old way: `ProfileOnboarding`'s
+  `localStorage` key. Every browser that has already dismissed that prompt holds
+  it under `@osn/ui:profile_onboarding_dismissed`, and renaming the key would show
+  the prompt again to exactly the people who said no.
+
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+- Updated dependencies [21f3cff]
+  - @shared/ui@0.2.0
+  - @shared/design-tokens@0.3.0
+  - @shared/toast@0.3.0
+
 ## 0.23.1
 
 ### Patch Changes

@@ -1,5 +1,58 @@
 # @osn/landing
 
+## 0.2.1
+
+### Patch Changes
+
+- 21f3cff: Final `@shadcn/lint` pass over the musubi surfaces: `no-restyle` and
+  `no-arbitrary-values` both reach zero there.
+
+  `ResponsiveDialogContent` is now `<DialogContent presentation="sheet">` rather
+  than a hand-spelled anchor, radius and safe-area inset. Collapsing it onto the
+  shared variant made the plugin recognise it as a forwarding wrapper and start
+  tracking its own call sites, which surfaced two more: `p-0` on
+  `<ResponsiveDialogContent>` in `AuthDialogs`, a no-op on desktop that below `md`
+  was cancelling the sheet's `env(safe-area-inset-bottom)` padding.
+
+  **Two gaps in `@shared/ui` that the migration found by hitting them.** Both were
+  first met by dropping the call-site class, and both turned out to be real
+  regressions rather than surplus styling:
+
+  - `AvatarFallback` takes a `size`. The circle is sized by the caller and the
+    image inside it is `h-full w-full`, so it follows for free — initials are
+    type, and type does not. Left at one size, the 64px avatar on musubi's
+    settings page rendered its initials at 12px. Two steps, `sm` and `lg`,
+    because two is what the call sites actually distinguish.
+  - `Button` takes a `ghostDanger`. Four quiet destructive actions in list rows
+    had been carrying `variant="ghost"` plus a `text-destructive`; folding them
+    into `destructive` made them filled red at rest, which reads as an error
+    state down a column of rows. `cire/ui`'s own `bareDanger` documents having
+    already made and reverted this exact mistake.
+
+  `@musubi/landing` gains `--tracking-eyebrow` and `--leading-display` in its own
+  theme block. The eyebrow letter-spacing was written out at six sites and only
+  the one `.tsx` is linted, so all six moved or the token would have prevented no
+  drift. Verified against the built CSS, not assumed: the emitted rules carry the
+  same computed values, and renaming the utility makes `no-unknown-classes` fire.
+
+- 21f3cff: First pass of the `@shadcn/lint` migration: 183 of 530 call sites cleared.
+
+  `no-arbitrary-values` sites move onto the contract's scales, and `no-restyle`
+  sites either drop a class the component already applies or switch to a variant
+  that already exists. Neither rule is at `error` yet — the remaining 347 sites
+  are in a second pass, and a rule goes to `error` only when its count is zero.
+
+  Where a `no-restyle` site genuinely needs a variant that does not exist, the
+  call site is left alone and the proposal recorded rather than guessed at. Those
+  land with the variant, not before.
+
+  One test changed. `ResponsiveDialogContent` was overriding `DialogContent`'s
+  radius with `rounded-card`, and `musubi/social/src/App.css` maps
+  `--ui-radius-lg: var(--radius-card)` — so the component's own default already
+  resolved to musubi's 16px and the override restated it. The wrapper drops it and
+  the test now asserts `rounded-ui-lg`, which is the class that has to keep
+  resolving to 16px for the two to stay equivalent.
+
 ## 0.2.0
 
 ### Minor Changes
