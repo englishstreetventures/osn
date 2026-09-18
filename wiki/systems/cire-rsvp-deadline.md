@@ -5,7 +5,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-18
 ---
 # RSVP deadline
 
@@ -92,15 +92,45 @@ The deadline rides the **claim payload** (`ClaimResponse.rsvpDeadline`), not the
 }
 ```
 
-Both `closesAt` and `closed` are sent because a guest can sit on a claimed invite for hours. `createRsvpClosed` (`cire/invites/src/components/createRsvpClosed.ts`) schedules **one** timer at `closesAt` and re-derives the verdict — nothing polls, nothing wakes a sleeping phone — so an invite left open across the deadline locks itself instead of leading to a server 403. Delays beyond `setTimeout`'s 32-bit range are deliberately not scheduled (they would fire immediately and close a far-off invite on sight).
+### Three states, not two
 
-One verdict drives three surfaces, in both the `classic` and `gala` designs:
+The date a guest has to act on should not read the same a month out as it does in its final week, so the guest side has a **tri-state verdict**, not a boolean. `rsvpDeadlineState` (`cire/invites/src/components/rsvp-deadline.ts`) answers:
 
-1. **A line directly on top of the event cards** — "Kindly respond by Tuesday 1 September 2026." while open; "RSVPs closed on …" once shut. One line governs every card (a per-card repeat would be four copies of one fact), so it is placed as the list's **label**, not as a third line of section header: in `classic` it sits below the centred header block, in `gala` *below* the header rule. Both hold it tight to the list (`mb-3`) with nothing between, and both **centre** it — the line speaks for the whole list, so running it along the cards' left edge made it read as a note on the first card rather than on all of them. Pinned by a DOM-position test in each pack.
+| State | When | Notice | Claim-panel line |
+|---|---|---|---|
+| `open` | more than 7 days to go | "Kindly respond by …" | "RSVP by …" |
+| `closing-soon` | 7 days or fewer | "RSVPs close soon — kindly respond by …" | "RSVP by … — closing soon" |
+| `closed` | past `closesAt` | "RSVPs closed on …" | "RSVPs closed on …" |
 
-   **Its colour is `--color-gold-ink`, never `--color-gold`.** At 0.85rem this is normal-size text, which WCAG 1.4.3 puts at 4.5:1, while `--color-gold` is the *metal* — rules, borders, buttons — and `derivePalette` deliberately holds it only to the 3:1 UI floor so a genuinely gold gold isn't bleached into a cream. A live invite on a taupe-on-cream scheme shipped this line at **3.35:1**: over the floor, under the bar, so nothing moved it. `--color-gold-ink` is the same hue walked to 4.5:1 against all three surfaces — the section's tone is the organiser's pick, so any of `ground` / `card` / `raised` can be the backdrop. Closed, the line drops to `--color-text-muted`, which is walked the same way. Each pack asserts its own class: the two live at separate call sites with nothing shared between them, so one can regress while the other stays right. See `[[cire-invite-builder]]`.
-2. **Each card's Respond button** — relabelled "RSVPs closed" and marked `aria-disabled`. Relabelled rather than removed: a vanished button reads as a broken invite. **`aria-disabled`, not the native `disabled`** (C-M2): the native attribute takes the control out of the tab order, which would make the one per-card explanation of why the action is gone unreachable by keyboard, and would drop focus to `<body>` if the deadline passed while it was focused. The click handler enforces it, and `aria-describedby` points at the notice above via the shared `RSVP_NOTICE_ID` — the notice is the only place the *date* appears. Losing the native attribute also loses WCAG 1.4.3's inactive-component exemption, so the closed state reuses the **outlined** treatment already shipped beside it rather than dimming the filled button. *Event Details stays open* — only the answer locks.
-3. **The RSVP sheet** — read-only: every control disabled, no submit button at all, the dismiss button says "Close". Normally unreachable (Respond can't be activated), but reachable if the deadline passes with the sheet already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button *when nothing else holds it* (C-L2).
+`null` is the fourth answer and means **this wedding set no deadline** — nothing renders. It is never returned for a real deadline, including one whose `closesAt` will not parse: that case asks `isRsvpClosed`, which falls back to the server's own verdict, and an unparseable instant the server calls open reads `open`. Nearness cannot be measured from a broken instant, and a notice that vanished while the buttons stayed locked is the failure that shape prevents.
+
+> [!note] The seven days are measured on the instant, not on calendar days.
+> `closesAt` is already the last millisecond of the deadline's day in the wedding's zone. Counting calendar days instead would mean re-deriving that zone's offset on the client — the same two-pass DST problem the API solves above — and an hour of drift at the edge of a seven-day band is invisible to a guest.
+
+**Urgency is never carried by colour alone** (WCAG 1.4.1). Each state says something different in words as well as in shape, so a guest who cannot separate the two golds still reads the difference.
+
+### How it re-derives itself
+
+Both `closesAt` and `closed` are sent because a guest can sit on a claimed invite for hours. `createRsvpDeadlineState` (`cire/invites/src/components/createRsvpDeadlineState.ts`) keeps **one timer live at a time** and chains it: the effect reads its own clock signal, waits for the next boundary still ahead — the start of the final week, then the close itself — and re-arms when that one fires. Nothing polls, nothing wakes a sleeping phone, and an invite left open across the deadline locks itself instead of leading to a server 403.
+
+Chained rather than two timers armed at once, because `setTimeout`'s delay is clamped to a signed 32-bit integer (~24.8 days) and a longer one fires immediately. A deadline **25 to 32 days out** has its near boundary inside that range and its close outside it: two independent timers would arm the first, fire it, and never arm the second, leaving that session able to reach "closing soon" and never lock. Waiting for one boundary and then measuring again from there reaches both. A boundary still beyond the range is not scheduled at all, which is what stops a far-off invite closing on sight.
+
+One verdict drives **four** surfaces, in both the `classic` and `gala` designs:
+
+1. **A line in the claim panel, where the guest lands** — the date as a label rather than a sentence, under the greeting: "RSVP by Tuesday 1 September 2026". Deliberately not the notice's wording, so the two copies on one page read as two statements of a fact rather than as one sentence printed twice.
+
+   It is an **ordinary paragraph**: no `role`, no `id`, and no `aria-hidden`. Silent because it is not a live region — a second live region would read the same fact twice every time the deadline moved — but still in the accessibility tree, because hiding it would take the date away from exactly the screen-reader user this copy exists for.
+2. **A line directly on top of the event cards** — one line governs every card (a per-card repeat would be four copies of one fact), so it is placed as the list's **label**, not as a third line of section header: in `classic` it sits below the centred header block, in `gala` *below* the header rule. Both hold it tight to the list (`mb-3`) with nothing between, and both **centre** it — the line speaks for the whole list, so running it along the cards' left edge made it read as a note on the first card rather than on all of them. Pinned by a DOM-position test in each pack.
+
+   This is the copy that **announces** (`role="status"`) and the one each closed Respond button describes itself by (`RSVP_NOTICE_ID`), so it is also the one that has to stay in the DOM once the deadline passes — which it does, because a wedding with a deadline renders this line in all three states.
+
+   **Its colour is `--color-gold-ink`, never `--color-gold`.** This is normal-size text, which WCAG 1.4.3 puts at 4.5:1, while `--color-gold` is the *metal* — rules, borders, buttons — and `derivePalette` deliberately holds it only to the 3:1 UI floor so a genuinely gold gold isn't bleached into a cream. A live invite on a taupe-on-cream scheme shipped this line at **3.35:1**: over the floor, under the bar, so nothing moved it. `--color-gold-ink` is the same hue walked to 4.5:1 against all three surfaces — the section's tone is the organiser's pick, so any of `ground` / `card` / `raised` can be the backdrop. Closed, the line drops to `--color-text-muted`, which is walked the same way. See `[[cire-invite-builder]]`.
+
+   `closing-soon` and `closed` add a **border and padding** and nothing else: no tint behind the text. A wash between the ink and the section would composite a backdrop neither `derivePalette`'s walk nor `RESIDUAL_PAIRS` measures, which is how an organiser-side chip once shipped marked at under 2:1 with a green suite. Both packs assert the absence.
+
+   `RsvpDeadlineNotice` (`cire/invites/src/components/RsvpDeadlineNotice.tsx`) owns the state-to-treatment mapping for all four call sites, so the packs cannot drift on which state looks like what. **Placement is still each pack's own** — spacing and alignment are passed in, and each pack's tests pin its own.
+3. **Each card's Respond button** — relabelled "RSVPs closed" and marked `aria-disabled`. Relabelled rather than removed: a vanished button reads as a broken invite. **`aria-disabled`, not the native `disabled`** (C-M2): the native attribute takes the control out of the tab order, which would make the one per-card explanation of why the action is gone unreachable by keyboard, and would drop focus to `<body>` if the deadline passed while it was focused. The click handler enforces it, and `aria-describedby` points at the notice above via the shared `RSVP_NOTICE_ID`. Losing the native attribute also loses WCAG 1.4.3's inactive-component exemption, so the closed state reuses the **outlined** treatment already shipped beside it rather than dimming the filled button. *Event Details stays open* — only the answer locks.
+4. **The RSVP sheet** — read-only: every control disabled, no submit button at all, the dismiss button says "Close". Normally unreachable (Respond can't be activated), but reachable if the deadline passes with the sheet already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button *when nothing else holds it* (C-L2).
 
 The dates render in the **wedding's** zone, so a guest abroad sees the date the couple wrote, not the one their own clock rolls it to.
 
@@ -152,4 +182,4 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 | Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
 | Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
 | Organiser UI | `cire/host/src/components/SettingsPanel.tsx` |
-| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpClosed.ts`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

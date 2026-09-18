@@ -3,6 +3,8 @@ import { Show, For } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
 import { filterThemeVars } from "./invite-theme";
+import type { RsvpDeadlineState } from "./rsvp-deadline";
+import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
 
@@ -38,6 +40,15 @@ interface LoginSectionProps {
    * or guest name. Absent/null ⇒ the built-in default greeting.
    */
   welcomeMessage?: string | null;
+  /**
+   * Where the wedding's RSVP deadline stands, derived once by the page so this
+   * panel, every Respond button and the RSVP sheet read one verdict.
+   *
+   * The state alone, not the sentence: the deadline itself is already on
+   * `result`, so passing both would let the words and the treatment disagree.
+   * Absent/null ⇒ no deadline copy, which is what a wedding without one gets.
+   */
+  rsvpDeadlineState?: RsvpDeadlineState | null;
   /**
    * Ends the household session — a shared device, or a code that opened the
    * wrong family's invite. The PARENT owns the actual sign-out: revoking
@@ -258,6 +269,17 @@ export function LoginSection(props: LoginSectionProps) {
               {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
             </p>
           </Show>
+          {/* The RSVP-by date, where the guest lands. The events section states
+              it again on top of the cards, and THAT copy is the live region and
+              the `aria-describedby` target — this one is an ordinary paragraph,
+              so the pair is read once each in browse mode and announced once
+              between them when the deadline moves. */}
+          <RsvpDeadlineNotice
+            deadline={props.result?.rsvpDeadline}
+            state={props.rsvpDeadlineState ?? null}
+            variant="panel"
+            class="mx-auto mb-8 max-w-[420px]"
+          />
           <Show when={props.onSignOut}>
             <Button
               variant="bare"

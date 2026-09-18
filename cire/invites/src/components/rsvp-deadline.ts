@@ -19,6 +19,51 @@ import type { RsvpDeadline } from "./types";
  */
 export const RSVP_NOTICE_ID = "rsvp-deadline-notice";
 
+/**
+ * How much of the deadline is left, as a guest experiences it.
+ *
+ * Three states rather than a boolean, because the one date a guest has to act
+ * on should read differently a month out, a few days out, and once it is gone.
+ * The fourth case is `null` — this wedding has no deadline — which renders
+ * nothing at all.
+ */
+export type RsvpDeadlineState = "open" | "closing-soon" | "closed";
+
+/**
+ * How close "closing soon" is: the final week.
+ *
+ * Measured against `closesAt` — the instant the API already resolved as the
+ * last millisecond of the deadline's day in the wedding's own zone — rather
+ * than against a count of calendar days. Counting days would mean re-deriving
+ * the wedding's zone offset on the client, and an hour of DST drift at the edge
+ * of a seven-day band is invisible to a guest.
+ */
+export const RSVP_SOON_WINDOW_DAYS = 7;
+
+const SOON_WINDOW_MS = RSVP_SOON_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * Which of the three states this deadline is in. `null` ONLY for a wedding with
+ * no deadline — every real deadline gets one of the three, so the notice can
+ * never vanish while the buttons stay locked.
+ *
+ * `closed` is decided by {@link isRsvpClosed}, which the Respond buttons and the
+ * RSVP sheet also hang off, so the surfaces cannot disagree. An unparseable
+ * `closesAt` that is not closed reads `open`: nearness cannot be measured from
+ * a broken instant, and overstating urgency on malformed data is the worse
+ * failure — the same direction `isRsvpClosed` already fails.
+ */
+export function rsvpDeadlineState(
+  deadline: RsvpDeadline | null | undefined,
+  now: Date,
+): RsvpDeadlineState | null {
+  if (!deadline) return null;
+  if (isRsvpClosed(deadline, now)) return "closed";
+  const closesAt = Date.parse(deadline.closesAt);
+  if (Number.isNaN(closesAt)) return "open";
+  return closesAt - now.getTime() <= SOON_WINDOW_MS ? "closing-soon" : "open";
+}
+
 /** Has the deadline passed? `null` (no deadline) is never closed. */
 export function isRsvpClosed(deadline: RsvpDeadline | null | undefined, now: Date): boolean {
   if (!deadline) return false;
@@ -72,19 +117,43 @@ export function formatDeadlineDay(deadline: RsvpDeadline): string {
 }
 
 /**
- * The line shown under the events heading: an invitation to reply while the
- * door is open, a statement of fact once it has shut. `null` ⇒ render nothing,
- * which is what a wedding with no deadline gets.
+ * The line that labels the event list: an invitation to reply while the door is
+ * open, a push once the week is running out, a statement of fact once it has
+ * shut. `null` ⇒ render nothing, which is what a wedding with no deadline gets.
  *
- * Takes the verdict rather than a clock so the notice, the disabled Respond
- * buttons and the read-only sheet can't disagree — the caller derives `closed`
- * once (see `createRsvpClosed`) and everything hangs off it.
+ * Each state says something different in WORDS, not only in colour — the box
+ * and the ink around it are the second signal, never the only one (WCAG 1.4.1).
+ *
+ * Takes the state rather than a clock so the notice, the disabled Respond
+ * buttons and the read-only sheet can't disagree: the caller derives the state
+ * once (see `createRsvpDeadlineState`) and everything hangs off it.
  */
 export function deadlineNotice(
   deadline: RsvpDeadline | null | undefined,
-  closed: boolean,
+  state: RsvpDeadlineState | null,
 ): string | null {
-  if (!deadline) return null;
+  if (!deadline || !state) return null;
   const day = formatDeadlineDay(deadline);
-  return closed ? `RSVPs closed on ${day}.` : `Kindly respond by ${day}.`;
+  if (state === "closed") return `RSVPs closed on ${day}.`;
+  if (state === "closing-soon") return `RSVPs close soon — kindly respond by ${day}.`;
+  return `Kindly respond by ${day}.`;
+}
+
+/**
+ * The same fact as a short line for the claim panel, where a guest lands: a
+ * label and a date rather than a sentence, because it sits under a greeting
+ * among other facts about the household rather than on top of a list.
+ *
+ * Kept distinct from {@link deadlineNotice} so the two copies a guest meets read
+ * as two statements rather than as one sentence printed twice.
+ */
+export function deadlineSummary(
+  deadline: RsvpDeadline | null | undefined,
+  state: RsvpDeadlineState | null,
+): string | null {
+  if (!deadline || !state) return null;
+  const day = formatDeadlineDay(deadline);
+  if (state === "closed") return `RSVPs closed on ${day}`;
+  if (state === "closing-soon") return `RSVP by ${day} — closing soon`;
+  return `RSVP by ${day}`;
 }

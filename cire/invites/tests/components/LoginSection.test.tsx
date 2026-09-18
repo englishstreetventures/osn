@@ -3,7 +3,8 @@ import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginSection } from "../../src/components/LoginSection";
-import type { ClaimResult, FamilyMember } from "../../src/components/types";
+import type { RsvpDeadlineState } from "../../src/components/rsvp-deadline";
+import type { ClaimResult, FamilyMember, RsvpDeadline } from "../../src/components/types";
 
 afterEach(cleanup);
 
@@ -233,5 +234,54 @@ describe("LoginSection code field", () => {
     const cls = codeInput().className;
     expect(cls).toContain("focus:border-gold");
     expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+  });
+});
+
+describe("LoginSection RSVP-by date", () => {
+  const deadline: RsvpDeadline = {
+    date: "2026-09-01",
+    timezone: "Australia/Sydney",
+    closesAt: "2026-09-01T13:59:59.999Z",
+    closed: false,
+  };
+
+  function panel(state: RsvpDeadlineState | null, rsvpDeadline: RsvpDeadline | null = deadline) {
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...result([member("Chidi")]), rsvpDeadline }}
+        rsvpDeadlineState={state}
+        onClaimed={noop}
+      />
+    ));
+    return [...container.querySelectorAll("p")].find((p) => /RSVP/i.test(p.textContent ?? ""));
+  }
+
+  it("labels the date under the greeting once the page has a verdict", () => {
+    expect(panel("open")?.textContent).toBe("RSVP by Tuesday 1 September 2026");
+  });
+
+  it("escalates with the page rather than holding a clock of its own", () => {
+    // The page derives the state once and hands it down, so this copy, every
+    // Respond button and the RSVP sheet can't disagree about the same date.
+    expect(panel("closing-soon")?.textContent).toBe(
+      "RSVP by Tuesday 1 September 2026 — closing soon",
+    );
+    expect(panel("closed")?.textContent).toBe("RSVPs closed on Tuesday 1 September 2026");
+  });
+
+  it("stays silent without a verdict, or without a deadline", () => {
+    expect(panel(null)).toBeUndefined();
+    expect(panel("open", null)).toBeUndefined();
+  });
+
+  it("never announces — the events-section notice is the only live copy", () => {
+    // Two live regions would read one fact twice every time the deadline moved.
+    // Silent is not hidden, though: no `aria-hidden`, or the date would be gone
+    // from the panel for exactly the reader it was added for.
+    const p = panel("closing-soon")!;
+    expect(p.getAttribute("role")).toBeNull();
+    expect(p.getAttribute("aria-hidden")).toBeNull();
+    expect(p.id).toBe("");
   });
 });

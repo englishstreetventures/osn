@@ -17,7 +17,7 @@ import {
 import { awaitEventCards } from "../../components/await-event-cards";
 import { createClaimCode } from "../../components/claim-code";
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
-import { createRsvpClosed } from "../../components/createRsvpClosed";
+import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import type { ImageCrop } from "../../components/image-crop";
 import {
   applyPaletteToRoot,
@@ -27,8 +27,9 @@ import {
 } from "../../components/invite-theme";
 import { InviteClosing } from "../../components/InviteClosing";
 import { prefetchOnIdle } from "../../components/prefetch-idle";
-import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
+import { formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
+import { RsvpDeadlineNotice } from "../../components/RsvpDeadlineNotice";
 import {
   TurnstileWidget,
   turnstileEnabled,
@@ -267,15 +268,16 @@ export default function InvitePage(props: InvitePageProps) {
   const welcomeMessage = () => liveInvite().welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
 
   // The RSVP deadline arrives with the claim (it is household-facing, like the
-  // events beside it). One verdict drives all three surfaces below — the notice
-  // under the heading, every card's Respond button, and the RSVP sheet — and it
-  // re-derives itself if the deadline passes while the invite is open.
+  // events beside it). One verdict drives four surfaces — the claim panel's
+  // date line, the notice on top of the cards, every card's Respond button and
+  // the RSVP sheet — and it re-derives itself as the deadline draws near and
+  // then passes while the invite is open.
   // Memoised, not a plain accessor (P-I2) — see the note in classic's
   // InvitePage: the post-save `setClaimResult` spread keeps `rsvpDeadline` at
   // the same object reference, so `===` equality stops the propagation dead.
   const rsvpDeadline = createMemo(() => claimResult()?.rsvpDeadline ?? null);
-  const rsvpClosed = createRsvpClosed(rsvpDeadline);
-  const rsvpNotice = createMemo(() => deadlineNotice(rsvpDeadline(), rsvpClosed()));
+  const rsvpState = createRsvpDeadlineState(rsvpDeadline);
+  const rsvpClosed = () => rsvpState() === "closed";
 
   // The permanent green tick on Respond: which events this household already
   // has an RSVP on file for. Recomputed whenever `onSubmitted` writes fresh
@@ -551,6 +553,17 @@ export default function InvitePage(props: InvitePageProps) {
                   {welcomeMessage()}
                 </p>
               </Show>
+              {/* The RSVP-by date, where the guest lands. The events section
+                  states it again on top of the cards, and THAT copy is the live
+                  region and the `aria-describedby` target — this one is an
+                  ordinary paragraph, so the pair is read once each in browse
+                  mode and announced once between them when the deadline moves. */}
+              <RsvpDeadlineNotice
+                deadline={rsvpDeadline()}
+                state={rsvpState()}
+                variant="panel"
+                class="mb-8"
+              />
               <Button
                 variant="bare"
                 type="button"
@@ -600,24 +613,20 @@ export default function InvitePage(props: InvitePageProps) {
                     whole list, so it takes the column's axis rather than the
                     left edge the cards' own copy runs along.
 
-                    `text-gold-ink`, not `text-gold` — see the same line in the
-                    `classic` pack: the metal token is held to the 3:1 UI floor,
-                    which is the wrong bar for a 0.85rem sentence. */}
-                <Show when={rsvpNotice()}>
-                  {(notice) => (
-                    <p
-                      id={RSVP_NOTICE_ID}
-                      class="font-body text-ui-sm mb-3 text-center"
-                      classList={{
-                        "text-text-muted": rsvpClosed(),
-                        "text-gold-ink": !rsvpClosed(),
-                      }}
-                      role="status"
-                    >
-                      {notice()}
-                    </p>
-                  )}
-                </Show>
+                    This is the copy that ANNOUNCES and the one each closed
+                    Respond button describes itself by, so it keeps both
+                    `role="status"` and the shared id. It renders in every
+                    deadline state, closed included, which is what makes that
+                    `aria-describedby` resolve. The claim panel states the date
+                    too, as an ordinary paragraph. */}
+                <RsvpDeadlineNotice
+                  deadline={rsvpDeadline()}
+                  state={rsvpState()}
+                  variant="notice"
+                  announce
+                  id={RSVP_NOTICE_ID}
+                  class="mb-3 text-center"
+                />
                 <div class="flex flex-col gap-5">
                   <Suspense fallback={null}>
                     <For each={data().events}>

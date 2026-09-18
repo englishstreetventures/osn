@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1049   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-helper-role-gates @ 2026-09-18 — -1 as rewriting normaliseHostRole in cire/api/src/services/hosts.ts dropped one comment naming a review finding by its bare ID
+1047   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-rsvp-deadline-emphasis @ 2026-09-18 — -2, and NOT a fix: both packs' RSVP-deadline notices moved into cire/invites/src/components/RsvpDeadlineNotice.tsx, where `role` is set from a prop instead of written as a literal, so jsx-a11y/prefer-tag-over-role no longer matches the two `<p role="status">` it used to report in classic/InvitePage.tsx and gala/InvitePage.tsx. The markup those two warnings were about is unchanged. Whether the notice should be `<output>` instead is xchromo/osn#1113

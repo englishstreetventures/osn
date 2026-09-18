@@ -1,7 +1,8 @@
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRsvpClosed } from "../../src/components/createRsvpClosed";
+import { createRsvpDeadlineState } from "../../src/components/createRsvpDeadlineState";
+import type { RsvpDeadlineState } from "../../src/components/rsvp-deadline";
 import type { RsvpDeadline } from "../../src/components/types";
 
 const deadline = (over: Partial<RsvpDeadline> = {}): RsvpDeadline => ({
@@ -19,13 +20,13 @@ const deadline = (over: Partial<RsvpDeadline> = {}): RsvpDeadline => ({
  * would see a timer that hasn't been created yet.
  */
 function mount(get: () => RsvpDeadline | null) {
-  let closed!: () => boolean;
+  let state!: () => RsvpDeadlineState | null;
   let dispose!: () => void;
   createRoot((d) => {
     dispose = d;
-    closed = createRsvpClosed(get);
+    state = createRsvpDeadlineState(get);
   });
-  return { closed, dispose };
+  return { state, dispose };
 }
 
 afterEach(() => {
@@ -33,11 +34,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createRsvpClosed", () => {
-  it("is false with no deadline and never schedules a timer", () => {
+describe("createRsvpDeadlineState", () => {
+  it("is null with no deadline and never schedules a timer", () => {
     vi.useFakeTimers();
-    const { closed, dispose } = mount(() => null);
-    expect(closed()).toBe(false);
+    const { state, dispose } = mount(() => null);
+    expect(state()).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
     dispose();
   });
@@ -46,13 +47,13 @@ describe("createRsvpClosed", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T13:59:00.000Z")); // a minute to go
 
-    const { closed, dispose } = mount(() => deadline());
-    expect(closed()).toBe(false);
+    const { state, dispose } = mount(() => deadline());
+    expect(state()).toBe("closing-soon");
     // Nothing polls — one timer waits for the exact instant.
     expect(vi.getTimerCount()).toBe(1);
 
     vi.advanceTimersByTime(61_000);
-    expect(closed()).toBe(true);
+    expect(state()).toBe("closed");
     dispose();
   });
 
@@ -60,28 +61,52 @@ describe("createRsvpClosed", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
 
-    const { closed, dispose } = mount(() => deadline({ closed: true }));
-    expect(closed()).toBe(true);
+    const { state, dispose } = mount(() => deadline({ closed: true }));
+    expect(state()).toBe("closed");
     expect(vi.getTimerCount()).toBe(0);
     dispose();
   });
 
   it("does not schedule a deadline beyond setTimeout's 32-bit range", () => {
     // A delay over ~24.8 days overflows and fires IMMEDIATELY, which would flip
-    // a far-off invite closed the moment a guest opened it.
+    // a far-off invite closed the moment a guest opened it. Both boundaries are
+    // out of range here, so nothing waits.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 
-    const { closed, dispose } = mount(() => deadline());
-    expect(closed()).toBe(false);
+    const { state, dispose } = mount(() => deadline());
+    expect(state()).toBe("open");
+    expect(vi.getTimerCount()).toBe(0);
+    dispose();
+  });
+
+  it("walks open → closing-soon → closed on one chained timer", () => {
+    // 30 days out: the "closing soon" boundary is 23 days away and schedulable,
+    // the close itself is 30 and is not. Waiting for the near boundary and then
+    // re-arming is what gets this session to `closed` at all — a second timer
+    // created up front would have been out of range and never created.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T13:59:59.999Z"));
+
+    const { state, dispose } = mount(() => deadline());
+    expect(state()).toBe("open");
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(23 * 24 * 60 * 60 * 1000 + 2000);
+    expect(state()).toBe("closing-soon");
+    // Re-armed for the close rather than left hanging.
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1000 + 2000);
+    expect(state()).toBe("closed");
     expect(vi.getTimerCount()).toBe(0);
     dispose();
   });
 
   it("ignores an unparseable closesAt rather than scheduling on NaN", () => {
     vi.useFakeTimers();
-    const { closed, dispose } = mount(() => deadline({ closesAt: "soon", closed: false }));
-    expect(closed()).toBe(false);
+    const { state, dispose } = mount(() => deadline({ closesAt: "soon", closed: false }));
+    expect(state()).toBe("open");
     expect(vi.getTimerCount()).toBe(0);
     dispose();
   });

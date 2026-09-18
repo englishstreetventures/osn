@@ -1030,16 +1030,100 @@ describe("InvitePage", () => {
       return view;
     }
 
+    /**
+     * A deadline inside the "closing soon" window, measured against the real
+     * clock. `closesAt` floats off `Date.now()`; `date` and `timezone` name the
+     * same instant's UTC day, so the fixture stays internally honest.
+     *
+     * Deliberately not fake timers: the claim above resolves through
+     * `waitFor`, and @testing-library/dom's `waitFor` recognises only Jest's
+     * fake timers — under vitest's it polls a faked interval that never fires
+     * and the test hangs rather than fails.
+     */
+    function soonDeadline(daysAway = 3): ClaimResult["rsvpDeadline"] {
+      const closesAt = new Date(Date.now() + daysAway * 86_400_000);
+      return {
+        date: closesAt.toISOString().slice(0, 10),
+        timezone: "UTC",
+        closesAt: closesAt.toISOString(),
+        closed: false,
+      };
+    }
+
+    /** Every element on the page whose text is one of the deadline copies. */
+    function deadlineCopies() {
+      return [...document.querySelectorAll("p")].filter((p) =>
+        /respond by|RSVP by|RSVPs close/i.test(p.textContent ?? ""),
+      );
+    }
+
     it("invites a reply by the date while the deadline is ahead", async () => {
-      const { getByText, getByRole } = await claimWithDeadline({
+      const { getByRole } = await claimWithDeadline({
         date: "2999-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2999-09-01T13:59:59.999Z",
         closed: false,
       });
 
-      expect(getByText("Kindly respond by Sunday 1 September 2999.")).toBeTruthy();
+      expect(document.getElementById("rsvp-deadline-notice")?.textContent).toBe(
+        "Kindly respond by Sunday 1 September 2999.",
+      );
       expect((getByRole("button", { name: "Respond" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("states the date in the claim panel too, where the guest lands", async () => {
+      await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      const panel = deadlineCopies().find((p) => p.id !== "rsvp-deadline-notice");
+      expect(panel?.textContent).toBe("RSVP by Sunday 1 September 2999");
+      // A label, not the notice's sentence printed twice.
+      expect(panel?.textContent).not.toBe(
+        document.getElementById("rsvp-deadline-notice")?.textContent,
+      );
+    });
+
+    it("lets exactly one of the two copies announce, and hides neither", async () => {
+      await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      const copies = deadlineCopies();
+      expect(copies.length).toBe(2);
+      // Scoped to the deadline copies, not to the page: the preview chip these
+      // fixtures claim through is a second `role="status"` and always has been.
+      const live = copies.filter((p) => p.getAttribute("role") === "status");
+      expect(live.length).toBe(1);
+      expect(live[0]!.id).toBe("rsvp-deadline-notice");
+      // The quiet copy is quiet because it is not a live region. `aria-hidden`
+      // would take the date away from the reader it was added for.
+      expect(copies.every((p) => p.getAttribute("aria-hidden") === null)).toBe(true);
+    });
+
+    it("boxes the notice and says so in words once the final week starts", async () => {
+      await claimWithDeadline(soonDeadline());
+
+      const notice = document.getElementById("rsvp-deadline-notice")!;
+      expect(notice.textContent).toMatch(/^RSVPs close soon — kindly respond by /);
+      const classes = notice.className.split(/\s+/);
+      expect(classes).toContain("border");
+      expect(classes).toContain("border-gold/40");
+      expect(classes).toContain("text-gold-ink");
+
+      // The panel copy escalates with it, in its own words.
+      const panel = deadlineCopies().find((p) => p.id !== "rsvp-deadline-notice");
+      expect(panel?.textContent).toMatch(/ — closing soon$/);
+      expect(panel?.className.split(/\s+/)).toContain("border-gold/40");
+
+      // Only the answer is near, not gone.
+      expect(document.querySelector("[aria-disabled='true']")).toBeNull();
     });
 
     it("sits directly on top of the event cards, not in the centred header", async () => {
@@ -1069,7 +1153,7 @@ describe("InvitePage", () => {
         closed: false,
       });
 
-      // At 0.85rem this is normal-size text, so WCAG AA asks 4.5:1. `text-gold`
+      // This is a sentence at normal size, so WCAG AA asks 4.5:1. `text-gold`
       // is the METAL — rules, borders, buttons — and `derivePalette` only holds
       // it to the 3:1 UI floor, which is how a taupe-on-cream scheme shipped
       // this line at 3.35:1 in production. `--color-gold-ink` is the same hue
@@ -1077,24 +1161,37 @@ describe("InvitePage", () => {
       const classes = document.getElementById("rsvp-deadline-notice")!.className.split(/\s+/);
       expect(classes).toContain("text-gold-ink");
       expect(classes).not.toContain("text-gold");
+      // Nothing washed behind the ink either: a tint between the text and the
+      // section composites a backdrop the palette harness never measures.
+      expect(classes.filter((c) => c.startsWith("bg-"))).toEqual([]);
     });
 
     it("locks every card and states the date once the deadline has passed", async () => {
-      const { getByText, getByRole } = await claimWithDeadline({
+      const { getByRole } = await claimWithDeadline({
         date: "2020-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2020-09-01T13:59:59.999Z",
         closed: true,
       });
 
-      expect(getByText("RSVPs closed on Tuesday 1 September 2020.")).toBeTruthy();
       const respond = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
       // `aria-disabled`, not the native attribute. The button stays focusable
-      // and points at the notice, which is where the date actually is.
+      // and points at the notice, which is the copy that states the date and
+      // the one that has to survive into the closed state for the reference to
+      // resolve at all.
       expect(respond.getAttribute("aria-disabled")).toBe("true");
       expect(respond.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
-      expect(document.getElementById("rsvp-deadline-notice")?.textContent).toContain(
-        "RSVPs closed on Tuesday 1 September 2020.",
+      const notice = document.getElementById("rsvp-deadline-notice")!;
+      expect(notice.textContent).toBe("RSVPs closed on Tuesday 1 September 2020.");
+      // The ink recedes and the box turns neutral — a different shape from the
+      // final week's, not just a different colour.
+      const classes = notice.className.split(/\s+/);
+      expect(classes).toContain("border-border");
+      expect(classes).toContain("text-text-muted");
+      expect(classes).not.toContain("border-gold/40");
+      // And the panel copy follows it closed.
+      expect(deadlineCopies().find((p) => p.id !== "rsvp-deadline-notice")?.textContent).toBe(
+        "RSVPs closed on Tuesday 1 September 2020",
       );
     });
 
