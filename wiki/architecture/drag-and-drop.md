@@ -7,8 +7,9 @@ related:
   - "[[monorepo-structure]]"
   - "[[toast]]"
   - "[[component-lab]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-18
 ---
+
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
 
 Drag-to-reorder uses **`@shared/sortable`**, an internal package. It replaced
@@ -33,18 +34,18 @@ bundle for `keydown`/`keyboard`/`ArrowUp` returns zero hits. So every list that
 wanted dragging had to hand-write the whole keyboard and screen-reader story —
 about 120 lines of subtle, silent-when-wrong logic. `EventsEditor` did. Three
 other lists did not, and said so in code: `RegistryView.tsx` carried the comment
-*"solid-dnd ships no keyboard sensor and no announcements, so adopting it here
-would mean re-supplying the whole keyboard path by hand."*
+_"solid-dnd ships no keyboard sensor and no announcements, so adopting it here
+would mean re-supplying the whole keyboard path by hand."_
 
 That is the real argument for owning it. A package can carry those obligations
 once, with tests; a convention cannot.
 
 ### What was weighed originally (2026-07-30)
 
-| Library | Verdict |
-|---|---|
-| **solid-dnd** | Chosen at the time. Native Solid, sortable-list primitives + collision detection. Measured main-chunk cost **+13.1 KiB raw / +4.3 KiB gzip**. |
-| [neodrag](https://github.com/PuruVJ/neodrag) | Can't do the job. A free-positioning *draggable* — no droppables, no collision detection, no reorder logic. |
+| Library                                         | Verdict                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **solid-dnd**                                   | Chosen at the time. Native Solid, sortable-list primitives + collision detection. Measured main-chunk cost **+13.1 KiB raw / +4.3 KiB gzip**.                             |
+| [neodrag](https://github.com/PuruVJ/neodrag)    | Can't do the job. A free-positioning _draggable_ — no droppables, no collision detection, no reorder logic.                                                               |
 | [dnd-kit](https://github.com/clauderic/dnd-kit) | Works (shipped briefly), but React-only adapters meant maintaining our own Solid adapter, and at ~105 kB it pushed the organiser's main chunk past Vite's 500 kB warning. |
 
 `@shared/sortable` is smaller than all three: it implements exactly the surface
@@ -75,8 +76,10 @@ swap and the existing 18 reorder tests stayed a true regression net.
 ```tsx
 const sortable = createSortable(props.row.key);
 <li ref={sortable.ref} style={maybeTransformStyle(sortable.transform())}>
-  <button {...sortable.dragActivators} {...item.gripProps()}>⠿</button>
-</li>
+  <button {...sortable.dragActivators} {...item.gripProps()}>
+    ⠿
+  </button>
+</li>;
 ```
 
 ### One difference from solid-dnd: accessors, not store properties
@@ -97,7 +100,7 @@ swallows text selection and the row's own buttons.
 
 For a **handle**, put `sortable.ref` on the row and spread
 `sortable.dragActivators` onto the handle. The catch: `ref` registers the node
-*without* applying the transform, so the row must apply
+_without_ applying the transform, so the row must apply
 `maybeTransformStyle(sortable.transform())` itself. `maybeTransformStyle` returns
 `{}` when there is no transform rather than an identity one — writing
 `translate(0,0)` anyway would make every row a containing block and a stacking
@@ -115,7 +118,7 @@ item's group, so N lists on a page are N independent sortables and one
 `DragDropProvider` can wrap them all.
 
 Deliberately **not** cross-container: `ChecklistView` and `BudgetView` reorder
-*within* a bucket or category and POST `{timeframeBucket, orderedIds}` /
+_within_ a bucket or category and POST `{timeframeBucket, orderedIds}` /
 `{category, orderedIds}`. Dragging a task from "3 months out" to "1 month out"
 would be a re-bucketing — a semantic change — not a re-order. A package test
 pins that an item can never land in a sibling list.
@@ -128,7 +131,7 @@ optional, each with a failure mode that is silent rather than obvious — which 
 exactly why they belong in a package:
 
 1. **The grip is a real `<button>`** — tabbable, owning an `onKeyDown` that moves
-   the row on **Arrow Up / Arrow Down**, with `preventDefault()` *before* the
+   the row on **Arrow Up / Arrow Down**, with `preventDefault()` _before_ the
    bounds check, so a focused grip owns the arrows unconditionally rather than
    sometimes moving the row and sometimes scrolling the page out from under it.
 2. **Arrow keys alone are NOT enough, and this is the subtle one.** NVDA and JAWS
@@ -142,7 +145,7 @@ exactly why they belong in a package:
    invisible control (WCAG 2.4.7), and `disabled` at the list ends so AT reports
    the boundary instead of the user pressing into nothing.
 3. **Focus is restored explicitly** after a keyboard move. `<For>` is keyed, so
-   the row's node is *moved* rather than re-created — but a DOM move is a
+   the row's node is _moved_ rather than re-created — but a DOM move is a
    remove-then-insert and focus does not reliably survive it. Without the
    explicit `.focus()`, one keypress moves the row and then focus is on `<body>`,
    so the row can't be walked further.
@@ -166,15 +169,25 @@ collides the moment a second one appears.
 
 Also required, and the consumer's job because they are styling: `touch-none`
 (CSS `touch-action: none`) on the handle, or the browser scrolls instead of
-handing the gesture over; and enough padding to clear the WCAG 2.5.8 24 px
-minimum target (`px-1 py-2` on a glyph this small).
+handing the gesture over.
+
+**The 24 px minimum target is not automatic and is not the consumer's padding.**
+WCAG 2.2 SC 2.5.8 puts a 24×24 CSS-pixel floor under the grip, and a glyph in a
+borderless button does not reach it on its own: with `leading-none` the box is
+the glyph's line box and nothing more, measured at **22.3 × 18.8 px** on cire's
+events grip. `@cire/ui`'s `size="icon"` carries the floor for its own borderless
+variants (`min-h-6 min-w-6`), and `cire/host/tests/components/EventsEditor.grip.browser.test.tsx`
+holds it — a floor rather than a fixed size, so a call site that wants a larger
+target still wins. A consumer on a different button layer owes the same floor,
+and owes a measurement of it: the number comes from font metrics and the border,
+which no jsdom-tier assertion can see.
 
 ### What stays with the consumer
 
 Haptics. The package reports drag **phases** (`pickup`, `step`, `commit`) through
 `onPhase`; what they feel like is the host portal's vocabulary
 (`cire/host/src/lib/haptics.ts`), not the package's. `onDragOver` reports only a
-*change* of slot, so a consumer ticking per phase buzzes once per row crossed
+_change_ of slot, so a consumer ticking per phase buzzes once per row crossed
 rather than continuously.
 
 ### Geometry is measured once, at drag start
@@ -193,7 +206,7 @@ than by any test:
   stops. Dragging gradually was merely wrong rather than dead: a 68 px stride
   measured as 62 px.
 - **The detector chased its own output**, seeing displaced rows in the slots
-  they were moving *to* rather than the ones they belonged to.
+  they were moving _to_ rather than the ones they belonged to.
 
 It is also what keeps the cost flat. `RegistryView` is a documented adopter at
 up to 500 rows; measuring per pointer event there is ~30–60k
@@ -222,7 +235,7 @@ arbitrarily. **The stub must also add each row's own `translate3d` offset**, the
 way a real browser's rect does: the first cut ignored transforms, which made the
 whole stride-pollution class above structurally invisible to the fast tier. `EventsEditor.reorder.test.tsx` and the package's own tests work
 around this by stubbing `Element.prototype.getBoundingClientRect` to return
-stacked rects derived from each row's *current* DOM position (so they stay
+stacked rects derived from each row's _current_ DOM position (so they stay
 correct after a reorder), then dispatching `pointerdown` → `pointermove` × 2 →
 `pointerup`. The first move gets past the sensor's activation threshold.
 
@@ -236,7 +249,7 @@ regression net of the two. One trap: Solid delegates `onKeyDown` to the document
 root, so a hand-constructed `KeyboardEvent` needs `bubbles: true` or it never
 reaches the handler.
 
-What this still can't cover: drag *feel*, the shift/settle animation, and the
+What this still can't cover: drag _feel_, the shift/settle animation, and the
 grip's hover/focus styling. Those need a real browser and a pair of eyes —
 `bun run dev:lab` → **shared/sortable**, which benches exactly those three plus
 the multi-container isolation. See [[component-lab]].

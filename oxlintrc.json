@@ -256,7 +256,26 @@
         "contracts": [
           {
             "pattern": "^(Card|CardContent|CardFooter|CardHeader|Modal|DialogFooter|DialogHeader|PopoverTrigger|DropdownMenuTrigger)$",
-            "allow": ["layout", "gap-*"]
+            // The two `max-w-*` families have to be named: the rule classifies
+            // a class with `cn`'s own grammar, and that grammar models `max-w-*`
+            // only on Tailwind's built-in steps. A `max-w-*` built from any
+            // custom `--container-*` entry gets no class group at all — the
+            // contract's own `max-w-ui-*` included — and the `layout` bucket
+            // only admits a token that HAS one, so `layout` can never reach it,
+            // however obviously a width cap is layout. An explicit glob can,
+            // because the allow list is consulted AFTER classification.
+            // `@cire/invites` needs `max-w-column-*` because every built-in step
+            // is rem and it is the one app that moves its root font-size; see
+            // wiki/architecture/design-tokens.md.
+            //
+            // Here and not in the baseline `allow` above, on purpose. A
+            // contract's `allow` REPLACES the top-level one rather than
+            // extending it, so an entry up there would be dead for exactly
+            // these components — and live for every other shared one, including
+            // the four packages where `no-unknown-classes` is off below, where
+            // a `max-w-column-*` with no CSS behind it would then pass both
+            // rules.
+            "allow": ["layout", "gap-*", "max-w-ui-*", "max-w-column-*"]
           }
         ]
       }
@@ -291,7 +310,7 @@
           "prose-legal"
         ]
       }
-    ],
+    ]
     // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
     // the "overrides" block below, not turned on here — the pattern it flags
     // (`cache.get(id)?.accessor()`) is a cire-specific organiser-cache
@@ -321,12 +340,7 @@
       // `shared/ui` and `tools/lab` are NOT here. Each happens to carry a
       // stylesheet the plugin can find — the browser tier's `tailwind.css` and
       // `lab.css` — so the theme resolves and the rule is honest there.
-      "files": [
-        "cire/ui/**",
-        "osn/auth-ui/**",
-        "shared/toast/**",
-        "shared/sortable/**"
-      ],
+      "files": ["cire/ui/**", "osn/auth-ui/**", "shared/toast/**", "shared/sortable/**"],
       "rules": {
         "shadcn/no-unknown-classes": "off"
       }

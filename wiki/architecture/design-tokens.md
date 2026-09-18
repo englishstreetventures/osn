@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-18
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -116,9 +116,9 @@ lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
 
 **`control` and `sheet` are roles, not sizes**, the same way `focus` is its own
-colour rather than an alias of the accent. How round a *button* is turns out to
+colour rather than an alias of the accent. How round a _button_ is turns out to
 be independent of how round a card is — musubi's house style is pill CTAs,
-cire's a sharp 4px — and so is how pronounced the top edge of a *bottom sheet*
+cire's a sharp 4px — and so is how pronounced the top edge of a _bottom sheet_
 is, where cire wants 28px against its own 10px cards. Both default to a sized
 step (`control` to `md`, `sheet` to `lg`), so an app with no opinion gets its own
 value rather than one from the package.
@@ -128,6 +128,58 @@ what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark
 theme it is lighter. **`accent-ink` is not `on-accent`**: `accent-ink` is accent
 text on the page, `on-accent` is the label on a filled accent ground, and the
 two have opposite contrast requirements.
+
+## A `max-w-*` outside the built-in steps needs naming in the linter
+
+Every step of the measure scale is **rem**, the contract's `max-w-ui-*` included.
+That is right for a measure, which should track the type it bounds. It is wrong
+for a cap that bounds a column against the _viewport_, in the one app that moves
+its root font-size: `@cire/invites` steps 16px → 17px at 1024px, so a rem cap is
+6.25% wider on every desktop viewport than the number it was written as.
+
+Such an app declares its own px scale — `--container-column-*` in
+`cire/invites/src/styles/global.css` — and that is ordinary app-token work. What
+is not obvious is that `shadcn/no-restyle` then rejects the resulting class on a
+library component:
+
+```
+"max-w-column-md" is not allowed on <Modal>: the grammar does not recognize it.
+Fix the spelling, or use a class Tailwind generates.
+```
+
+Three facts settle it, and none of them is the one the message suggests.
+
+**The rule classifies a class with `cn`'s grammar, and that grammar models
+`max-w-*` only on Tailwind's built-in steps.** A `max-w-*` built from _any_
+custom `--container-*` entry gets no class group, so it lands in the
+`unclassified` category — and the `layout` bucket only admits a token that _has_
+a group. So `allow: ["layout"]` can never reach one, however plainly a width cap
+is layout. The class itself is fine: `shadcn/no-unknown-classes` reads the same
+Tailwind build and is silent on it.
+
+**This is not only about app tokens — the contract's own measure scale hits the
+same wall.** `max-w-ui-sm` and `max-w-ui-2xl` on a `<Modal>` are rejected with
+exactly the message above, while every built-in step (`max-w-md`) classifies
+cleanly. So "use the contract instead" is not an escape from this, and the
+rejected set is _everything off Tailwind's built-in scale_.
+
+**An explicit glob does reach it.** The allow list is consulted _after_
+classification, not before, so `"max-w-ui-*"` and `"max-w-column-*"` match the
+token by name and return it allowed. The catch is where to put the entry: a
+`contracts` entry's `allow` **replaces** the top-level one rather than extending
+it, and `Modal` is inside the contract that covers `Card`, `Modal` and the menu
+triggers. Named only at the top level, the entry is discarded for exactly the
+components that need it, with no diagnostic saying so — which reads as "the
+allow list has no effect". It also goes live everywhere else, including the four
+packages where `no-unknown-classes` is turned off, where a `max-w-*` with no CSS
+behind it would then pass both rules. So the entry belongs on the contract and
+nowhere else, which is where `oxlintrc.json` puts it.
+
+_Verified 2026-09-18 — `max-w-column-md`, `max-w-ui-sm`, `max-w-ui-2xl` and
+`max-w-md` each put on `AnimatedModal`'s `class` in turn, with
+`bunx --bun oxlint -c oxlintrc.json cire/invites/src/components/AnimatedModal.tsx`
+run against each; and `max-w-column-*` tried on the top-level `allow` (no effect)
+before the contract's (clean)._
 
 ## Four decisions that are easy to get wrong
 
@@ -208,21 +260,21 @@ see removes the feature outright for a keyboard user.
 > ([[wiki/conventions/browser-tests]]), and in the case of raw palette colours,
 > `@shadcn/lint`'s `no-raw-colors`.
 
-The same pairs can be *looked at*: `design-system/contrast` in the lab lays them
+The same pairs can be _looked at_: `design-system/contrast` in the lab lays them
 out as a matrix and measures each ratio from the painted cell in whichever theme
 is on, which is the reading the harness — working from the stylesheet — cannot
 take. See [[component-lab]].
 
 ## Where the pieces live
 
-| Package                 | What                                                                                                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@shared/design-tokens` | `tokens.css` (the contract), the conformance harness, and `CONTRACT_SCALES` / `SCALE_MIGRATION` which the scale codemod reads                       |
-| `@shared/color`         | The OKLCH maths — parsing, conversion, contrast, `ensureContrast`. Lifted out of `@cire/theme` so no `@shared/*` package depends on a `@cire/*` one |
-| `@shared/ui`            | The primitives — `Button`, `Card`, `Modal`, `Field`, the rest — painted entirely in `ui-*` utilities                                                |
+| Package                 | What                                                                                                                                                                                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@shared/design-tokens` | `tokens.css` (the contract), the conformance harness, and `CONTRACT_SCALES` / `SCALE_MIGRATION` which the scale codemod reads                                                                                                                                         |
+| `@shared/color`         | The OKLCH maths — parsing, conversion, contrast, `ensureContrast`. Lifted out of `@cire/theme` so no `@shared/*` package depends on a `@cire/*` one                                                                                                                   |
+| `@shared/ui`            | The primitives — `Button`, `Card`, `Modal`, `Field`, the rest — painted entirely in `ui-*` utilities                                                                                                                                                                  |
 | `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, so it inherits the contract through them — but its own class attributes still name the shadcn vocabulary, so it renders correctly only in an app that speaks it. `@musubi/social` is the one consumer today |
-| `@cire/ui`              | cire's house components — see [[wiki/architecture/component-library]] for why two layers rather than one                                            |
-| `@shared/toast`         | Its own `--toast-*` properties in plain CSS, mapped once per app — the arrangement this contract generalises. See [[toast]]                         |
+| `@cire/ui`              | cire's house components — see [[wiki/architecture/component-library]] for why two layers rather than one                                                                                                                                                              |
+| `@shared/toast`         | Its own `--toast-*` properties in plain CSS, mapped once per app — the arrangement this contract generalises. See [[toast]]                                                                                                                                           |
 
 `scripts/codemod-scale.ts` is the migration tool: it rewrites static arbitrary
 values (`text-[13px]`) onto the nearest scale step and **skips computed ones**

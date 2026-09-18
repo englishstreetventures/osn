@@ -103,4 +103,20 @@ describe("the guest sheet, in a real engine", () => {
     expect(document.activeElement).toBe(trigger);
     trigger.remove();
   });
+
+  it("caps the panel at 480 real pixels, on both sides of the root-size step", () => {
+    const { getByRole } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+
+    // The cap is `max-w-column-md`, not a rem step, and only an engine can tell
+    // the two apart: this app steps its root font-size 16px → 17px at 1024px, so
+    // a rem cap reads 480px here and 510px on a laptop while the class string
+    // stays identical either way. Read as a resolved length rather than a
+    // rendered width, because the viewport the test runs in may be narrower than
+    // the cap — the cap is what is being asserted, not the layout under it.
+    expect(getComputedStyle(getByRole("dialog")).maxWidth).toBe("480px");
+  });
 });

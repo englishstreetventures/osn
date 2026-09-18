@@ -13,7 +13,7 @@ viewport**, because the scale is rem. The classic pack's events column went
 
 They read a named `--container-column-*` scale now, declared in the app's own
 `@theme` in px, with the reason on the block: these caps bound a column against
-the viewport, so they must not track the type step. A measure that *should*
+the viewport, so they must not track the type step. A measure that _should_
 track it belongs on the contract's `max-w-ui-*`, which is what the gift-registry
 columns already use — the `34rem` sites were converted to those and are
 untouched here.
@@ -23,9 +23,10 @@ card past the 1024px step: at 680px the row stopped wrapping and the test said
 so by name. Its harness carried the same swap, so it had been widened to match
 and no longer measured the real cap.
 
-`AnimatedModal` takes its 480px cap as an inline `max-width` rather than a
-class. `shadcn/no-restyle` classifies a call-site class with its own grammar,
-which models `max-w-*` only on Tailwind's built-in steps and rejects
-`max-w-column-md` outright — even though the plugin can see the class and
-`no-unknown-classes` is silent on it. Every built-in step is rem, so there is no
-class form of a pixel cap available on a library component.
+`AnimatedModal` takes its 480px cap as `max-w-column-md`, like every other site.
+Reaching it needs one line of linter configuration: `shadcn/no-restyle`
+classifies a call-site class with `cn`'s grammar, which models `max-w-*` only on
+Tailwind's built-in steps, so a `max-w-*` from any custom `--container-*` entry —
+the contract's own `max-w-ui-*` included — is unclassified and the `layout`
+bucket cannot reach it. Naming the two families on the contract that covers
+`Modal` does, because the allow list is read after classification.

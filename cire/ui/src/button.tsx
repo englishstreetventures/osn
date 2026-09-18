@@ -266,7 +266,14 @@ const BORDERLESS_SIZE = {
   lg: "base:text-ui-base",
   // Nothing at all: an unframed picture is flush with its own hit area.
   swatch: "base:p-0",
-  icon: "base:px-1 base:text-ui-md base:leading-none",
+  // `min-h-6 min-w-6` is the WCAG 2.2 SC 2.5.8 floor (24 CSS px), and it is
+  // load-bearing rather than decoration: without it the box is whatever the
+  // glyph's line box gives, which `leading-none` makes as tight as possible —
+  // measured at 22.3 x 18.8 px, under the minimum in both axes. A floor rather
+  // than a fixed `size-6`, because a call site that wants a larger target
+  // (`h-7 w-7`, `h-11 w-11`) must still win, and a `min-*` yields to it while a
+  // fixed height would have to be overridden.
+  icon: "base:min-h-6 base:min-w-6 base:shrink-0 base:px-1 base:text-ui-md base:leading-none",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /**

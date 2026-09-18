@@ -50,6 +50,30 @@
   --text-tag: 0.6rem;
   --text-meta: 0.65rem;
 
+  /* The steps the seven section files are set from: mono micro-type, then three
+     body steps, then the one sub-head above them. Between them they replace 23
+     literal `text-[…]` values, which is the count that made the scale worth
+     having — `1.02rem` and `1.05rem` were 0.48px apart and meant to be one step.
+
+     Named rather than snapped to Tailwind's own `text-xs`/`sm`/`lg`/`xl`, even
+     where a built-in step sits within a pixel, because a built-in `text-*` also
+     sets `line-height` and an arbitrary `text-[…]` never did. Snapping would
+     have moved the leading on every site that carries no `leading-*` of its own
+     — a silent second change, in the opposite direction on four of them. A
+     `@theme` entry with no `--line-height` companion emits `font-size` alone,
+     which is what these replace. */
+  --text-eyebrow: 0.72rem;
+  --text-copy: 0.95rem;
+  --text-lede: 1.05rem;
+  --text-subhead: 1.25rem;
+
+  /* Instrument Serif set as an ornament rather than as words: the emoji in a
+     category tile, the glyph on a feature card, the numeral on a how-it-works
+     step. Two steps, sized to the box each sits in rather than to the type
+     scale — a glyph in a 56px tile is a decision about the tile. */
+  --text-glyph-sm: 2rem;
+  --text-glyph-lg: 3rem;
+
   /* Tracking for the mono face set in upper case, three steps beyond where the
      default scale stops. Its widest step is 0.1em; lettering this small needs
      one and a half to three times that before the caps read as spaced rather
@@ -59,8 +83,15 @@
   --tracking-mono-widest: 0.28em;
 
   /* The display headline's leading. Tight enough that a hero that wraps to two
-     or three lines reads as one block of type rather than separate sentences. */
+     or three lines reads as one block of type rather than separate sentences.
+     `heading` is its looser twin, for the section headlines set a third of the
+     hero's size — the same tightness there closes the lines up rather than
+     binding them. `copy` is the long-form step, well past Tailwind's
+     `leading-relaxed` (1.625), which the marketing paragraphs are set at so a
+     40rem measure stays readable. */
   --leading-display: 1.05;
+  --leading-heading: 1.2;
+  --leading-copy: 1.75;
 
   /* All three faces are self-hosted by Astro's font pipeline, which defines
      `--font-instrument-serif` / `--font-geist` / `--font-geist-mono` on :root

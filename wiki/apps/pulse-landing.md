@@ -36,13 +36,23 @@ Branding follows the Pulse design system — see `pulse/DESIGN.md`:
 - Tokens in `src/styles/global.css` (`@theme`): the coral/ember/peach accent
   family shared with the app (`--pulse-accent*`), warm-tinted neutrals on a
   warm-light base, plus a vivid `--cat-1..6` palette for the category showcase.
-- Type tokens in the same block, named because they sit outside every scale
-  available here: `--text-tag` / `--text-meta` (0.6rem / 0.65rem, the mono chip
-  tag and meta line — both below Tailwind's 12px `text-xs`),
-  `--tracking-mono-wide|wider|widest` (0.14em / 0.18em / 0.28em, mono caps past
-  the 0.1em the default scale stops at) and `--leading-display` (1.05). A value
-  that is a design decision is named in this block, never in the library-facing
-  `ui-*` contract — see [[design-tokens]]. The table is in `pulse/DESIGN.md`.
+- Type tokens in the same block — **the whole site's type, not the off-scale
+  remainder**. Eight sizes (`--text-tag` 0.6rem, `--text-meta` 0.65rem,
+  `--text-eyebrow` 0.72rem, `--text-copy` 0.95rem, `--text-lede` 1.05rem,
+  `--text-subhead` 1.25rem, `--text-glyph-sm` 2rem, `--text-glyph-lg` 3rem),
+  three trackings (`--tracking-mono-wide|wider|widest`, 0.14em / 0.18em / 0.28em,
+  mono caps past the 0.1em the default scale stops at) and three leadings
+  (`--leading-display` 1.05, `--leading-heading` 1.2, `--leading-copy` 1.75).
+  They replaced 53 literal values across 23 distinct sizes in the seven
+  `sections/*.astro` files. Named rather than snapped even where a built-in step
+  is within a pixel, because a built-in `text-*` sets `line-height` too and an
+  arbitrary `text-[…]` does not. A value that is a design decision is named in
+  this block, never in the library-facing `ui-*` contract — see
+  [[design-tokens]]. The table is in `pulse/DESIGN.md`.
+- **oxlint cannot see any of it.** `*.astro` is in `oxlintrc.json`'s
+  `ignorePatterns`, so `shadcn/no-arbitrary-values` reports zero here however
+  many literals the sections carry. `tests/named-type-scale.test.ts` is what
+  actually holds the scale, and is the thing to run rather than the linter.
 - Shared primitives ported from `cire/landing`: the `[data-reveal]` scroll-reveal
   utility + its `IntersectionObserver` bootstrap, and the reduced-motion opt-out.
 
@@ -59,7 +69,7 @@ restrained dark site. Two Solid islands:
   with an italic accent word, decorative floating chips (desktop only), a
   **location-aware "near you" line**, and two CTAs. All hero content is
   **server-rendered visible** (the entrance is the pure-CSS `.pulse-rise`
-  animation), so it never waits on JS; `client:load` only *enhances* it with the
+  animation), so it never waits on JS; `client:load` only _enhances_ it with the
   geo hook below.
 
 Both honour `prefers-reduced-motion` (still field / instant reveal / CSS
@@ -107,10 +117,10 @@ and city are real.
 `src/lib/site.ts` holds `SITE_*` metadata, the `CATEGORIES` list (label + glyph +
 colour token), and the CTA target:
 
-| Var | Purpose | Dev default |
-|---|---|---|
-| `PUBLIC_APP_URL` | Primary CTA → the Pulse app | `http://localhost:3001` |
-| `SITE` | Canonical origin for SEO meta (placeholder `https://pulse.events`) | config default |
+| Var              | Purpose                                                            | Dev default             |
+| ---------------- | ------------------------------------------------------------------ | ----------------------- |
+| `PUBLIC_APP_URL` | Primary CTA → the Pulse app                                        | `http://localhost:3001` |
+| `SITE`           | Canonical origin for SEO meta (placeholder `https://pulse.events`) | config default          |
 
 `public/_headers` ships the same tight CSP as the other static sites (no external
 image host; Google Fonts allowed; immutable `/_astro/*`). `connect-src 'self'`
@@ -123,7 +133,7 @@ bundles it automatically.
 ## Tests
 
 `PulseHero.test.tsx` renders the hero and asserts the headline + the geo
-*fallback* CTA (no `/api/geo` in the test env). Run with
+_fallback_ CTA (no `/api/geo` in the test env). Run with
 `bun run --cwd pulse/landing test:run`. The `/api/geo` function logic is simple
 and edge-only (`request.cf`), so it is exercised at deploy rather than unit-mocked.
 

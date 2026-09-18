@@ -537,8 +537,9 @@ function EventRowCard(props: {
           // and `gripProps` is what carries `onKeyDown`, the label and the ref.
           {...sortable.dragActivators}
           {...props.sortableItem.gripProps()}
-          // `py-2` is not decoration: it brings the handle to the WCAG 2.5.8
-          // 24px minimum target, on the row's only re-order affordance.
+          // No size classes here: `size="icon"` on a borderless variant carries
+          // its own 24px WCAG 2.5.8 floor, and this row's grip is what that
+          // floor was measured against — see `EventsEditor.grip.browser.test.tsx`.
           class="cursor-grab touch-none active:cursor-grabbing"
         >
           ⠿

@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -495,5 +498,30 @@ describe("EventsEditor — a re-order reaches the wire", () => {
       ["Ceremony", 1],
       ["Brunch", 2],
     ]);
+  });
+});
+
+describe("EventsEditor — the grip's target size is measured elsewhere", () => {
+  /**
+   * `EventsEditor.grip.browser.test.tsx` measures the grip against WCAG 2.2 SC
+   * 2.5.8's 24px floor, and it does so on a reproduction rather than on a
+   * mounted row — a row needs a wedding store and a live sortable context, and
+   * the browser tier cannot read a file to check it is still reproducing the
+   * right thing.
+   *
+   * This is that check. It fails the moment the call site grows a size class of
+   * its own, which is the one way the measurement could go on passing while
+   * measuring something the portal no longer renders.
+   */
+  it("keeps the call site's classes identical to the ones the browser tier measures", () => {
+    const source = readFileSync(
+      join(import.meta.dirname, "..", "..", "src", "components", "EventsEditor.tsx"),
+      "utf8",
+    );
+
+    // Exactly the spelling `GRIP_CLASS` carries in the browser test: no height,
+    // no padding, no `size-*` — the 24px floor is the component's, not this
+    // call site's.
+    expect(source).toContain('class="cursor-grab touch-none active:cursor-grabbing"');
   });
 });

@@ -12,6 +12,7 @@ packages:
   - "@pulse/web"
 last-reviewed: 2026-09-18
 ---
+
 # Browser Tests
 
 A second Vitest project — in `@cire/invites`, in `@cire/host` since 2026-08-06,
@@ -58,15 +59,15 @@ jsdom computes **no CSS and no layout**. It never parses the stylesheet,
 therefore structurally invisible to the default tier — not hypothetically, but
 in ways that have already shipped:
 
-| Failure mode | Why jsdom can't see it |
-|---|---|
-| **#203** — the Add-to-Calendar popover shipped at `z-90`, below the `z-100` modal it opens from, so it painted behind the backdrop: invisible and unclickable | jsdom has no paint order. `z-index.test.ts` can only assert the *numbers* in `Z_LAYER` |
-| A `Z_CLASS` entry naming a class Tailwind never emitted | The scanner only sees literal source text, so a concatenated class compiles to **no CSS at all**, silently. `expect(Z_CLASS.MODAL_POPOVER).toBe("z-110")` passes either way |
-| An ancestor gaining a stacking context (`transform`, `filter`, `opacity < 1`, `contain`) and trapping a portalled overlay | Requires resolving containing blocks |
-| Tailwind v4's `scale-*` setting the standalone `scale` property, not `transform` — so a `transition-transform` that didn't list `scale` animates nothing | Requires the compiled `transition-property` |
-| Two conflicting utilities on one element resolving by **stylesheet order**, not class-attribute order | Requires the generated stylesheet |
-| A `position: sticky` action bar resolving `bottom` against the scrollport (see [[frontend-patterns]] § Rendering and animation gotchas) | Requires layout |
-| The global `prefers-reduced-motion` clamp actually applying | Requires the cascade plus media emulation |
+| Failure mode                                                                                                                                                  | Why jsdom can't see it                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **#203** — the Add-to-Calendar popover shipped at `z-90`, below the `z-100` modal it opens from, so it painted behind the backdrop: invisible and unclickable | jsdom has no paint order. `z-index.test.ts` can only assert the _numbers_ in `Z_LAYER`                                                                                      |
+| A `Z_CLASS` entry naming a class Tailwind never emitted                                                                                                       | The scanner only sees literal source text, so a concatenated class compiles to **no CSS at all**, silently. `expect(Z_CLASS.MODAL_POPOVER).toBe("z-110")` passes either way |
+| An ancestor gaining a stacking context (`transform`, `filter`, `opacity < 1`, `contain`) and trapping a portalled overlay                                     | Requires resolving containing blocks                                                                                                                                        |
+| Tailwind v4's `scale-*` setting the standalone `scale` property, not `transform` — so a `transition-transform` that didn't list `scale` animates nothing      | Requires the compiled `transition-property`                                                                                                                                 |
+| Two conflicting utilities on one element resolving by **stylesheet order**, not class-attribute order                                                         | Requires the generated stylesheet                                                                                                                                           |
+| A `position: sticky` action bar resolving `bottom` against the scrollport (see [[frontend-patterns]] § Rendering and animation gotchas)                       | Requires layout                                                                                                                                                             |
+| The global `prefers-reduced-motion` clamp actually applying                                                                                                   | Requires the cascade plus media emulation                                                                                                                                   |
 
 The pre-existing answer to all of these is **text-matching drift guards** —
 `styles/root-type-scale.test.ts`, `components/rsvp-responded.test.ts` (the
@@ -76,8 +77,8 @@ section's Respond button, `claude/rsvp-respond-button-feedback-fop0di`,
 2026-08-06),
 `components/invite-theme.test.ts` all `readFileSync` a CSS file and regex it.
 Those are still worth having: they are fast, and they catch a source change. But
-they pin only that the source *says* the right thing, never that the render
-*does*. This tier is the other half.
+they pin only that the source _says_ the right thing, never that the render
+_does_. This tier is the other half.
 
 ## What belongs here (and what doesn't)
 
@@ -135,7 +136,7 @@ component test in the package.
 ### Media emulation
 
 `prefers-reduced-motion` and `prefers-color-scheme` are properties of the browser
-*context*, so nothing inside the page can change them.
+_context_, so nothing inside the page can change them.
 `tests/test-support/browser-commands.ts` registers an `emulateMedia` browser
 command that runs in the node process with the Playwright `page` handle:
 
@@ -146,7 +147,7 @@ await emulate({ reducedMotion: "reduce" });
 Always restore it in an `afterEach` — the context is shared across tests in a
 file, so a leaked preference silently rewrites every later assertion about
 motion. A second `browser.instances` entry with `contextOptions.reducedMotion`
-would also work, but runs the *entire* suite twice to serve the few tests that
+would also work, but runs the _entire_ suite twice to serve the few tests that
 care.
 
 The organiser's copy of the command also takes `colorScheme` (its two ramps are
@@ -189,17 +190,22 @@ build number won't match the pinned Playwright, which otherwise makes the tier
 unrunnable there short of a ~300MB download. Point it at the existing binary:
 
 ```bash
-VITEST_BROWSER_EXECUTABLE_PATH=/opt/pw-browsers/chromium bun run test:browser
+VITEST_BROWSER_EXECUTABLE_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome bun run test:browser
 ```
 
-In this repository's cloud sessions the binary is a build-numbered directory
-rather than that bare path — as of 2026-09-16,
-`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`, against a pinned
-Playwright that wants 1234. `ls /opt/pw-browsers` and use what is there; do not
-run `playwright install`, which is what the prebuilt browser exists to avoid.
+The path is the **binary**, not the `/opt/pw-browsers/chromium` symlink beside
+it: Playwright appends its own suffix to whatever it is given, so the symlink
+fails with `executable doesn't exist at /opt/pw-browsers/chromium/chrome-linux/chrome`
+— a message that reads like a missing browser rather than a wrong path, and has
+twice been taken for the tier being unrunnable here. It is runnable.
+
+The build number moves. `ls /opt/pw-browsers` and use what is there; do not run
+`playwright install`, which is what the prebuilt browser exists to avoid.
+
+_Verified 2026-09-18 — `VITEST_BROWSER_EXECUTABLE_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome bun run --cwd cire/host test:browser`, against a pinned Playwright that wants 1234._
 
 The variable is declared in `turbo.json` under `passThroughEnv`, not `env` — it
-says *where* Chromium is, never *what* the tests assert, so it must not enter
+says _where_ Chromium is, never _what_ the tests assert, so it must not enter
 the cache key.
 
 ## CI
@@ -223,20 +229,20 @@ nothing.
 
 ## Current coverage
 
-| Package | File | Pins |
-|---|---|---|
-| `@cire/invites` | `tests/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
-| `@cire/invites` | `tests/components/DietaryPresets.browser.test.tsx` | The dietary picker's preset track overflows **inside** the sheet rather than widening it (a `<fieldset>` sizes to its content unless every box down to the scrollport may be narrower than what it holds), and the picker stays inline at desktop width — a `showModal()` dialog paints above every stacking context, so a portalled popover opened from inside it would be unreachable at any z-index |
-| `@cire/invites` | `tests/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
-| `@cire/invites` | `tests/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
-| `@cire/invites` | `tests/components/EventCard.browser.test.tsx` | The RSVP confirmation fill **travels** (mid-sweep scale strictly between 0 and 1, so the transition is wired to the property Tailwind actually writes), lands on the `bloom` token, and is still painted seconds past `TOTAL_DURATION_MS`; a reply already on file paints filled on the first frame; the two `scale-x-*` utilities never coexist |
-| `@cire/invites` | `tests/components/rsvp-confirmation.browser.test.tsx` | The same fill, driven through the real `RsvpModal` → `EventCard` seam on real timers: nothing shows while the sheet still covers the button, a partial save leaves it plain, and a completing save's fill survives 5s+ |
-| `@cire/invites` | `tests/designs/InvitePage.browser.test.tsx` | The confirmation and the save toast inside the page they ship in, `describe.each`'d over **both** design packs — including the first-visit path, where Motion One's reveal has left its inline `transform` on the events section. The toast must have no fixed-position containing block between it and `<body>`, must stack above `Z_LAYER.MODAL` **and below `Z_LAYER.CONSENT`**, and must be anchored to the viewport |
-| `@cire/host` | `tests/components/ImportPanel.browser.test.tsx` | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp |
-| `@musubi/social` | `tests/styles/token-contract.browser.test.tsx` | A contract utility emits CSS **at all** (an unresolvable one emits nothing, silently); `bg-ui-accent` paints exactly what `--primary` holds; the destructive button's ink comes from `--destructive-foreground` rather than the `text-white` it used to hard-code; the mapping follows `.dark` because it is aliases and not literals; `base:` still compiles to `:where(…)`, so a call-site `class` still wins |
-| `@pulse/web` | `tests/styles/token-contract.browser.test.tsx` | The same chain on a different ramp, plus the mapping decision that only a colour can check: `--ui-accent` paints `--primary` and **not** the coral `--pulse-accent`, so nobody can "fix" the mapping to the brand colour and repaint every shared button |
-| `@cire/host` | `tests/components/PreviewInviteButton.browser.test.tsx` | "Preview invite" is genuinely painted at phone width with its label clipped to the 1×1 `sr-only` box rather than `display: none`, and swaps to the written label — glyph gone — once the `frame` container passes 42rem |
-| `@cire/invites` | `tests/components/MapPreview.browser.test.tsx` | The venue address in the details sheet is unclipped in **both** axes at 320 / 768 / 1440 — for an ordinary address and for a full one down to its country, which is what pins the line cap at three — `white-space` is not `nowrap` in the computed cascade, and the Open-in-Maps action shares the address's row inside the footer in a box clearing WCAG 2.2's target size, its words `sr-only`-clipped rather than `display: none`. Two more pin that the address genuinely wraps at 320px, so the rest cannot pass by happening to fit, and that the cap fires on an address of unlimited length |
+| Package          | File                                                    | Pins                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@cire/invites`  | `tests/lib/z-index.browser.test.tsx`                    | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `@cire/invites`  | `tests/components/DietaryPresets.browser.test.tsx`      | The dietary picker's preset track overflows **inside** the sheet rather than widening it (a `<fieldset>` sizes to its content unless every box down to the scrollport may be narrower than what it holds), and the picker stays inline at desktop width — a `showModal()` dialog paints above every stacking context, so a portalled popover opened from inside it would be unreachable at any z-index                                                                                                                                                                                               |
+| `@cire/invites`  | `tests/components/RsvpModal.browser.test.tsx`           | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@cire/invites`  | `tests/styles/reduced-motion.browser.test.tsx`          | The clamp applies to transitions _and_ animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend`                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `@cire/invites`  | `tests/components/EventCard.browser.test.tsx`           | The RSVP confirmation fill **travels** (mid-sweep scale strictly between 0 and 1, so the transition is wired to the property Tailwind actually writes), lands on the `bloom` token, and is still painted seconds past `TOTAL_DURATION_MS`; a reply already on file paints filled on the first frame; the two `scale-x-*` utilities never coexist                                                                                                                                                                                                                                                     |
+| `@cire/invites`  | `tests/components/rsvp-confirmation.browser.test.tsx`   | The same fill, driven through the real `RsvpModal` → `EventCard` seam on real timers: nothing shows while the sheet still covers the button, a partial save leaves it plain, and a completing save's fill survives 5s+                                                                                                                                                                                                                                                                                                                                                                               |
+| `@cire/invites`  | `tests/designs/InvitePage.browser.test.tsx`             | The confirmation and the save toast inside the page they ship in, `describe.each`'d over **both** design packs — including the first-visit path, where Motion One's reveal has left its inline `transform` on the events section. The toast must have no fixed-position containing block between it and `<body>`, must stack above `Z_LAYER.MODAL` **and below `Z_LAYER.CONSENT`**, and must be anchored to the viewport                                                                                                                                                                             |
+| `@cire/host`     | `tests/components/ImportPanel.browser.test.tsx`         | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `@musubi/social` | `tests/styles/token-contract.browser.test.tsx`          | A contract utility emits CSS **at all** (an unresolvable one emits nothing, silently); `bg-ui-accent` paints exactly what `--primary` holds; the destructive button's ink comes from `--destructive-foreground` rather than the `text-white` it used to hard-code; the mapping follows `.dark` because it is aliases and not literals; `base:` still compiles to `:where(…)`, so a call-site `class` still wins                                                                                                                                                                                      |
+| `@pulse/web`     | `tests/styles/token-contract.browser.test.tsx`          | The same chain on a different ramp, plus the mapping decision that only a colour can check: `--ui-accent` paints `--primary` and **not** the coral `--pulse-accent`, so nobody can "fix" the mapping to the brand colour and repaint every shared button                                                                                                                                                                                                                                                                                                                                             |
+| `@cire/host`     | `tests/components/PreviewInviteButton.browser.test.tsx` | "Preview invite" is genuinely painted at phone width with its label clipped to the 1×1 `sr-only` box rather than `display: none`, and swaps to the written label — glyph gone — once the `frame` container passes 42rem                                                                                                                                                                                                                                                                                                                                                                              |
+| `@cire/invites`  | `tests/components/MapPreview.browser.test.tsx`          | The venue address in the details sheet is unclipped in **both** axes at 320 / 768 / 1440 — for an ordinary address and for a full one down to its country, which is what pins the line cap at three — `white-space` is not `nowrap` in the computed cascade, and the Open-in-Maps action shares the address's row inside the footer in a box clearing WCAG 2.2's target size, its words `sr-only`-clipped rather than `display: none`. Two more pin that the address genuinely wraps at 320px, so the rest cannot pass by happening to fit, and that the cap fires on an address of unlimited length |
 
 Four of these were verified against the bug rather than merely written green.
 The #203 test fails when the popover is put back at `z-90`. The
@@ -252,11 +258,11 @@ sheet. And the `MapPreview` file fails against **two** reverts: putting
 for `hidden` — the same `display: none` mistake the `PreviewInviteButton` test
 exists for, on a different control.
 
-*Measured 2026-09-17 — `truncate` restored on `MapPreview.tsx`'s address line,
+_Measured 2026-09-17 — `truncate` restored on `MapPreview.tsx`'s address line,
 then `bun run --cwd cire/invites test:browser`: 9 failed / 8 passed, reporting
 `scrollWidth 307 > clientWidth 181` at a 320px viewport. Separately, `sr-only`
 replaced with `hidden` on the action's label: 3 failed / 14 passed, on
-`getComputedStyle(label).display` being `none`*
+`getComputedStyle(label).display` being `none`_
 
 The `EventCard` pair exists because of a **two-PR miss**. The RSVP
 confirmation's fill was reported as reverting twice in a row while every test in
@@ -283,7 +289,7 @@ hit test.
   assertion vacuous.
 - **To sample a transition mid-flight, drive it, don't race it.**
   `fill.getAnimations()[0]`, then `pause()` and set `currentTime`. A
-  `wait(duration / 2)` is the one assertion shape here with a hard *upper* bound,
+  `wait(duration / 2)` is the one assertion shape here with a hard _upper_ bound,
   and it was guarding the silently-failing mechanism (Tailwind v4's `scale-*`
   writes the standalone `scale` property, so a `transition-transform` that
   stopped listing `scale` animates nothing). A flaky test protecting a silent
@@ -329,13 +335,13 @@ every `requestAnimationFrame`.
 
 Five traps, each of which has cost an hour or more:
 
-| Trap | What it looks like | What to do |
-|---|---|---|
-| `astro dev` backgrounds itself under an agent | The URL 404s seconds after `bun run dev` reported success, while a stray daemon still holds the port | Astro 7 detects the agent environment and portless deregisters the route when its child exits. Run `CLAUDECODE= bun run dev`; clear a stray with `bunx astro dev stop` |
-| `astro dev` never reaches `networkidle` | `page.goto` hangs until it times out | The HMR socket stays open by design — use `waitUntil: "load"` |
-| Below-the-fold islands hydrate on visibility | The component under test never mounts, and the page reads as broken rather than un-hydrated | Both invite designs mount `InvitePage` and `GiftRegistryTeaser` as `client:visible={{ rootMargin: "600px" }}` (`ConsentBanner` is `client:idle`) — scroll them into view, or assert against the `client:load` header only |
-| The claim endpoint allows **5 attempts per minute per IP** | Back-to-back runs 429, and the invite renders "Something went wrong" with no events — identical to the reveal regression you are chasing | `defaultClaimLimiter` in `cire/api/src/app.ts`. Space the runs out before believing a result |
-| A credentialed stub API echoing `*` | `…/registry/mine` silently reads as signed out | A CORS stub for a credentialed fetch must echo the exact origin |
+| Trap                                                       | What it looks like                                                                                                                       | What to do                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `astro dev` backgrounds itself under an agent              | The URL 404s seconds after `bun run dev` reported success, while a stray daemon still holds the port                                     | Astro 7 detects the agent environment and portless deregisters the route when its child exits. Run `CLAUDECODE= bun run dev`; clear a stray with `bunx astro dev stop`                                                    |
+| `astro dev` never reaches `networkidle`                    | `page.goto` hangs until it times out                                                                                                     | The HMR socket stays open by design — use `waitUntil: "load"`                                                                                                                                                             |
+| Below-the-fold islands hydrate on visibility               | The component under test never mounts, and the page reads as broken rather than un-hydrated                                              | Both invite designs mount `InvitePage` and `GiftRegistryTeaser` as `client:visible={{ rootMargin: "600px" }}` (`ConsentBanner` is `client:idle`) — scroll them into view, or assert against the `client:load` header only |
+| The claim endpoint allows **5 attempts per minute per IP** | Back-to-back runs 429, and the invite renders "Something went wrong" with no events — identical to the reveal regression you are chasing | `defaultClaimLimiter` in `cire/api/src/app.ts`. Space the runs out before believing a result                                                                                                                              |
+| A credentialed stub API echoing `*`                        | `…/registry/mine` silently reads as signed out                                                                                           | A CORS stub for a credentialed fetch must echo the exact origin                                                                                                                                                           |
 
 Anything proved this way that can be pinned belongs back in the tier above:
 `InvitePage.browser.test.tsx` covers the first-visit reveal path precisely

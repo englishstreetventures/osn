@@ -31,12 +31,12 @@ const steps = [
 >
   <div class="mx-auto max-w-[64rem]">
     <div class="mb-16 text-center" data-reveal>
-      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-eyebrow tracking-mono-widest uppercase">
         How it works
       </p>
       <h2
         id="how-heading"
-        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-heading"
       >
         From bored to <span class="italic text-[var(--pulse-accent)]">booked</span> in three taps.
       </h2>
@@ -47,17 +47,17 @@ const steps = [
         steps.map((step) => (
           <li class="text-center md:text-left" data-reveal>
             <p
-              class="font-display mb-4 text-[2.75rem] leading-none"
+              class="font-display mb-4 text-glyph-lg leading-none"
               style={`color: ${step.color};`}
             >
               {step.n}
             </p>
             <h3
-              class="font-body text-[var(--color-text)] mb-3 text-[1.25rem] font-semibold"
+              class="font-body text-[var(--color-text)] mb-3 text-subhead font-semibold"
               set:html={step.title}
             />
             <p
-              class="font-body text-[var(--color-text-muted)] text-[0.95rem] leading-[1.75]"
+              class="font-body text-[var(--color-text-muted)] text-copy leading-copy"
               set:html={step.body}
             />
           </li>

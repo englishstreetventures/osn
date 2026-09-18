@@ -31,12 +31,12 @@ const faqs = [
 <section id="faq" class="px-6 py-24 md:py-32" aria-labelledby="faq-heading">
   <div class="mx-auto max-w-[44rem]">
     <div class="mb-14 text-center" data-reveal>
-      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-eyebrow tracking-mono-widest uppercase">
         Questions
       </p>
       <h2
         id="faq-heading"
-        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-heading"
       >
         The <span class="italic text-[var(--pulse-accent)]">honest</span> answers.
       </h2>
@@ -46,12 +46,12 @@ const faqs = [
       {
         faqs.map((faq) => (
           <details class="faq-item border-b border-[var(--color-border)]">
-            <summary class="font-body text-[var(--color-text)] flex cursor-pointer items-center justify-between gap-4 py-5 text-[1.05rem] font-semibold">
+            <summary class="font-body text-[var(--color-text)] flex cursor-pointer items-center justify-between gap-4 py-5 text-lede font-semibold">
               <span set:html={faq.q} />
               <span class="faq-marker text-[var(--pulse-accent)] shrink-0 text-2xl leading-none" aria-hidden="true">+</span>
             </summary>
             <p
-              class="font-body text-[var(--color-text-muted)] pb-5 text-[0.95rem] leading-[1.75]"
+              class="font-body text-[var(--color-text-muted)] pb-5 text-copy leading-copy"
               set:html={faq.a}
             />
           </details>

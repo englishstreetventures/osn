@@ -40,14 +40,14 @@ There is no single component package. There are two shared layers and one
 product layer, and which one a component belongs in is decided by
 [[osn-and-musubi]]'s discriminator rather than by taste:
 
-| Package | On disk | Holds | Depends on |
-|---|---|---|---|
-| `@shared/ui` | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `cn()` and `clsx()` | `@kobalte/core`, `clsx`, `tailwind-merge`, CVA |
-| `@osn/auth-ui` | `osn/auth-ui/src/` | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui` | `cire/ui/src/` | cire's house style — `Button`, `Card`, `Loading`, a combobox `UsernameInput` | `@shared/ui`, `@shared/design-tokens` |
+| Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `cn()` and `clsx()`                                                            | `@kobalte/core`, `clsx`, `tailwind-merge`, CVA                          |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, a combobox `UsernameInput`                                                         | `@shared/ui`, `@shared/design-tokens`                                   |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
-*why* the line falls there, and is not re-argued here. The short version is that
+_why_ the line falls there, and is not re-argued here. The short version is that
 nobody has to spell `Button` our way to interoperate, so the primitives are
 neither OSN nor Musubi and live under `shared/`; every auth view is paired with
 a named ceremony in the spec, so those stay in `osn/`.
@@ -119,6 +119,7 @@ osn/auth-ui/src/
 
 cire/ui/src/
 ├── button.tsx  card.tsx  loading.tsx
+├── dietary-presets.tsx     dietary-presets-popover.tsx
 └── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 ```
 
@@ -163,29 +164,33 @@ hold that guarantee rather than trusting it.
 
 ## Importing
 
-Each layer has its own specifier shape. `@shared/ui` exports per component,
-`@osn/auth-ui` exports a barrel *and* a subpath per view, `@cire/ui` exports per
-component:
+Each layer has its own specifier shape, and they do not agree on default versus
+named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its five
+components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
+`loading` — are **default** exports, while `username-input` is named, and
+`card` carries named `CardEyebrow` / `CardCta` / `CardCtaButton` beside its
+default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { clsx } from "@shared/ui/lib/utils"; // conditional class joining
-import { cn } from "@shared/ui/lib/utils";   // only for Tailwind conflict resolution
+import { cn } from "@shared/ui/lib/utils"; // only for Tailwind conflict resolution
 
 import { SignIn } from "@osn/auth-ui/SignIn"; // or: import { SignIn } from "@osn/auth-ui";
 
-import { Button as CireButton } from "@cire/ui/button";
+import CireButton from "@cire/ui/button";
 ```
 
 ## Dependency stack
 
-| Package | Role |
-|---------|------|
-| `@kobalte/core` | Headless UI primitives (Dialog, Popover, Tabs, RadioGroup, Checkbox, DropdownMenu) |
-| `class-variance-authority` | Type-safe variant definitions for Button, Badge |
-| `clsx` | Conditional class string joining |
-| `tailwind-merge` | Tailwind class conflict resolution (used only via `cn()`) |
+| Package                    | Role                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tabs, RadioGroup, Checkbox, DropdownMenu) |
+| `class-variance-authority` | Type-safe variant definitions for Button, Badge                                    |
+| `clsx`                     | Conditional class string joining                                                   |
+| `tailwind-merge`           | Tailwind class conflict resolution (used only via `cn()`)                          |
 
 These are dependencies of `@shared/ui`. Consuming apps get them transitively — no extra installs needed.
 
@@ -225,7 +230,7 @@ Use for composing non-conflicting class sets, conditional classes, and signal-dr
 ```typescript
 import { clsx } from "@shared/ui/lib/utils";
 
-clsx("px-4 py-2", isActive && "font-bold", props.class)
+clsx("px-4 py-2", isActive && "font-bold", props.class);
 ```
 
 ### `cn()` — arbitrary runtime merging (with `tailwind-merge`)
@@ -236,7 +241,7 @@ Reserved for rare cases where two arbitrary class sets may contain conflicting T
 import { cn } from "@shared/ui/lib/utils";
 
 // Only use when you genuinely have unpredictable conflicts:
-cn(dynamicClassesFromSignalA(), dynamicClassesFromSignalB())
+cn(dynamicClassesFromSignalA(), dynamicClassesFromSignalB());
 ```
 
 **Rule**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
@@ -289,7 +294,7 @@ If `tailwind-merge` is tree-shaken (i.e. no consumer imports `cn()`), the bundle
 Components are written against the `--ui-*` contract — `bg-ui-surface`,
 `text-ui-ink-secondary`, `text-ui-sm`, `rounded-ui-md`, `border-ui-hairline`.
 The full vocabulary, its contrast floors and the conformance harness are in
-[[design-tokens]]; what a *consuming app* owes the components is two things in
+[[design-tokens]]; what a _consuming app_ owes the components is two things in
 its root stylesheet:
 
 1. **`@import "@shared/design-tokens/tokens.css"`.** That file carries the
@@ -332,7 +337,7 @@ Ten edges across six Kobalte-backed primitives still spell `border-border` and
 `bg-border` rather than a contract token, so a consuming app also defines a
 `--color-border` alias; every app that depends on `@shared/ui` today does.
 
-*Measured 2026-09-17 — `grep -o 'base:bg-border\|base:border-border' shared/ui/src/ui/*.tsx | cut -d: -f1 | sort | uniq -c`*
+_Measured 2026-09-17 — `grep -o 'base:bg-border\|base:border-border' shared/ui/src/ui/*.tsx | cut -d: -f1 | sort | uniq -c`_
 
 ## Component patterns
 
@@ -356,7 +361,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 
 <A href="/settings" class={buttonVariants({ variant: "secondary", size: "sm" })}>
   Settings
-</A>
+</A>;
 ```
 
 ### Kobalte components (Dialog, Popover, Tabs, RadioGroup, Checkbox)
@@ -366,17 +371,23 @@ These wrap Kobalte primitives with styling. They provide proper accessibility by
 ```tsx
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 
-<Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+<Dialog
+  open
+  onOpenChange={(open) => {
+    if (!open) onClose();
+  }}
+>
   <DialogContent>
     <DialogHeader>
       <DialogTitle>Modal Title</DialogTitle>
     </DialogHeader>
     {/* content */}
   </DialogContent>
-</Dialog>
+</Dialog>;
 ```
 
 Key behaviours you get by default:
+
 - **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
@@ -395,7 +406,7 @@ import { Card } from "@shared/ui/ui/card";
 <Card class="p-4">
   <Label for="email">Email</Label>
   <Input id="email" type="email" class="mt-1" />
-</Card>
+</Card>;
 ```
 
 ### Overlays: `Modal`, and why its exit is deferred
@@ -412,10 +423,10 @@ therefore needs **no `z-index` and no portal**.
 
 Its motion is split, and the split is not arbitrary:
 
-| | How | Why there |
-|---|---|---|
+|           | How                         | Why there                                                                                                                                                                                              |
+| --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Entry** | `@starting-style`, pure CSS | The browser takes the from-state when the element is first rendered. No JavaScript at all. Safari has had it since 17.5; older engines show the dialog immediately, which degrades rather than breaks. |
-| **Exit** | JavaScript defers `close()` | `close()` drops a dialog out of the top layer *immediately*, so an exit transition has nothing left to paint. |
+| **Exit**  | JavaScript defers `close()` | `close()` drops a dialog out of the top layer _immediately_, so an exit transition has nothing left to paint.                                                                                          |
 
 **The CSS-only exit does not work cross-browser, and this is the thing to know
 before reaching for it.** The platform's own answer is the `overlay` property
@@ -440,7 +451,7 @@ Timing is two custom properties, so an app retimes rather than restyles:
 ```
 
 `prefers-reduced-motion` drops both to 1ms rather than `none`: the exit is
-*awaited*, and a transition that never started is one there is nothing to wait
+_awaited_, and a transition that never started is one there is nothing to wait
 for.
 
 > [!important]
@@ -448,14 +459,14 @@ for.
 > while the element is still in the document, so drive `open` and leave the
 > component where it is. `<Show when={sheet()}>{() => <Modal open …>}</Show>`
 > unmounts the dialog the instant the value goes null, and the exit silently
-> does not play. Put the `Show` *inside* the modal instead, or hold the last
+> does not play. Put the `Show` _inside_ the modal instead, or hold the last
 > value in a signal.
 
 #### Overriding a `Modal` default: plain utilities, never `base:` ones
 
 `Modal`'s defaults are `base:`-prefixed, which compiles to `:where(…)` and
 therefore **zero specificity** — the whole point being that a caller's utility
-wins. That only holds when the caller's utility is *plain*.
+wins. That only holds when the caller's utility is _plain_.
 
 A `base:` one on the same property ties, and a tie is resolved by **Tailwind's
 stylesheet order**, which is neither the order of the `class` attribute nor
@@ -510,11 +521,11 @@ Five call sites across three products had each spelled the combination out, and
 they disagreed on the radius (28px against 8px), on the breakpoint (`sm` against
 `md`) and on whether `env(safe-area-inset-bottom)` was accounted for at all.
 
-| | Anchor | Radius | Surface it defaults to |
-|---|---|---|---|
-| `centred` | centred, `85vh` cap | `rounded-ui-lg` | `raised` |
-| `sheet` | bottom edge below `md`, centred at `md`+ | `rounded-ui-sheet` on top, square below | `surface` |
-| `drawer` | right edge, full height | none | `surface` |
+|           | Anchor                                   | Radius                                  | Surface it defaults to |
+| --------- | ---------------------------------------- | --------------------------------------- | ---------------------- |
+| `centred` | centred, `85vh` cap                      | `rounded-ui-lg`                         | `raised`               |
+| `sheet`   | bottom edge below `md`, centred at `md`+ | `rounded-ui-sheet` on top, square below | `surface`              |
+| `drawer`  | right edge, full height                  | none                                    | `surface`              |
 
 In the non-`frame` shape, `sheet` also carries the padding a sheet needs — room
 at the top for a close button, and a bottom `max()`-ed against the home
@@ -526,7 +537,7 @@ on purpose — a panel flush with an edge reads as part of the page, while a
 centred dialog floats above it — but an app can want either at either anchor.
 The third value, `ground`, is for the case where the panel's own contents are
 cards: cire's consent sheet holds raised category rows, so the sheet behind them
-has to sit *below* them or the rows stop reading as rows, and
+has to sit _below_ them or the rows stop reading as rows, and
 `cire/invites/tests/components/consent/consent-dialog-surface.browser.test.tsx`
 is what holds that.
 
@@ -539,19 +550,19 @@ above every stacking context **by definition**, so nothing outside it can be
 raised over an open dialog at any number. Anything that must appear over a sheet
 has to join the top layer, and there are exactly two doors:
 
-| Element | Enters the top layer by | Painting order |
-|---|---|---|
-| A dialog | `showModal()` | Entry order — later entries paint on top |
-| Anything else | `showPopover()` on a `popover` element | Same |
+| Element       | Enters the top layer by                | Painting order                           |
+| ------------- | -------------------------------------- | ---------------------------------------- |
+| A dialog      | `showModal()`                          | Entry order — later entries paint on top |
+| Anything else | `showPopover()` on a `popover` element | Same                                     |
 
-So a menu or a toast raised *after* a dialog opened paints above it. That is the
+So a menu or a toast raised _after_ a dialog opened paints above it. That is the
 whole mechanism, and it is enough for paint.
 
 > [!warning]
 > **The top layer is no exemption from `inert`.** A modal dialog makes every
 > node outside it inert — not hit-testable, not reachable by assistive
 > technology — however it is painted. A popover shown outside the dialog is
-> therefore *visible and dead*.
+> therefore _visible and dead_.
 >
 > Only a descendant of the dialog escapes that. A menu opened from inside a
 > sheet must render **in place**, with `popover` doing the job a `<Portal>` used
@@ -586,7 +597,7 @@ component bug:
 
 The motion itself is benched in `@tools/lab` under **shared/ui/overlays →
 ModalMotion**, with the two durations on sliders ([[component-lab]]). Whether a
-curve looks right is not a question a test can answer; whether the exit *runs*,
+curve looks right is not a question a test can answer; whether the exit _runs_,
 and whether the dialog stays in the top layer until it finishes, are — and
 `shared/ui/tests/modal.browser.test.tsx` asserts both.
 
@@ -625,22 +636,22 @@ tracked, a sharp 4px corner, a gold primary — and on a cire surface it is wher
 call site's colour, shape and padding have to come from. Fourteen variants,
 grouped by the job rather than by the look:
 
-| Group | Variants | What each is for |
-|---|---|---|
-| Commit | `primary`, `cta` | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
-| Secondary | `outline`, `quiet`, `dashed` | A gold wash, a neutral action, and the empty slot — a dashed box promises that something *appears*, a solid one that something *happens* |
-| Destructive | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state |
-| Text | `link`, `subtle`, `touchLink` | Accent ink, muted ink, and muted ink carrying its underline at rest. The last belongs to `@cire/invites`, which is read on a phone — there is no hover there to reveal one |
-| Glyph | `bare` | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline |
-| State and fill | `choice`, `tile` | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that *is* a block — a card, a row — where a hairline stops describing the target |
+| Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
+| -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
+| Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
+| Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
+| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last belongs to `@cire/invites`, which is read on a phone — there is no hover there to reveal one                                                                    |
+| Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
+| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
 Five sizes, and they are not one scale:
 
-| Size | What it gives | For |
-|---|---|---|
-| `sm`, `md`, `lg` | three steps of label padding and type | An ordinary control |
-| `swatch` | one hairline of padding, no type at all | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
-| `icon` | square, sized to the glyph rather than to a label | A single glyph |
+| Size             | What it gives                                     | For                                                                                                              |
+| ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `sm`, `md`, `lg` | three steps of label padding and type             | An ordinary control                                                                                              |
+| `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
+| `icon`           | square, sized to the glyph rather than to a label | A single glyph                                                                                                   |
 
 Three sizing tables, picked by the variant. The borderless ones take the type
 step and none of the box padding, because `px-4 py-2` around a text link is a
@@ -659,7 +670,7 @@ A primitive, in `@shared/ui`:
 1. Create the file at `shared/ui/src/ui/<name>.tsx`.
 2. Follow the existing pattern: `splitProps` for `class`, write `base:` prefixed defaults literally in the class string, use `clsx()` to compose them with `local.class`, spread `...others`. Type the rest props as `SafeProps<"div">` (from `./props`) rather than Solid's own attributes.
 3. Colour it with contract tokens — `bg-ui-surface`, `text-ui-ink`, `border-ui-hairline` — never an app's own name. See [[design-tokens]].
-4. For interactive components, use Kobalte primitives from `@kobalte/core/<name>`. Weigh the bundle cost first if the component has to render on a cire surface — and if only *some* callers need the heavy dependency, **give them a separate file to import**, not a prop. A `<Show>`, a `createMemo` or a `shell` prop does not help: a bundler follows the static import, so every caller pays for the branch none of them took. Kobalte's popover is ~18.7 KB gzip, which is enough on its own to put `@cire/invites` over its budget in [[bundle-size-guards]]. `cire/ui/src/dietary-presets.tsx` (fields, no Kobalte) and `dietary-presets-popover.tsx` (the same fields behind a trigger) are the worked pair.
+4. For interactive components, use Kobalte primitives from `@kobalte/core/<name>`. Weigh the bundle cost first if the component has to render on a cire surface — and if only _some_ callers need the heavy dependency, **give them a separate file to import**, not a prop. A `<Show>`, a `createMemo` or a `shell` prop does not help: a bundler follows the static import, so every caller pays for the branch none of them took. Kobalte's popover is ~18.7 KB gzip, which is enough on its own to put `@cire/invites` over its budget in [[bundle-size-guards]]. `cire/ui/src/dietary-presets.tsx` (fields, no Kobalte) and `dietary-presets-popover.tsx` (the same fields behind a trigger) are the worked pair.
 5. For a text control, reach for `controlClass` in `./control` instead of writing a box.
 6. For variant components, use CVA with a literal `base:` prefixed string for each variant, and export both the component and the `variants` function.
 7. For internal child elements that don't accept consumer `class` overrides, write the `base:` prefixed string directly (no `clsx` needed).
@@ -701,18 +712,18 @@ what a "tone is not carried by hue alone" assertion needs to tell apart. See
 
 ## Source files
 
-| File | What it is |
-|---|---|
-| `shared/ui/src/ui/` | Every primitive's source |
-| `shared/ui/src/lib/utils.ts` | `clsx`, `cn()` |
-| `shared/ui/src/ui/control.ts` | The shared text-control box |
-| `shared/ui/src/ui/props.ts` | `SafeProps` |
-| `shared/ui/package.json` | The subpath exports |
-| `shared/ui/vitest.config.ts` | The unit / browser project split |
-| `shared/ui/tests/test-support/tailwind.css` | The stylesheet the browser tier renders against |
-| `osn/auth-ui/src/index.ts` | The auth-view barrel |
-| `osn/auth-ui/package.json` | Per-view subpath exports |
-| `cire/ui/README.md` | Why those four components are cire's and not shared |
-| `shared/design-tokens/src/tokens.css` | The `--ui-*` contract, the `base:` variant and the `@source` lines |
-| `pulse/web/src/app.css` | An app's mapping block — shadcn ramp |
-| `cire/host/src/styles/global.css` | An app's mapping block — cire's two OKLCH ramps, plus `@cire/ui`'s `@source` |
+| File                                        | What it is                                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `shared/ui/src/ui/`                         | Every primitive's source                                                     |
+| `shared/ui/src/lib/utils.ts`                | `clsx`, `cn()`                                                               |
+| `shared/ui/src/ui/control.ts`               | The shared text-control box                                                  |
+| `shared/ui/src/ui/props.ts`                 | `SafeProps`                                                                  |
+| `shared/ui/package.json`                    | The subpath exports                                                          |
+| `shared/ui/vitest.config.ts`                | The unit / browser project split                                             |
+| `shared/ui/tests/test-support/tailwind.css` | The stylesheet the browser tier renders against                              |
+| `osn/auth-ui/src/index.ts`                  | The auth-view barrel                                                         |
+| `osn/auth-ui/package.json`                  | Per-view subpath exports                                                     |
+| `cire/ui/README.md`                         | Why those components are cire's and not shared                               |
+| `shared/design-tokens/src/tokens.css`       | The `--ui-*` contract, the `base:` variant and the `@source` lines           |
+| `pulse/web/src/app.css`                     | An app's mapping block — shadcn ramp                                         |
+| `cire/host/src/styles/global.css`           | An app's mapping block — cire's two OKLCH ramps, plus `@cire/ui`'s `@source` |

@@ -16,16 +16,16 @@ const lineup = [
 >
   <div class="mx-auto grid max-w-[64rem] items-center gap-12 md:grid-cols-2 md:gap-16">
     <div data-reveal>
-      <p class="font-mono text-[var(--cat-3)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+      <p class="font-mono text-[var(--cat-3)] mb-4 text-eyebrow tracking-mono-widest uppercase">
         Venues
       </p>
       <h2
         id="venues-heading"
-        class="font-display text-[var(--color-text)] text-[clamp(1.8rem,4.5vw,2.75rem)] leading-[1.2]"
+        class="font-display text-[var(--color-text)] text-[clamp(1.8rem,4.5vw,2.75rem)] leading-heading"
       >
         Know the <span class="italic text-[var(--pulse-accent)]">lineup</span> before you leave.
       </h2>
-      <p class="font-body text-[var(--color-text-muted)] mt-6 max-w-[34rem] text-[1.02rem] leading-[1.8]">
+      <p class="font-body text-[var(--color-text-muted)] mt-6 max-w-[34rem] text-lede leading-copy">
         Clubs and venues get their own page on Pulse — genres, resident DJs and the full schedule for
         the night. See who&rsquo;s on and when, so you arrive for the set you actually came for.
       </p>
@@ -37,7 +37,7 @@ const lineup = [
       data-reveal
       aria-hidden="true"
     >
-      <p class="font-mono mb-5 text-[0.62rem] tracking-[0.22em] text-[var(--color-text-muted)] uppercase">
+      <p class="font-mono mb-5 text-tag tracking-mono-wider text-[var(--color-text-muted)] uppercase">
         Tonight · The Hollow
       </p>
       <ol class="relative ml-2 border-l border-[var(--color-border)]">
@@ -52,12 +52,12 @@ const lineup = [
                     : 'background: var(--cat-3);'
                 }
               />
-              <span class="font-mono mr-3 text-[0.8rem] text-[var(--color-text-muted)]">
+              <span class="font-mono mr-3 text-eyebrow text-[var(--color-text-muted)]">
                 {slot.time}
               </span>
               <span
                 class={`font-body text-[var(--color-text)] ${
-                  slot.role === 'headliner' ? 'text-[1.05rem] font-bold' : 'text-[0.95rem] font-medium'
+                  slot.role === 'headliner' ? 'text-lede font-bold' : 'text-copy font-medium'
                 }`}
               >
                 {slot.act}

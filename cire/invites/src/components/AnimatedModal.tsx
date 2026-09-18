@@ -114,15 +114,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // anything together: square the bottom corners without the bottom anchor
       // and the result is a centred card with a corner missing.
       presentation="sheet"
-      // The 480px cap rides here rather than in `class` because
-      // `shadcn/no-restyle` classifies a call-site class with its own grammar,
-      // and that grammar models `max-w-*` only on Tailwind's built-in steps —
-      // it rejects `max-w-column-md` outright, even though the plugin can see
-      // the class and `no-unknown-classes` is silent on it. Every built-in step
-      // is rem, and rem is the one thing this cap must not be: the app steps its
-      // root font-size to 17px at 1024px, which would make a 480px panel 510px
-      // on a laptop.
-      style={{ "max-width": "var(--container-column-md)", ...filterThemeVars(props.themeVars) }}
+      style={filterThemeVars(props.themeVars)}
       // Plain utilities, not `base:`-prefixed ones, for everything that
       // overrides a `Modal` default. `base:` compiles to `:where(&)`, which has
       // zero specificity by design — so a `base:` class here would tie with the
@@ -130,7 +122,14 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // than by this file. A plain utility simply wins. `md:mb-8` is exactly
       // that: it lifts the centred desktop panel off the viewport floor, and
       // has to beat the presentation's own `md:m-auto`.
-      class="md:mb-8"
+      // `max-w-column-md` is the app's own 480px cap, and it must stay in
+      // pixels: `@cire/invites` steps its root font-size to 17px at 1024px, so
+      // every rem-based `max-w-*` step — including the contract's `max-w-ui-*`
+      // — would render this panel 6.25% wider on a laptop than it is on a
+      // phone. The family is named in `no-restyle`'s allow lists because the
+      // rule's grammar cannot classify a `max-w-*` built from a custom
+      // `--container-*` entry; see wiki/architecture/design-tokens.md.
+      class="max-w-column-md md:mb-8"
     >
       {/* No z-index: a positioned box already paints over its non-positioned
           in-flow siblings, so this stays above the scroller without adding a
