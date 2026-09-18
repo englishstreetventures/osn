@@ -153,6 +153,7 @@ decided it — see [[decisions/README]] for what belongs here and what does not.
 
 - [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how to promote to production past the approval gate, how to reset dev by hand
 - [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
+- [[stripe-webhooks]] — cire-api's two Stripe endpoints (Connect for gifts, platform for upgrades): which events each takes, how to recreate one in the dashboard, the two local forwarders, and how to verify a deployed tier
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[musubi-identity-migration]] — moving osn-api to `id.musubi.social` and making musubi.social the OSN identity home (blockers, credential bridge, config inventory, cutover order)
 - [[auth-failure]] — passkey / recovery / refresh / step-up debugging

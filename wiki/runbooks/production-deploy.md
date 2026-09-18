@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-13
+last-reviewed: 2026-09-17
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -584,9 +584,32 @@ The row's shape — the columns that carry a trust decision are listed in
 
 ---
 
+### 3.8 Stripe — gift contributions via Connect (cire-api)
+
+The registry's card contributions. **Both this and §3.9 are needed**, and they are two different Stripe relationships with two different endpoints and two different signing secrets — the step-by-step for creating either, running them locally and verifying a tier is in `wiki/runbooks/stripe-webhooks.md` ([[stripe-webhooks]]), which is the page to work from. What belongs on this checklist:
+
+**One-time, in the Stripe dashboard:**
+
+1. Enable **Connect** on the platform account and complete the platform profile, or Stripe will not mint the Express accounts `POST …/registry/stripe/session` asks for.
+2. Add a webhook endpoint at `https://api.cireweddings.com/api/stripe/webhook`, scoped to **connected accounts**, subscribed to the nine events [[stripe-webhooks]] lists (`account.updated`, `account.application.deauthorized`, and the seven gift events). An account-scoped endpoint here hears nothing a couple's account does.
+
+**Then:**
+
+```bash
+cd cire/api
+bunx wrangler secret put STRIPE_SECRET_KEY --env production      # shared with §3.9
+bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint's
+```
+
+`STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
+
+**Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist, and a gift is written `pending` and never settles.
+
+---
+
 ### 3.9 Stripe — self-serve upgrades (cire-api)
 
-Separate from the Connect integration that handles gift contributions, and the two must not be confused: gifts are DIRECT charges on a couple's connected account (they are the merchant), while an upgrade is a PLATFORM charge where **cire is the merchant of record**. Two Stripe endpoints, two signing secrets. See `wiki/systems/cire-upgrades.md`.
+Separate from the Connect integration in §3.8, and the two must not be confused: gifts are DIRECT charges on a couple's connected account (they are the merchant), while an upgrade is a PLATFORM charge where **cire is the merchant of record**. Two Stripe endpoints, two signing secrets. See [[cire-upgrades]] for the system and [[stripe-webhooks]] for the dashboard steps, the local forwarders and the per-tier verification.
 
 **One-time, in the Stripe dashboard:**
 
@@ -610,7 +633,9 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 
 **Fail-closed, per key.** A module with no configured Price is not purchasable: absent from the catalogue and a 404 from checkout. Absent configuration never means free. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
 
-**Smoke check after deploy:** as a wedding owner, open a locked module's nav row → Upgrade → pay with a Stripe test card → confirm you land back in the portal with the module open, and that `wedding_entitlements` has a row with `source = 'purchase'`.
+**Smoke check after deploy:** as a wedding owner, open a locked module's nav row → Upgrade → pay with a Stripe test card → confirm you land back in the portal with the module open, and that `wedding_entitlements` has a row with `source = 'purchase'`. The full version — the mounted-vs-404 curl, the `wrangler tail`, and the three D1 queries that prove the webhook granted it rather than the browser — is in [[stripe-webhooks]] §Verify a deployed tier.
+
+**Do dev first.** Both endpoints exist per tier and per mode; a sandbox secret will not verify a live delivery. Prove the flow on `api.dev.cireweddings.com` with test-mode Prices before creating anything in live mode.
 
 ---
 

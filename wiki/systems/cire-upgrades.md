@@ -180,6 +180,8 @@ STRIPE_UPGRADE_PRICE_VENDORS=price_… STRIPE_UPGRADE_PRICE_REGISTRY=price_… \
 
 One `stripe listen` prints **one** signing secret for everything it forwards, so locally both secrets carry the same value. Deployed tiers have two dashboard endpoints and two different secrets — that difference is a deployed property, and it is what the wrong-secret test pins.
 
+Creating either endpoint in the Stripe dashboard, and verifying a deployed tier end to end, is [[stripe-webhooks]].
+
 ---
 
 ## Observability
@@ -199,3 +201,4 @@ Closed unions only; no wedding, purchase or profile id ever becomes an attribute
 - [[cire-registry]] — one of the two purchasable modules
 - [[cire-vendors]] — the other
 - [[cire-auth]] — role gate ordering
+- [[stripe-webhooks]] — creating the two endpoints, the local forwarders, verifying a tier

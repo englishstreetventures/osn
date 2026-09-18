@@ -7,6 +7,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-platform-plan]]"
   - "[[cire-consent]]"
+  - "[[stripe-webhooks]]"
   - "[[drag-and-drop]]"
 last-reviewed: 2026-09-18
 ---
@@ -104,6 +105,8 @@ Rendering goes through `formatMinorPair` in `cire/host/src/lib/money.ts`. That m
 | `POST …/registry/stripe/session` | `weddingOwner` + entitlement | Creates the connected account (Express, `card_payments` + `transfers`) if there isn't one, then mints a hosted onboarding link |
 | `POST …/registry/stripe/refresh` | `weddingOwner` + entitlement | One live `GET /v1/accounts/:id`, and caches what it says                                                                       |
 | `POST /api/stripe/webhook`       | Stripe signature             | `account.updated` → caches the capability booleans; `account.application.deauthorized` → clears the account; the seven gift events below |
+
+Creating that endpoint in the Stripe dashboard — its scope, the nine events, the local forwarder and how to verify a tier — is [[stripe-webhooks]].
 
 **Owner-only, not editor.** Every other registry write is `weddingEditor`, because adding a gift is ordinary help. This names the bank account the money lands in, and sits on the same side of the role line as codes, deletion and co-host removal.
 

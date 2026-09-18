@@ -106,6 +106,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Add a third party to a cire page (cookies, CSP, the consent gate) | `[[wiki/architecture/cire-consent]]` |
 | Write a test that needs real CSS or layout (the Chromium Vitest project) | `[[wiki/conventions/browser-tests]]` |
 | Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
+| Create, run or debug a cire Stripe webhook — which of the two endpoints, which events, the local forwarders, how to verify a tier | `[[wiki/runbooks/stripe-webhooks]]` |
 | Use the dev tier — what deploys automatically, how to promote past the approval gate, how to reset dev | `[[wiki/runbooks/dev-environment]]` |
 | Check free-tier limits / what breaks at a cap / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
 | Move OSN identity to `musubi.social` (RP-ID change, credential bridge, cutover order) | `[[wiki/runbooks/musubi-identity-migration]]` |
