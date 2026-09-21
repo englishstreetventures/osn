@@ -170,6 +170,11 @@ export interface SessionRecord {
   isSidechain?: boolean;
   isCompactSummary?: boolean;
   effort?: string;
+  /** How this session was started. `cli` is a person at a terminal; an `sdk-*`
+   * value is a session some program drove, and the prompts in one were written
+   * by that program rather than typed. Absent on transcripts written before the
+   * field existed. */
+  entrypoint?: string;
   message?: {
     role?: string;
     model?: string;
@@ -347,27 +352,69 @@ export function isHumanTurn(record: SessionRecord): boolean {
  * definition a course correction. Reading only `user` records scored every
  * interruption as zero and made the field describe the opposite of what it
  * claims to. Across this repository's own transcripts that was 354 prompts.
+ *
+ * Both shapes are then filtered the same way, by {@link humanText} for a
+ * machine record wearing a prompt's clothes and by {@link isMachineDriven} for
+ * a whole session a program started. A turn survives only if a person could
+ * have typed it.
  */
 export function humanTurnText(record: SessionRecord): string | null {
   if (record.isSidechain) return null;
+  if (isMachineDriven(record)) return null;
 
   if (record.type === "attachment" && record.attachment?.type === "queued_command") {
-    const prompt = record.attachment.prompt?.trim();
-
-    return prompt ? prompt : null;
+    return humanText(record.attachment.prompt);
   }
 
   if (record.type !== "user") return null;
 
   const content = record.message?.content;
-  if (typeof content !== "string") return null;
 
-  const trimmed = content.trim();
+  return typeof content === "string" ? humanText(content) : null;
+}
 
-  // Tool results, hook output, system reminders and slash-command envelopes all
-  // arrive as `role: "user"`. Counting them would make every session look like
-  // a conversation and destroy `user_turns` as a measure of steering.
-  return trimmed.length > 0 && !trimmed.startsWith("<") ? trimmed : null;
+/**
+ * A prompt, or `null` if it is machinery wearing a prompt's clothes.
+ *
+ * Tool results, hook output, system reminders, slash-command envelopes,
+ * subagent hand-backs and task notifications all reach the transcript in a
+ * record a person could have written, and every one of them opens with a tag.
+ * Both shapes `humanTurnText` reads need this, and only one of them used to get
+ * it: the queued branch returned its prompt unexamined, so every background
+ * `<agent-message>` and `<task-notification>` scored as a course correction.
+ * Nine of them did on one branch here, against three turns the person actually
+ * sent — and `corrective_turns` is the field documented as measuring the person
+ * rather than the model, so it read the brief as poor when it had been followed
+ * with no correction at all.
+ *
+ * The bias is not random. Those records arrive in proportion to how many
+ * background subagents a session runs, which is what `orchestrate` and
+ * `prep-pr` tell it to do.
+ */
+function humanText(raw: string | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+
+  return trimmed.startsWith("<") ? null : trimmed;
+}
+
+/**
+ * Whether a program, rather than a person, drove this session.
+ *
+ * `~/.claude/projects` keys transcripts by working directory, so a tool that
+ * runs its own headless session against a worktree writes into the same
+ * directory as the person working there. Its opening instruction is an ordinary
+ * `user` record — not a sidechain, no tag to reject it by — so it counted as a
+ * human turn on that branch's card. Three such sessions sit in one branch's
+ * directory here, each an automated security review.
+ *
+ * `entrypoint` is what separates them: `cli` is a terminal, `sdk-py` and
+ * `sdk-cli` are programs. Absent means a transcript older than the field, and
+ * an absent value keeps the previous behaviour rather than guessing — this
+ * check only ever removes a false positive.
+ */
+function isMachineDriven(record: SessionRecord): boolean {
+  return record.entrypoint?.startsWith("sdk") ?? false;
 }
 
 export function isCompactionCommand(record: SessionRecord): boolean {

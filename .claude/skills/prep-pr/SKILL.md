@@ -160,10 +160,28 @@ Report the affected workspaces and whether any CI/infra-only files changed.
 
 ## Step 2 — Check changesets
 
+**Diff the working tree, not the commit range, while anything is uncommitted.**
+`"$BASE"...HEAD` describes what has been committed, so on a branch whose work is
+still in the tree it is empty — and `scripts/changeset-required.sh` answers
+`skip` for an empty diff exactly as it does for an all-allowlisted one. This is
+a gate whose failure mode is passing, and Step 3 is what commits, so the plain
+form here is wrong every time this skill runs before a commit. CI then fails the
+pull request on "no changeset found" after a push and a review cycle.
+
 ```bash
-git diff --name-only "$BASE"...HEAD -- .changeset/   # minus config.json, README.md
+CHANGED=$(git status --porcelain --untracked-files=all | grep -q . \
+  && git diff --name-only --cached HEAD \
+  || git diff --name-only "$BASE"...HEAD)
+
+echo "$CHANGED" | grep '^\.changeset/'   # minus config.json, README.md
 bash scripts/validate-changesets.sh
 ```
+
+Stage first (`git add -A`) so `--cached` sees everything; Step 3 commits what is
+staged. Re-run the check after that commit if anything was left out.
+
+The same ordering catches Step 5's `comment-delta.ts`, which reads the commit
+range too and reports a stale figure until the work is committed.
 
 `validate-changesets.sh` is the authority and needs no network and no install —
 shell and `jq`. It fails on exactly the two mistakes CI catches: a package name
@@ -175,8 +193,11 @@ cross-check, not the verdict.
 `changeset version` with "package not in workspace" — `osn-api` where the
 package is `@osn/api`. Verify each with `jq -r .name <workspace>/package.json`.
 
-If no changeset exists: run `scripts/changeset-required.sh` first. If it says
-`skip`, none is needed — say so and do not create an empty one. Otherwise draft
+If no changeset exists: run `scripts/changeset-required.sh` first, piping the
+same `$CHANGED` list. If it says `skip`, none is needed — say so and do not
+create an empty one. **A `skip` on an uncommitted branch means you diffed the
+wrong thing**, not that the branch is allowlisted; `bun.lock` and a workspace
+`package.json` are both off the list and both are easy to forget. Otherwise draft
 a one- or two-sentence summary, confirm it with the user, and run
 `bun run changeset`. With no user, adopt your draft, note in the report that it
 was unconfirmed, and continue. If a changeset exists but misses an affected

@@ -233,6 +233,107 @@ test("isHumanTurn reads a prompt queued while the agent was working", () => {
   ).toBe(false);
 });
 
+// A subagent hand-back and a background task notification are delivered as
+// queued commands too, and they are not prompts. Nine of them landed on one
+// branch here against three turns the person actually sent, so the card read
+// 11 corrective turns on a session with no correction in it. Every one opens
+// with a tag, which is the same thing the `user` branch has always rejected.
+test("isHumanTurn rejects a queued record that is machinery, not a prompt", () => {
+  expect(
+    isHumanTurn({
+      type: "attachment",
+      attachment: {
+        type: "queued_command",
+        prompt: '<agent-message from="a584b9a5">\n[Subagent hand-back] …',
+      },
+    }),
+  ).toBe(false);
+
+  expect(
+    isHumanTurn({
+      type: "attachment",
+      attachment: { type: "queued_command", prompt: "<task-notification>\n<task-id>b2x</task-id>" },
+    }),
+  ).toBe(false);
+
+  // …and a prompt that merely mentions one is still a prompt.
+  expect(
+    isHumanTurn({
+      type: "attachment",
+      attachment: { type: "queued_command", prompt: "the <task-notification> block is wrong" },
+    }),
+  ).toBe(true);
+});
+
+// `~/.claude/projects` keys transcripts by working directory, so a headless
+// tool run against a worktree writes into the same directory as the person
+// working there. Its opening instruction is an ordinary `user` record — not a
+// sidechain, and no tag to reject it by.
+test("isHumanTurn rejects a turn from a session a program drove", () => {
+  const prompt = "Review this change for security vulnerabilities.";
+
+  expect(isHumanTurn({ type: "user", entrypoint: "sdk-py", message: { content: prompt } })).toBe(
+    false,
+  );
+  expect(isHumanTurn({ type: "user", entrypoint: "sdk-cli", message: { content: prompt } })).toBe(
+    false,
+  );
+  expect(isHumanTurn({ type: "user", entrypoint: "cli", message: { content: prompt } })).toBe(true);
+  // Absent on transcripts older than the field: keep the previous answer rather
+  // than guess. This check only ever removes a false positive.
+  expect(isHumanTurn({ type: "user", message: { content: prompt } })).toBe(true);
+});
+
+test("aggregateInteraction does not score background notifications as corrections", () => {
+  // The shape that produced the wrong reading: one opening brief, then work,
+  // then a subagent reporting back twice. One human turn, zero corrections.
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "run the reviews" } },
+    assistant({
+      timestamp: "…02",
+      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
+    }),
+    {
+      type: "attachment",
+      sessionId: "s1",
+      timestamp: "…03",
+      attachment: {
+        type: "queued_command",
+        prompt: '<agent-message from="a1">report</agent-message>',
+      },
+    },
+    {
+      type: "attachment",
+      sessionId: "s1",
+      timestamp: "…04",
+      attachment: { type: "queued_command", prompt: "<task-notification>done</task-notification>" },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(1);
+  expect(interaction.corrective_turns).toBe(0);
+});
+
+test("aggregateInteraction ignores a headless session sharing the directory", () => {
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build it" } },
+    assistant({
+      timestamp: "…02",
+      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
+    }),
+    {
+      type: "user",
+      sessionId: "s2",
+      entrypoint: "sdk-py",
+      timestamp: "…03",
+      message: { content: "Review this change for security vulnerabilities." },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(1);
+  expect(interaction.corrective_turns).toBe(0);
+});
+
 test("aggregateInteraction counts a queued prompt as a correction", () => {
   const interaction = aggregateInteraction([
     { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build it" } },

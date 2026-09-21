@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-16
+last-reviewed: 2026-09-22
 ---
 
 # Session Metrics
@@ -143,6 +143,18 @@ Five traps the collector handles and any reimplementation must:
   same text in the same session is collapsed — but two identical `user` turns
   are never collapsed, because a person who types "continue" twice steered
   twice.
+- **Not everything in that shape is a prompt.** A subagent hand-back and a
+  background task notification are delivered as queued commands too, and both
+  open with a tag (`<agent-message …>`, `<task-notification>`). They are
+  rejected the same way the `user` branch has always rejected a system
+  reminder — the leading `<`.
+- **Not every session in the directory is the person's.** `~/.claude/projects`
+  keys transcripts by working directory, so a headless tool run against a
+  worktree writes into the same directory as the person working there, and its
+  opening instruction is an ordinary `user` record with no tag to reject it by.
+  `entrypoint` separates them: `cli` is a terminal, `sdk-py` and `sdk-cli` are
+  programs. Absent means a transcript older than the field, and an absent value
+  keeps the previous answer rather than guessing.
 
 *Measured 2026-09-08 — a one-off scan of `~/.claude/projects/**/*.jsonl` on the
 machine that did the work. No script was kept, and that directory is local and
@@ -269,7 +281,7 @@ warning below.
 | `diff.files`, `diff.loc` | Counts bucketed `source` / `test` / `docs` / `config` / `generated` |
 | `diff.packages` | Workspace directories touched |
 | `interaction.user_turns` | Real human instructions |
-| `interaction.corrective_turns` | Human turns arriving *after* the agent started work |
+| `interaction.corrective_turns` | Human turns arriving *after* the agent started work. Machine records in a prompt's clothes — subagent hand-backs, task notifications, a headless session's opening instruction — are excluded; older cards overstate it |
 | `interaction.tokens_before_first_edit` | Exploration cost, summed per session. **`null` when no edit was observed** — see below |
 | `interaction.sessions_with_observed_edit` | How many sessions contributed to that figure, so a partial reading reads as partial |
 | `interaction.edit_churn` | `files_edited_3plus`, `max_edits_one_file` |
@@ -401,6 +413,20 @@ agent has already picked up tools: course corrections rather than the task. One
 turn and a large spend is an agent given a clear brief. Nine turns is a brief
 that needed nine patches. This is the one number here that measures the person
 rather than the model.
+
+> [!warning] Cards written before 2026-09-22 overstate it
+> Until then the collector read a queued record's prompt without checking
+> whether a person wrote it, and counted a headless session sharing the
+> worktree's directory as the person's own. Both inflate the field, and the
+> first inflates it **in proportion to how many background subagents a session
+> ran** — which is what `orchestrate` and `prep-pr` tell it to do, so the more
+> a session followed this repository's conventions, the worse its brief
+> appeared. One branch read 11 corrective turns against three turns the person
+> actually sent and no correction among them.
+>
+> The transcripts those cards were built from are local and unversioned, so
+> nothing can be recomputed. Read the field on an older card as an upper bound,
+> and read a high value on a subagent-heavy branch as probably an artefact.
 
 Two supporting signals: a rising **cache-read share** across PRs means the
 context surface — `CLAUDE.md`, the skills, the wiki pages an agent opens — is
