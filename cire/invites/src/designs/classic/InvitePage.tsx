@@ -3,7 +3,6 @@ import {
   batch,
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   lazy,
   onCleanup,
@@ -16,7 +15,11 @@ import {
 import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
-import type { ImageCrop } from "../../components/image-crop";
+import {
+  createInviteRevalidation,
+  type DetailsCopy,
+  type InviteCustomisationResponse,
+} from "../../components/invite-revalidation";
 import {
   applyPaletteToRoot,
   filterThemeVars,
@@ -60,31 +63,6 @@ const PulseAccountLink = lazy(() =>
 const AuthProvider = lazy(() =>
   import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider })),
 );
-
-/** Events ("details") section header copy. `null` ⇒ the built-in defaults. */
-export interface DetailsCopy {
-  eyebrow: string | null;
-  heading: string | null;
-}
-
-/**
- * Shape of the public invite endpoint we consume — the theme plus the copy this
- * island renders (the details-section header and the post-claim welcome
- * greeting). `details`/`welcome` are optional on the wire so a mid-deploy
- * payload from an older API simply keeps the built-in copy.
- */
-interface InviteCustomisationResponse {
-  theme?: InviteTheme | null;
-  details?: DetailsCopy | null;
-  welcome?: { message: string | null } | null;
-  // The closing section (the couple's sign-off). Optional on the wire so a
-  // mid-deploy payload from an older API simply renders no closing section.
-  footer?: {
-    message: string | null;
-    imageUrl?: string | null;
-    imageCrop?: ImageCrop | null;
-  } | null;
-}
 
 /** The slice of the invite customisation this island renders. */
 interface LiveInvite {
@@ -218,26 +196,16 @@ export default function InvitePage(props: InvitePageProps) {
     details: props.details ?? null,
     welcomeMessage: props.welcomeMessage ?? null,
   });
-  const [liveInvite] = createResource<LiveInvite>(
-    async () => {
-      if (!props.slug) return propInvite();
-      try {
-        const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return propInvite();
-        const body = (await res.json()) as InviteCustomisationResponse;
-        return {
-          theme: body.theme ?? null,
-          details: body.details ?? null,
-          welcomeMessage: body.welcome?.message ?? null,
-        };
-      } catch {
-        return propInvite();
-      }
-    },
-    { initialValue: propInvite() },
-  );
+  const liveInvite = createInviteRevalidation<InviteCustomisationResponse, LiveInvite>({
+    apiUrl: () => props.apiUrl,
+    slug: () => props.slug,
+    fallback: propInvite,
+    select: (body) => ({
+      theme: body.theme ?? null,
+      details: body.details ?? null,
+      welcomeMessage: body.welcome?.message ?? null,
+    }),
+  });
 
   // Which derived surface each section sits on. The COLOURS themselves come
   // from the palette applied at the document root, so every descendant — event

@@ -6,7 +6,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
   - "[[closing-band-width-bound-over-height-clip]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-21
 ---
 # Invite Builder
 
@@ -585,9 +585,11 @@ typography-option columns `theme_heading_size` / `theme_heading_weight` /
 neighbours has no built-in default: NULL ⇒ nothing rendered) +
 `footer_image_key` / `footer_image_crop` (`0050_invite_footer_image.sql` — the
 closing section's optional full-bleed image, same R2-key + crop-JSON storage as the other
-slots) + the two **hero display** columns
-`hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
-`hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two
+slots) + the three **hero display** columns
+`hero_blur` (0–40, **NOT NULL DEFAULT 28**), `hero_title_backdrop_opacity`
+(0–100, **NOT NULL DEFAULT 0**) and `hero_title_backdrop_blur` (0–20, **NOT NULL
+DEFAULT 0**) — sliders since `0018_hero_display_sliders.sql`, which replaced
+0017's coarse `blurred | regular` and `none | solid` enums. The
 hero-display columns are NOT NULL with defaults that reproduce today's look, so a
 forward-only `ADD COLUMN` needs no backfill and an un-customised wedding renders
 unchanged. Image columns store **R2 object keys**, not URLs (mirrors how `imports`
@@ -691,8 +693,10 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
 
 - **`/<slug>`** (`cire/invites/src/pages/[slug].astro`) — the per-wedding invite. The
   route reads `slug` from the path, fetches `GET ${PUBLIC_API_URL}/api/invite/<slug>`
-  **server-side per request** (`cache: "no-store"`), and renders the existing
-  hero/`InviteHeader`/`InvitePage` via the shared `InviteDocument.astro`. An
+  **server-side per request** (`cache: "no-store"`), and renders the resolved
+  design pack's `src/designs/<pack>/Document.astro`, which mounts that pack's own
+  `InviteHeader` + `InvitePage` islands (`resolveDesignId` picks the pack; unknown
+  or missing ⇒ classic). An
   unknown slug (API 404) returns a real **404** with a tasteful `NotFoundDocument`;
   a transient API error renders the invite shell with built-in defaults (no false
   404). The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`
@@ -719,32 +723,52 @@ arrive on their own `/<slug>` link; nothing needs the bare domain to name a
 wedding.
 
 The server fetch still paints the hero with the real image/copy in the SSR'd
-HTML (fast LCP, no-JS fallback). Both guest islands then **revalidate at runtime**
-and let the fresh `/api/invite/:slug` response override the per-request snapshot:
+HTML (fast LCP, no-JS fallback). Both guest islands then **re-request
+`/api/invite/:slug`** and let that response override the per-request snapshot.
+Neither island owns that fetch: it lives in
+`cire/invites/src/components/invite-revalidation.ts` (`createInviteRevalidation`),
+which every design pack's islands call. The primitive owns the `no-store` fetch,
+the `initialValue` wiring and both failure paths — a non-OK response and a thrown
+fetch each keep what is already painted. Each caller passes its own `fallback()`
+and its own `select()`, because the two are genuinely different: a header falls
+back to its whole `initial` prop and takes the payload unmapped, a page falls back
+to a value built from three props and maps three fields out of the payload. With
+no `slug` the primitive never fetches at all.
 
-- `cire/invites/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
-  Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
-  the build-time `initial` prop, and drives the hero **image**, copy, story, and
-  the hero/story **theme** from the live response.
-  - **Hero backdrop image (blurred vs regular — organiser choice)**: the uploaded
-    hero image renders as a full-bleed **backdrop behind the title**. The
-    `heroDisplay.imageStyle` field (a closed `blurred | regular` union, default
-    `blurred`) picks the requested variant via `heroVariant()`:
-    - `blurred` (default — today's look) ⇒ the server-blurred `hero-bg` variant —
-      a soft backdrop; the blur radius is a server constant, never sent from the
-      client.
-    - `regular` ⇒ the sharp full-bleed `hero` variant (no blur).
+> [!warning] Where that fetch actually runs
+> **On the server, not on mount.** The resource carries no `ssrLoadFrom: "initial"`,
+> and Solid's server build runs the fetcher unless it does (`if (options.ssrLoadFrom
+> !== "initial") load();` in `solid-js/dist/server.js`); Astro's Solid renderer
+> defaults to `renderToStringAsync`, so the HTML waits on it and hydration reuses the
+> serialised value instead of re-calling the fetcher. A `/<slug>` render therefore
+> issues **three** requests for the same payload — one from the route
+> (`fetchInvite`) and one per island — the two island ones inside the Worker,
+> on the critical path for TTFB. The props each island already holds are that
+> same response, so nothing is fresher for the round trip.
 
-    Either way one 1600px width is enough (a fixed-purpose `src`, not a responsive
-    `srcset`). The title (in front) stays readable via the radial-gradient scrim.
-  - **Hero title backdrop (legibility panel — organiser choice)**: the
-    `heroDisplay.titleBackdrop` field (`none | solid`, default `none`) controls a
-    panel behind the title block. `none` keeps just the radial scrim (the original
-    look); `solid` wraps the title + monogram + subtitle in a translucent rounded
-    panel whose background is the theme **surface** colour (`--invite-surface`)
-    when set, else a dark `oklch(0% 0 0 / 0.45)` scrim panel — so the title reads
-    over any busy/sharp photo. (Future: auto contrast-check the title colour vs the
-    image and auto-enable the panel — see [[deferred-decisions]].)
+- `cire/invites/src/designs/<pack>/InviteHeader.tsx` (`client:load`) — the hero +
+  "Our Story" sections. Revalidates on mount through the primitive, seeded with the
+  build-time `initial` prop, and drives the hero **image**, copy, story, and the
+  hero/story **theme** from the live response.
+  - **Hero backdrop image**: the uploaded hero image renders as a full-bleed
+    **backdrop behind the title**. The island always requests the `hero-bg`
+    variant; how soft that backdrop is comes from `heroDisplay.blur` (0–40,
+    default 28), a **per-wedding** value applied server-side on the transform —
+    0 is the sharp full-bleed photo, 28 today's soft look. The radius is never
+    sent from the client (see [[#Responsive image variants + the blurred hero backdrop]]). One
+    1600px width is enough (a fixed-purpose `src`, not a responsive `srcset`),
+    and the title in front stays readable via the radial-gradient scrim.
+  - **Hero title backdrop (legibility panel — organiser choice)**: two numbers
+    rather than an on/off switch. `heroDisplay.titleBackdrop.opacity` (0–100,
+    default 0) sets how solid the panel behind the title block is, and
+    `.blur` (0–20, default 0) a frosted-glass `backdrop-filter`. Opacity 0 ⇒ **no
+    panel**, just the radial scrim (the original look); above 0 the title block
+    gets a translucent rounded panel painted
+    `color-mix(in oklab, var(--invite-panel) <opacity>%, transparent)`, so the
+    organiser's own scheme carries it. Both values are re-clamped in the island
+    (`clampNum`) against a stale or malformed payload. (Future: auto
+    contrast-check the title colour vs the image and auto-enable the panel — see
+    [[deferred-decisions]].)
   - **Visible-or-gone load lifecycle (the "invisible hero" SSR fix)**: the backdrop
     fades in on `load`; on a failed load (`onError` — e.g. a 404'd image) it
     **unmounts** so the base gradient shows through (replacing an `onLoad`-only gate
@@ -759,18 +783,20 @@ and let the fresh `/api/invite/:slug` response override the per-request snapshot
        not-yet-loaded path.
     2. **Re-arm only on a real URL change.** The re-arm effect now resets to
        `pending` (opacity 0) **only when the resolved backdrop `src` actually
-       changes** (a re-upload, or a `blurred`↔`regular` variant flip). The on-mount
+       changes** (a re-upload, or a new `heroDisplay.blur` — the served version is
+       derived from the key *and* the blur, so changing either moves the url). The on-mount
        no-store revalidation returns the **same** url; the old effect reset to
        `pending` on every `data()` change, but the unchanged `<img src>` never
        re-fired `load`, leaving a shown image stuck invisible. On a genuine change a
        `queueMicrotask` re-runs the ref check to also catch an already-cached new
        src.
-- `cire/invites/src/components/InvitePage.tsx` (`client:visible`) — the
-  "details"/events section. Also revalidates on mount (`createResource` seeded
-  with the per-request `theme` prop, keyed on the `slug` prop threaded from
-  `InviteDocument.astro`) so the events-section theme reflects the latest saved
-  value. A non-OK / failed revalidation keeps the already-painted snapshot theme;
-  with no `slug` (e.g. unit tests) the prop is used as-is.
+- `cire/invites/src/designs/<pack>/InvitePage.tsx` (`client:visible`) — the
+  "details"/events section. Also revalidates on mount through the same primitive,
+  seeded from the per-request `theme`/`details`/`welcomeMessage` props threaded
+  from the pack's `Document.astro`, so the events-section theme and copy reflect
+  the latest saved values. Unlike the header it **maps** the response down to the
+  three fields it renders. A non-OK / failed revalidation keeps the already-painted
+  snapshot; with no `slug` (e.g. unit tests) the props are used as-is.
 
 Net effect: **invite customisation (hero image + theme) is reflected per request +
 revalidated on mount — no site rebuild needed, and no baked-in wedding slug.** The

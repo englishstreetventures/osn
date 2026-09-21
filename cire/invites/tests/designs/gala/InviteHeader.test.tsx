@@ -236,6 +236,65 @@ describe("gala InviteHeader render", () => {
     );
   });
 
+  it("paints the revalidated title over the build-time one", async () => {
+    // The whole point of the revalidation: an organiser edit made after the
+    // last build reaches the guest. Without a case where the response DIFFERS
+    // from `initial`, a header that ignored the response entirely — or fell
+    // back to `initial` on success — would keep every other test green.
+    const initial: InviteCustomisation = {
+      hero: { title: "Old Name", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    const live: InviteCustomisation = {
+      ...initial,
+      hero: { ...initial.hero, title: "New Name" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(live), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText("New Name")).toBeTruthy());
+    expect(queryByText("Old Name")).toBeNull();
+  });
+
+  it("keeps the painted title when the revalidation returns a non-OK status", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "Anita & Ben", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("{}", { status: 500 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    // The title is painted from `initial` before the fetch resolves, so the
+    // assertion only means something once the revalidation has SETTLED: the
+    // macrotask below drains the promise chain behind it. Without the non-OK
+    // guard the empty body would replace the hero and the title would be gone
+    // by this point.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getByText("Anita & Ben")).toBeTruthy();
+  });
+
   it("keeps the painted title when the revalidate fetch fails", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "Anita & Ben", subtitle: null, imageUrl: null },
@@ -256,5 +315,120 @@ describe("gala InviteHeader render", () => {
     // revalidation settles (falls back to `props.initial`, not null).
     expect(getByText("Anita & Ben")).toBeTruthy();
     await waitFor(() => expect(getByText("Anita & Ben")).toBeTruthy());
+  });
+
+  // ── Hero title backdrop sliders (opacity + blur) ───────────────────────────
+  // Gala's equivalents of classic's two panel cases, plus the clamp neither
+  // pack covered: `clampNum` (designs/gala/InviteHeader.tsx) bounds opacity to
+  // [0,100] and blur to [0,20] and drops a non-number to the default, against a
+  // stale or garbage payload.
+
+  const offline = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+  /** The legibility panel is the title span's wrapper — no panel ⇒ no styles. */
+  const panelFor = (title: HTMLElement) => title.parentElement as HTMLElement;
+
+  it("renders the title legibility panel when opacity > 0, with a frosted blur", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { blur: 28, titleBackdrop: { opacity: 60, blur: 8 } },
+      theme: EMPTY_THEME,
+    };
+    offline();
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const panel = panelFor(await waitFor(() => getByText("A & B")));
+    expect(panel.style.getPropertyValue("background-color")).toContain("60%");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("blur(8px)");
+    // The component emits the Safari-prefixed `-webkit-backdrop-filter` twin as
+    // well, but jsdom drops a vendor-prefixed property from the inline style
+    // attribute, so it cannot be asserted here.
+  });
+
+  it("renders NO title panel by default (titleBackdrop opacity 0)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    offline();
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const panel = panelFor(await waitFor(() => getByText("A & B")));
+    expect(panel.style.getPropertyValue("background-color")).toBe("");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("");
+  });
+
+  it("pins an over-range opacity to 100% and an over-range blur to 20px", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { blur: 28, titleBackdrop: { opacity: 500, blur: 99 } },
+      theme: EMPTY_THEME,
+    };
+    offline();
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const panel = panelFor(await waitFor(() => getByText("A & B")));
+    expect(panel.style.getPropertyValue("background-color")).toContain("100%");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("blur(20px)");
+  });
+
+  it("drops a non-numeric opacity to the default, so no panel renders", async () => {
+    // The fixture is the NUMERIC STRING "60", not "abc": a garbage word compares
+    // `> 0` as false, so a pass-through (clamp deleted) would render no panel
+    // either and the test could not fail. "60" renders a 60% panel without the
+    // clamp and nothing with it.
+    const initial = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { blur: 28, titleBackdrop: { opacity: "60", blur: 0 } },
+      theme: EMPTY_THEME,
+    } as unknown as InviteCustomisation;
+    offline();
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const panel = panelFor(await waitFor(() => getByText("A & B")));
+    expect(panel.style.getPropertyValue("background-color")).toBe("");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("");
+  });
+
+  it("drops a non-numeric blur to the default, keeping the panel unfrosted", async () => {
+    // Opacity has to be valid, or the style block is never emitted and the blur
+    // assertion would pass with any clamp at all. "8" is a numeric string for
+    // the same reason as above.
+    const initial = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { blur: 28, titleBackdrop: { opacity: 60, blur: "8" } },
+      theme: EMPTY_THEME,
+    } as unknown as InviteCustomisation;
+    offline();
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const panel = panelFor(await waitFor(() => getByText("A & B")));
+    expect(panel.style.getPropertyValue("background-color")).toContain("60%");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("blur(0px)");
   });
 });

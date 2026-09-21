@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-22
 ---
 
 # Testing Patterns
@@ -234,6 +234,58 @@ expect(screen.queryAllByRole("button", { name: X })).toHaveLength(1);
 
 Under faked timers use `vi.waitFor`, not testing-library's — the latter schedules
 against the `setTimeout` the fake clock has replaced.
+
+### The seed and the failure result are the same value
+
+A resource seeded with the value its failure path returns cannot be tested by
+reading it. `createInviteRevalidation`
+(`cire/invites/src/components/invite-revalidation.ts`) passes `fallback()` as
+both the `initialValue` and the result of a non-OK response and a thrown fetch,
+which is the point of it — a failed revalidation keeps what is painted. So this
+is green whether the failure paths exist, map the response instead, or were
+deleted:
+
+```ts
+// The resource already equals the fallback before the fetch settles.
+expect(data()).toEqual(fallback);
+```
+
+Three things together make it able to fail, and all three are needed:
+
+- **Wait for the resource to settle** — `await vi.waitFor(() => expect(data.loading).toBe(false))`
+  — because the read otherwise happens before the fetcher has resolved.
+- **Compare identity against one sentinel** (`toBe`, on a module-level object),
+  not shape. `toEqual` cannot tell the seed from a lookalike the success path
+  built.
+- **Assert the mapper was not called.** A spy on `select` asserted
+  `not.toHaveBeenCalled()` is the only thing separating a non-OK response from a
+  successful one whose mapping happened to return the same value.
+
+The same shape appears one layer up, in a component seeded from a prop: a test
+whose stubbed response is `JSON.stringify(initial)` — the object it passed in —
+asserts nothing about whether the component reads the response at all. Give the
+response a **different** value and assert the new one wins and the old is gone.
+Three of five planned tests and both design packs' headers were caught by this
+in one branch.
+
+### An out-of-type fixture that fails the comparison anyway
+
+Feeding garbage to a clamp only tests the clamp if the garbage would otherwise
+be visible. `clampNum` in the invite headers drops a non-number to a default,
+and the panel it feeds renders only when the value is `> 0`:
+
+```ts
+// Green with the clamp, and green with the clamp deleted: "abc" > 0 is false,
+// so nothing renders either way.
+heroDisplay: { titleBackdrop: { opacity: "abc", blur: 0 } }
+```
+
+A **numeric string** is the fixture that can fail — `"60"` renders a 60% panel
+if the guard is removed and nothing while it stands. The rule generalises: an
+invalid fixture has to be one the broken code would treat as valid, or the test
+passes for the wrong reason. Where the value under test is only observable
+alongside another (here, a blur that is emitted only when the opacity is
+non-zero), the other one has to be valid too.
 
 ### Commit before you red-proof
 

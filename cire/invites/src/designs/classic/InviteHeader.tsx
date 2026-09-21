@@ -1,4 +1,4 @@
-import { createEffect, createResource, Show } from "solid-js";
+import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../../components/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
+import { createInviteRevalidation } from "../../components/invite-revalidation";
 import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
 import type { HeroDisplay, InviteCustomisation } from "../types";
 
@@ -55,22 +56,16 @@ interface InviteHeaderProps {
  * InvitePage's /api/claim flow.
  */
 export default function InviteHeader(props: InviteHeaderProps) {
-  const [data] = createResource<InviteCustomisation | null>(
-    async () => {
-      try {
-        const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`, {
-          cache: "no-store",
-        });
-        // On a non-OK/failed revalidation keep the build-time data rather than
-        // wiping the already-painted hero.
-        if (!res.ok) return props.initial ?? null;
-        return (await res.json()) as InviteCustomisation;
-      } catch {
-        return props.initial ?? null;
-      }
-    },
-    { initialValue: props.initial ?? null },
-  );
+  // The on-mount no-store revalidation, shared with every design pack's islands
+  // (see invite-revalidation.ts). The hero takes the whole payload unmapped, and
+  // on a non-OK/failed revalidation keeps the build-time data rather than wiping
+  // the already-painted hero.
+  const data = createInviteRevalidation<InviteCustomisation, InviteCustomisation | null>({
+    apiUrl: () => props.apiUrl,
+    slug: () => props.slug,
+    fallback: () => props.initial ?? null,
+    select: (body) => body,
+  });
 
   const hero = () => data()?.hero;
   const story = () => data()?.story;

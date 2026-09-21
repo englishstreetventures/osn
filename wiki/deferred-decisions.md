@@ -7,7 +7,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-21
 ---
 
 # Deferred decisions
@@ -131,4 +131,4 @@ An idea graduates to a GitHub issue when someone can write its "done when".
 - Photo collection and guest photo uploads
 - iPhone tip-to-tip AirDrop invite sharing
 - White-label / custom domain support per wedding
-- **Auto contrast-check the hero title vs the backdrop image** — deferred from `feat/hero-display-options`. Today the organiser manually picks the hero **title backdrop** (`none | solid`) for legibility over a busy/sharp photo. A later version could sample the uploaded hero image's brightness behind the title region and auto-suggest (or auto-enable) the `solid` panel and/or flip the title colour when the WCAG contrast is too low — instead of leaving it to the organiser. Marked with a `// TODO(future)` in `cire/invites/src/components/InviteHeader.tsx` (the title-block panel). See `[[cire-invite-builder]]`.
+- **Auto contrast-check the hero title vs the backdrop image** — deferred from `feat/hero-display-options`. Today the organiser sets the hero **title backdrop** by hand — an opacity (0–100) and a blur (0–20), 0 opacity meaning no panel — for legibility over a busy/sharp photo. A later version could sample the uploaded hero image's brightness behind the title region and auto-suggest (or auto-enable) the panel and/or flip the title colour when the WCAG contrast is too low — instead of leaving it to the organiser. Marked with a `// TODO(future)` in `cire/invites/src/designs/classic/InviteHeader.tsx` (the title-block panel). See `[[cire-invite-builder]]`.

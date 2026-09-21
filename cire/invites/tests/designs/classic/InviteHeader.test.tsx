@@ -555,6 +555,65 @@ describe("InviteHeader render", () => {
     );
   });
 
+  it("paints the revalidated title over the build-time one", async () => {
+    // The whole point of the revalidation: an organiser edit made after the
+    // last build reaches the guest. Without a case where the response DIFFERS
+    // from `initial`, a header that ignored the response entirely — or fell
+    // back to `initial` on success — would keep every other test green.
+    const initial: InviteCustomisation = {
+      hero: { title: "Old Name", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    const live: InviteCustomisation = {
+      ...initial,
+      hero: { ...initial.hero, title: "New Name" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(live), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText("New Name")).toBeTruthy());
+    expect(queryByText("Old Name")).toBeNull();
+  });
+
+  it("keeps the painted title when the revalidation returns a non-OK status", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("{}", { status: 500 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    // The title is painted from `initial` before the fetch resolves, so the
+    // assertion only means something once the revalidation has SETTLED: the
+    // macrotask below drains the promise chain behind it. Without the non-OK
+    // guard the empty body would replace the hero and the title would be gone
+    // by this point.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getByText("A & B")).toBeTruthy();
+  });
+
   // ── Feature 2: hero title backdrop sliders (opacity + blur) ────────────────
 
   it("renders the title legibility panel when opacity > 0, with a frosted blur (Feature 2)", async () => {
