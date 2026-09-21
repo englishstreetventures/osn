@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": null,
+    "branch": "claude/adoring-heisenberg-0imeqk",
+    "base_sha": "68ad0c042a054693c001972cf98e79e2b5368b96",
+    "head_sha": "28315b5c4dd8d0a67f416211db777eb108d7822f",
+    "generated_at": "2026-09-21T08:23:32.980Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-21T08:13:39.334Z",
+    "last_ts": "2026-09-21T08:18:27.133Z",
+    "span_seconds": 288,
+    "active_seconds": 288,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 1.254778,
+    "tokens": {
+      "input": 10,
+      "output": 19609,
+      "thinking": 8975,
+      "cache_write_5m": 0,
+      "cache_write_1h": 56529,
+      "cache_read": 398426
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 10,
+          "output": 19609,
+          "thinking": 8975,
+          "cache_write_5m": 0,
+          "cache_write_1h": 56529,
+          "cache_read": 398426
+        },
+        "usd_equivalent": 1.254778,
+        "messages": 5
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 10,
+          "output": 19609,
+          "thinking": 8975,
+          "cache_write_5m": 0,
+          "cache_write_1h": 56529,
+          "cache_read": 398426
+        },
+        "usd_equivalent": 1.254778,
+        "messages": 5
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {
+      "high": 5
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 12,
+      "test": 28,
+      "docs": 29,
+      "config": 24,
+      "source": 163
+    },
+    "loc": {
+      "generated": {
+        "added": 457,
+        "deleted": 20
+      },
+      "test": {
+        "added": 1927,
+        "deleted": 147
+      },
+      "docs": {
+        "added": 2937,
+        "deleted": 216
+      },
+      "config": {
+        "added": 2174,
+        "deleted": 13
+      },
+      "source": {
+        "added": 2661,
+        "deleted": 992
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "cire/vendor",
+      "osn/auth-ui",
+      "pulse/DESIGN.md",
+      "pulse/landing",
+      "pulse/web",
+      "shared/color",
+      "shared/design-tokens",
+      "shared/toast",
+      "shared/ui",
+      "tools/lab",
+      "tools/metrics",
+      "tools/oxlint"
+    ],
+    "touches_migration": false,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "WebSearch": 4,
+      "WebFetch": 2,
+      "ToolSearch": 1,
+      "Bash": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}
