@@ -11,7 +11,7 @@
 
 import { render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands } from "vitest/browser";
 
 import { Modal } from "../src/ui/modal";
@@ -91,12 +91,18 @@ describe("Modal", () => {
     // default action — so `close()` stands in for it; that is the same code
     // path Escape reaches, and the assertion is about what the component does
     // once the element has closed. And `close` is fired in a queued task, not
-    // synchronously, so the assertion has to yield first. Read synchronously it
+    // synchronously, so the assertion has to wait for it. Read synchronously it
     // reports a desync that is not there.
+    //
+    // Waited on the CONDITION, not on a number of macrotasks. A single
+    // `setTimeout(0)` yields exactly one, and on a loaded runner the handler
+    // has sometimes not run by then — which failed as `expected true to be
+    // false`, a scheduling race wearing the costume of the desync this test
+    // exists to catch. `vi.waitFor` costs milliseconds when the runner is slow
+    // and still fails when `open` genuinely never clears.
     const { open, dialog } = mount();
     dialog().close();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(open()).toBe(false);
+    await vi.waitFor(() => expect(open()).toBe(false));
   });
 
   it("reopens after closing, rather than throwing", async () => {
@@ -284,6 +290,10 @@ describe("Modal — the exit", () => {
     setOpen(true);
 
     expect(dialog().hasAttribute("data-closing")).toBe(false);
+    // A fixed wait on purpose, and NOT a `vi.waitFor`. The claim is that
+    // nothing happens over an interval — the stale close never lands — and a
+    // condition wait on something already true returns on its first tick and
+    // proves nothing. The interval has to outlast the exit it is watching for.
     await new Promise((r) => setTimeout(r, 400));
     expect(dialog().open).toBe(true);
     expect(dialog().matches(":modal")).toBe(true);
@@ -307,6 +317,11 @@ describe("Modal — the exit", () => {
     const slow = dialog().animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600 });
 
     setOpen(false);
+    // Fixed, for the same reason as the reopen test above: this asserts the
+    // dialog is STILL open partway through an animation, so there is no
+    // condition to wait for. It sits at half the 600ms animation to leave room
+    // on both sides — a runner slow enough to overshoot 600ms would see the
+    // animation finish and read a real close as a failure.
     await new Promise((r) => setTimeout(r, 300));
     expect(dialog().open).toBe(true);
 
@@ -363,9 +378,9 @@ describe("Modal under prefers-reduced-motion", () => {
     const { dialog, open, setOpen } = mount();
 
     setOpen(false);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(dialog().open).toBe(false);
-    expect(open()).toBe(false);
+    await vi.waitFor(() => {
+      expect(dialog().open).toBe(false);
+      expect(open()).toBe(false);
+    });
   });
 });
