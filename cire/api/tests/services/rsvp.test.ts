@@ -207,6 +207,51 @@ describe("rsvpService.submitRsvp", () => {
       }),
     ),
   );
+
+  it(
+    "reports dietaryConsentCurrent false once the stored consent version is superseded",
+    withDb(
+      Effect.gen(function* () {
+        // The read-back collapses the stored version into one boolean the guest
+        // sheet acts on: it decides whether the consent box may open already
+        // ticked. Consent given against superseded wording is not consent to
+        // the wording shown now, so a stale row must come back `false` — and
+        // nothing else in this suite reads the field, so an equality flipped to
+        // a truthiness check would go unnoticed.
+        const db = yield* DbService;
+        const priya = yield* lookupGuest("Ada");
+        yield* rsvpService.submitRsvp({
+          guestId: priya.id,
+          eventId: RECEPTION_ID,
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["halal"],
+          dietaryConsent: true,
+        });
+
+        const current = yield* rsvpService.getRsvpsForFamily(priya.familyId);
+        expect(current.find((r) => r.eventId === RECEPTION_ID)?.dietaryConsentCurrent).toBe(true);
+
+        // Age the row: the stored version is what the guest agreed to, and the
+        // constant is what the sheet shows now.
+        yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .update(rsvpsTable)
+              .set({ dietaryConsentVersion: "2000-01-01" })
+              .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, RECEPTION_ID)))
+              .run(),
+          ),
+        );
+
+        const stale = yield* rsvpService.getRsvpsForFamily(priya.familyId);
+        const row = stale.find((r) => r.eventId === RECEPTION_ID);
+        expect(row?.dietaryConsentCurrent).toBe(false);
+        // The data itself is untouched — only the "still current?" answer moves.
+        expect(row?.dietaryPresets).toEqual(["halal"]);
+      }),
+    ),
+  );
 });
 
 describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {

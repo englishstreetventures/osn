@@ -161,6 +161,61 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     expect(res.status).toBe(422);
   });
 
+  it("returns 422 when PRESETS alone are submitted without an attestation", async () => {
+    // The mirror of the guest route's preset-only gate. The case above sends
+    // free text, so a regression to the old free-text-only condition keeps it
+    // green while storing `halal` + `nuts` — religious belief and a health
+    // condition — against a NULL consent record.
+    const { db, app } = buildApp();
+    const guestId = guestByName(db, "Ada");
+    const eventId = eventBySlug(db, "hindu");
+    const res = await put(app, rsvpPath(db), OWNER, {
+      status: "attending",
+      dietaryPresets: ["halal", "nuts"],
+      // no `dietary`, and `dietaryConsent` omitted → false
+    });
+    expect(res.status).toBe(422);
+    const data = (await res.json()) as { error: string };
+    expect(data.error).toBe("Dietary requirements need the guest's consent to store");
+
+    // Nothing was written — the gate runs before the service.
+    const row = db
+      .select({ presets: rsvps.dietaryPresets })
+      .from(rsvps)
+      .where(and(eq(rsvps.guestId, guestId), eq(rsvps.eventId, eventId)))
+      .get();
+    expect(row).toBeUndefined();
+  });
+
+  it("returns 200 + stores presets when a preset-only reply IS attested", async () => {
+    const { db, app } = buildApp();
+    const guestId = guestByName(db, "Ada");
+    const eventId = eventBySlug(db, "hindu");
+    const res = await put(app, rsvpPath(db), OWNER, {
+      status: "attending",
+      // Submitted allergy-first and with a repeat; stored diet-first and
+      // deduplicated, because the server re-serialises what it is sent.
+      dietaryPresets: ["nuts", "vegetarian", "nuts"],
+      dietaryConsent: true,
+    });
+    expect(res.status).toBe(200);
+    const row = db
+      .select({
+        presets: rsvps.dietaryPresets,
+        dietary: rsvps.dietary,
+        at: rsvps.dietaryConsentAt,
+      })
+      .from(rsvps)
+      .where(and(eq(rsvps.guestId, guestId), eq(rsvps.eventId, eventId)))
+      .get();
+    // `parsePresets` is total, so a broken round trip returns [] rather than
+    // throwing — the column itself is what has to be asserted.
+    expect(row?.presets).toBe("vegetarian,nuts");
+    // No free text, so no `other` is added on the organiser path either.
+    expect(row?.dietary).toBe("");
+    expect(row?.at).toBeInstanceOf(Date);
+  });
+
   it("returns 200 + persists consent record when dietary is attested", async () => {
     const { db, app } = buildApp();
     const res = await put(app, rsvpPath(db), OWNER, {

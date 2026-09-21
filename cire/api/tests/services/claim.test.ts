@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { claimService, InvalidCredentials } from "../../src/services/claim";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
@@ -150,6 +151,61 @@ describe("claimService.lookup", () => {
         const error = yield* Effect.flip(claimService.lookup("FAKE-XYZ-9999"));
         expect(error._tag).toBe("InvalidCredentials");
         expect(error).toBeInstanceOf(InvalidCredentials);
+      }),
+    ),
+  );
+
+  it(
+    "reports dietaryConsentCurrent per row, false once the stored version is superseded",
+    withDb(
+      Effect.gen(function* () {
+        // This is the second, independent computation of the same rule — the
+        // RSVP service has its own — and neither was asserted anywhere. The
+        // sheet re-lights its picker from `dietaryPresets` and decides whether
+        // the consent box may open ticked from this boolean, so a row consented
+        // against superseded wording has to come back `false`.
+        const db = yield* DbService;
+        const now = new Date();
+        const adaRows = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select({ id: guests.id }).from(guests).where(eq(guests.firstName, "Ada")).all(),
+          ),
+        );
+        const ada = adaRows[0];
+        if (!ada) throw new Error("no guest Ada");
+
+        const insertRsvp = (eventId: string, version: string) =>
+          Effect.promise(() =>
+            Promise.resolve(
+              db
+                .insert(rsvps)
+                .values({
+                  id: crypto.randomUUID(),
+                  guestId: ada.id,
+                  eventId,
+                  status: "attending",
+                  dietary: "",
+                  dietaryPresets: "halal",
+                  consentSource: "guest",
+                  dietaryConsentAt: now,
+                  dietaryConsentVersion: version,
+                  createdAt: now,
+                })
+                .run(),
+            ),
+          );
+
+        yield* insertRsvp(HINDU_ID, DIETARY_CONSENT_VERSION);
+        yield* insertRsvp(RECEPTION_ID, "2000-01-01");
+
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        const current = result.rsvps.find((r) => r.eventId === HINDU_ID);
+        const stale = result.rsvps.find((r) => r.eventId === RECEPTION_ID);
+        expect(current?.dietaryConsentCurrent).toBe(true);
+        expect(stale?.dietaryConsentCurrent).toBe(false);
+        // Both rows still carry the data; only the "still current?" answer moves.
+        expect(current?.dietaryPresets).toEqual(["halal"]);
+        expect(stale?.dietaryPresets).toEqual(["halal"]);
       }),
     ),
   );

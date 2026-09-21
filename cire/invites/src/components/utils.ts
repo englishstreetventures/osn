@@ -32,7 +32,25 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     if (!("eventId" in r) || typeof r.eventId !== "string") return false;
     if (!("status" in r)) return false;
     if (r.status !== "attending" && r.status !== "declined" && r.status !== "maybe") return false;
-    return "dietary" in r && typeof r.dietary === "string";
+    if (!("dietary" in r) || typeof r.dietary !== "string") return false;
+    // The sheet re-lights its picker from `dietaryPresets` and decides whether
+    // the consent box may open ticked from `dietaryConsentCurrent`, so both are
+    // read on the strength of this guard and both have to be proven here.
+    //
+    // The keys are checked as strings rather than against the vocabulary on
+    // purpose. A key added server-side is a normal, additive change; measured
+    // against a closed list here it would make the whole claim response invalid
+    // on a site that had not redeployed yet, and both callers read invalid as
+    // "no session" — so a guest with a valid code would be shown the code form
+    // instead of their invite.
+    //
+    // The cost of admitting an unrecognised key is the VALUE, not just a
+    // missing label: the sheet round-trips it untouched, but the first tick on
+    // that member's picker rebuilds the selection from the shipped vocabulary,
+    // so the unrecognised key is dropped and the row rewritten without it.
+    if (!("dietaryPresets" in r) || !Array.isArray(r.dietaryPresets)) return false;
+    if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;
+    return "dietaryConsentCurrent" in r && typeof r.dietaryConsentCurrent === "boolean";
   });
   if (!rsvpsValid) return false;
   return data.events.every((e: unknown) => {

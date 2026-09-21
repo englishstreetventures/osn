@@ -248,7 +248,14 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
 
             yield* Effect.sync(() => {
               metricRsvpBatchSize(body.rsvps.length);
+              // Counts what a caterer will cook for, so a guest who is not
+              // coming does not enter the count. The row still STORES their
+              // presets — a declined reply can be changed back, and the consent
+              // gate above applies to it either way — but the counter answers
+              // "how many plates need this", and a declined reply needs none.
+              // `maybe` counts: the kitchen has to be ready for them.
               for (const rsvp of body.rsvps) {
+                if (rsvp.status === "declined") continue;
                 for (const preset of withOtherForFreeText(rsvp)) metricDietaryPreset(preset);
               }
             });

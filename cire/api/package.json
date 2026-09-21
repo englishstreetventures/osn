@@ -7,7 +7,7 @@
     "dev:app": "dev-env bun run src/local.ts",
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
-    "test": "bun test",
+    "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts",
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "bun test tests/db/d1-integration.test.ts",
@@ -37,6 +37,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-metrics": "^2.10.0",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "jose": "^6.2.12",

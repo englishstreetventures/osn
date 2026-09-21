@@ -334,6 +334,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
+| `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
 
@@ -355,6 +356,70 @@ afterEach(() => {
 Because the spies are shared, a `describe` block that forgets a reset inherits call counts from the block above it. Always call `resetOrganiserMocks()` rather than hand-listing the spies you happen to remember.
 
 A suite that genuinely needs a different shape (an extra `useAuth` field, an `importOriginal` spread) keeps its own local mock. These harnesses cover the common case; they are not a mandate.
+
+## Asserting a metric
+
+A metric test that does not install a meter provider asserts nothing.
+
+`createCounter` (`shared/observability/src/metrics/factory.ts`) resolves its
+meter through OpenTelemetry's **global** provider, and with none installed that
+is the API's NoOp meter — which accepts every call and records nothing. So a
+test written against it passes with the `metric*()` call deleted from the route,
+which is the one failure a metric test exists to catch.
+
+> [!warning] The instrument is cached on first use
+> `createCounter` builds its instrument on the first `.inc()` and keeps it in a
+> closure. A provider installed after that point is never consulted again for
+> that counter. `bun test` runs every file in one process, so "first use" is
+> process-wide: one earlier file's `.inc()` freezes the NoOp instrument in for
+> every file after it.
+
+`@cire/api` solves that with a **preload**, not an import — its `test` script is
+`bun test --preload ./tests/test-helpers/metrics-harness.ts`, and a preload runs
+before any test file. The harness installs an in-memory `MeterProvider` backed by
+an on-demand `MetricReader`, and exports one function:
+
+```typescript
+import { counterValue } from "../test-helpers/metrics-harness";
+import { CIRE_METRICS } from "../../src/metrics";
+
+const before = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "dietary_consent" });
+await post(body, cookie);
+expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "dietary_consent" })).toBe(
+  before + 1,
+);
+```
+
+Three rules come with it:
+
+- **Read a delta, never an absolute.** The reader is cumulative and the provider
+  outlives every file in the run, so a counter carries whatever earlier tests
+  added. Read before, act, read after, assert the difference.
+- **`attrs` is the whole attribute set**, not a subset — a data point is keyed by
+  all of its attributes, and a partial match finds nothing.
+- **`counterValue` throws** when the installed provider is not the harness's,
+  rather than answering `0`. Without that the failure reads "expected 1,
+  received 0" with nothing to say the harness never ran.
+
+Running one file directly (`bun test tests/routes/rsvp.test.ts`) works without
+the preload, because a file that reads a counter imports the harness and the
+instruments are not built until the first `.inc()`. The preload is what makes the
+**whole-suite** run safe.
+
+Two things deliberately avoided, both for the same one-process reason:
+
+- **`mock.module`** is global, so a mock of `../../src/metrics` in one file leaks
+  into every file that runs after it.
+- **`PeriodicExportingMetricReader`** would attach an interval to every run and
+  make collection timing the test's problem. `MetricReader.collect()` is public,
+  so a subclass with two inert hooks gives an on-demand read and no timer.
+
+Constructing a raw OTel provider is allowed here because it is test code under
+`tests/`. Source may still only reach instruments through
+`@shared/observability/metrics` — see [[overview]].
+
+`@osn/api`, `@pulse/api` and `@zap/api` have the same blind spot and no harness
+yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 

@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1147,
+    "branch": "test/cire-dietary-preset-coverage",
+    "base_sha": "a04ef4a5ed5870808ac28540788782455661fa44",
+    "head_sha": "9513a5d2c34ff7296547563fa637eceef5b50d7b",
+    "generated_at": "2026-09-21T16:25:38.142Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1093,
+    "type": "Task",
+    "labels": [
+      "product:cire",
+      "area:schema",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "label"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-09-21T07:51:11.767Z",
+    "last_ts": "2026-09-21T16:24:57.584Z",
+    "span_seconds": 30826,
+    "active_seconds": 5995,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 70.12584900000003,
+    "tokens": {
+      "input": 1631,
+      "output": 188060,
+      "thinking": 39849,
+      "cache_write_5m": 685975,
+      "cache_write_1h": 880005,
+      "cache_read": 99695053
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 764,
+          "output": 182244,
+          "thinking": 39849,
+          "cache_write_5m": 423056,
+          "cache_write_1h": 880005,
+          "cache_read": 96012496
+        },
+        "usd_equivalent": 64.010318,
+        "messages": 382
+      },
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 33,
+          "output": 5626,
+          "thinking": 0,
+          "cache_write_5m": 112248,
+          "cache_write_1h": 0,
+          "cache_read": 621237
+        },
+        "usd_equivalent": 1.1529835000000002,
+        "messages": 18
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 834,
+          "output": 190,
+          "thinking": 0,
+          "cache_write_5m": 150671,
+          "cache_write_1h": 0,
+          "cache_read": 3061320
+        },
+        "usd_equivalent": 4.9625474999999994,
+        "messages": 27
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 545,
+          "output": 180562,
+          "thinking": 39849,
+          "cache_write_5m": 112248,
+          "cache_write_1h": 880005,
+          "cache_read": 82560927
+        },
+        "usd_equivalent": 55.2988385,
+        "messages": 274
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1086,
+          "output": 7498,
+          "thinking": 0,
+          "cache_write_5m": 573727,
+          "cache_write_1h": 0,
+          "cache_read": 17134126
+        },
+        "usd_equivalent": 14.827010499999998,
+        "messages": 153
+      }
+    },
+    "effort": {
+      "high": 409
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 12,
+      "docs": 1,
+      "config": 2,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 45,
+        "deleted": 0
+      },
+      "test": {
+        "added": 902,
+        "deleted": 8
+      },
+      "docs": {
+        "added": 66,
+        "deleted": 1
+      },
+      "config": {
+        "added": 188,
+        "deleted": 1
+      },
+      "source": {
+        "added": 28,
+        "deleted": 2
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/invites",
+      "cire/landing"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 18,
+    "corrective_turns": 14,
+    "tokens_before_first_edit": 3063308,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 391,
+      "Edit": 26,
+      "Read": 13,
+      "Write": 7,
+      "Skill": 6,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 3,
+      "StructuredOutput": 3
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 10
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "prep-pr": 1,
+      "review-security": 1,
+      "obsidian:obsidian-markdown": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

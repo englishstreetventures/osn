@@ -31,7 +31,16 @@ describe("isValidClaimResponse", () => {
       { guestId: "guest-2", firstName: "Raj", lastName: "Sharma", eventIds: ["reception"] },
     ],
     events: [baseEvent],
-    rsvps: [{ guestId: "guest-1", eventId: "mehndi", status: "attending", dietary: "Vegetarian" }],
+    rsvps: [
+      {
+        guestId: "guest-1",
+        eventId: "mehndi",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: ["vegetarian"],
+        dietaryConsentCurrent: true,
+      },
+    ],
   };
 
   it("accepts a valid response", () => {
@@ -267,6 +276,59 @@ describe("isValidClaimResponse", () => {
         rsvps: [{ guestId: "g1", eventId: "e1", status: "attending", dietary: 42 }],
       }),
     ).toBe(false);
+  });
+
+  it("rejects rsvps missing dietaryPresets, or carrying a non-array one", () => {
+    // The field the sheet re-lights its picker from. An API that stopped
+    // sending it would leave every guest's selection silently empty rather
+    // than failing, which is why the guard has to prove it.
+    const base = { guestId: "g1", eventId: "e1", status: "attending", dietary: "" };
+    const wrap = (rsvp: unknown) => ({
+      publicId: "X",
+      familyName: "Test",
+      members: [],
+      events: [],
+      rsvps: [rsvp],
+    });
+    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: true }))).toBe(false);
+    expect(
+      isValidClaimResponse(
+        wrap({ ...base, dietaryPresets: "vegetarian", dietaryConsentCurrent: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isValidClaimResponse(wrap({ ...base, dietaryPresets: [42], dietaryConsentCurrent: true })),
+    ).toBe(false);
+    // An unknown key is accepted: the vocabulary grows server-first, and
+    // rejecting here would strand a guest on an older deploy of this site.
+    expect(
+      isValidClaimResponse(
+        wrap({ ...base, dietaryPresets: ["a_future_key"], dietaryConsentCurrent: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects rsvps missing dietaryConsentCurrent, or carrying a non-boolean one", () => {
+    // Decides whether the consent box may open already ticked. Absent, the
+    // sheet would read `undefined` as "not consented" for a household that had
+    // consented — or, worse, as truthy for one that had not.
+    const base = {
+      guestId: "g1",
+      eventId: "e1",
+      status: "attending",
+      dietary: "",
+      dietaryPresets: [],
+    };
+    const wrap = (rsvp: unknown) => ({
+      publicId: "X",
+      familyName: "Test",
+      members: [],
+      events: [],
+      rsvps: [rsvp],
+    });
+    expect(isValidClaimResponse(wrap(base))).toBe(false);
+    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: "yes" }))).toBe(false);
+    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: false }))).toBe(true);
   });
 
   it("rejects events with non-number sortOrder", () => {

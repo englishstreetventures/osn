@@ -63,6 +63,65 @@ describe("DemoRsvp", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("offers the dietary picker only to a member marked attending", async () => {
+    // The demo is the only place a stranger meets this control, and it mirrors
+    // the real sheet: a guest who is not coming is never asked what they eat,
+    // so the picker follows the Attending choice rather than the fieldset.
+    const { getAllByText, getByText } = render(() => <DemoRsvp />);
+
+    fireEvent.click(getAllByText("Respond")[0]!);
+    await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
+
+    const amara = within(fieldsetFor("Amara"));
+    expect(amara.queryByRole("group", { name: /Dietary requirements for Amara/i })).toBeNull();
+
+    fireEvent.click(amara.getByText("Attending"));
+    await waitFor(() =>
+      expect(amara.getByRole("group", { name: /Dietary requirements for Amara/i })).toBeTruthy(),
+    );
+
+    // Sam is still unanswered, so Sam is still not asked — the picker is per
+    // member, not per sheet.
+    expect(
+      within(fieldsetFor("Sam")).queryByRole("group", { name: /Dietary requirements for Sam/i }),
+    ).toBeNull();
+  });
+
+  it("reveals the free-text box only when Other is picked, and keeps what was typed", async () => {
+    // `other` is the escape hatch the vocabulary needs: everything nameable is a
+    // checkbox, and the box appears for whatever is not. Ticking any other
+    // preset must not open it.
+    const { getAllByText, getByText } = render(() => <DemoRsvp />);
+
+    fireEvent.click(getAllByText("Respond")[0]!);
+    await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
+
+    const amara = within(fieldsetFor("Amara"));
+    fireEvent.click(amara.getByText("Attending"));
+    await waitFor(() => expect(amara.getByRole("checkbox", { name: "Vegan" })).toBeTruthy());
+
+    fireEvent.click(amara.getByRole("checkbox", { name: "Vegan" }));
+    expect((amara.getByRole("checkbox", { name: "Vegan" }) as HTMLInputElement).checked).toBe(true);
+    expect(amara.queryByLabelText(/Anything else/i)).toBeNull();
+
+    fireEvent.click(amara.getByRole("checkbox", { name: "Other" }));
+    const box = await amara.findByLabelText(/Anything else/i);
+    fireEvent.input(box, { target: { value: "no onion or garlic" } });
+
+    // Untick "Other" and the box goes away again — the picker owns the reveal.
+    fireEvent.click(amara.getByRole("checkbox", { name: "Other" }));
+    await waitFor(() => expect(amara.queryByLabelText(/Anything else/i)).toBeNull());
+
+    // Re-tick it, and the text is still there. Asserting `box.value` straight
+    // after the `input` would prove nothing: `fireEvent.input` sets that
+    // property itself, so deleting the `onInput` handler leaves the DOM node
+    // reading back exactly what the test wrote onto it. Only a value that
+    // survives the `<Show>` remount can have come from the component's state.
+    fireEvent.click(amara.getByRole("checkbox", { name: "Other" }));
+    const reopened = (await amara.findByLabelText(/Anything else/i)) as HTMLInputElement;
+    expect(reopened.value).toBe("no onion or garlic");
+  });
+
   it("confirms with a no-op message and never calls the network on a valid submit", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

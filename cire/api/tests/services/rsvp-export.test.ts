@@ -9,6 +9,7 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
+import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -25,7 +26,13 @@ function eventName(data: { events: { id: string; name: string }[] }, eventId: st
   return data.events.find((e) => e.id === eventId)!.name;
 }
 
-/** Insert an RSVP row for a guest+event. */
+/**
+ * Insert an RSVP row for a guest+event.
+ *
+ * `presets` goes in through `serialisePresets`, the same function the routes
+ * write the column with — a hand-written string here would prove the export
+ * against a column shape nothing produces.
+ */
 function rsvp(
   db: Db,
   guestId: string,
@@ -33,6 +40,7 @@ function rsvp(
   status: "attending" | "declined" | "maybe",
   dietary = "",
   consentSource: "guest" | "organiser_attested" = "guest",
+  presets: readonly DietaryPreset[] = [],
 ) {
   db.insert(rsvps)
     .values({
@@ -41,6 +49,7 @@ function rsvp(
       eventId,
       status,
       dietary,
+      dietaryPresets: serialisePresets(presets),
       consentSource,
       createdAt: new Date(),
     })
@@ -460,6 +469,41 @@ describe("rsvp-export CSV serialisation", () => {
     ),
   );
 
+  it(
+    "writes presets into the caterer's dietary cell, with the free text after them",
+    withDb(
+      Effect.gen(function* () {
+        // The CSV is what a caterer cooks from, and nothing else in this suite
+        // exports a non-empty `dietary_presets` — so the `formatDietaryCell`
+        // call on the build path is unasserted, and `parsePresets` is total, so
+        // a broken read gives `[]` and an empty-looking cell rather than an
+        // error. Three shapes, because the separator is where this breaks:
+        // presets alone must gain no trailing "; ", prose alone no leading one.
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const hindu = yield* eventBySlug(db, "hindu");
+        const reception = yield* eventBySlug(db, "reception");
+        rsvp(db, ada.id, catholic.id, "attending", "", "guest", ["vegetarian", "nuts"]);
+        rsvp(db, ada.id, hindu.id, "attending", "No onion", "guest", ["other"]);
+        rsvp(db, ada.id, reception.id, "attending", "Coeliac");
+
+        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
+        const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
+        const dietaryFor = (eventId: string) =>
+          adaRow.dietary[data.events.findIndex((e) => e.id === eventId)];
+
+        expect(dietaryFor(catholic.id)).toBe("Vegetarian; Nuts");
+        expect(dietaryFor(hindu.id)).toBe("Other; No onion");
+        expect(dietaryFor(reception.id)).toBe("Coeliac");
+
+        // And the labels reach the file itself, not just the row model.
+        const csv = toCsv(data);
+        expect(csv).toContain("Vegetarian; Nuts");
+      }),
+    ),
+  );
+
   it("sanitises formula-injection cells with a leading quote", () => {
     expect(sanitiseCsvCell("=SUM(A1:A2)")).toBe("'=SUM(A1:A2)");
     expect(sanitiseCsvCell("+1")).toBe("'+1");
@@ -530,6 +574,30 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
         expect(adaRow.dietary).toBe("Gluten free");
         const boRow = event.guests.find((g) => g.guestId === bo.id)!;
         expect(boRow.status).toBe("declined");
+      }),
+    ),
+  );
+
+  it(
+    "parses the presets column back into the dashboard view's guest rows",
+    withDb(
+      Effect.gen(function* () {
+        // The second of the two places that format a dietary answer. The CSV
+        // path and this one read the same column through different code, so a
+        // revert of either is only caught if both are asserted.
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        // Stored allergy-first; `serialisePresets` canonicalises, so the view
+        // gets diet-first whatever order it was picked in.
+        rsvp(db, ada.id, catholic.id, "attending", "No onion", "guest", ["nuts", "vegetarian"]);
+
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        const adaRow = event.guests.find((g) => g.guestId === ada.id)!;
+        expect(adaRow.dietaryPresets).toEqual(["vegetarian", "nuts"]);
+        // The free text stays its own field — the view does not pre-join them.
+        expect(adaRow.dietary).toBe("No onion");
       }),
     ),
   );
