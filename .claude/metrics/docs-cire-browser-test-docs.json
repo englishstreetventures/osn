@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1140,
+    "branch": "docs/cire-browser-test-docs",
+    "base_sha": "28315b5c4dd8d0a67f416211db777eb108d7822f",
+    "head_sha": "b4557797c9c437d5968045865c2859a1216ce29f",
+    "generated_at": "2026-09-21T15:22:02.951Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1096,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "area:docs",
+      "complexity:1"
+    ]
+  },
+  "complexity": {
+    "declared": 1,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-21T07:51:11.594Z",
+    "last_ts": "2026-09-21T15:21:56.120Z",
+    "span_seconds": 27045,
+    "active_seconds": 1216,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.4624686000000002,
+    "tokens": {
+      "input": 104,
+      "output": 19836,
+      "thinking": 4837,
+      "cache_write_5m": 0,
+      "cache_write_1h": 253235,
+      "cache_read": 6254803
+    },
+    "by_model": {
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 104,
+          "output": 19836,
+          "thinking": 4837,
+          "cache_write_5m": 0,
+          "cache_write_1h": 253235,
+          "cache_read": 6254803
+        },
+        "usd_equivalent": 2.4624686000000002,
+        "messages": 52
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 104,
+          "output": 19836,
+          "thinking": 4837,
+          "cache_write_5m": 0,
+          "cache_write_1h": 253235,
+          "cache_read": 6254803
+        },
+        "usd_equivalent": 2.4624686000000002,
+        "messages": 52
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {
+      "high": 52
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 2,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 25,
+        "deleted": 4
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 2,
+    "tokens_before_first_edit": 1382545,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 27,
+      "Edit": 11,
+      "Skill": 5,
+      "Read": 3,
+      "AskUserQuestion": 3,
+      "Write": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro": 1
+    },
+    "subagents": {}
+  }
+}

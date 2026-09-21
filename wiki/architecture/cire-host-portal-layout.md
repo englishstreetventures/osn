@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-21
 ---
 # Host Portal Layout System
 
@@ -329,5 +329,5 @@ What that leaves testable, and where it lives:
 | Utility names + custom-property wiring (the silent-collapse failure mode) | `styles/layout-utilities.test.ts` — static text, no DOM |
 | DOM containment of grid siblings, and per-group reorder indices | `ChecklistView.test.tsx`, `BudgetView.test.tsx` |
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
-| Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — with a stub `ResizeObserver` reporting a fixed content-box width, since happy-dom runs no layout |
-| The container queries themselves | Nothing. A browser-driven visual check is the only real test, and this package has no such harness. |
+| Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
+| The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

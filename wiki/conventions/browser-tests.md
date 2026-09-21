@@ -10,7 +10,7 @@ packages:
   - "@cire/host"
   - "@musubi/social"
   - "@pulse/web"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-21
 ---
 
 # Browser Tests
@@ -132,6 +132,27 @@ Both cost real time to rediscover:
 same queries, same `cleanup`. There is no separate render API to learn and no
 `vitest-browser-solid` dependency; a browser test reads like every other
 component test in the package.
+
+The shared-factory idiom `cire/host/tests/test-support/mocks.ts` documents for
+the fast tier —
+
+```ts
+vi.mock("../../src/lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
+```
+
+— is **fast-tier only**. In the `browser` project the factory is resolved
+before the imported module exists, so the dynamic `import()` inside it never
+lands. A browser-tier file writes its `vi.mock` factories **literally**
+instead, with `vi.hoisted` for anything the factory needs to close over. The
+failure mode is a run-level error in the mocker, naming neither the test nor
+the file, and its text blames top-level variables — which is not the cause:
+
+```
+Error: [vitest] There was an error when mocking a module. If you are using "vi.mock" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file.
+```
 
 ### Media emulation
 
