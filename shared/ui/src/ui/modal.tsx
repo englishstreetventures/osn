@@ -85,6 +85,12 @@ export type ModalProps = Omit<ComponentProps<"dialog">, "open" | "onClose" | "ch
    * so the caller can lay those out itself, and makes it a column flex
    * container, which is what lets the scrolling child shrink under the panel's
    * `max-height` (with its own `min-h-0`).
+   *
+   * The frame panel clips rather than hides. `overflow: clip` is not a scroll
+   * container, so nothing inside it can scroll the dialog itself — which a
+   * `hidden` panel accepts from `scrollIntoView` and from focus. A popover that
+   * mounts its panel into the open dialog is clipped by it either way; see
+   * xchromo/osn#1089.
    */
   frame?: boolean;
   /**
@@ -538,8 +544,16 @@ export function Modal(props: ModalProps) {
         // is what removes it. Left out, the frame keeps a 16px band the caller
         // cannot see in its own markup — which is what put cire's sticky action
         // bar 16px above the bottom edge it is supposed to sit on.
+        // `overflow-clip`, not `overflow-hidden`. A `hidden` box is still a
+        // scroll container: it refuses the user a scrollbar and accepts
+        // `scrollIntoView` and focus-scrolling all the same, so a focused
+        // descendant the browser believes sits outside the panel slides the
+        // whole dialog sideways and never slides back. `clip` is not a scroll
+        // container and has no scroll offset to move. Both axes must be `clip`
+        // for that — beside an `auto` axis, `clip` computes to `hidden`
+        // (CSS Overflow 3 §3.1) and buys nothing.
         own.frame
-          ? "base:flex base:flex-col base:overflow-hidden base:p-0"
+          ? "base:flex base:flex-col base:overflow-clip base:p-0"
           : `base:overflow-y-auto ${MODAL_PADDING[own.presentation ?? "centred"]}`,
         own.class,
       )}

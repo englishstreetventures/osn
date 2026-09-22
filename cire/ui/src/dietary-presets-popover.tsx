@@ -27,7 +27,7 @@ import DietaryPresets, { type DietaryPresetsProps } from "./dietary-presets";
  *
  * `Modal` is `<dialog>` + `showModal()`, so it paints in the top layer.
  * `@shared/ui`'s popover mounts its panel into the open dialog to clear that,
- * which works — except in a `frame` Modal, whose dialog is `overflow-hidden` and
+ * which works — except in a `frame` Modal, whose dialog is `overflow-clip` and
  * therefore clips the panel. A caller inside one wants
  * `@cire/ui/dietary-presets` directly until xchromo/osn#1089 lands.
  */

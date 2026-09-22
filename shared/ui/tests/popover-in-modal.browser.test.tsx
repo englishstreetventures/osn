@@ -113,7 +113,7 @@ describe("Popover inside Modal", () => {
 
   it("is still clipped inside a `frame` modal", async () => {
     // Not the behaviour anyone wants — this records where the fix currently
-    // stops. `frame` makes the dialog `overflow-hidden` and moves scrolling to
+    // stops. `frame` makes the dialog `overflow-clip` and moves scrolling to
     // a child, so mounting the panel into that dialog clears the top layer only
     // to land inside the clip. Invert this assertion when xchromo/osn#1089 is
     // fixed; a bare `toBe(true)` would otherwise start passing silently and

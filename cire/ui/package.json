@@ -8,6 +8,7 @@
     "./dietary-presets": "./src/dietary-presets.tsx",
     "./dietary-presets-popover": "./src/dietary-presets-popover.tsx",
     "./loading": "./src/loading.tsx",
+    "./reveal": "./src/reveal.tsx",
     "./username-input": "./src/username-input.tsx"
   },
   "scripts": {

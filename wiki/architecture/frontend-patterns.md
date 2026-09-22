@@ -21,7 +21,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-09-16
+last-reviewed: 2026-09-22
 ---
 
 # Frontend Patterns
@@ -220,6 +220,75 @@ land on the element and Tailwind resolves the conflict by the two utilities'
 order in the generated stylesheet, not by attribute order. Reach for a real
 prop, not a class override, whenever a component appends its own class after
 the caller's (xchromo/osn-tracker#130).
+
+### `sr-only` is `position: absolute`, so a pill in a scroller needs a positioned parent
+
+Tailwind's `sr-only` hides a control by taking it out of flow — 1x1px,
+`clip-path: inset(50%)`, and **`position: absolute`**. An absolutely positioned
+box resolves against the nearest *positioned* ancestor, so a visually hidden
+`<input>` inside a static `<label>` inside a scrolling track does not belong to
+the track at all: it belongs to whatever box is positioned further up, and it
+does not travel when the track scrolls.
+
+Clicking the label focuses that input, and the browser then scrolls every
+scrollable ancestor to reveal it — toward a position that is correct for the
+distant containing block and wrong by the track's whole scroll offset. On cire's
+guest RSVP sheet that scrolled the `<dialog>` itself: `dialog.scrollLeft` went
+0 → 1213 at 1024px and 0 → 1182 at 414px, sliding the entire sheet sideways with
+no way back.
+
+**Fix:** make the label a containing block (`relative`). Then the input is where
+it looks, and the scroll the browser performs is zero.
+
+**Second-order cost, and it is not optional.** Positioning the label promotes it
+past every *non*-positioned box, so anything relying on being an
+earlier-in-tree positioned sibling — a close chip pinned over a scroller, say —
+now paints underneath. Give that element an explicit `z-index` in the same
+change, and hit-test it: `document.elementFromPoint` at the chip's own centre
+answers the chip when it is right and the pill when it is not.
+
+**Testing it:** assert the containing block directly — `input.offsetParent`
+is the label — rather than only the symptom. A scroll-offset assertion passes as
+soon as *any* fix is in place, including a `clip` on an ancestor, so it cannot
+tell you the cause came back.
+
+### `overflow: hidden` is still a scroll container; `overflow: clip` is not
+
+`hidden` refuses the user a scrollbar and grants everything else: `scrollIntoView`,
+`element.scrollLeft = n`, and the scroll the platform performs when focus lands
+on a descendant it believes sits outside the box. A `hidden` box that gets
+scrolled has no affordance to scroll back. `clip` is not a scroll container at
+all and has no scroll offset to move — which is why `@shared/ui`'s `Modal`
+frame panel clips.
+
+Both axes have to say `clip`. Beside an `auto` or `scroll` axis, a `clip`
+computes to `hidden` (CSS Overflow 3 §3.1), so `overflow-x-clip` next to
+`overflow-y-auto` buys nothing at all — verified in Chromium: the pair computes
+to `hidden` / `auto`. If a box must scroll on one axis, it is a scroll container,
+and the fix belongs at the cause rather than here.
+
+### A reveal needs a wrapper that outlives the content it reveals
+
+Animating a box open needs two states on **one** element, and an element that
+Solid's `<Show>` has just inserted has only the state it was inserted with. Two
+consequences, both of which bit:
+
+- Declaring the transition on the content means reaching for `@starting-style`
+  to invent a from-state — which then also fires on the very first paint, so a
+  field that was already open before the sheet opened animates in behind the
+  sheet's own entry.
+- An *exit* transition means holding the content in the document while the box
+  collapses. For a form that is a focusable input inside a box of zero height:
+  reachable by keyboard, invisible to the eye.
+
+`@cire/ui/reveal` is the shape that avoids both. The grid wrapper is
+unconditional and moves `grid-template-rows: 0fr → 1fr` — an ordinary transition
+on an element that was already there, and one that mounts open simply is open.
+Only the content is inside the `<Show>`, so the close is instant and nothing
+focusable survives it. `1fr` resolves to the content's own height, so nothing is
+measured and no JavaScript runs; `interpolate-size: allow-keywords` with
+`height: auto` says the same thing more directly but is not yet in every engine
+these apps are opened in.
 
 ## Source Files
 

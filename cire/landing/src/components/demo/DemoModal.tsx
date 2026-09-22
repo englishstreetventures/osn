@@ -1,21 +1,18 @@
 /**
  * The demo's bottom sheet.
  *
- * It used to be a 130-line port of `cire/invites`' `AnimatedModal`: a
- * `fixed inset-0` scrim, a 40-line `Tab` focus trap, Escape handling, a body
- * scroll lock, focus restore, and an enter/exit animation lazily imported from
- * `Modal.motion`. `@shared/ui`'s `Modal` supplies all of it — the trap, Escape and
- * inertness from `showModal()`, the top layer instead of a `z-index`, and the
- * motion from its own stylesheet.
+ * `@shared/ui`'s `Modal` owns everything a sheet usually hand-rolls: the focus
+ * trap, Escape and background inertness from `showModal()`, the top layer
+ * instead of a `z-index`, and the entry and exit motion from its own
+ * stylesheet. This file is the sheet's own shape and nothing else —
+ * bottom-anchored on a phone, centred above `md`, and a close button in the
+ * corner.
  *
  * The exit is the part worth knowing about. `close()` drops a dialog out of the
  * top layer immediately, so a CSS-only exit has nothing to paint, and the
  * platform's fix for that — the `overlay` property — is Chrome and Edge only.
  * `Modal` defers the `close()` call instead, which is why this still fades out
  * in Safari. See `wiki/architecture/component-library.md`.
- *
- * What is left here is the sheet's own shape: bottom-anchored on a phone,
- * centred above `md`, and a close button in the corner.
  */
 
 import Button from "@cire/ui/button";
@@ -44,12 +41,17 @@ export function DemoModal(props: DemoModalProps) {
       presentation="sheet"
       class="relative max-w-120 overscroll-contain"
     >
+      {/* `z-10` for the same reason the guest sheet's chip carries one: this is
+          a positioned box that has to stay above the panel's contents, and the
+          dietary pills below it are positioned too (`relative`, so their
+          `sr-only` inputs resolve inside the pill rather than against this
+          panel). Tree order would put the pills on top. */}
       <Button
         variant="bare"
         size="icon"
         aria-label="Close"
         onClick={props.onClose}
-        class="absolute top-2 right-2 h-11 w-11"
+        class="absolute top-2 right-2 z-10 h-11 w-11"
       >
         &times;
       </Button>

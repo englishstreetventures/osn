@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-22
 ---
 
 # Component Library (Zaidan)
@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `cn()` and `clsx()`                                                            | `@kobalte/core`, `clsx`, `tailwind-merge`, CVA                          |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, a combobox `UsernameInput`                                                         | `@shared/ui`, `@shared/design-tokens`                                   |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput`                                               | `@shared/ui`, `@shared/design-tokens`                                   |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -120,6 +120,7 @@ osn/auth-ui/src/
 cire/ui/src/
 ├── button.tsx  card.tsx  loading.tsx
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
+├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 └── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 ```
 
@@ -166,9 +167,9 @@ hold that guarantee rather than trusting it.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its five
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its six
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`loading` — are **default** exports, while `username-input` is named, and
+`loading`, `reveal` — are **default** exports, while `username-input` is named, and
 `card` carries named `CardEyebrow` / `CardCta` / `CardCtaButton` beside its
 default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
@@ -503,10 +504,20 @@ container, so a child owns the scrollport and the furniture sits beside it. The
 child needs its own `min-h-0`, or it cannot shrink under the panel's
 `max-height` and nothing scrolls.
 
-One detail worth carrying: `frame` sets `p-0` rather than merely omitting the
-padding. **The user-agent stylesheet gives every `<dialog>` `padding: 1em`**, so
-a component that writes no padding rule ships a 16px band its caller cannot see
-in its own markup.
+Two details worth carrying.
+
+`frame` sets `p-0` rather than merely omitting the padding. **The user-agent
+stylesheet gives every `<dialog>` `padding: 1em`**, so a component that writes
+no padding rule ships a 16px band its caller cannot see in its own markup.
+
+And the panel **clips rather than hides**. `overflow: hidden` refuses the user a
+scrollbar and grants everything else — `scrollIntoView`, and the scroll the
+platform performs when focus lands on a descendant it believes sits outside the
+box — so a `hidden` panel can be slid sideways with no affordance to slide back.
+`overflow: clip` is not a scroll container and has no scroll offset to move.
+Both axes have to say it: beside an `auto` axis, `clip` computes to `hidden`
+(CSS Overflow 3 §3.1). This does not change what a popover portalled into the
+open dialog can do — it is clipped by the frame either way; see xchromo/osn#1089.
 
 #### `presentation`, for where the panel sits
 

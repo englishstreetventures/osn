@@ -1,6 +1,7 @@
 import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
+import Reveal from "@cire/ui/reveal";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
@@ -279,7 +280,9 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                         label={`Dietary requirements for ${member.firstName}`}
                       />
                     </div>
-                    <Show when={responses()[guestId]?.dietaryPresets.includes("other")}>
+                    {/* Same reveal as the real sheet — this demo is what a
+                        visitor judges the real one by. */}
+                    <Reveal when={responses()[guestId]?.dietaryPresets.includes("other") ?? false}>
                       <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
                         Anything else
                         <input
@@ -291,7 +294,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                           maxLength={500}
                         />
                       </label>
-                    </Show>
+                    </Reveal>
                   </Show>
                 </fieldset>
               );

@@ -1,6 +1,7 @@
 import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
+import Reveal from "@cire/ui/reveal";
 import { toast } from "@shared/toast";
 import {
   batch,
@@ -627,8 +628,16 @@ export function RsvpModal(props: RsvpModalProps) {
                       a guest can see what they typed without reopening anything.
                       Shown for a selected `other` OR for text already on file:
                       a reply written before the picker existed carries prose and
-                      no presets, and that is how it opens intact. */}
-                  <Show
+                      no presets, and that is how it opens intact.
+
+                      `Reveal` rather than a bare `<Show>`: ticking "Other" adds
+                      a field to a sheet the guest is already reading, and a box
+                      that appears between two frames shoves everything below it
+                      without saying why. A reply that already carries prose
+                      opens with the field at full height and no animation — the
+                      wrapper mounts open, so there is nothing to transition
+                      from. */}
+                  <Reveal
                     when={
                       responses()[guestId]?.dietaryPresets.includes("other") ||
                       (responses()[guestId]?.dietary.trim().length ?? 0) > 0
@@ -650,7 +659,7 @@ export function RsvpModal(props: RsvpModalProps) {
                         disabled={locked()}
                       />
                     </label>
-                  </Show>
+                  </Reveal>
                 </Show>
               </fieldset>
             );

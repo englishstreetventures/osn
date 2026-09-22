@@ -131,13 +131,23 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // `--container-*` entry; see wiki/architecture/design-tokens.md.
       class="max-w-column-md md:mb-8"
     >
-      {/* No z-index: a positioned box already paints over its non-positioned
-          in-flow siblings, so this stays above the scroller without adding a
-          magic number. `bg-surface` (not transparent) because content passes
-          UNDERNEATH the button as it scrolls, and an opaque chip is what keeps
-          a guest's name from colliding with the glyph. */}
+      {/* `z-10` because tree order alone is not enough. This chip is an
+          earlier-in-tree positioned sibling of the scroller, so it outranks the
+          scroller's NON-positioned contents and nothing else — a positioned box
+          further down the sheet paints over it. The dietary pills are exactly
+          that (they carry `relative` so their `sr-only` inputs resolve inside
+          the pill), and content passes underneath this chip as the sheet
+          scrolls, which is what `bg-surface` is for. Measured with
+          `elementFromPoint` at the chip's own corner: without a z-index the
+          pill answers, with one the chip does.
+
+          Not an entry in `lib/z-index.ts`. That module ranks the DOCUMENT's
+          layers against each other and says why a sheet has none: a
+          `showModal()` dialog paints in the top layer, above every stacking
+          context in the page. This number orders two boxes inside one dialog
+          and can never meet those. */}
       <button
-        class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface absolute top-2 right-2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+        class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface absolute top-2 right-2 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
         onClick={() => setOpen(false)}
         aria-label="Close"
       >

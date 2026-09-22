@@ -110,3 +110,22 @@ describe("DietaryPresets", () => {
     }
   });
 });
+
+describe("the pill's containing block", () => {
+  it("positions each pill, so its hidden checkbox resolves inside it", () => {
+    // `sr-only` is `position: absolute`. With a static label the input resolves
+    // against whatever box is positioned further up the tree — on the guest
+    // invite that was the `<dialog>`, outside the horizontally scrolling track,
+    // so the input did not travel with the scroll and focusing it slid the
+    // whole sheet sideways. Measured in Chromium at
+    // `cire/invites/tests/components/DietaryPresets.browser.test.tsx`; this is
+    // the cheap guard that the class survives an edit to the list.
+    const { container } = render(() => <DietaryPresets value={[]} onChange={() => {}} />);
+    const labels = [...container.querySelectorAll("label")];
+    expect(labels.length).toBeGreaterThan(0);
+    // A token, not a substring: `md:relative` and `has-[:checked]:relative` both
+    // contain the word and neither makes the pill a containing block at the
+    // moment the input is focused.
+    for (const label of labels) expect(label.className.split(/\s+/)).toContain("relative");
+  });
+});

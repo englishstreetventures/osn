@@ -93,9 +93,9 @@ describe("AnimatedModal", () => {
     // `autofocus` rather than an imperative `focus()`: a dialog's focusing
     // steps prefer the autofocus delegate over the first tabbable descendant,
     // which is the close button. That button is a sibling of the scrollport, so
-    // landing there leaves the keyboard with nothing to scroll — its nearest
-    // scrollable ancestor is the `overflow-hidden` frame, then a `<body>` this
-    // component locks. Measured in a real browser with focus on the button:
+    // landing there leaves the keyboard with nothing to scroll — the frame
+    // above it is `overflow-clip`, which is not a scroll container at all, and
+    // beyond it is a `<body>` this component locks. Measured in a real browser with focus on the button:
     // Arrow and PageDown moved a scrollable sheet 0px. With focus on the
     // scrollport: ArrowDown 0→40px, PageDown 40→594px, Home back to 0.
     // That it actually lands there is the browser tier's to check.
@@ -169,6 +169,12 @@ describe("AnimatedModal", () => {
     // Opaque, because content now passes underneath the button as it scrolls.
     expect(close.className).toContain("bg-surface");
     expect(close.className).not.toContain("bg-transparent");
+    // And ranked, because some of what passes underneath is positioned. The
+    // dietary pills carry `relative` so their `sr-only` inputs resolve inside
+    // the pill, which puts sixteen positioned boxes later in the tree than this
+    // chip — and tree order alone then hands them the hit test. Measured in
+    // `DietaryPresets.browser.test.tsx`; this is the cheap half.
+    expect(close.className.split(/\s+/)).toContain("z-10");
 
     // Still the first thing in the tab order, as before the restructure.
     expect(panel.querySelector("button")).toBe(close);

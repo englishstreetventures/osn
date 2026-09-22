@@ -29,7 +29,7 @@ import "./test-support/tailwind.css";
  * test. Five assertions here failed that way before the query was scoped —
  * every one of them reporting a fault in the component rather than in the test.
  */
-function mount(props: { dismissable?: boolean } = {}) {
+function mount(props: { dismissable?: boolean; frame?: boolean } = {}) {
   const [open, setOpen] = createSignal(true);
   const result = render(() => (
     <Modal open={open()} onClose={() => setOpen(false)} label="Test dialog" {...props}>
@@ -42,6 +42,34 @@ function mount(props: { dismissable?: boolean } = {}) {
 }
 
 describe("Modal", () => {
+  it("frame: the panel is not a scroll container, so nothing inside can slide it", async () => {
+    // `overflow: hidden` refuses the USER a scrollbar and grants everything
+    // else — `scrollIntoView`, and the scroll the platform performs when focus
+    // lands on a descendant it believes is outside the box. A dialog that
+    // accepts that slides sideways and never slides back, taking the whole
+    // sheet with it. `overflow: clip` has no scroll offset to move.
+    //
+    // Both axes have to say `clip`: beside an `auto` axis, `clip` computes to
+    // `hidden` (CSS Overflow 3 §3.1) and this guard would pass while the box
+    // stayed scrollable. Asserting the computed pair is how that is caught.
+    const { dialog } = mount({ frame: true });
+    const el = dialog();
+
+    const strip = document.createElement("div");
+    strip.style.cssText = "width:4000px;height:20px";
+    const far = document.createElement("span");
+    far.style.cssText = "display:inline-block;margin-left:3900px;width:10px;height:10px";
+    strip.append(far);
+    el.append(strip);
+
+    const style = getComputedStyle(el);
+    expect([style.overflowX, style.overflowY]).toEqual(["clip", "clip"]);
+
+    far.scrollIntoView();
+    await new Promise(requestAnimationFrame);
+    expect(el.scrollLeft).toBe(0);
+  });
+
   it("opens modally rather than as an inline dialog", () => {
     // `open` alone means a non-modal dialog: no top layer, no focus trap, no
     // inert background. `matches(":modal")` is the only way to tell the two
