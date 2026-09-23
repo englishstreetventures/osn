@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { type Accessor, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { ConsentGate } from "./consent/ConsentGate";
 import { isEmbeddablePinterestBoardUrl, isSafePinterestLinkUrl } from "./pinterest";
@@ -6,6 +6,19 @@ import { isEmbeddablePinterestBoardUrl, isSafePinterestLinkUrl } from "./pintere
 interface PinterestBoardProps {
   url: string;
   eventName: string;
+}
+
+/**
+ * Where the rich embed stands. `idle` means no embed is mounted at all — an
+ * un-embeddable URL, or third-party content switched off — so the outbound
+ * link is the only route to the board. `failed` means the embed was tried and
+ * did not render. The link shows in exactly those two states.
+ */
+type EmbedStatus = "idle" | "loading" | "rendered" | "failed";
+
+interface PinterestEmbedProps extends PinterestBoardProps {
+  status: Accessor<EmbedStatus>;
+  setStatus: (status: EmbedStatus) => void;
 }
 
 // Stable per-instance id so the anchor and the cache-busted script tag line up.
@@ -22,7 +35,7 @@ const nextAnchorId = () => `pin-board-${++nextId}`;
 // Consent now lives in `lib/consent/` and is granted per CATEGORY, and this
 // component is an ordinary consumer of `<ConsentGate>` like any other. What
 // survives unchanged is the interesting part — the success-detecting
-// MutationObserver, the connection-scaled failure cutoff, and the always-visible
+// MutationObserver, the connection-scaled failure cutoff, and the outbound
 // fallback link — none of which was ever about consent.
 
 // NOTE (mobile embed re-enabled): the consent-gated rich embed renders on ALL
@@ -32,8 +45,8 @@ const nextAnchorId = () => `pin-board-${++nextId}`;
 // are now resolved to canonical `/user/board` URLs at import time, and the live
 // data was backfilled), not a touch-specific defect. The success-detection
 // MutationObserver + connection-scaled failure cutoff already make the embed
-// self-healing on slow mobile networks, and the always-visible fallback link
-// below the embed is the safety net if a board still doesn't render.
+// self-healing on slow mobile networks, and the outbound fallback link that
+// replaces the embed on failure is the safety net if a board still doesn't render.
 
 // Hard failure cutoff for Pinterest's script to load, run, and transform our
 // `<a>` placeholder into an iframe. Tracker-blocker extensions (uBlock, Brave
@@ -105,16 +118,16 @@ function isEmbedTransformed(
 
 /**
  * Renders a Pinterest moodboard — the consent-gated rich embed on EVERY device
- * (touch included), with an always-visible outbound fallback link below it:
+ * (touch included), or an outbound fallback link when the embed is not showing:
  *
  * - The consent-gated rich embed: once the guest has allowed third-party
  *   content, Pinterest's board widget renders inline.
- * - The always-visible outbound fallback link: rendered below the embed, it's a
- *   secondary "open on Pinterest" affordance when the board embeds and the
- *   primary way to reach the moodboard when the embed is absent (no consent,
- *   blocked, or a non-embeddable URL). This is why refusing consent costs the
- *   guest nothing they cannot get another way — the moodboard stays one tap
- *   away either side of the decision, which is what makes the choice real.
+ * - The outbound fallback link: shown whenever no board is on screen or on its
+ *   way — no consent, a non-embeddable URL, or an embed that errored or timed
+ *   out — and hidden while the embed loads or once it has rendered. Because it
+ *   shows for a refusal, refusing consent costs the guest nothing they cannot
+ *   get another way — the moodboard stays one tap away either side of the
+ *   decision, which is what makes the choice real.
  *
  * The embed uses Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
@@ -133,7 +146,7 @@ function isEmbedTransformed(
  *
  * URL safety + graceful degradation: two separate gates (see `pinterest.ts`).
  * `isSafePinterestLinkUrl` (https + Pinterest-host allowlist, loose on path)
- * gates the always-visible outbound fallback link, so the moodboard stays
+ * gates the outbound fallback link, so the moodboard stays
  * reachable even when the URL is a `pin.it` short link or some other shape the
  * board widget can't embed. `isEmbeddablePinterestBoardUrl` (the strict
  * `/user/board` shape) is the stricter gate before the URL ever lands in the
@@ -142,35 +155,48 @@ function isEmbedTransformed(
 export function PinterestBoard(props: PinterestBoardProps) {
   // Whether this URL can be rendered as an embedded board widget at all. A safe
   // Pinterest link that isn't an embeddable board shape (a `pin.it` short link,
-  // a bare pin/profile) still gets the always-visible fallback link below — it
+  // a bare pin/profile) still gets the fallback link below — it
   // just never shows the consent placeholder or the embed anchor, because there
   // is nothing to consent TO: no request to Pinterest would ever be made.
   const embeddable = () => isEmbeddablePinterestBoardUrl(props.url);
+  const [status, setStatus] = createSignal<EmbedStatus>("idle");
+  const showFallbackLink = () => status() === "idle" || status() === "failed";
 
   return (
     <Show when={isSafePinterestLinkUrl(props.url)}>
       <>
         <Show when={embeddable()}>
           <ConsentGate category="embeds" vendor="pinterest">
-            <PinterestEmbed url={props.url} eventName={props.eventName} />
+            <PinterestEmbed
+              url={props.url}
+              eventName={props.eventName}
+              status={status}
+              setStatus={setStatus}
+            />
           </ConsentGate>
         </Show>
 
-        {/* The outbound fallback link is ALWAYS present whenever the URL is a safe */}
-        {/* Pinterest link — even if the embed is blocked, slow, refused, or the URL */}
-        {/* isn't an embeddable board shape — so every guest can always reach the */}
-        {/* moodboard. It renders BELOW the embed area: when the board embeds the link */}
-        {/* is a secondary "open on Pinterest" affordance under it; otherwise it is the */}
-        {/* primary way to reach the moodboard. */}
-        <div class="mt-2 flex justify-center">
-          <a
-            href={props.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
-          >
-            View moodboard on Pinterest ↗
-          </a>
+        {/* The outbound fallback link stands in for the board whenever the embed is */}
+        {/* not showing: refused, an un-embeddable URL, blocked, or timed out. It is */}
+        {/* hidden while the embed loads and once it has rendered. */}
+        <Show when={showFallbackLink()}>
+          <div class="mt-2 flex justify-center">
+            <a
+              href={props.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
+            >
+              View moodboard on Pinterest ↗
+            </a>
+          </div>
+        </Show>
+
+        {/* A failed embed takes its "Loading board…" status region with it, so */}
+        {/* the announcement that the link has appeared lives here, mounted */}
+        {/* throughout, where a screen reader is already listening. */}
+        <div class="sr-only" aria-live="polite" aria-atomic="true">
+          {status() === "failed" ? "The board could not load. Open it on Pinterest instead." : ""}
         </div>
       </>
     </Show>
@@ -187,13 +213,8 @@ export function PinterestBoard(props: PinterestBoardProps) {
  * merely hid its output behind a CSS class would have made the request anyway,
  * which is the failure mode this arrangement forecloses.
  */
-function PinterestEmbed(props: PinterestBoardProps) {
+function PinterestEmbed(props: PinterestEmbedProps) {
   const id = nextAnchorId();
-  const [embedFailed, setEmbedFailed] = createSignal(false);
-  // True between mount and the embed either rendering or failing, so the guest
-  // gets IMMEDIATE "Loading board…" feedback after allowing the content instead
-  // of a dead, blank slot.
-  const [embedLoading, setEmbedLoading] = createSignal(false);
   let anchorRef: HTMLAnchorElement | undefined;
   let containerRef: HTMLDivElement | undefined;
 
@@ -203,18 +224,22 @@ function PinterestEmbed(props: PinterestBoardProps) {
   let timeoutId: number | undefined;
   let observer: MutationObserver | undefined;
 
-  // Called the instant a successful transform is observed: cancel the pending
-  // failure cutoff and stop observing, so a board that rendered is never later
-  // hidden. Idempotent.
-  function markEmbedRendered() {
+  // Cancel the pending failure cutoff and stop observing, so the outcome that
+  // was just decided is never overturned. Idempotent.
+  function stopWatching() {
     if (timeoutId !== undefined) {
       window.clearTimeout(timeoutId);
       timeoutId = undefined;
     }
     observer?.disconnect();
     observer = undefined;
-    // The embed has rendered — drop the "Loading board…" affordance.
-    setEmbedLoading(false);
+  }
+
+  // Called the instant a successful transform is observed, so a board that
+  // rendered is never later hidden.
+  function markEmbedRendered() {
+    stopWatching();
+    props.setStatus("rendered");
   }
 
   onMount(() => {
@@ -225,6 +250,9 @@ function PinterestEmbed(props: PinterestBoardProps) {
     if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     observer?.disconnect();
     injectedScript?.remove();
+    // No embed is mounted any more (consent withdrawn, or the sheet closed), so
+    // the parent's fallback link is the route to the board again.
+    props.setStatus("idle");
   });
 
   function injectEmbedScript() {
@@ -232,7 +260,7 @@ function PinterestEmbed(props: PinterestBoardProps) {
     // strict shape is the gate that keeps organiser-supplied text out of the
     // third-party script's input, so it is re-checked at the point of use.
     if (!isEmbeddablePinterestBoardUrl(props.url)) {
-      setEmbedLoading(false);
+      props.setStatus("idle");
       return;
     }
 
@@ -240,7 +268,7 @@ function PinterestEmbed(props: PinterestBoardProps) {
     // feedback rather than a dead, blank slot while the (potentially
     // multi-second) script load + transform runs. Cleared by markEmbedRendered
     // (success) or the error/cutoff fallbacks.
-    setEmbedLoading(true);
+    props.setStatus("loading");
 
     const script = document.createElement("script");
     script.async = true;
@@ -252,8 +280,8 @@ function PinterestEmbed(props: PinterestBoardProps) {
     script.src = `https://assets.pinterest.com/js/pinit_main.js?_=${id}`;
     // A blocked / 404 / errored script is a definitive, fast failure.
     script.addEventListener("error", () => {
-      markEmbedRendered(); // tear down observer + cutoff; we're going to fallback
-      setEmbedFailed(true);
+      stopWatching();
+      props.setStatus("failed");
     });
     document.body.appendChild(script);
     injectedScript = script;
@@ -295,23 +323,22 @@ function PinterestEmbed(props: PinterestBoardProps) {
       }
       observer?.disconnect();
       observer = undefined;
-      setEmbedLoading(false);
-      setEmbedFailed(true);
+      props.setStatus("failed");
     }, resolveEmbedTimeoutMs());
   }
 
   return (
     // On failure the embed slot collapses to nothing and the parent's outbound
-    // link carries the moodboard. It deliberately does NOT reinstate a consent
+    // link takes its place. It deliberately does NOT reinstate a consent
     // prompt: consent was already given, and re-asking for permission we hold
     // would misrepresent a Pinterest-side failure as the guest's decision.
-    <Show when={!embedFailed()}>
+    <Show when={props.status() !== "failed"}>
       {/* IMMEDIATE feedback: a "Loading board…" affordance above the (still-empty)
           embed anchor, so the guest never stares at a dead, blank slot between
           allowing the content and the multi-second script load + transform. The
           anchor itself must still mount (Pinterest's script scans for it), so
           this sits above it rather than replacing it. */}
-      <Show when={embedLoading()}>
+      <Show when={props.status() === "loading"}>
         <div
           class="font-body text-fg/70 text-ui-xs mt-2 flex items-center justify-center gap-2 text-center"
           role="status"

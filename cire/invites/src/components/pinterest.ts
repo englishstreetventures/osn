@@ -6,11 +6,11 @@
  * must clear one of two gates depending on how it's used. We deliberately split
  * "is this a safe URL to link to" from "is this embeddable as a board widget",
  * because the embed widget needs a stricter shape than a plain outbound link —
- * and a guest must ALWAYS be able to reach the moodboard via a link even when
- * the URL is a shape the widget can't embed (a `pin.it` short link, a board
+ * and a guest must be able to reach the moodboard via a link whenever the
+ * board is not showing, including when the URL is a shape the widget can't embed (a `pin.it` short link, a board
  * with a section sub-path, a profile-level link, etc.).
  *
- *   - `isSafePinterestLinkUrl`  → gates the always-visible fallback `<a href>`.
+ *   - `isSafePinterestLinkUrl`  → gates the outbound fallback `<a href>`.
  *     Loose on path shape, strict on host + scheme: only https, only Pinterest
  *     hosts (incl. the `pin.it` short-link host). Rejects `javascript:`,
  *     foreign hosts, and host-injection lookalikes.

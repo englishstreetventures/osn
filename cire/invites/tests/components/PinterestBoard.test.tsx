@@ -49,6 +49,17 @@ function refuseThirdPartyContent() {
 }
 
 /**
+ * The outbound "View moodboard on Pinterest" link, found by its text. Not by
+ * `href`: the embed anchor carries the same one, and once Pinterest strips its
+ * `data-pin-do` no attribute selector tells the two apart.
+ */
+function fallbackLink(container: HTMLElement): HTMLAnchorElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find((a) =>
+    (a.textContent ?? "").includes("View moodboard on Pinterest"),
+  );
+}
+
+/**
  * Click the "Allow third-party content" button on the blocked-embed
  * placeholder. It is the first button in the placeholder ("Privacy choices",
  * which opens the dialog rather than granting, is the second).
@@ -116,17 +127,8 @@ describe("PinterestBoard", () => {
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(scriptHandle.all()).toHaveLength(1);
 
-    // Fallback outbound link is present alongside it, as always.
-    // `:not([data-pin-do])` matters now the embed anchor is mounted by default —
-    // it carries the same href, and without the exclusion this selector would
-    // match the widget placeholder instead of the outbound link.
-    const link = container.querySelector<HTMLAnchorElement>(
-      'a[href="' + VALID_URL + '"]:not([data-pin-do])',
-    );
-    expect(link).not.toBeNull();
-    expect(link!.textContent).toContain("View moodboard on Pinterest");
-    expect(link!.getAttribute("target")).toBe("_blank");
-    expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
+    // The board is on its way, so the fallback link is held back.
+    expect(fallbackLink(container)).toBeUndefined();
   });
 
   it("shows the blocked-content placeholder, and injects nothing, once the guest switches it off", () => {
@@ -175,8 +177,8 @@ describe("PinterestBoard", () => {
     // No SRI available → no-referrer is the compensating request-time control.
     expect(script.referrerPolicy).toBe("no-referrer");
 
-    // Fallback link stays visible alongside the embed.
-    expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
+    // The embed took over from the link the placeholder was showing.
+    expect(fallbackLink(container)).toBeUndefined();
   });
 
   it("writes the granted category to the shared consent record, not a Pinterest-specific key", () => {
@@ -394,6 +396,7 @@ describe("PinterestBoard", () => {
 
     // The container still holds the rendered widget node, not the fallback-only state.
     expect(container.querySelector("iframe[data-pin-internal]")).not.toBeNull();
+    expect(fallbackLink(container)).toBeUndefined();
   });
 
   // No transformation by the cutoff (a downstream pidgets/CDN block that emits no
@@ -408,13 +411,11 @@ describe("PinterestBoard", () => {
     await vi.advanceTimersByTimeAsync(9000);
     vi.useRealTimers();
 
-    // The embed anchor is gone; the always-visible fallback link remains.
+    // The embed anchor is gone and the fallback link takes its place.
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
-    const link = container.querySelector<HTMLAnchorElement>(
-      'a[href="' + VALID_URL + '"]:not([data-pin-do])',
-    );
-    expect(link).not.toBeNull();
-    expect(link!.textContent).toContain("View moodboard on Pinterest");
+    const link = fallbackLink(container);
+    expect(link).toBeDefined();
+    expect(link!.getAttribute("href")).toBe(VALID_URL);
   });
 
   it("removes the injected tracker tag when the guest withdraws consent", async () => {
@@ -438,6 +439,107 @@ describe("PinterestBoard", () => {
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(removeSpy).toHaveBeenCalled();
     expect(clearSpy).toHaveBeenCalled();
+  });
+
+  describe("fallback link follows the embed", () => {
+    it("shows the link, with safe attributes, when the guest has refused the embed", () => {
+      refuseThirdPartyContent();
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      const link = fallbackLink(container);
+      expect(link).toBeDefined();
+      expect(link!.getAttribute("href")).toBe(VALID_URL);
+      expect(link!.getAttribute("target")).toBe("_blank");
+      expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
+    });
+
+    it("hides the link while the embed is loading", () => {
+      seedConsentForTest({ embeds: true });
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      expect(container.querySelector('[role="status"]')).not.toBeNull();
+      expect(fallbackLink(container)).toBeUndefined();
+    });
+
+    it("keeps the link hidden once the board has rendered", async () => {
+      seedConsentForTest({ embeds: true });
+      vi.useFakeTimers();
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
+      anchor.removeAttribute("data-pin-do");
+      anchor.setAttribute("data-pin-internal", "true");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(fallbackLink(container)).toBeUndefined();
+
+      // Well past the cutoff: a rendered board never falls back.
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fallbackLink(container)).toBeUndefined();
+    });
+
+    it("shows the link when the script errors", async () => {
+      seedConsentForTest({ embeds: true });
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      expect(fallbackLink(container)).toBeUndefined();
+      scriptHandle.last().dispatchEvent(new Event("error"));
+      await waitFor(() => expect(fallbackLink(container)).toBeDefined());
+    });
+
+    it("shows the link when nothing renders by the cutoff", async () => {
+      seedConsentForTest({ embeds: true });
+      vi.useFakeTimers();
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fallbackLink(container)).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(fallbackLink(container)).toBeDefined();
+    });
+
+    it("announces the failure where a screen reader is already listening", async () => {
+      seedConsentForTest({ embeds: true });
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      scriptHandle.last().dispatchEvent(new Event("error"));
+      await waitFor(() => expect(fallbackLink(container)).toBeDefined());
+      const statuses = Array.from(container.querySelectorAll("[aria-live]"));
+      expect(statuses.some((s) => (s.textContent ?? "").includes("could not load"))).toBe(true);
+    });
+
+    // The observer normally sees the transform first; this pins the cutoff's own
+    // re-check, which must also count a late render as a success.
+    it("keeps the link hidden when the cutoff's re-check finds a rendered board", async () => {
+      seedConsentForTest({ embeds: true });
+      vi.useFakeTimers();
+      vi.stubGlobal(
+        "MutationObserver",
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      try {
+        const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+        const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
+        anchor.removeAttribute("data-pin-do");
+        anchor.setAttribute("data-pin-internal", "true");
+        await vi.advanceTimersByTimeAsync(9000);
+        expect(fallbackLink(container)).toBeUndefined();
+        expect(container.querySelector("a[data-pin-internal]")).not.toBeNull();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    // Tests swap the post-revoke page reload for a no-op, so this proves the
+    // in-tree path: the gate unmounting the embed hands the board back to the link.
+    it("shows the link again when the gate unmounts a rendered embed", () => {
+      seedConsentForTest({ embeds: true });
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
+      anchor.removeAttribute("data-pin-do");
+      expect(fallbackLink(container)).toBeUndefined();
+
+      saveConsent({ ...defaultGrants(), embeds: false });
+
+      expect(fallbackLink(container)).toBeDefined();
+    });
   });
 
   it("clears the fallback timer when the component unmounts", async () => {
@@ -499,8 +601,8 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
     expect(container.querySelector("button")).not.toBeNull();
     expect(container.textContent ?? "").toContain("Pinterest");
     expect(scriptHandle.all()).toHaveLength(0);
-    // The always-visible fallback link is still present below the embed.
-    expect(container.querySelector('a[href="' + VALID_URL + '"]')).not.toBeNull();
+    // With the embed refused, the fallback link is the route to the board.
+    expect(fallbackLink(container)).toBeDefined();
   });
 
   it("loads the embed by default on touch too (opt-out applies on every device)", () => {

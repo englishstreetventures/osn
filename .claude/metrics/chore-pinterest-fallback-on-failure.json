@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1155,
+    "branch": "chore/pinterest-fallback-on-failure",
+    "base_sha": "73f872bcc078350e4d25674a486de08fae18f357",
+    "head_sha": "f6f1196e71a41b1b2880e8607bf8a4e674410efa",
+    "generated_at": "2026-09-23T00:55:22.299Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1075,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-09-23T00:37:43.774Z",
+    "last_ts": "2026-09-23T00:54:43.175Z",
+    "span_seconds": 1019,
+    "active_seconds": 87,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.77632,
+    "tokens": {
+      "input": 22,
+      "output": 5123,
+      "thinking": 0,
+      "cache_write_5m": 76722,
+      "cache_write_1h": 0,
+      "cache_read": 337245
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 22,
+          "output": 5123,
+          "thinking": 0,
+          "cache_write_5m": 76722,
+          "cache_write_1h": 0,
+          "cache_read": 337245
+        },
+        "usd_equivalent": 0.77632,
+        "messages": 12
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 22,
+          "output": 5123,
+          "thinking": 0,
+          "cache_write_5m": 76722,
+          "cache_write_1h": 0,
+          "cache_read": 337245
+        },
+        "usd_equivalent": 0.77632,
+        "messages": 12
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 1,
+      "docs": 3,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 123,
+        "deleted": 21
+      },
+      "docs": {
+        "added": 6,
+        "deleted": 6
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 80,
+        "deleted": 53
+      }
+    },
+    "packages": [
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 5,
+      "Grep": 2,
+      "StructuredOutput": 2,
+      "Bash": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}
