@@ -216,7 +216,7 @@ uncommitted and are never grouped into a commit.
 
 ## Step 4 — Build, test, and review test surface
 
-Invoke the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`) as an Agent subagent, passing the list of affected workspace paths as arguments.
+Invoke the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`) as an Agent subagent, passing the list of affected workspace paths as arguments. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
 
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it.
 
@@ -270,7 +270,10 @@ Two traps in reading the number:
 
 **Unless the task says these reviews have already run** — then record what it says they found, note it under `## Decisions`, and go to Step 7.
 
-Otherwise run the following two agents **in parallel** using the Agent tool:
+Otherwise run the following two agents **in parallel** using the Agent tool.
+Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
+the same reason as Step 4's — the collector reads it back out to attribute
+the reviewer's spend to this branch's card:
 
 **Agent 1 — Performance review** (general-purpose agent):
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.

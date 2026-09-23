@@ -97,10 +97,15 @@ The prompt, adapted to the plan's path:
 > Cite a file and line for every claim. Do not edit any file, do not run a build,
 > and do not write code. Write `<findings path>` and reply with the path only.
 
-Give it the worktree path and the branch, tell it the repository conventions live
-in `CLAUDE.md` and the wiki, and tell it explicitly not to build — a reviewer that
-builds in a worktree another process is building in produces measurements that are
-not real.
+Open the prompt with `TASK-BRANCH: <branch>` on its own line, before anything
+else — the collector reads it back out to attribute the attacker's spend to
+this branch's card (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`); a
+dispatch that omits it banks that spend against whatever branch the
+dispatching session happened to be on, where nothing will look for it. Then
+give it the worktree path and the branch, tell it the repository conventions
+live in `CLAUDE.md` and the wiki, and tell it explicitly not to build — a
+reviewer that builds in a worktree another process is building in produces
+measurements that are not real.
 
 ## Step 3 — Close every finding
 

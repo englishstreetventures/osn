@@ -1,7 +1,10 @@
-// `gitBranch` is a property of the session, captured once when it starts and
-// inherited by every subagent, so a subagent working in a task worktree records
-// the branch its PARENT started on. These tests cover the resolver that reads
-// the branch back out of the dispatch prompt instead.
+// A subagent's own `gitBranch` is fixed to whatever its parent's was at the
+// moment of dispatch and never re-derived afterward, so a subagent working in
+// a task worktree records the branch its PARENT started on. These tests cover
+// the resolver that reads the branch back out of the dispatch prompt instead
+// (`resolveDispatchBranch`), and its main-thread counterpart
+// (`resolveSessionBranch`) for a session that never itself leaves `main/`
+// because it only dispatches.
 //
 // They live in their own file rather than at the end of `pr-metrics.test.ts`
 // because #931 appends there; a separate file has no conflict to resolve.
@@ -15,6 +18,7 @@ import {
   readRecordsForBranch,
   recordsByBranch,
   resolveDispatchBranch,
+  resolveSessionBranch,
   unattributedSubagentFiles,
 } from "../index";
 
@@ -37,6 +41,38 @@ function dispatch(toolUseId: string, prompt: string, gitBranch = "main"): string
       model: "claude-opus-5",
       content: [{ type: "tool_use", id: toolUseId, name: "Agent", input: { prompt } }],
     },
+  });
+}
+
+/** A main-thread assistant record running a Bash command — the shape
+ * `resolveSessionBranch` scans for a `worktree add … -b <branch>` or
+ * `checkout -B <branch>` command. */
+function bashRecord(command: string, gitBranch = "main", requestId?: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    sessionId: "sess-1",
+    gitBranch,
+    isSidechain: false,
+    requestId,
+    timestamp: "2026-09-08T10:00:00.000Z",
+    message: {
+      model: "claude-opus-5",
+      content: [{ type: "tool_use", name: "Bash", input: { command } }],
+      usage: { output_tokens: 10 },
+    },
+  });
+}
+
+/** A plain main-thread text record — no tool call, just spend. */
+function textRecord(gitBranch = "main", requestId?: string, outputTokens = 5): string {
+  return JSON.stringify({
+    type: "assistant",
+    sessionId: "sess-1",
+    gitBranch,
+    isSidechain: false,
+    requestId,
+    timestamp: "2026-09-08T10:05:00.000Z",
+    message: { model: "claude-opus-5", usage: { output_tokens: outputTokens } },
   });
 }
 
@@ -611,5 +647,260 @@ test("a marker planted below the window, or naming an implausible ref, is ignore
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  }
+});
+
+// #1156. `stress-plan`, `prep-pr` and `new-feat` dispatch subagents the same
+// way `orchestrate` does, and until this branch none of the three wrote the
+// marker — their spend was real but landed on no card. This is the same
+// producer/consumer coupling the existing `orchestrate` test above has, for
+// the three files this branch adds it to.
+test("the three newly-marked skills each instruct TASK-BRANCH: <branch>", async () => {
+  for (const skillPath of [
+    "../../../.claude/skills/stress-plan/SKILL.md",
+    "../../../.claude/skills/prep-pr/SKILL.md",
+    "../../../.claude/skills/new-feat/SKILL.md",
+  ]) {
+    const skill = await Bun.file(new URL(skillPath, import.meta.url).pathname).text();
+    expect(skill).toContain("TASK-BRANCH: <branch>");
+  }
+});
+
+// #1156. `resolveSessionBranch` unit tests: the signal a main-thread session
+// gives up when it never itself leaves `main/` — the `worktree add … -b`/
+// `checkout -B` command it ran to cut the branch it then dispatches work to.
+test("resolveSessionBranch resolves the one branch a session cut for itself", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      `${bashRecord(
+        "git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main",
+      )}\n`,
+    );
+
+    expect(resolveSessionBranch(file)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSessionBranch resolves a remote-environment checkout -B", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(file, `${bashRecord("git checkout -B feat/x origin/main")}\n`);
+
+    expect(resolveSessionBranch(file)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSessionBranch returns null with no worktree-cutting command", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(file, `${bashRecord("bun run lint")}\n${textRecord()}\n`);
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The `orchestrate` case: a session driving several tasks cuts more than one
+// branch, and resolving to either would misattribute the other's work.
+test("resolveSessionBranch returns null when the session cuts more than one branch", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        bashRecord("git worktree add /path/a -b feat/a origin/main"),
+        bashRecord("git worktree add /path/b -b feat/b origin/main"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSessionBranch does not count main or HEAD as a cut branch", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        bashRecord("git checkout -B main origin/main"),
+        bashRecord("git worktree add /path/x -b feat/x origin/main"),
+      ].join("\n"),
+    );
+
+    // One real cut plus a `main` checkout — still resolves to the one real branch.
+    expect(resolveSessionBranch(file)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSessionBranch rejects an implausible captured ref", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      `${bashRecord("git worktree add /path -b ../../etc/passwd origin/main")}\n`,
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// #1156, gap 1. The motivating shape: a session that cuts a worktree and then
+// only dispatches subagents into it, so every one of its own records stays
+// stamped `main` — `readRecordsForBranch`/`recordsByBranch` must still
+// attribute them via `resolveSessionBranch`.
+test("readRecordsForBranch attributes a main-stamped session that cut exactly one branch", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        bashRecord(
+          "git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main",
+          "main",
+          "req-cut",
+        ),
+        textRecord("main", "req-later"),
+      ].join("\n"),
+    );
+
+    const records = readRecordsForBranch(dir, "feat/x");
+    expect(records.map((r) => r.requestId).toSorted()).toEqual(["req-cut", "req-later"]);
+
+    // `main` itself never gets a card, regardless of the fallback.
+    expect(recordsByBranch(dir).has("main")).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("recordsByBranch attributes a main-stamped session that cut exactly one branch", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        bashRecord(
+          "git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main",
+          "main",
+          "req-cut",
+        ),
+        textRecord("main", "req-later"),
+      ].join("\n"),
+    );
+
+    const byBranch = recordsByBranch(dir);
+    expect(
+      byBranch
+        .get("feat/x")
+        ?.map((r) => r.requestId)
+        .toSorted(),
+    ).toEqual(["req-cut", "req-later"]);
+    expect(byBranch.has("main")).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A record that already carries a real, different branch is never
+// reattributed by the session fallback, even in a session that also cut the
+// target branch.
+test("the session fallback never overrides a record's own real, different branch", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        bashRecord(
+          "git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main",
+          "main",
+          "req-cut",
+        ),
+        textRecord("feat/unrelated", "req-unrelated"),
+      ].join("\n"),
+    );
+
+    expect(readRecordsForBranch(dir, "feat/x").map((r) => r.requestId)).toEqual(["req-cut"]);
+    expect(readRecordsForBranch(dir, "feat/unrelated").map((r) => r.requestId)).toEqual([
+      "req-unrelated",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// #1156, gap 2's retroactive close (finding 8). An unmarked subagent dispatch
+// whose parent is the session file itself — not another subagent — resolves
+// through the same single-branch-cut signal, so a transcript already on disk
+// with no `TASK-BRANCH:` line is no longer stuck unattributed forever.
+test("resolveDispatchBranch falls back to the session's own cut branch when the parent has no marker", async () => {
+  const dir = await tree();
+  try {
+    const subagent = join(dir, "proj/sess-1/subagents/agent-aaa.jsonl");
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        bashRecord("git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main"),
+        dispatch("toolu_1", "Invoke the review-tests skill. Worktree: /path, branch feat/x."),
+      ].join("\n"),
+    );
+    await writeFile(
+      join(dir, "proj/sess-1/subagents/agent-aaa.meta.json"),
+      JSON.stringify({ toolUseId: "toolu_1" }),
+    );
+    await writeFile(
+      subagent,
+      `${JSON.stringify({ type: "assistant", gitBranch: "main", isSidechain: true })}\n`,
+    );
+
+    expect(resolveDispatchBranch(subagent)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveDispatchBranch does not fall back to an ambiguous (multi-branch) session", async () => {
+  const dir = await tree();
+  try {
+    const subagent = join(dir, "proj/sess-1/subagents/agent-aaa.jsonl");
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        bashRecord("git worktree add /path/a -b feat/a origin/main"),
+        bashRecord("git worktree add /path/b -b feat/b origin/main"),
+        dispatch("toolu_1", "No marker here."),
+      ].join("\n"),
+    );
+    await writeFile(
+      join(dir, "proj/sess-1/subagents/agent-aaa.meta.json"),
+      JSON.stringify({ toolUseId: "toolu_1" }),
+    );
+    await writeFile(
+      subagent,
+      `${JSON.stringify({ type: "assistant", gitBranch: "main", isSidechain: true })}\n`,
+    );
+
+    expect(resolveDispatchBranch(subagent)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

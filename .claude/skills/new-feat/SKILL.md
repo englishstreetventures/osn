@@ -102,7 +102,7 @@ If the session was given a **designated `claude/*` branch**, use that exact name
 
 ## Step 2 — The plan
 
-Explore and plan; do not implement yet. Dispatch a `Plan` subagent when one is available, otherwise do it inline.
+Explore and plan; do not implement yet. Dispatch a `Plan` subagent when one is available, otherwise do it inline. If dispatched, open its prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute the planning spend to this branch's card; without it the spend banks against whatever branch this session happened to be on.
 
 **Start in the wiki, not the source.** The systems the work touches have pages holding their contract, finding history and observability — cheaper to read than to reconstruct from code. Follow the three-tier ladder in `CLAUDE.md` §Searching the wiki (Obsidian MCP when present, else the `obsidian` CLI, else grep), then open the source to confirm what the pages claim.
 

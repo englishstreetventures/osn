@@ -1257,10 +1257,15 @@ function markerBranch(prompt: string): string | null {
 /**
  * The branch a subagent was dispatched to work on, or `null`.
  *
- * `gitBranch` cannot answer this. It is a property of the *session*, captured
- * once when the session starts and inherited by every subagent, so a subagent
- * working in a task worktree records the branch its parent started on. Across
- * this machine's transcripts that is 85.8% of subagent spend stamped `HEAD`.
+ * A *subagent's* own `gitBranch` cannot answer this: it is fixed to whatever
+ * its parent's was at the moment of dispatch and never re-derived afterward,
+ * even under `isolation: "worktree"`, so a subagent working in a task
+ * worktree records the branch its parent started on. Across this machine's
+ * transcripts that is 85.8% of subagent spend stamped `HEAD`. (A top-level
+ * session's own `gitBranch`, by contrast, is recomputed per record from its
+ * live cwd — see `resolveSessionBranch` below for the one shape where that
+ * stays `main` throughout anyway: a session that plans and dispatches
+ * without ever `cd`-ing itself.)
  *
  * The pairing is already on disk: every `agent-<id>.jsonl` has a sibling
  * `agent-<id>.meta.json` carrying the `toolUseId` of the `Agent` tool call that
@@ -1304,8 +1309,14 @@ function resolveUncached(subagentFile: string, seen: Set<string>): string | null
 
     // No marker on this dispatch. If another subagent wrote it, that agent was
     // itself dispatched to a branch, and this one inherits it: the skills that
-    // dispatch at depth 2 do not emit the marker and cannot all be edited.
-    return parent.includes("/subagents/") ? resolveDispatchBranch(parent, seen) : null;
+    // dispatch at depth 2 do not emit the marker and cannot all be edited. If
+    // the dispatcher is the top-level session file, fall back to the single
+    // branch it cut for itself, if any — the ordinary new-feat/stress-plan/
+    // prep-pr shape, and the reason an unmarked dispatch from that kind of
+    // session need not stay unattributed.
+    return parent.includes("/subagents/")
+      ? resolveDispatchBranch(parent, seen)
+      : resolveSessionBranch(parent);
   }
 
   return null;
@@ -1362,31 +1373,65 @@ function parentCandidates(subagentFile: string, meta: SubagentMeta | null): stri
   return [...named, session, ...siblings];
 }
 
-/** Every dispatch prompt in a transcript, by `tool_use` id.
+/** Branch names captured from the exact commands `new-feat` Step 1 runs:
+ * local `git worktree add <dir> -b <branch> …`, or remote
+ * `git checkout -B <branch>`.
  *
- * Built once per parent file. A session file is the parent of many subagents —
- * one 9.4 MB file here was read 203 times before this cache, and the largest
- * transcript is 72 MB — so a per-call read was quadratic in subagents per
- * session, and the `split("\n")` array was re-allocated on each one. */
-const dispatchPrompts = new Map<string, Map<string, string>>();
+ * Matches only that argument order and spelling — not git's other documented
+ * order (`worktree add -b <branch> <dir>`) and not `git switch -c` — because
+ * that is what the two skills actually run; this is a signal reader for a
+ * known shape, not a general git-command parser. Read only through
+ * `matchAll` (never `.exec`/`.test`), so the module-level `g` flag's
+ * `lastIndex` is never left stateful for a later call: `matchAll` iterates a
+ * copy of the regex. */
+const BRANCH_CUT_COMMAND = /(?:worktree\s+add\s+\S+\s+-b|checkout\s+-B)\s+(\S+)/g;
 
-function promptIndex(file: string): Map<string, string> {
-  const memo = dispatchPrompts.get(file);
+/** A captured branch name worth keeping: passes the same plausibility check
+ * `markerBranch` applies to the `TASK-BRANCH:` marker, and is not `main` or
+ * `HEAD` — `git checkout -B main` should never count as "cutting a task
+ * branch". */
+function plausibleCutBranch(candidate: string): boolean {
+  return (
+    candidate !== "main" &&
+    candidate !== "HEAD" &&
+    !candidate.includes("..") &&
+    PLAUSIBLE_REF.test(candidate)
+  );
+}
+
+/** One transcript file's `tool_use` blocks, scanned once: every dispatch
+ * prompt by `tool_use` id, and every branch name a `Bash` block's command
+ * cut via {@link BRANCH_CUT_COMMAND}. */
+interface FileScan {
+  prompts: Map<string, string>;
+  cutBranches: Set<string>;
+}
+
+/** Built once per file. A session file is the parent of many subagents — one
+ * 9.4 MB file here was read 203 times before this cache, and the largest
+ * transcript is 72 MB — so a per-call read was quadratic in subagents per
+ * session, and the `split("\n")` array was re-allocated on each one.
+ * `resolveSessionBranch` shares this same scan rather than reading the file
+ * a second time for its own pass over the same `tool_use` blocks. */
+const fileScans = new Map<string, FileScan>();
+
+function scanFile(file: string): FileScan {
+  const memo = fileScans.get(file);
   if (memo !== undefined) return memo;
 
-  const index = new Map<string, string>();
-  dispatchPrompts.set(file, index);
+  const scan: FileScan = { prompts: new Map(), cutBranches: new Set() };
+  fileScans.set(file, scan);
 
   let text: string;
   try {
     text = readFileSync(file, "utf8") as string;
   } catch {
-    return index;
+    return scan;
   }
 
   for (const line of text.split("\n")) {
-    // Most lines carry no dispatch, and these files reach tens of megabytes, so
-    // reject before the parse.
+    // Most lines carry no dispatch and no shell command, and these files
+    // reach tens of megabytes, so reject before the parse.
     if (!line.includes('"tool_use"')) continue;
 
     let record: SessionRecord;
@@ -1402,19 +1447,56 @@ function promptIndex(file: string): Map<string, string> {
     for (const block of content) {
       // `content` holds plain strings as well as blocks, so narrow before
       // reading a field — the same guard `toolUses` uses.
-      if (block === null || typeof block !== "object") continue;
-      if (block.type === "tool_use" && block.id && typeof block.input?.prompt === "string") {
-        index.set(block.id, block.input.prompt);
+      if (block === null || typeof block !== "object" || block.type !== "tool_use") continue;
+
+      if (block.id && typeof block.input?.prompt === "string") {
+        scan.prompts.set(block.id, block.input.prompt);
+      }
+
+      if (block.name === "Bash" && typeof block.input?.command === "string") {
+        for (const match of block.input.command.matchAll(BRANCH_CUT_COMMAND)) {
+          const candidate = match[1];
+          if (candidate && plausibleCutBranch(candidate)) scan.cutBranches.add(candidate);
+        }
       }
     }
   }
 
-  return index;
+  return scan;
 }
 
 /** The `input.prompt` of the `tool_use` block with this id, or `null`. */
 function findDispatchPrompt(file: string, toolUseId: string): string | null {
-  return promptIndex(file).get(toolUseId) ?? null;
+  return scanFile(file).prompts.get(toolUseId) ?? null;
+}
+
+const sessionBranches = new Map<string, string | null>();
+
+/**
+ * The single task branch a main-thread (non-subagent) session cut for
+ * itself, or `null`.
+ *
+ * A session that plans and dispatches without ever `cd`-ing itself — the
+ * ordinary `new-feat`/`stress-plan`/`prep-pr` shape — never shows a worktree
+ * `cwd`, so that signal is not in the data; scanning `record.cwd` against
+ * `git worktree list` would find nothing. What the transcript does contain is
+ * the command that cut the worktree in the first place. Returns `null`,
+ * deliberately, when more than one distinct branch was cut this way — an
+ * `orchestrate` session driving several tasks in one sitting — rather than
+ * guessing which task the session's own reasoning belongs to. At exactly one
+ * task (including an `orchestrate` session driving only one) the session's
+ * own overhead is attributed to it, which is correct: there is nothing to
+ * split unfairly when there is only one task.
+ */
+export function resolveSessionBranch(file: string): string | null {
+  const memo = sessionBranches.get(file);
+  if (memo !== undefined) return memo;
+
+  const cuts = scanFile(file).cutBranches;
+  const resolved = cuts.size === 1 ? [...cuts][0] : null;
+  sessionBranches.set(file, resolved);
+
+  return resolved;
 }
 
 /**
@@ -1539,6 +1621,23 @@ function dedupeKey(record: SessionRecord): string | null {
 }
 
 /**
+ * Whether a record's own `gitBranch` is too weak to trust on its own —
+ * absent, `"main"`, or the bare-repo root's `"HEAD"` — and so eligible for a
+ * file's `resolveSessionBranch` fallback to fill in.
+ *
+ * Both readers below apply this exact same test before falling back, on
+ * purpose: two readers with different rules produced a backfilled card and a
+ * live card that disagreed about the same branch once already (see
+ * `recordsByBranch`'s doc comment), and this is the same trap in miniature —
+ * `recordsByBranch`'s cheap pre-parse reject on `'"gitBranch"'` would
+ * otherwise drop a record with no `gitBranch` key at all before the fallback
+ * ever saw it, while `readRecordsForBranch` would keep it.
+ */
+function isAmbiguousBranch(branch: string | undefined): boolean {
+  return !branch || branch === "main" || branch === "HEAD";
+}
+
+/**
  * Subagent transcripts that carry no marker and whose own `gitBranch` is not a
  * task branch — so their spend lands on no card at all.
  *
@@ -1587,6 +1686,7 @@ export function recordsByBranch(
 
   for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
     const resolved = isSubagent && ownedByRepo ? resolveDispatchBranch(file) : null;
+    const sessionBranch = !isSubagent && ownedByRepo ? resolveSessionBranch(file) : null;
 
     let text: string;
     try {
@@ -1596,7 +1696,12 @@ export function recordsByBranch(
     }
 
     for (const line of text.split("\n")) {
-      if (resolved === null && !line.includes('"gitBranch"')) continue;
+      // Disabled whenever this file has a session-branch fallback: a record
+      // with no `gitBranch` key at all is still `isAmbiguousBranch` and still
+      // eligible for it, so this reject must never remove that record before
+      // the fallback below gets to see it — the same requirement
+      // `readRecordsForBranch` applies to its own pre-parse reject.
+      if (resolved === null && sessionBranch === null && !line.includes('"gitBranch"')) continue;
 
       let record: SessionRecord;
       try {
@@ -1605,7 +1710,9 @@ export function recordsByBranch(
         continue;
       }
 
-      const branch = resolved ?? record.gitBranch;
+      const branch =
+        resolved ??
+        (sessionBranch && isAmbiguousBranch(record.gitBranch) ? sessionBranch : record.gitBranch);
       // `main` and the bare-repo `HEAD` are not task branches, and `card`
       // refuses both.
       if (!branch || branch === "main" || branch === "HEAD") continue;
@@ -1651,6 +1758,14 @@ export function readRecordsForBranch(
     const resolved = isSubagent && ownedByRepo ? resolveDispatchBranch(file) : null;
     if (resolved !== null && resolved !== branch) continue;
 
+    // A main-thread file's own fallback, from the single branch it cut for
+    // itself (`resolveSessionBranch`). Unlike `resolved` above, a mismatch
+    // here does not skip the whole file: it only ever adds records whose own
+    // `gitBranch` is too weak to trust (`isAmbiguousBranch`), never removes
+    // one that already carries a real, different branch.
+    const sessionBranch = !isSubagent && ownedByRepo ? resolveSessionBranch(file) : null;
+    const sessionFallbackApplies = sessionBranch === branch;
+
     let text: string;
     try {
       text = readFileSync(file, "utf8") as string;
@@ -1661,9 +1776,11 @@ export function readRecordsForBranch(
     for (const line of text.split("\n")) {
       // These files run to tens of megabytes and most lines belong to other
       // branches, so reject before the parse. It cannot be used on a resolved
-      // file: those lines are stamped with the parent's branch and carry the
-      // resolved name nowhere.
-      if (resolved === null && !line.includes(branch)) continue;
+      // file, or when the session fallback could apply: both admit records
+      // whose raw line never mentions `branch` at all — a resolved file's
+      // lines are stamped with the parent's branch, and a session-fallback
+      // record is stamped `main`/`HEAD`.
+      if (resolved === null && !sessionFallbackApplies && !line.includes(branch)) continue;
 
       let record: SessionRecord;
       try {
@@ -1672,7 +1789,12 @@ export function readRecordsForBranch(
         continue;
       }
 
-      if (resolved === null && record.gitBranch !== branch) continue;
+      if (resolved === null) {
+        const matches =
+          record.gitBranch === branch ||
+          (sessionFallbackApplies && isAmbiguousBranch(record.gitBranch));
+        if (!matches) continue;
+      }
 
       const key = dedupeKey(record);
       if (key !== null) {
@@ -1930,18 +2052,22 @@ if (import.meta.main) {
       `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${sessionsDir}.`,
     );
     console.warn("   The card still carries the diff; spend and interaction are zero.");
+  }
 
-    // The usual cause on delegated work: the dispatch carried no
-    // `TASK-BRANCH:` marker, so the subagent's spend is stamped with the
-    // orchestrator session's branch and belongs to no card.
-    const unattributed = unattributedSubagentFiles(sessionsDir, { repoPaths: repoProjectPaths() });
-    if (unattributed > 0) {
-      console.warn(
-        `   ${unattributed} subagent transcript(s) carry no TASK-BRANCH marker and sit under a`,
-      );
-      console.warn("   `main`/`HEAD` session, so their spend lands on no card. See");
-      console.warn("   wiki/observability/session-metrics.md §Attributing subagent spend.");
-    }
+  // Checked unconditionally, not only when `records.length === 0`:
+  // `resolveSessionBranch` now gives a `main/` session that cut exactly one
+  // branch some records of its own (its main-thread spend), so this file no
+  // longer implies the marker warning would never fire. A `stress-plan` or
+  // `prep-pr` dispatch that still forgets `TASK-BRANCH:` must keep warning
+  // regardless of whether the rest of the session's spend made it onto the
+  // card.
+  const unattributed = unattributedSubagentFiles(sessionsDir, { repoPaths: repoProjectPaths() });
+  if (unattributed > 0) {
+    console.warn(
+      `⚠️  pr-metrics: ${unattributed} subagent transcript(s) carry no TASK-BRANCH marker and sit`,
+    );
+    console.warn("   under a `main`/`HEAD` session, so their spend lands on no card. See");
+    console.warn("   wiki/observability/session-metrics.md §Attributing subagent spend.");
   }
 
   if (card.spend.unpriced_models.length > 0) {

@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-22
+last-reviewed: 2026-09-23
 ---
 
 # Session Metrics
@@ -163,10 +163,15 @@ reproduce them. They size the traps; they are not a repository statistic.*
 
 ## Attributing subagent spend
 
-`gitBranch` is a property of the **session**, captured once when it starts and
-inherited by every subagent. A subagent working in a task worktree therefore
-records the branch its *parent* started on, and `isolation: "worktree"` does not
-help — it pins the subagent's `cwd` and still reports the parent's `gitBranch`.
+A **subagent's** `gitBranch` is fixed to whatever its parent's was at the
+moment of dispatch and never re-derived afterward. A subagent working in a
+task worktree therefore records the branch its *parent* started on, and
+`isolation: "worktree"` does not help — it pins the subagent's `cwd` and still
+reports the parent's `gitBranch`. (A top-level session's own `gitBranch`, by
+contrast, is recomputed per record from its live `cwd` — the gap this causes
+is narrower: a session that plans and dispatches without ever `cd`-ing itself
+stays stamped `main` throughout for that reason alone. See "Attributing
+main-thread spend" below.)
 
 The scale, measured over 904 transcript files and 9.03e9 tokens:
 
@@ -184,7 +189,8 @@ almost none of its own cost.
 904 transcript files, and the depth-2 counts below come from it too. One
 machine, one day, no script kept.*
 
-So `orchestrate` puts a marker on its own line at the top of every dispatch
+So `orchestrate`, `stress-plan`, `prep-pr` and `new-feat`'s `Plan`-subagent
+dispatch each put a marker on its own line at the top of every dispatch
 prompt:
 
 ```
@@ -223,14 +229,18 @@ Three things about it worth keeping:
   review comments, fetched pages — and a planted `TASK-BRANCH:` line further
   down would otherwise re-point a subagent's whole spend onto another card.
 
-This is **forward-looking only**. Historical transcripts carry no marker, so the
-85.8% stays where it is; the fix changes what new work records, not what old
-work recorded.
+This is **not purely forward-looking**. `resolveDispatchBranch` also falls back
+to `resolveSessionBranch` (below) when a dispatch's own parent is the
+top-level session file and carries no marker — the ordinary shape for a
+transcript recorded before this fix existed. A `backfill` run rewrites every
+historical card whose cutting session is still on the machine that ran it;
+that is intended, not a side effect. What stays genuinely unrecovered is a
+session that cut more than one branch (an `orchestrate` run driving several
+tasks) — `resolveSessionBranch` returns `null` there on purpose, rather than
+guessing which task an unmarked dispatch belonged to.
 
 A wholly delegated card reports zero `user_turns` and "not observed" for first
-edit by construction — those skip sidechain records. The steering for
-orchestrated work lives in the orchestrator's own session, which is deliberately
-not carded: a session that only dispatches is not one task's cost.
+edit by construction — those skip sidechain records.
 
 `~/.claude/projects/` is local and unversioned, so a card can only be generated
 on the machine that did the work. Once written it is committed, which is what
@@ -258,6 +268,47 @@ The consequence to remember: **a remote card can never be refreshed past
 `at-open`**, because the container that held its transcripts is gone. That is
 why the `merged` view filters on merge status rather than on `phase` — see the
 warning below.
+
+## Attributing main-thread spend
+
+A session that plans and dispatches without ever `cd`-ing itself — the
+ordinary `new-feat`/`stress-plan`/`prep-pr` shape, run directly rather than
+through `orchestrate` — never shows a worktree `cwd` on its own records
+either, so `record.cwd` carries no signal to match against `git worktree
+list`. What it does contain is the command that cut the worktree in the first
+place: `git worktree add <dir> -b <branch> …` (local) or `git checkout -B
+<branch>` (remote), the same two commands `new-feat` Step 1 runs.
+
+`resolveSessionBranch` in `tools/pr-metrics/index.ts` scans a session file's
+own `Bash` tool calls for that shape and resolves to the single branch it
+cut — or `null` when it cut none, or more than one (the `orchestrate` case,
+several tasks in one sitting). `readRecordsForBranch` and `recordsByBranch`
+use it as a fallback: a record whose own `gitBranch` is absent, `"main"` or
+`"HEAD"` is attributed to that resolved branch, and a record that already
+carries a real, different branch is never overridden.
+
+Two things worth keeping in mind:
+
+- **The window is the whole file, not just the records after the cut.**
+  Bounding it to "after the worktree-add command's timestamp" would exclude
+  Step 0's own issue-taking and complexity-rating spend, which legitimately
+  belongs to the task and happens first. So a `main/` session that also does
+  clearly unrelated work in the same sitting as cutting one branch — answering
+  an unrelated question, running `/analyse-sessions` — has that unrelated work
+  counted too. Same per-file granularity `resolveDispatchBranch` already uses
+  for subagent files, not a new kind of imprecision.
+- **An `orchestrate` session driving exactly one task is attributed to it.**
+  That is correct, not an accident: the guard that matters is the multi-branch
+  case (`null` on ambiguity), and at one task there is nothing to split
+  unfairly. What stays deliberately uncarded is `orchestrate` at N>1 — there
+  is no principled way to divide one session's overhead across several task
+  branches, so it is not attributed to any of them.
+- **Assumes `main/`'s own checkout stays on `main`** (`CLAUDE.md` §Git: never
+  check out a feature branch inside an existing worktree). When violated, a
+  session's records already carry that other branch's real name and fall
+  outside `isAmbiguousBranch`'s trigger entirely — not reattributed by this
+  fallback, but not made worse by it either; they were already going to
+  whichever branch `main/` happened to be on.
 
 ## Schema
 
