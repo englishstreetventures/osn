@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-21
+last-reviewed: 2026-09-23
 ---
 # Host Portal Layout System
 
@@ -142,6 +142,22 @@ component was previously reading a container it did not live in.
   rail, and the rail is `sticky top-6 self-start` from the same threshold. Without
   `self-start` the flex row stretches it to the panel's height and there is
   nothing left to slide against. Widening to `w-56` at `@5xl/shell`.
+- **Module icons** — every mark for a module is an inline SVG. All but one
+  come from `lucide-solid`, imported one icon at a time
+  (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is
+  `NestedDiamondIcon`, the portal's original `◈` redrawn on lucide's 24-unit
+  grid and stroke, because lucide has no nested diamond; it takes lucide's
+  props, so nothing downstream treats it differently. `MODULE_NAV` (`src/lib/module-nav.ts`) holds each
+  module's icon, and every surface that marks a module — the rail, the sheet and
+  its trigger, the command palette, Overview's agenda — draws it through
+  `ModuleIcon`, which sets the size (`size-icon`, from `--size-icon: 1.125rem` in
+  `global.css`), a 1.75 stroke and `aria-hidden`; the row's own text carries the
+  meaning. The size is fixed in `rem` rather than `em`, since every one of those
+  rows sets its label at `text-ui-sm`. The agenda reads its icon by module
+  (`moduleDef(...).icon`), so an agenda row and the module it opens always
+  share a mark. `ModuleSidebar.icons.browser.test.tsx` measures the rendered box
+  in Chromium, because a missing token leaves each SVG at lucide's 24px default
+  with every class assertion still passing.
 - **Overview** (`Overview`) — `@4xl/panel` turns the stacked agenda + cards into
   `minmax(20rem,26rem) minmax(0,1fr)`: the agenda takes a fixed-measure left
   column, the stat cards fill the rest. A six-row dated list does not want 1300px.

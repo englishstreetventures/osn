@@ -261,12 +261,13 @@
      they were looking at and has to re-find it when the dialog closes. */
   --blur-scrim: 2px;
 
-  /* A module glyph in the navigation, sized against the row it sits in rather
-     than against the type scale — the row is `text-ui-sm` on the rail and
-     larger in the mobile sheet, and one glyph has to sit right in both. Just
-     under `1em` because a solid glyph at the label's own size out-weighs the
-     word beside it. */
-  --text-glyph: 0.95em;
+  /* The one size for a module icon (`size-icon`), wherever a module is marked:
+     the rail, the sheet and its trigger, the command palette, Overview's
+     agenda. Fixed rather than `em` — every one of those rows sets its label at
+     `text-ui-sm`, and an SVG has no glyph metrics to compensate for, so the
+     icon is the same box everywhere. Larger than the label's cap height
+     because a stroked icon's marks sit inside a padded 24-unit box. */
+  --size-icon: 1.125rem;
 
   /* Focus — one ring everywhere, never animated, always visible. */
   --focus-ring-width: 2px;

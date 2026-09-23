@@ -18,6 +18,15 @@ describe("MODULE_NAV", () => {
     expect(MODULE_NAV.map((mod) => mod.id)).toEqual([...MODULES]);
   });
 
+  it("gives every module its own icon", () => {
+    // Two modules sharing a mark is the failure the icons exist to prevent:
+    // the rail stops telling them apart at a glance, and Overview's agenda —
+    // which borrows these by module — would mark two kinds of row alike.
+    const icons = MODULE_NAV.map((mod) => mod.icon);
+    expect(icons.every((icon) => typeof icon === "function")).toBe(true);
+    expect(new Set(icons).size).toBe(MODULE_NAV.length);
+  });
+
   it("gates exactly the two paid modules", () => {
     const gated = MODULE_NAV.filter((mod) => mod.lock !== undefined).map((mod) => mod.id);
     expect(gated).toEqual(["vendors", "registry"]);

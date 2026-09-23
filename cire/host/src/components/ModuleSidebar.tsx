@@ -1,12 +1,14 @@
 import Button from "@cire/ui/button";
 import { Dialog } from "@kobalte/core/dialog";
 import { HoverCard } from "@kobalte/core/hover-card";
+import Menu from "lucide-solid/icons/menu";
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
+import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";
 
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
@@ -239,9 +241,7 @@ export default function ModuleSidebar(props: {
             const locked = () => isModuleLocked(mod.id, props.entitlements);
             const Body = () => (
               <>
-                <span aria-hidden="true" class="text-glyph w-4 shrink-0 text-center opacity-80">
-                  {mod.glyph}
-                </span>
+                <ModuleIcon icon={mod.icon} class="opacity-80" />
                 <span class="min-w-0 truncate">{mod.label}</span>
               </>
             );
@@ -300,15 +300,11 @@ export default function ModuleSidebar(props: {
             class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
           >
             <span class="flex min-w-0 items-center gap-3">
-              <span aria-hidden="true" class="text-gold w-4 shrink-0 text-center">
-                {current().glyph}
-              </span>
+              <ModuleIcon icon={current().icon} class="text-gold" />
               <span class="min-w-0 truncate">{current().label}</span>
             </span>
             <span class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2">
-              <span aria-hidden="true" class="text-gold text-ui-base tracking-normal">
-                ☰
-              </span>
+              <ModuleIcon icon={Menu} class="text-gold" />
             </span>
           </Dialog.Trigger>
 
@@ -340,14 +336,10 @@ export default function ModuleSidebar(props: {
                     const locked = () => isModuleLocked(mod.id, props.entitlements);
                     const Body = () => (
                       <>
-                        <span
-                          aria-hidden="true"
-                          class={`w-4 shrink-0 pt-0.5 text-center ${
-                            isActive() ? "text-gold" : "text-gold-dim"
-                          }`}
-                        >
-                          {mod.glyph}
-                        </span>
+                        <ModuleIcon
+                          icon={mod.icon}
+                          class={isActive() ? "text-gold" : "text-gold-dim"}
+                        />
                         <span class="flex min-w-0 flex-col gap-1">
                           <span class="truncate">{mod.label}</span>
                           <span class="text-text-muted text-ui-xs leading-snug tracking-normal normal-case">

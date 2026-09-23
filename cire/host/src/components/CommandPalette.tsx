@@ -1,4 +1,11 @@
 import { Dialog } from "@kobalte/core/dialog";
+import type { LucideIcon } from "lucide-solid";
+import Heart from "lucide-solid/icons/heart";
+import KeyRound from "lucide-solid/icons/key-round";
+import List from "lucide-solid/icons/list";
+import LogOut from "lucide-solid/icons/log-out";
+import Moon from "lucide-solid/icons/moon";
+import Sun from "lucide-solid/icons/sun";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
@@ -7,6 +14,7 @@ import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
 import { setThemePreference, theme } from "../lib/theme";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
+import ModuleIcon from "./ModuleIcon";
 
 /** One runnable row. `group` is the heading it sits under; `keywords` widen the
  *  match without widening the label (a host who types "rsvp" should find
@@ -16,7 +24,7 @@ interface Command {
   group: string;
   label: string;
   hint?: string;
-  glyph: string;
+  icon: LucideIcon;
   keywords: string;
   run: () => void;
 }
@@ -87,7 +95,7 @@ export default function CommandPalette(props: {
           group: "Go to",
           label: mod.label,
           hint: mod.hint,
-          glyph: mod.glyph,
+          icon: mod.icon,
           keywords: mod.hint,
           run: () => props.onModule(mod.id),
         });
@@ -101,7 +109,7 @@ export default function CommandPalette(props: {
         group: "Weddings",
         label: other.displayName,
         hint: other.slug,
-        glyph: "❦",
+        icon: Heart,
         keywords: other.slug,
         run: () => props.onWedding(other),
       });
@@ -110,7 +118,7 @@ export default function CommandPalette(props: {
       id: "weddings:all",
       group: "Weddings",
       label: "All weddings",
-      glyph: "☰",
+      icon: List,
       keywords: "list home back",
       run: () => props.onAll(),
     });
@@ -121,7 +129,7 @@ export default function CommandPalette(props: {
         group: "Account",
         // Named for what pressing it does, not for the state it reports.
         label: theme() === "dark" ? "Switch to light theme" : "Switch to dark theme",
-        glyph: theme() === "dark" ? "☀" : "☾",
+        icon: theme() === "dark" ? Sun : Moon,
         keywords: "theme dark light appearance mode",
         run: () => setThemePreference(theme() === "dark" ? "light" : "dark"),
       },
@@ -129,7 +137,7 @@ export default function CommandPalette(props: {
         id: "account:security",
         group: "Account",
         label: "Security & passkeys",
-        glyph: "⚿",
+        icon: KeyRound,
         keywords: "passkey password sessions devices recovery",
         run: () => props.onSecurity(),
       },
@@ -137,7 +145,7 @@ export default function CommandPalette(props: {
         id: "account:signout",
         group: "Account",
         label: "Sign out",
-        glyph: "⏻",
+        icon: LogOut,
         keywords: "log out leave",
         run: () => props.onSignOut(),
       },
@@ -290,9 +298,7 @@ export default function CommandPalette(props: {
                         active() === index() ? "bg-gold/10 text-gold" : "text-text-muted"
                       }`}
                     >
-                      <span aria-hidden="true" class="text-ui-base w-4 shrink-0 text-center">
-                        {command.glyph}
-                      </span>
+                      <ModuleIcon icon={command.icon} />
                       <span class="text-ui-sm min-w-0 flex-1 truncate">{command.label}</span>
                       <Show when={command.hint}>
                         {(hint) => (

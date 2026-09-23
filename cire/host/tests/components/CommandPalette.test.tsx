@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CommandPalette from "../../src/components/CommandPalette";
 import type { WeddingSummary } from "../../src/components/CreateWeddingForm";
 import type { Module } from "../../src/lib/dashboard-route";
+import { setThemePreference } from "../../src/lib/theme";
 
 /**
  * ⌘K is the keyboard route to anywhere in the portal, and the reason the chrome
@@ -67,12 +68,35 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  // The theme is module state; "system" clears the stored choice too.
+  setThemePreference("system");
 });
 
 describe("CommandPalette", () => {
   it("renders nothing until it is opened", () => {
     mount({ open: false });
     expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("leads every row with one icon at the shared size, hidden from assistive tech", () => {
+    mount();
+    for (const option of options()) {
+      const icons = option.querySelectorAll("svg");
+      expect(icons).toHaveLength(1);
+      expect(icons[0]!.classList.contains("size-icon")).toBe(true);
+      expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
+  it("marks the theme row with the theme it switches to", () => {
+    setThemePreference("dark");
+    mount();
+    const toLight = screen.getByRole("option", { name: /switch to light theme/i });
+    expect(toLight.querySelector("svg")!.classList.contains("lucide-sun")).toBe(true);
+
+    setThemePreference("light");
+    const toDark = screen.getByRole("option", { name: /switch to dark theme/i });
+    expect(toDark.querySelector("svg")!.classList.contains("lucide-moon")).toBe(true);
   });
 
   it("offers every module of the open wedding, grouped under Go to", () => {

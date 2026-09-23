@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-09-23
 ---
 
 # Guards that gate on a number
@@ -164,7 +164,7 @@ the guard regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 163332 B | 175000 B *(pre-existing, tracker #287/#616)* |
-| cire/host | static | 226917 B | 238617 B *(re-baselined, xchromo/osn#1026 — see below)* |
+| cire/host | static | 240953 B | 252653 B *(re-baselined, englishstventures/osn#1086 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -208,8 +208,16 @@ on `feat/locked-module-nav`, reading the total the guard itself prints; the
 eager figure from the same build with the three `lazy()` calls replaced by
 static imports.*
 
-Headroom stays ~11.7 KB, so the guard is no less sensitive than before. The
-threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
+Headroom stays ~11.7 KB, so the guard is no less sensitive than before. A later raise, for englishstventures/osn#1086, measured the portal at
+**237946 B** on `main` — the `# measured` comment in the budgets file had fallen
+behind at 231255 — and at **240953 B** with fifteen `lucide-solid` icons and
+Overview's own SVG in the module and command-palette rows, **+3007 B** across
+the same 50 files.
+
+*Measured 2026-09-23 — `rm -rf cire/host/dist && bun run --cwd cire/host build`,
+before and after, on `chore/module-icons`, reading the total the guard prints.*
+
+The threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
 — a raise like this one is reviewed rather than waved through, which is the
 right place for the judgement about whether the trade was worth it.
 

@@ -12,13 +12,15 @@ import {
   spentSoFar,
   upcomingPayments,
 } from "../lib/budget-store";
+import type { Module } from "../lib/dashboard-route";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
-import { isModuleLocked } from "../lib/module-nav";
+import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
+import ModuleIcon from "./ModuleIcon";
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
  *  up across events, a Checklist card showing the live open-task count, and a
@@ -101,15 +103,14 @@ function fmtBudget(minor: number, currency: string): string {
   }
 }
 
-/** Agenda marks reuse the module rail's glyphs — an agenda row and the module it
- *  sends you to carry the same mark, so the two read as one system. (They were
- *  emoji, which rendered in a different colour and weight on every platform and
- *  matched nothing else on the page.) */
-const AGENDA_ICON = {
-  event: "◇",
-  payment: "$",
-  task: "✓",
-} satisfies Record<AgendaItem["kind"], string>;
+/** The module each agenda kind sends you to. The row navigates there and carries
+ *  that module's own nav icon, read from `MODULE_NAV`, so an agenda row and its module can never
+ *  show different marks. */
+const AGENDA_MODULE = {
+  event: "events",
+  payment: "budget",
+  task: "checklist",
+} as const satisfies Record<AgendaItem["kind"], Module>;
 
 /** "Aug 3" style pill label from a `YYYY-MM-DD` key. */
 function fmtAgendaDate(dateKey: string): string {
@@ -375,23 +376,13 @@ export default function Overview(props: {
               <li class="border-border/40 border-t">
                 <button
                   type="button"
-                  onClick={() =>
-                    props.onNavigate(
-                      item.kind === "event"
-                        ? "events"
-                        : item.kind === "payment"
-                          ? "budget"
-                          : "checklist",
-                    )
-                  }
+                  onClick={() => props.onNavigate(AGENDA_MODULE[item.kind])}
                   class="hover:bg-surface/40 flex w-full items-center gap-3 py-2 text-left transition-colors"
                 >
                   <span class="text-text-muted text-ui-sm w-14 shrink-0 font-mono tabular-nums">
                     {fmtAgendaDate(item.date)}
                   </span>
-                  <span aria-hidden="true" class="text-ui-sm w-4 shrink-0 text-center">
-                    {AGENDA_ICON[item.kind]}
-                  </span>
+                  <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
                     <span class="font-body text-error text-ui-xs shrink-0 tracking-wide uppercase">

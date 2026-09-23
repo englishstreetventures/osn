@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache, setCachedBudget } from "../../src/lib/budget-store";
@@ -64,30 +64,37 @@ beforeEach(() => {
   setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
 });
 
+/** One agenda row of each kind: an event, a task and a payment. */
+function seedOneOfEachKind() {
+  setCachedEvents("wed_1", [
+    { id: "e1", name: "Ceremony rehearsal", startAt: inDays(12).toISOString() } as never,
+  ]);
+  setCachedTasks("wed_1", [
+    task({ id: "t1", title: "Confirm florist", status: "open", dueAt: dateKey(inDays(9)) }),
+  ]);
+  setCachedBudget("wed_1", {
+    items: [],
+    payments: [
+      {
+        id: "p1",
+        budgetItemId: "b1",
+        label: "Venue balance",
+        amountMinor: 800000,
+        dueAt: dateKey(inDays(3)),
+        paidAt: null,
+        createdAt: 1,
+      },
+    ],
+    budgetTotalMinor: null,
+    currency: "AUD",
+  });
+}
+
+afterEach(cleanup);
+
 describe("Overview what's-next band", () => {
   it("renders merged agenda rows and navigates on click", async () => {
-    setCachedEvents("wed_1", [
-      { id: "e1", name: "Ceremony rehearsal", startAt: inDays(12).toISOString() } as never,
-    ]);
-    setCachedTasks("wed_1", [
-      task({ id: "t1", title: "Confirm florist", status: "open", dueAt: dateKey(inDays(9)) }),
-    ]);
-    setCachedBudget("wed_1", {
-      items: [],
-      payments: [
-        {
-          id: "p1",
-          budgetItemId: "b1",
-          label: "Venue balance",
-          amountMinor: 800000,
-          dueAt: dateKey(inDays(3)),
-          paidAt: null,
-          createdAt: 1,
-        },
-      ],
-      budgetTotalMinor: null,
-      currency: "AUD",
-    });
+    seedOneOfEachKind();
 
     const onNavigate = vi.fn();
     render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={onNavigate} />);
@@ -100,6 +107,30 @@ describe("Overview what's-next band", () => {
     // Clicking the payment row jumps to the Budget module.
     fireEvent.click(payment.closest("button")!);
     expect(onNavigate).toHaveBeenCalledWith("budget");
+  });
+
+  it("sends each agenda kind to its module and marks it with that module's icon", async () => {
+    // One map decides both, so a row pointing at one module under another's
+    // mark is impossible — as long as every kind is keyed right, which only a
+    // case per kind can show.
+    seedOneOfEachKind();
+    const onNavigate = vi.fn();
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={onNavigate} />);
+
+    const rows = [
+      ["Venue balance", "budget", "lucide-piggy-bank"],
+      ["Ceremony rehearsal", "events", "lucide-calendar-days"],
+      ["Confirm florist", "checklist", "lucide-list-checks"],
+    ] as const;
+    // The list is rebuilt as each store resolves, so wait for the last kind to
+    // land before holding on to any row.
+    await screen.findByText("Venue balance");
+    for (const [label, module, iconClass] of rows) {
+      const row = screen.getByText(label).closest("button")!;
+      expect(row.querySelector("svg")!.classList.contains(iconClass)).toBe(true);
+      fireEvent.click(row);
+      expect(onNavigate).toHaveBeenLastCalledWith(module);
+    }
   });
 
   it("shows the empty-state line when there is nothing scheduled", async () => {
