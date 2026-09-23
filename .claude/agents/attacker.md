@@ -1,7 +1,7 @@
 ---
 name: attacker
 description: Reads a plan cold and tries to break it. A different model on purpose, so it cannot agree with the author out of habit. Dispatched by stress-plan; never the agent that wrote the plan.
-model: fable
+model: opus
 effort: high
 ---
 
