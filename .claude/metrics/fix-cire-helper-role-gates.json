@@ -12,11 +12,15 @@
   "issue": {
     "number": 1090,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:cire",
+      "area:security",
+      "complexity:5"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "not-fetched"
+    "declared": 5,
+    "method": "confirmed"
   },
   "window": {
     "sessions": 3,
