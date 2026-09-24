@@ -1,5 +1,20 @@
 # @osn/osn
 
+## 3.28.2
+
+### Patch Changes
+
+- 76aa4f6: Point code comments at the wiki's new layout. The wiki now has one folder per
+  product (`osn/`, `musubi/`, `pulse/`, `cire/`, `zap/`) and `shared/` for what
+  applies to all of them, so references such as `wiki/systems/rate-limiting.md`
+  now read `wiki/shared/rate-limiting.md`. Comments only; no behaviour changes.
+- Updated dependencies [76aa4f6]
+  - @osn/db@0.24.2
+  - @shared/observability@0.18.3
+  - @shared/crypto@0.13.8
+  - @shared/email@0.9.2
+  - @shared/turnstile@0.2.26
+
 ## 3.28.1
 
 ### Patch Changes

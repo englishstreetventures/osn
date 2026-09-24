@@ -1,5 +1,18 @@
 # @zap/api
 
+## 0.9.14
+
+### Patch Changes
+
+- 76aa4f6: Point code comments at the wiki's new layout. The wiki now has one folder per
+  product (`osn/`, `musubi/`, `pulse/`, `cire/`, `zap/`) and `shared/` for what
+  applies to all of them, so references such as `wiki/systems/rate-limiting.md`
+  now read `wiki/shared/rate-limiting.md`. Comments only; no behaviour changes.
+- Updated dependencies [76aa4f6]
+  - @shared/observability@0.18.3
+  - @shared/crypto@0.13.8
+  - @shared/osn-auth-client@0.4.33
+
 ## 0.9.13
 
 ### Patch Changes

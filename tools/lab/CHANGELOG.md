@@ -1,5 +1,17 @@
 # @tools/lab
 
+## 0.3.3
+
+### Patch Changes
+
+- 76aa4f6: Point code comments at the wiki's new layout. The wiki now has one folder per
+  product (`osn/`, `musubi/`, `pulse/`, `cire/`, `zap/`) and `shared/` for what
+  applies to all of them, so references such as `wiki/systems/rate-limiting.md`
+  now read `wiki/shared/rate-limiting.md`. Comments only; no behaviour changes.
+- Updated dependencies [76aa4f6]
+  - @shared/design-tokens@0.3.1
+  - @shared/ui@0.2.3
+
 ## 0.3.2
 
 ### Patch Changes
