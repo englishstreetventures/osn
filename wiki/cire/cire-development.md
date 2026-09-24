@@ -120,7 +120,7 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 - The animation and layout bug classes that make the browser tier necessary are
   written up in [[frontend-patterns]] § Rendering and animation gotchas.
 - **Cire does not yet use the platform `it.effect` + `createTestLayer()` idiom.**
-  Aligning it is an open issue in `xchromo/osn`.
+  Aligning it is an open issue in `englishstventures/osn`.
 
 ## Commands
 

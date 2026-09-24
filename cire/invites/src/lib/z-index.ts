@@ -42,7 +42,7 @@
  * assert a freely-given choice they had no practical way to change. While a
  * sheet is open the banner is painted beneath it and inert, and comes back when
  * the sheet closes. The gap that leaves — a consent affordance beside a
- * third-party embed the guest is looking at right then — is `xchromo/osn#1061`.
+ * third-party embed the guest is looking at right then — is `englishstventures/osn#1061`.
  *
  * The preferences DIALOG has no layer here because it has nothing left to rank
  * against: it is an `@shared/ui` `Modal` too, so opening it from inside a sheet

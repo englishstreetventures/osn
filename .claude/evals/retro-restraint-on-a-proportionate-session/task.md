@@ -1,6 +1,6 @@
 # Close out `feat/osn-api-totp-key-rotation`
 
-You are in a checkout of the repository, on the branch `feat/osn-api-totp-key-rotation`. The work is done and its pull request is already open as `xchromo/osn#1044`. The issue it was taken from is at the root of the checkout in `ISSUE.md`.
+You are in a checkout of the repository, on the branch `feat/osn-api-totp-key-rotation`. The work is done and its pull request is already open as `englishstventures/osn#1044`. The issue it was taken from is at the root of the checkout in `ISSUE.md`.
 
 Run whatever end-of-work review this repository calls for, and report it.
 

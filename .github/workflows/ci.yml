@@ -182,7 +182,7 @@ jobs:
       # `provider: fontProviders.google()`, which makes `astro build` fetch
       # `https://fonts.google.com/metadata/fonts` — Astro's own font
       # metadata cache for that fetch lives at each package's default
-      # `cacheDir`, `node_modules/.astro` (xchromo/osn-tracker#128). None of
+      # `cacheDir`, `node_modules/.astro` (englishstventures/osn-tracker#128). None of
       # this job's other caches cover it: the bun cache above only holds
       # installed packages, and the turbo cache is keyed per-commit on
       # purpose (see the `typecheck` job's comment on why) so it can't be
@@ -439,7 +439,7 @@ jobs:
       # amount of data, and that number only grows. Thirteen merges spent
       # 104,091 rows written on 2026-09-09 against a free-tier ceiling of
       # 100,000 a day account-wide, with no commit doing anything wrong
-      # (xchromo/osn#979). The budget is a row in
+      # (englishstventures/osn#979). The budget is a row in
       # scripts/d1-migration-cost-budgets.txt, not an argument here.
       #
       # It needs no install: the script imports bun:sqlite and Node built-ins

@@ -33,18 +33,18 @@ No `gh` or no network: the issue step's static form is the issue you *would* fil
 
 Every branch traces to an issue, so the work is visible before it starts.
 
-**Take an existing issue** when `$ARGUMENTS` is a number or URL (`#412`, `xchromo/osn#412`):
+**Take an existing issue** when `$ARGUMENTS` is a number or URL (`#412`, `englishstventures/osn#412`):
 
 ```bash
-gh issue view 412 --repo xchromo/osn --json number,title,body,labels
+gh issue view 412 --repo englishstventures/osn --json number,title,body,labels
 ```
 
-**A review finding is the exception that already has an issue.** An `S-`, `P-` or `C-` ID, or an `osn-tracker#` reference, names an issue in the private `xchromo/osn-tracker`. Take it by number there. Do not open a duplicate in the public repo, and **keep the finding's text out of the branch name** — `xchromo/osn` is public and its branch list is visible, so `fix/timing-oracle-in-claim-compare` publishes the defect before the fix lands. Name the branch after the area or the tracker number: `fix/cire-api-claim-hardening`, `fix/tracker-601`. The same rule covers the plan file and every commit message on the branch.
+**A review finding is the exception that already has an issue.** An `S-`, `P-` or `C-` ID, or an `osn-tracker#` reference, names an issue in the private `englishstventures/osn-tracker`. Take it by number there. Do not open a duplicate in the public repo, and **keep the finding's text out of the branch name** — `englishstventures/osn` is public and its branch list is visible, so `fix/timing-oracle-in-claim-compare` publishes the defect before the fix lands. Name the branch after the area or the tracker number: `fix/cire-api-claim-hardening`, `fix/tracker-601`. The same rule covers the plan file and every commit message on the branch.
 
 **Otherwise open one:**
 
 ```bash
-gh issue create --repo xchromo/osn \
+gh issue create --repo englishstventures/osn \
   --title "<short imperative title>" \
   --type Feature \
   --label "product:<osn-core|pulse|cire|zap|shared|landing>" \

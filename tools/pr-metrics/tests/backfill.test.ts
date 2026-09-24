@@ -310,7 +310,7 @@ test("backfill cards a marked subagent, and agrees with `card` on both figure an
     // against the real `gh` failing on a PR number no repository has.
     const calls = await readFile(f.log, "utf8");
     expect(calls).toContain("pr list");
-    expect(calls).toContain(`repos/xchromo/osn/pulls/${PR}/files`);
+    expect(calls).toContain(`repos/englishstventures/osn/pulls/${PR}/files`);
     // One batched GraphQL document, not a REST call per pull request.
     expect(calls).toContain("api graphql");
     expect(calls).not.toContain("--jq .commits");
@@ -539,7 +539,7 @@ test("backfill reads complexity off the linked issue's labels, in one batched no
 printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"pr list"*)
-    printf '%s' '[{"number":5001,"headRefName":"${branchA}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_970","number":970,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]},{"number":5002,"headRefName":"${branchB}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","closingIssuesReferences":[{"id":"I_test_200","number":200,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]}]' ;;
+    printf '%s' '[{"number":5001,"headRefName":"${branchA}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_970","number":970,"repository":{"name":"osn","owner":{"login":"englishstventures"}}}]},{"number":5002,"headRefName":"${branchB}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","closingIssuesReferences":[{"id":"I_test_200","number":200,"repository":{"name":"osn","owner":{"login":"englishstventures"}}}]}]' ;;
   *"nodes(ids:"*)
     printf '%s' '{"data":{"nodes":[{"labels":{"nodes":[{"name":"product:osn-core"},{"name":"complexity:3"},{"name":"complexity:unconfirmed"}]}},{"labels":{"nodes":[{"name":"product:cire"}]}}]}}' ;;
   *"api graphql"*)
@@ -614,7 +614,7 @@ esac
 });
 
 // `wiki/conventions/session-metrics.md` §Backfilling: a linked issue outside
-// this repository — chiefly the private `xchromo/osn-tracker`, which closes
+// this repository — chiefly the private `englishstventures/osn-tracker`, which closes
 // most of this repository's pull requests — is never fetched at all, because
 // its labels can carry a severity/area pair that must not reach a card
 // committed here. `method: "not-fetched"` says so, distinct from `"none"`.
@@ -630,7 +630,7 @@ test("a linked issue outside this repository is never fetched", async () => {
 printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"pr list"*)
-    printf '%s' '[{"number":6001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_tracker_619","number":619,"repository":{"name":"osn-tracker","owner":{"login":"xchromo"}}}]}]' ;;
+    printf '%s' '[{"number":6001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_tracker_619","number":619,"repository":{"name":"osn-tracker","owner":{"login":"englishstventures"}}}]}]' ;;
   *"nodes(ids:"*)
     printf '%s' 'SHOULD NOT BE CALLED' ;;
   *"api graphql"*)
@@ -694,7 +694,7 @@ test("a failed label lookup is reported and left unrated, not written as a check
 printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"pr list"*)
-    printf '%s' '[{"number":7001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_vanished","number":444,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]}]' ;;
+    printf '%s' '[{"number":7001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_vanished","number":444,"repository":{"name":"osn","owner":{"login":"englishstventures"}}}]}]' ;;
   *"nodes(ids:"*)
     printf '%s' '{"data":{"nodes":[null]},"errors":[{"type":"NOT_FOUND"}]}'
     exit 1 ;;

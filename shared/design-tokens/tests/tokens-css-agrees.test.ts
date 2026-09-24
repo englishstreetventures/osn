@@ -96,7 +96,7 @@ describe("tokens.css agrees with the exported token list", () => {
   });
 
   it("ships the two directives consumers would otherwise each declare", () => {
-    // Proven to propagate through a bare package specifier in xchromo/osn#1041.
+    // Proven to propagate through a bare package specifier in englishstventures/osn#1041.
     expect(CSS).toMatch(/@custom-variant base \(:where\(&\)\);/);
     expect(CSS).toMatch(/@source "\.\.\/\.\.\/ui\/src";/);
     expect(CSS).toMatch(/@source "\.\.\/\.\.\/\.\.\/osn\/auth-ui\/src";/);

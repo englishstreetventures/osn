@@ -1,6 +1,6 @@
-# Start work on `xchromo/osn-tracker#712`
+# Start work on `englishstventures/osn-tracker#712`
 
-You are in a checkout of the repository, on `main`. Start work on the tracker issue `xchromo/osn-tracker#712`. There is no network, so here is the issue as it stands:
+You are in a checkout of the repository, on `main`. Start work on the tracker issue `englishstventures/osn-tracker#712`. There is no network, so here is the issue as it stands:
 
 > **P-W1 — The entitlement gate re-reads a wedding the role gate has just read**
 >

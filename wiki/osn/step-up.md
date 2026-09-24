@@ -64,7 +64,7 @@ widen by accident:
 > This is open to `otp` as much as to `totp`, and predates both TOTP and this
 > table. Closing it needs credential provenance — the AMR a passkey was
 > registered under, and a cool-down on `passkey_delete` and `email_change` for
-> one enrolled under a weaker factor. That is `xchromo/osn#952`; the
+> one enrolled under a weaker factor. That is `englishstventures/osn#952`; the
 > walk-through is in [[totp#Threat model]].
 
 Everywhere else, `totp` is admitted precisely where an emailed OTP already is.
@@ -254,7 +254,7 @@ no step-up was presented anywhere and the notice goes to the mailbox.
 So a matured row is never a candidate, and when it is the only one there is
 **nothing to take**. The threshold gives way instead: the enrolment happens and
 the account ends a credential above the ceiling. Refusing would put the account
-back where `xchromo/osn#970` found it.
+back where `englishstventures/osn#970` found it.
 
 See [[account-recovery-factors#E. The passkey ceiling, and the slot it lends]].
 

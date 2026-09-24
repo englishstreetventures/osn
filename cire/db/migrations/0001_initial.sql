@@ -1,14 +1,14 @@
 -- 0001_initial.sql — the cire D1 BASELINE.
 --
 -- This one file creates the whole schema. It replaces migrations 0001–0057,
--- which were squashed on 2026-09-10 (xchromo/osn#981). Their text is in git
+-- which were squashed on 2026-09-10 (englishstventures/osn#981). Their text is in git
 -- history; nothing else needs it.
 --
 -- WHY: building a database from the 57-file chain cost 8,007 D1 rows written
 -- and about 22,630 read, almost all of it schema churn — SQLite rebuilds the
 -- whole table for every `ALTER TABLE ... DROP COLUMN`, and D1 bills that even
 -- against empty tables. The free tier allows 100,000 rows written a day across
--- every database on the account. See xchromo/osn#979.
+-- every database on the account. See englishstventures/osn#979.
 --
 -- WHY IT IS SAFE FOR PRODUCTION: `wrangler d1 migrations apply` skips any file
 -- already named in the database's `d1_migrations` ledger. Production's ledger

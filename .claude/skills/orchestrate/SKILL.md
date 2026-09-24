@@ -74,7 +74,7 @@ worktree. One block per task:
 
 ```markdown
 ## task 3 — vendor enquiry weddingName
-issue:       xchromo/osn#812
+issue:       englishstventures/osn#812
 worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened

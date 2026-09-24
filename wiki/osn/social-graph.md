@@ -148,12 +148,12 @@ Each suggestion carries a `reason` (`mutual_connections` | `shared_organisation`
 
 `GET /recommendations/connections` also returns `generatedAt` (ISO 8601, set at request time) alongside `suggestions`, so a client can tell how fresh a list is (osn-tracker#311). The list itself is still never cached or stored server-side — a short-lived cache is the separate, not-yet-decided osn-tracker#588.
 
-Current shape prioritises correctness + bounded cost over peak throughput. Next steps are open issues in `xchromo/osn`:
+Current shape prioritises correctness + bounded cost over peak throughput. Next steps are open issues in `englishstventures/osn`:
 
 - **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
 - **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) is still open. This line used to also propose two compound indexes, `connections(status, requester_id)` / `connections(status, addressee_id)` — **don't add them.** Measured on real D1: the existing `connections_requester_idx` / `connections_addressee_idx` already give a MULTI-INDEX OR, and the proposed indexes cut rows_read only 120 → 112 (about 7%) — and on a fresh un-`ANALYZE`d database the planner instead picked `(status, addressee_id)` and scanned every accepted edge, a strict regression. `status` has two values; it is the worst possible leading column. The measurements are recorded on osn-tracker#312 and #278. If a real need is ever proven, the right shape is `(requester_id, status, addressee_id)` — the selective column first, not `status`.
 
-Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `xchromo/osn-tracker` for the bucketing follow-up.
+Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `englishstventures/osn-tracker` for the bucketing follow-up.
 
 Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
 

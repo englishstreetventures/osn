@@ -6,7 +6,7 @@
  * `wiki/shared/free-tier-limits.md` used to list these ceilings and say to
  * watch them, which meant a person opening a dashboard. Nobody did, so the D1
  * rows-written ceiling was crossed on 2026-08-30 and again on 2026-09-09 and
- * was only found by hand on 2026-09-10 (xchromo/osn#979).
+ * was only found by hand on 2026-09-10 (englishstventures/osn#979).
  *
  * Read-only. It asks Cloudflare's GraphQL analytics API for per-day, per-
  * database and per-script totals, compares each day against its ceiling, and
@@ -59,7 +59,7 @@ export const WARN_FRACTION = 0.8;
 export const ISSUE_TITLE = "Cloudflare free tier: a daily counter is near its ceiling";
 
 /**
- * Labels for the issue when this opens it. Every one exists in `xchromo/osn`
+ * Labels for the issue when this opens it. Every one exists in `englishstventures/osn`
  * today — `gh issue create` fails on a label that does not, which is the
  * failure we want rather than an unlabelled issue.
  */
@@ -663,5 +663,5 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  console.log(await syncIssue(gh, flag("repo", "xchromo/osn"), body));
+  console.log(await syncIssue(gh, flag("repo", "englishstventures/osn"), body));
 }

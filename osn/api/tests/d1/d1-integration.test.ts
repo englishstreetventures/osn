@@ -990,7 +990,7 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
 });
 
 describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
-  // `xchromo/osn#970`. The reclaim deletes a credential and inserts its
+  // `englishstventures/osn#970`. The reclaim deletes a credential and inserts its
   // replacement in ONE `commitBatch`, and that is the only thing standing
   // between a recovering user and an account left a credential down.
   //

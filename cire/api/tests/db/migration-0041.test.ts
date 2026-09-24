@@ -12,7 +12,7 @@ import { join } from "node:path";
 // apply full chain via readFileSync + db.exec, insert via raw SQL).
 
 // Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The 57 files this
-// replays were squashed into a single baseline on 2026-09-10 (xchromo/osn#981)
+// replays were squashed into a single baseline on 2026-09-10 (englishstventures/osn#981)
 // and moved there; the live directory now holds only that baseline, and
 // wrangler applies nothing else. Replaying history is the whole point here, so
 // this test follows the history.

@@ -29,7 +29,7 @@ import DietaryPresets, { type DietaryPresetsProps } from "./dietary-presets";
  * `@shared/ui`'s popover mounts its panel into the open dialog to clear that,
  * which works — except in a `frame` Modal, whose dialog is `overflow-clip` and
  * therefore clips the panel. A caller inside one wants
- * `@cire/ui/dietary-presets` directly until xchromo/osn#1089 lands.
+ * `@cire/ui/dietary-presets` directly until englishstventures/osn#1089 lands.
  */
 
 /** Matches the `md:` breakpoint the rest of cire's invite sheet forks at. */

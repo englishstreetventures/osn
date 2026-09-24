@@ -17,4 +17,4 @@ still proved from zero on every pull request by the in-memory T-S1 lockstep
 test, and once a night against real D1.
 
 Docs only for this package — the `db:reset:dev` and `db:seed:dev` rows in
-`cire/db/README.md` now say when they run. xchromo/osn#979, #980.
+`cire/db/README.md` now say when they run. englishstventures/osn#979, #980.

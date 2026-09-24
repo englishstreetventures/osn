@@ -2,7 +2,7 @@
 
 These 57 files built the cire schema between 2026-05 and 2026-08. They were
 squashed into a single baseline — `../migrations/0001_initial.sql` — on
-2026-09-10 (xchromo/osn#981), and moved here.
+2026-09-10 (englishstventures/osn#981), and moved here.
 
 **Nothing applies them.** `wrangler d1 migrations apply` reads
 `migrations_dir` from `cire/api/wrangler.toml`, which points at `../db/migrations`

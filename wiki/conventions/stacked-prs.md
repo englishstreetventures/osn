@@ -103,7 +103,7 @@ Same effect as changing the base in the web UI. Retargeting rewrites the diff; r
 Never assume. Two checks, one per half:
 
 ```bash
-gh pr list --repo xchromo/osn --state open --json number,headRefName,baseRefName
+gh pr list --repo englishstventures/osn --state open --json number,headRefName,baseRefName
 gh stack checkout <stack-number> # then: gh stack view, from any branch in it
 ```
 

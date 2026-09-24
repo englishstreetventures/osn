@@ -14,7 +14,7 @@
     },
     {
       "name": "findings_written_in_repo_format",
-      "description": "Each security finding carries an OSN finding ID from the `S-` tiers (`S-C`, `S-H`, `S-M` or `S-L`) and is written in the repository's four fields — Issue, Why, Solution, Rationale — with a concrete fix in Solution rather than 'add validation'. Full marks also require the review to say these belong in the private tracker `xchromo/osn-tracker` rather than the public `xchromo/osn`, because the finding names an unpatched route.",
+      "description": "Each security finding carries an OSN finding ID from the `S-` tiers (`S-C`, `S-H`, `S-M` or `S-L`) and is written in the repository's four fields — Issue, Why, Solution, Rationale — with a concrete fix in Solution rather than 'add validation'. Full marks also require the review to say these belong in the private tracker `englishstventures/osn-tracker` rather than the public `englishstventures/osn`, because the finding names an unpatched route.",
       "max_score": 2
     },
     {

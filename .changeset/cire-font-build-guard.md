@@ -4,7 +4,7 @@
 "@cire/landing": patch
 ---
 
-Five findings from a self-hosted-fonts follow-up (xchromo/osn-tracker#128,
+Five findings from a self-hosted-fonts follow-up (englishstventures/osn-tracker#128,
 #129, #130, #131, #132):
 
 - `bun run build` now fails loudly instead of shipping a fontless site when

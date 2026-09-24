@@ -644,7 +644,7 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ### 4.1 Apply cire D1 migrations (remote)
 
 Migrations live in `cire/db/migrations/`. Since the 2026-09-10 squash
-(xchromo/osn#981) that is one baseline file, `0001_initial.sql`, holding the
+(englishstventures/osn#981) that is one baseline file, `0001_initial.sql`, holding the
 whole schema, plus anything numbered `0058` and up. Production has all 57 old
 names in its `d1_migrations` ledger, including `0001_initial.sql`, so wrangler
 skips the baseline and applies nothing — `d1 migrations list --env production`
@@ -936,7 +936,7 @@ so the run sits on `Waiting` until someone approves it.
 > cutover and 2026-09-13. The `Preflight — required prod secrets are set` step in
 > `deploy.yml` guards against exactly this, but it only asserts the names in its
 > own `required` list, which today holds `OSN_PAIRWISE_SALT` alone — **a new
-> fail-closed secret is caught only if somebody adds its name there** (xchromo/osn#1021
+> fail-closed secret is caught only if somebody adds its name there** (englishstventures/osn#1021
 > is extending the list to the whole set). Until then, before approving a run that
 > introduces one, diff the names yourself:
 > `cd osn/api && bunx --bun wrangler secret list --env production` against §3.1,
@@ -1035,7 +1035,7 @@ Run these in order. Each one maps to a startup requirement listed above.
    without `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13.
    **Run this check after every deploy that adds a tier or a new fail-closed value**,
    and re-read §0 against `wrangler secret list --env <tier>` when the list above grows.
-   Extending the preflight to the whole set is xchromo/osn#1021.
+   Extending the preflight to the whole set is englishstventures/osn#1021.
 
    `/.well-known/jwks.json` must also return an ES256 (`alg:"ES256"`, P-256) JWK.
 2. **No ephemeral-key warning in logs.** Search osn-api boot logs; you must **NOT** see
@@ -1352,7 +1352,7 @@ Set `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` to the value **currently live** in
 > `printf '%s' "$OLD_KEY" | base64 -d | wc -c` must print `32`.
 
 ```bash
-gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo xchromo/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, tier=production
 # or, by hand — read the warning above first:
 cd osn/api && printf '%s' "$OLD_KEY" | bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
@@ -1373,7 +1373,7 @@ Generate the new key, **keep a copy**, set it, redeploy.
 
 ```bash
 openssl rand -base64 32          # keep this value; you will need it to rotate again
-gh secret set OSN_TOTP_ENCRYPTION_KEY --repo xchromo/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY --repo englishstventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY, tier=production
 ```
 

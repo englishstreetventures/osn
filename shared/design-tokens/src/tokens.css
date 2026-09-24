@@ -24,7 +24,7 @@
  *
  * That is the whole integration. This file carries the `@source` and
  * `@custom-variant` the components need, so no app declares them — verified in
- * xchromo/osn#1041, which proved both propagate through a bare package
+ * englishstventures/osn#1041, which proved both propagate through a bare package
  * specifier and that the relative `@source` below resolves against this file's
  * real path rather than through the `node_modules` symlink.
  *

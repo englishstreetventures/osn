@@ -118,7 +118,7 @@ carries no captured source dims (three hand-kept copies; the two inside
 pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
 mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
 that stringifies to exponential notation is a value CSS drops outright, which
-would render the band as a zero-height box (S-L1 in `xchromo/osn-tracker`).
+would render the band as a zero-height box (S-L1 in `englishstventures/osn-tracker`).
 
 **It is behind the claim gate — enforced at the API, not in the render tree.**
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
@@ -989,14 +989,14 @@ into the first form control of the active section, which sits *behind* the
 opaque overlay the open menu paints across the top of that section, with Escape
 bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
 *Focus Not Obscured*, and the "reveal without advancing focus" exception does
-not apply (**SM-C-M1** in `xchromo/osn-tracker`).
+not apply (**SM-C-M1** in `englishstventures/osn-tracker`).
 
 A fifth closer is not a dismissal at all: the `ResizeObserver` that already
 picks the preview layer also collapses the menu once the container crosses
 `SECTION_MENU_REM` (48rem), because the trigger is the signal's only other
 writer — left alone, a menu opened narrow stays "open" for the rest of the
 session after a rotate or resize, and `selectSection` then focuses a
-`display: none` trigger on every wide tab click (**SM-P-I1** in `xchromo/osn-tracker`).
+`display: none` trigger on every wide tab click (**SM-P-I1** in `englishstventures/osn-tracker`).
 
 **Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
 step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
@@ -1052,7 +1052,7 @@ resolved once in the `previewTokens` memo — and shared into `PaletteField`
 via its `tokens`/`adjustments` props, so the whole builder derives exactly
 once per colour-drag frame). Both layers stay permanently mounted with a
 CSS-only container-query switch — a deliberate trade (one markup source, no
-`ResizeObserver`) accepted as `P-I1` in `xchromo/osn-tracker`. The
+`ResizeObserver`) accepted as `P-I1` in `englishstventures/osn-tracker`. The
 `url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
 lockstep organiser + guest copies) escapes its URL argument at the sink
 (S-L1). The hero preview is **crop-aware** (saved rectangles render via the
@@ -1231,7 +1231,7 @@ failures live there. Copy fields enforce the server caps client-side
 (`maxlength` + live counters from `COPY_CAPS`, kept in lockstep with
 `InviteTextBody`), so the 300-char closing-note limit is a counter, not a 400.
 A true draft→publish model that would unify the two persistence models needs
-API/schema support — tracked as an open issue in `xchromo/osn`, along
+API/schema support — tracked as an open issue in `englishstventures/osn`, along
 with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
 row version yet).
 
@@ -1347,4 +1347,4 @@ redacting logger, and metrics:
 
 Uploaded images are personal data (wedding photos) and inherit the existing cire
 retention gap. Tracked alongside the other cire entries — see
-`gh issue list --repo xchromo/osn --label product:cire`.
+`gh issue list --repo englishstventures/osn --label product:cire`.

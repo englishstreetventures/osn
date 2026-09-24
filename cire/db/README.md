@@ -79,7 +79,7 @@ bun run --cwd cire/db db:push       # applies it locally
 
 `migrations/0001_initial.sql` is not the first migration any more — it is the
 **whole schema**, squashed out of the original 57 files on 2026-09-10
-(xchromo/osn#981). Building a database from the chain cost 8,007 D1 rows written
+(englishstventures/osn#981). Building a database from the chain cost 8,007 D1 rows written
 and about 22,630 read, against a free-tier ceiling of 100,000 written a day
 across the account; almost all of it was SQLite rebuilding whole tables for
 `ALTER TABLE ... DROP COLUMN`, which D1 bills even when the table is empty.

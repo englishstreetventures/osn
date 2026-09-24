@@ -3,7 +3,7 @@
 # already exists, so re-running this is how you fix a colour or a description.
 set -euo pipefail
 
-for repo in xchromo/osn xchromo/osn-tracker; do
+for repo in englishstventures/osn englishstventures/osn-tracker; do
   create() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force; }
 
   # Exactly one product label per issue -- the Project's "By product" view

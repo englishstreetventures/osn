@@ -30,7 +30,7 @@ The cire dev deploy crossed a hard free-tier ceiling by growing, not by
 breaking. Every `ALTER TABLE ... DROP COLUMN` added to the chain made each
 from-zero rebuild a little more expensive, and on 2026-09-09 thirteen merges
 spent **104,091 D1 rows written** against a limit of 100,000 a day across the
-whole account (xchromo/osn#979). No commit was wrong and no test failed.
+whole account (englishstventures/osn#979). No commit was wrong and no test failed.
 
 ## Why offline, and why a constant at all
 
@@ -56,9 +56,9 @@ rows written — two schema writes at 27 apiece.
 `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes --limit=200`
 
 **One soft anchor, agreeing within about 20% and no better.** The 57-file chain
-squashed by xchromo/osn#984 measures 269 schema writes. Its rebuild cost 8,007
+squashed by englishstventures/osn#984 measures 269 schema writes. Its rebuild cost 8,007
 D1 rows written in total (unverified in the guard — taken from
-[[free-tier-limits]] and the xchromo/osn#979 investigation), but that total
+[[free-tier-limits]] and the englishstventures/osn#979 investigation), but that total
 covers drop, replay *and* seed, so it only bounds the chain once the seed is
 subtracted, and the seed's cost is what is not known precisely:
 
@@ -119,4 +119,4 @@ figure, so it is a re-baseline of the same weight as a budget row.
 
 Raising a budget row is not the first answer when this guard fires: squashing
 the chain into a fresh baseline puts the number back **down**, which is what
-xchromo/osn#984 did. See [[bundle-size-guards]].
+englishstventures/osn#984 did. See [[bundle-size-guards]].

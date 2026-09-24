@@ -28,7 +28,7 @@ describe("z-index layer scale", () => {
   it("keeps the consent banner above every numbered layer", () => {
     // Every numbered one, which is no longer every layer: a sheet is a
     // `showModal()` dialog in the top layer, and while one is open the banner
-    // is beneath it and inert whatever this says (`xchromo/osn#1061`). What
+    // is beneath it and inert whatever this says (`englishstventures/osn#1061`). What
     // this still decides is the banner against the page — the toaster, the
     // Add-to-Calendar menu, the sticky rail — and if that inverts the banner is
     // buried with nothing to close.

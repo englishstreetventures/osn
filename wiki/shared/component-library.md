@@ -517,7 +517,7 @@ box — so a `hidden` panel can be slid sideways with no affordance to slide bac
 `overflow: clip` is not a scroll container and has no scroll offset to move.
 Both axes have to say it: beside an `auto` axis, `clip` computes to `hidden`
 (CSS Overflow 3 §3.1). This does not change what a popover portalled into the
-open dialog can do — it is clipped by the frame either way; see xchromo/osn#1089.
+open dialog can do — it is clipped by the frame either way; see englishstventures/osn#1089.
 
 #### `presentation`, for where the panel sits
 

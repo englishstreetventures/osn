@@ -75,7 +75,7 @@ compliance" surface looks like.
 - [[access-control]] — SOC 2 CC6: who has prod access, how it is granted / revoked / reviewed
 - [[backup-dr]] — SOC 2 A1: backup cadence, restore drills, RTO / RPO targets
 - [[dpia/cire-guest-data]] — Art. 35 DPIA for cire guest data (special-category dietary; gating consent mitigation C-H2 (cire dietary) RESOLVED PR #123, sign-off pending residual C-H1)
-- Closed `C-` findings — `gh issue list --repo xchromo/osn-tracker --label area:compliance --state closed`
+- Closed `C-` findings — `gh issue list --repo englishstventures/osn-tracker --label area:compliance --state closed`
 
 ## How to use this directory
 
@@ -89,5 +89,5 @@ compliance" surface looks like.
   — DSAR coverage, retention windows, log redaction of PII, lawful basis
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see
-  `[[review-findings]]`) and are filed in the private `xchromo/osn-tracker`
-  under `label:compliance` — never in the public `xchromo/osn`.
+  `[[review-findings]]`) and are filed in the private `englishstventures/osn-tracker`
+  under `label:compliance` — never in the public `englishstventures/osn`.

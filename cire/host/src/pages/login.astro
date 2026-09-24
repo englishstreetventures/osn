@@ -17,7 +17,7 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
     <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
     <!-- A bare `preload` ignores each face's `unicode-range` and fetches
          every subset unconditionally — naming the subset keeps the preload
-         to what the page can actually use (xchromo/osn-tracker#129). -->
+         to what the page can actually use (englishstventures/osn-tracker#129). -->
     <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
     <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
   </head>

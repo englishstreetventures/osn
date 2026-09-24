@@ -163,7 +163,7 @@ describe("dietary picker, in the sheet", () => {
   it("stays inline on a desktop viewport, because the sheet is a `frame` modal", async () => {
     // Not the entry point the host portal imports. Rendering the trigger here
     // would ship a control whose panel opens inside the dialog's
-    // `overflow-clip` and cannot be clicked — see xchromo/osn#1089.
+    // `overflow-clip` and cannot be clicked — see englishstventures/osn#1089.
     await page.viewport(...WIDE);
     const { fieldset } = openAttending();
     expect(within(fieldset).getAllByRole("checkbox").length).toBeGreaterThan(0);

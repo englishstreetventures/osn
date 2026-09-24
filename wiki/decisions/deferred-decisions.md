@@ -12,7 +12,7 @@ last-reviewed: 2026-09-23
 # Deferred decisions
 
 Open questions we have chosen not to answer yet, and the ones we have closed.
-Nothing here is tracked work — planned work lives in [GitHub Issues](https://github.com/xchromo/osn/issues).
+Nothing here is tracked work — planned work lives in [GitHub Issues](https://github.com/englishstventures/osn/issues).
 A row graduates to an issue when its "Revisit When" lands.
 
 ## Open

@@ -33,8 +33,8 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 
 Work is tracked in GitHub Issues, never the wiki.
 
-- `xchromo/osn` (public) holds product work, ops, docs and schema.
-- `xchromo/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Never link a tracker issue from a public file; state the constraint instead.
+- `englishstventures/osn` (public) holds product work, ops, docs and schema.
+- `englishstventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Never link a tracker issue from a public file; state the constraint instead.
 - Each issue carries one `product:` label, an org type (`Feature`, `Bug`, `Task`) and a `complexity:` rating set **before** work starts (the `rate-complexity` skill). The full label scheme is in `wiki/conventions/github-issues-setup.md`; how to file a finding is in `wiki/conventions/review-findings.md`.
 - A body must stand on its own months later: name the file and line, state the fix or what "done" looks like, spell out acronyms, and cite wiki pages by repo path, since a `[[wikilink]]` does not resolve on GitHub.
 - When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
@@ -49,7 +49,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Observability.** No `console.*`, no raw OpenTelemetry constructors, no unbounded metric attributes. See `wiki/shared/observability/overview.md`.
 - **Cross-origin cookies.** The identity API is on a different origin from every app, so any browser `fetch` that sets or reads the session cookie must pass `credentials: "include"`. Without it the browser drops `Set-Cookie` silently. Check this first when a sign-in "succeeds" but the user stays signed out.
 - **Comments** state what the code guarantees now — never a tracker ID, finding tag or history. See `wiki/conventions/code-comments.md`.
-- **Deferrals** get an issue, and the code carries only the link: `// Bounded until xchromo/osn#412 lands.` A settled choice with its reason can stay inline.
+- **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
 - Lefthook formats and lints staged files on commit and type-checks on push.

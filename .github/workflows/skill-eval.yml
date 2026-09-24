@@ -160,12 +160,12 @@ jobs:
           TITLE: "Skill quality regression"
         run: |
           BODY=$(printf 'The deterministic quality gate fell on pull request #%s.\n\n%s\n\nThis score is reproducible — the same `SKILL.md` scores the same twice — so unlike an eval delta it can be acted on without a second run. Reproduce with:\n\n```bash\ntessl review run quality .claude/skills/<name> --workspace musubi\n```\n' "$PR_NUMBER" "$(cat "$RUNNER_TEMP/quality.md")")
-          EXISTING=$(gh issue list --repo xchromo/osn-tracker --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          EXISTING=$(gh issue list --repo englishstventures/osn-tracker --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo xchromo/osn-tracker --body "$BODY"
+            gh issue comment "$EXISTING" --repo englishstventures/osn-tracker --body "$BODY"
             echo "commented on osn-tracker#$EXISTING"
           else
-            gh issue create --repo xchromo/osn-tracker \
+            gh issue create --repo englishstventures/osn-tracker \
               --title "$TITLE" \
               --label severity:medium,product:shared \
               --body "$BODY"

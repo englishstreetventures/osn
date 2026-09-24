@@ -3,7 +3,7 @@
   "fixtures": {
     "repo": {
       "type": "commit",
-      "repoUrl": "https://github.com/xchromo/osn.git",
+      "repoUrl": "https://github.com/englishstventures/osn.git",
       "ref": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
       "installPath": "."
     }

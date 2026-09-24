@@ -43,7 +43,7 @@ Do not open an issue and close it. Do not edit a checkbox. Put `Closes #N` in th
 If the finding predates this branch it already has an issue — find it by ID, since the ID leads the title:
 
 ```bash
-gh issue list --repo xchromo/osn-tracker --search "S-M1 in:title" --state open
+gh issue list --repo englishstventures/osn-tracker --search "S-M1 in:title" --state open
 ```
 
 If a fixed finding turns out to have no issue, open one and close it with a comment naming the PR. **Never delete an issue** — `wiki/conventions/review-findings.md` keeps the history.
@@ -53,7 +53,7 @@ If a fixed finding turns out to have no issue, open one and close it with a comm
 Find its issue in the public repo and add it to the `Closes #N` list in Step 8. Same rule: no checkbox edits, no deletions.
 
 ```bash
-gh issue list --repo xchromo/osn --search "<keywords>" --state open
+gh issue list --repo englishstventures/osn --search "<keywords>" --state open
 ```
 
 ### Up Next
@@ -96,7 +96,7 @@ With no network or no `gh`, record that the PR was not opened, name the base it 
 Confirm the base actually took:
 
 ```bash
-gh pr list --repo xchromo/osn --state open --json number,headRefName,baseRefName
+gh pr list --repo englishstventures/osn --state open --json number,headRefName,baseRefName
 ```
 
 A stacked PR showing `main` in `baseRefName` is not stacked — fix it with `gh pr edit <n> --base <parent-branch>` rather than in the web UI.

@@ -12,7 +12,7 @@
 #
 # It ran on every merge until 2026-09-10. At 8,007 D1 rows written a time
 # against a 100,000/day free-tier ceiling shared by every database on the
-# account, a 13-merge day went over it. See xchromo/osn#979.
+# account, a 13-merge day went over it. See englishstventures/osn#979.
 #
 # DESTRUCTIVE, and unattended in CI. The only accepted target is `cire-db-dev`;
 # the shared guard re-checks that against cire/api/wrangler.toml rather than

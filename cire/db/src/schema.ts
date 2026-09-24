@@ -1197,7 +1197,7 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
 
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. The surrounding flow is
-// tracked as an open issue in `xchromo/osn` (`label:product:cire`).
+// tracked as an open issue in `englishstventures/osn` (`label:product:cire`).
 export const imports = sqliteTable(
   "imports",
   {

@@ -76,7 +76,7 @@ const BudgetTotalMinor = Schema.Number.check(
  * The SLUG is deliberately absent too (read-only in Settings): renaming frees
  * the old slug for another organiser to claim, and printed invite links can't
  * be recalled — a rename feature needs slug tombstoning first (S-M1, tracked
- * as S-M1 in `xchromo/osn-tracker`).
+ * as S-M1 in `englishstventures/osn-tracker`).
  *
  * `rsvpDeadline` is the one field here that guests feel: past it the invite
  * stops accepting RSVPs. `rsvpDeadlineTimezone` names the zone that day is

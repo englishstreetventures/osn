@@ -13,7 +13,7 @@
 # Long-cache the immutable, content-hashed Astro bundles — this now includes
 # the self-hosted font files the comment above describes, which used to come
 # from fonts.gstatic.com with this exact header and lost it on the move to
-# our own origin (xchromo/osn-tracker#131). Every path under /_astro/ carries
+# our own origin (englishstventures/osn-tracker#131). Every path under /_astro/ carries
 # a content hash in the filename, so a year-long cache is unconditionally
 # safe: a changed file is a new URL, never the same one with different bytes.
 /_astro/*

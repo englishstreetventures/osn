@@ -115,7 +115,7 @@ Secure, playful messaging that doubles as the ecosystem's support and announceme
 - **Organisation tooling** — dashboards for triage, agent assignment, analytics, SLA monitoring and audit.
 - **Locality and government channels** — users opt into a locality (home city, plus a temporary one while travelling) and get official notices — floods, evacuations, public safety. AI-assisted queries route people to authoritative answers ("where is the nearest relief centre?") in real time.
 
-`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo xchromo/osn --label product:zap`) and `wiki/zap/zap.md`.
+`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo englishstventures/osn --label product:zap`) and `wiki/zap/zap.md`.
 
 ### Social media (spec only, deferred)
 
@@ -351,7 +351,7 @@ Read next:
 
 - [`AGENTS.md`](AGENTS.md) — the entry point for coding agents: workflow, standing rules, commands
 - [`wiki/index.md`](wiki/index.md) — map of the knowledge base
-- [GitHub Issues](https://github.com/xchromo/osn/issues) — planned work, open decisions; findings live in the private `xchromo/osn-tracker`
+- [GitHub Issues](https://github.com/englishstventures/osn/issues) — planned work, open decisions; findings live in the private `englishstventures/osn-tracker`
 
 ## License
 

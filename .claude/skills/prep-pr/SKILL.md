@@ -297,10 +297,10 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 | Kind of item                          | Repo                                |
 | ------------------------------------- | ----------------------------------- |
-| Review findings — `S-*`, `P-*`, `C-*` | **`xchromo/osn-tracker`** (private) |
-| Planned work, features, bugs          | **`xchromo/osn`** (public)          |
+| Review findings — `S-*`, `P-*`, `C-*` | **`englishstventures/osn-tracker`** (private) |
+| Planned work, features, bugs          | **`englishstventures/osn`** (public)          |
 
-`xchromo/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
+`englishstventures/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
 
 Auditing a defect class — when a finding is an instance of a class, enumerate the *shapes* the defect can take rather than re-grepping the first form you found. Recipe and the D1 bind-cap case study: `references/auditing-defect-classes.md`.
 
@@ -328,7 +328,7 @@ Labels, exactly one of each:
 Anything this branch decides **not** to do — a finding you are not fixing, a rule
 left at `warn`, a limitation you are accepting, a workaround standing in for the
 real fix — gets an issue, and the code carries the link and nothing more
-(`// Bounded until xchromo/osn#412 lands.`). A comment that explains the deferral
+(`// Bounded until englishstventures/osn#412 lands.`). A comment that explains the deferral
 instead has no owner and appears in no backlog, so it is found only by whoever
 next opens the file.
 
@@ -387,10 +387,10 @@ or why none is needed.>
 | Issue | What |
 |---|---|
 | #<n> | <one-line title> |
-| xchromo/osn-tracker#<n> | <finding ID only — e.g. `S-M1`> |
+| englishstventures/osn-tracker#<n> | <finding ID only — e.g. `S-M1`> |
 
 Closes #<n>
-Closes xchromo/osn-tracker#<n>
+Closes englishstventures/osn-tracker#<n>
 
 <!-- One plain line per closed issue, under the table and outside it — a table
 cell does not trigger GitHub's closing keyword. If this branch closes nothing,
@@ -400,12 +400,12 @@ write "This branch closes no issue." and drop the table. -->
 
 | Issue | What |
 |---|---|
-| xchromo/osn#<n> | <one-line title> |
-| xchromo/osn-tracker#<n> | <finding ID only> |
+| englishstventures/osn#<n> | <one-line title> |
+| englishstventures/osn-tracker#<n> | <finding ID only> |
 
 <!-- This PR is public and the tracker is private. A tracker row is the number
 and the finding ID and nothing else: no title, no file:line, no word about how
-the finding is reached. `xchromo/osn-tracker#412 — S-M1` is the whole entry. -->
+the finding is reached. `englishstventures/osn-tracker#412 — S-M1` is the whole entry. -->
 
 ## Decisions
 
@@ -421,7 +421,7 @@ the finding is reached. `xchromo/osn-tracker#412 — S-M1` is the whole entry. -
 …
 
 **Out of scope** — <one line per thing found and deliberately not fixed here.
-A line is the issue reference and nothing else: `xchromo/osn-tracker#412 —
+A line is the issue reference and nothing else: `englishstventures/osn-tracker#412 —
 S-M1`. Do not describe the finding, name its file or line, or say how it is
 reached — see the rule under **Section rules**, which this subsection is the
 usual place to break. If there is nothing, the line is "**Out of scope** —

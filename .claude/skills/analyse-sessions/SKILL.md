@@ -91,7 +91,7 @@ exclude those cards and report how many you excluded.
 what actually changed rather than trusting the branch name:
 
 ```bash
-gh pr diff 882 --repo xchromo/osn --patch | grep -E '^[+-]\s*"[^"]+":\s*"[\^~]?[0-9]'
+gh pr diff 882 --repo englishstventures/osn --patch | grep -E '^[+-]\s*"[^"]+":\s*"[\^~]?[0-9]'
 ```
 
 A major bump legitimately costs more than a patch sweep. The same applies to

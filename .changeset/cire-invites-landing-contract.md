@@ -37,4 +37,4 @@ ten shared tokens had drifted. One was the defect above; the remaining four are
 listed as known divergences, so a *new* drift fails immediately, and a second
 test fails if a listed token is brought back into line without the exemption
 being removed. Which value each should take is a design decision, tracked as
-xchromo/osn#1050.
+englishstventures/osn#1050.

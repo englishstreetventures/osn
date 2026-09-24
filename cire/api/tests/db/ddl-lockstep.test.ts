@@ -40,7 +40,7 @@ import { DDL } from "../../src/db/setup";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 // The 57 files that built this schema between 2026-05 and 2026-08 were squashed
-// into `migrations/0001_initial.sql` on 2026-09-10 (xchromo/osn#981) and moved
+// into `migrations/0001_initial.sql` on 2026-09-10 (englishstventures/osn#981) and moved
 // to `migrations-archive/`. Wrangler never reads that directory. The two DATA
 // migration replays at the bottom of this file do, because their whole subject
 // is what those migrations did to rows that already existed.
@@ -362,7 +362,7 @@ describe("T-S1 lockstep: migrations chain", () => {
   // skips a file already named in the target's `d1_migrations` ledger, and
   // production's ledger holds `0001_initial.sql`. Rename the baseline to
   // anything else and wrangler runs the whole schema against the live wedding
-  // database, where every CREATE TABLE fails. xchromo/osn#981.
+  // database, where every CREATE TABLE fails. englishstventures/osn#981.
   it("keeps the squash baseline named 0001_initial.sql", () => {
     expect(migrationFiles()[0]).toBe("0001_initial.sql");
   });

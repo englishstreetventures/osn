@@ -335,7 +335,7 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
 });
 
 /**
- * Key rotation, which is the whole of `xchromo/osn#968`.
+ * Key rotation, which is the whole of `englishstventures/osn#968`.
  *
  * What is under test is not "two keys can coexist" — it is that an operator can
  * move every credential from one key to another **with no downtime and no

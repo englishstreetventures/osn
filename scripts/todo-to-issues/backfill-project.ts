@@ -18,8 +18,8 @@ import { $ } from "bun";
 
 import { Throttle } from "./throttle";
 
-const OWNER = "xchromo";
-const REPOS = ["xchromo/osn", "xchromo/osn-tracker"];
+const OWNER = "englishstventures";
+const REPOS = ["englishstventures/osn", "englishstventures/osn-tracker"];
 
 export type Run = (args: string[]) => Promise<string>;
 

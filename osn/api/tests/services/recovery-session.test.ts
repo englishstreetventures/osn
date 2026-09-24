@@ -1282,7 +1282,7 @@ describe("restricted recovery session — the passkey ceiling", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {
       // The boundary that matters, and the one a real second recovery always
-      // meets. `xchromo/osn#970`'s fix put the account at the ceiling with one
+      // meets. `englishstventures/osn#970`'s fix put the account at the ceiling with one
       // `recovery` row on it; `accounts.last_recovered_at` is stamped when that
       // session is minted, so the cooldown makes the EARLIEST permitted second
       // recovery the moment that credential matures. The sole candidate is

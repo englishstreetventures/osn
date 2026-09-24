@@ -202,7 +202,7 @@ Done, 2026-09-13. `CLOUDFLARE_API_TOKEN` no longer exists at repository scope.
 Every credential that can write to Cloudflare now sits on an Environment, and
 those two Environments are the only places a job can reach one.
 
-*Measured 2026-09-13 — `gh secret list --repo xchromo/osn` returns
+*Measured 2026-09-13 — `gh secret list --repo englishstventures/osn` returns
 ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
 CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN and TESSL_TOKEN — no deploy token
 among them.*
@@ -258,7 +258,7 @@ otherwise queues one dev deploy per merge, and each one only brings dev to the
 shape the last one would; superseding them is free. Cancelling mid-flight can
 leave dev's database one migration ahead of its Worker, which the next merge
 puts right — the tier is disposable, and the alternative was multiplying the D1
-bill by the size of the burst (xchromo/osn#980). **Production stays
+bill by the size of the burst (englishstventures/osn#980). **Production stays
 `cancel-in-progress: false`**: a half-deployed live wedding is not a trade worth
 making.
 
@@ -289,7 +289,7 @@ ceiling. Almost none of that is the seed: SQLite rebuilds the whole table for
 every `ALTER TABLE ... DROP COLUMN`, and D1 bills the schema churn even against
 empty tables. Of the 200 heaviest queries on `cire-db-dev` in a week, DDL
 accounted for 89% of rows written and 99.7% of rows read; the seed's `INSERT`s
-were 11% and 0.3%. See xchromo/osn#979.
+were 11% and 0.3%. See englishstventures/osn#979.
 
 The rebuild also shares the deploy's `deploy-dev-cire-api` concurrency group, so
 a rebuild and a deploy never touch `cire-db-dev` at once.
@@ -394,7 +394,7 @@ dashboard-only.
    branch policy. Verify with:
 
    ```bash
-   gh api repos/xchromo/osn/environments --jq '.environments[] | {name, rules: [.protection_rules[].type]}'
+   gh api repos/englishstventures/osn/environments --jq '.environments[] | {name, rules: [.protection_rules[].type]}'
    ```
 
    `production` had existed with **empty** protection rules, so the approval gate this
@@ -412,7 +412,7 @@ dashboard-only.
    account-scoped with no per-script or per-database filter (only R2 scopes per bucket),
    so a token named `…_DEV` can still write production Workers. The boundary that makes
    the name real is a **separate Cloudflare account**, tracked as S-M
-   (`dev-token-not-resource-scoped`) in `xchromo/osn-tracker`. Set `CLOUDFLARE_API_TOKEN_DEV` on the
+   (`dev-token-not-resource-scoped`) in `englishstventures/osn-tracker`. Set `CLOUDFLARE_API_TOKEN_DEV` on the
    `dev` Environment the day that account exists — no workflow change needed, the
    fallback picks it up.
 
@@ -651,7 +651,7 @@ open "https://id.musubi.localhost/dev/login?secret=$SECRET&return_to=https://hos
 
 # deployed dev — one-time. Park the value on the dev GitHub Environment, then
 # let the workflow put it on the Worker; neither step prints it.
-gh secret set DEV_LOGIN_SECRET --repo xchromo/osn --env dev --body "$SECRET"
+gh secret set DEV_LOGIN_SECRET --repo englishstventures/osn --env dev --body "$SECRET"
 gh workflow run set-osn-api-secret.yml -f secret=DEV_LOGIN_SECRET -f tier=dev
 # then redeploy osn-api to cycle warm isolates — deps are built once per isolate
 open "https://id.dev.musubi.social/dev/login?secret=$SECRET&return_to=https://host.dev.cireweddings.com/dashboard"
@@ -684,7 +684,7 @@ secret-bearing URL never reaches the target as a `Referer`.
 > it turns up in one. Production is unreachable this way — the tier gate keeps
 > the route unmounted and the production deploy job **fails** while
 > `DEV_LOGIN_SECRET` is set on `osn-api-production`. Tracked open as `S-L3` in
-> `xchromo/osn-tracker` (#437).
+> `englishstventures/osn-tracker` (#437).
 
 > [!important] Why `GET`, and why no button
 > The origin guard rejects a POST without a matching `Origin` header, so GET is

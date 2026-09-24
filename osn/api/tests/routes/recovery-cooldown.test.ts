@@ -1196,7 +1196,7 @@ describe("POST /recovery/disown — when the write fails", () => {
 });
 
 describe("the passkey ceiling, over the real recovery routes", () => {
-  // `xchromo/osn#970`. The service tests in `tests/services/recovery-session.test.ts`
+  // `englishstventures/osn#970`. The service tests in `tests/services/recovery-session.test.ts`
   // pin the rule; this one proves the whole path a locked-out user actually
   // walks — `/login/recovery/email/begin`, `/complete`, then the two enrolment
   // routes — reaches it. Its red is a 400 from `/passkey/register/begin`, which

@@ -221,7 +221,7 @@ work — `Field.tsx` appends its own resize class after the caller's, so both
 land on the element and Tailwind resolves the conflict by the two utilities'
 order in the generated stylesheet, not by attribute order. Reach for a real
 prop, not a class override, whenever a component appends its own class after
-the caller's (xchromo/osn-tracker#130).
+the caller's (englishstventures/osn-tracker#130).
 
 ### `sr-only` is `position: absolute`, so a pill in a scroller needs a positioned parent
 

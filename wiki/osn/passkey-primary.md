@@ -50,7 +50,7 @@ holds from registration to deletion:
   server-side registration-incomplete state that gates `/authorize` and `/token`
   as well as app routes; a client-side `logout()` on the walk-away paths is a
   worthwhile partial, since `POST /logout` needs only the cookie. See
-  `xchromo/osn-tracker` for all three findings.
+  `englishstventures/osn-tracker` for all three findings.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
@@ -390,7 +390,7 @@ So treat it like a password — never in an issue, a PR, or a chat, and rotate
 `DEV_LOGIN_SECRET` if it appears in one. This is acceptable **because of where it
 can exist**: the dev tier holds seeded weddings and no real guest data, and
 production cannot mount the route at all. Filed open as `S-L3` in
-`xchromo/osn-tracker` (#437); the four-field write-up is the issue body.
+`englishstventures/osn-tracker` (#437); the four-field write-up is the issue body.
 
 ## Enumeration safety (S-M1)
 

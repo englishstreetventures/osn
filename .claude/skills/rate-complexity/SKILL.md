@@ -60,7 +60,7 @@ Used by `new-feat` on an issue being opened or picked up.
 4. Apply the label they land on:
 
 ```bash
-gh issue edit 412 --repo xchromo/osn --add-label "complexity:3"
+gh issue edit 412 --repo englishstventures/osn --add-label "complexity:3"
 ```
 
 If the owner is not reachable — an unattended run — apply the rating **and**
@@ -73,20 +73,20 @@ Used to rate issues opened before the label existed. Rate from the body alone,
 apply both labels, and never ask:
 
 ```bash
-gh issue edit 412 --repo xchromo/osn --add-label "complexity:3,complexity:unconfirmed"
+gh issue edit 412 --repo englishstventures/osn --add-label "complexity:3,complexity:unconfirmed"
 ```
 
 Do them in one pass over a listing, not one conversation per issue:
 
 ```bash
-gh issue list --repo xchromo/osn --state all --limit 200 \
+gh issue list --repo englishstventures/osn --state all --limit 200 \
   --json number,title,body,labels \
   --jq '[.[] | select((.labels | map(.name) | map(startswith("complexity:")) | any) | not)]'
 ```
 
 ## The labels
 
-Six, on both `xchromo/osn` and `xchromo/osn-tracker`:
+Six, on both `englishstventures/osn` and `englishstventures/osn-tracker`:
 
 | Label | Meaning |
 |---|---|
@@ -97,7 +97,7 @@ An issue with a rating and no `complexity:unconfirmed` was confirmed by the
 owner. Exclude unconfirmed ratings from any query you intend to act on:
 
 ```bash
-gh issue list --repo xchromo/osn --label "complexity:1" --search "-label:complexity:unconfirmed"
+gh issue list --repo englishstventures/osn --label "complexity:1" --search "-label:complexity:unconfirmed"
 ```
 
 ## What consumes this

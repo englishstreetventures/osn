@@ -81,7 +81,7 @@ rebuilding those ceremonies would rebuild these screens too.
 `@shared/rp-auth` is a relying-party helper that works against any OSN issuer,
 so it is not Musubi's either, and sits under `shared/` for the same reason.
 
-The repository is still called `xchromo/osn` and the Cloudflare Pages projects
+The repository is still called `englishstventures/osn` and the Cloudflare Pages projects
 are still called `osn-social`, `osn-social-dev` and `osn-landing`. Neither is
 observable by a third party, and renaming a Pages project attached to a live
 apex is a deploy operation rather than a rename.

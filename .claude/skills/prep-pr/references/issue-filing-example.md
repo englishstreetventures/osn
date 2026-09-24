@@ -3,7 +3,7 @@
 Reference for `prep-pr` Step 7. The four fields are Issue / Why / Solution / Rationale, in that order.
 
 ```bash
-gh issue create --repo xchromo/osn-tracker \
+gh issue create --repo englishstventures/osn-tracker \
   --title "S-M1 — No rate limit on POST /events/:id/rsvp" \
   --type Bug \
   --label "area:security" --label "severity:medium" --label "product:cire" \

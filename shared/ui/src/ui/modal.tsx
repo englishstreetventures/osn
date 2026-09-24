@@ -90,7 +90,7 @@ export type ModalProps = Omit<ComponentProps<"dialog">, "open" | "onClose" | "ch
    * container, so nothing inside it can scroll the dialog itself — which a
    * `hidden` panel accepts from `scrollIntoView` and from focus. A popover that
    * mounts its panel into the open dialog is clipped by it either way; see
-   * xchromo/osn#1089.
+   * englishstventures/osn#1089.
    */
   frame?: boolean;
   /**

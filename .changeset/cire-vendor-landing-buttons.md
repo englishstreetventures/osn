@@ -19,5 +19,5 @@ whose job is to say "you are here".
 
 The overlays in both apps are unchanged and stay hand-rolled, because
 `@shared/ui`'s `Modal` has no animation story and every overlay it is meant to
-replace animates. Tracked as xchromo/osn#1056, which needs a decision before
+replace animates. Tracked as englishstventures/osn#1056, which needs a decision before
 those conversions can be right rather than merely done.

@@ -16,7 +16,7 @@ identifiers say that — and not how it came to be this way.
 
 `house/no-tracker-ref-in-comment` (in `tools/oxlint/house`) enforces the four
 rules below. It runs at `warn` while the existing references are cleaned up
-(`xchromo/osn` issue #924), then goes to `error`.
+(`englishstventures/osn` issue #924), then goes to `error`.
 
 ## The four references that rot
 
@@ -46,10 +46,10 @@ resolve in an editor's hover, in a diff, or on GitHub:
 ```
 
 **3. A public issue reference**, when the code is provisional and the issue says
-what would replace it. `xchromo/osn` issues only, never the private tracker:
+what would replace it. `englishstventures/osn` issues only, never the private tracker:
 
 ```ts
-/** Single Worker by choice, not by constraint — see xchromo/osn#412. */
+/** Single Worker by choice, not by constraint — see englishstventures/osn#412. */
 ```
 
 > [!warning]
@@ -77,7 +77,7 @@ a fix scoped out of this change, a workaround standing in for a real one — ope
 an issue and let the code carry the link:
 
 ```ts
-// Bounded to 500 until xchromo/osn#412 removes the per-request rebuild.
+// Bounded to 500 until englishstventures/osn#412 removes the per-request rebuild.
 ```
 
 Not:
@@ -105,7 +105,7 @@ describe the backlog.
 
 > [!warning]
 > A security, performance or compliance finding lives in the private
-> `xchromo/osn-tracker` and must **not** be linked from a file in this public
+> `englishstventures/osn-tracker` and must **not** be linked from a file in this public
 > repo — the link is the disclosure. State the constraint the code is holding to
 > and leave the finding unnamed. `house/no-tracker-ref-in-comment` fails the
 > build on the reference, which is the backstop, not the rule.

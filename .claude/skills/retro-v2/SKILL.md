@@ -87,12 +87,12 @@ Four rules about that pair:
 
 - **Let `--resolve-issue` do the lookup; never hand-roll it in the shell.**
   `.closingIssuesReferences[0].number` drops the repository, so a follow-up
-  `gh issue view <n> --repo xchromo/osn` **succeeds** against a different
+  `gh issue view <n> --repo englishstventures/osn` **succeeds** against a different
   repository's issue of the same number and writes a stranger's `complexity:`
   label in as this branch's denominator. `resolveIdentity` in
   `tools/pr-metrics/index.ts` compares the reference's own repository.
 - **Labels are read only from an issue in this repository.** Most work here
-  closes a finding in the private `xchromo/osn-tracker`, and that issue's
+  closes a finding in the private `englishstventures/osn-tracker`, and that issue's
   `severity:`/`area:` labels must never reach a card committed to a public
   repository. The flag withholds them and records
   `complexity.method: "not-fetched"`, which is **not** `"none"` — a rating may

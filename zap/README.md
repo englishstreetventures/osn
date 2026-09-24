@@ -3,7 +3,7 @@
 OSN's end-to-end encrypted messaging app. `@zap/api` and `@zap/db` are
 scaffolded (M0 done; M1 — 1:1 DMs over Signal — in flight on port
 3002). The `@zap/app` client has not been started yet.
-Implementation is tracked in [GitHub Issues](https://github.com/xchromo/osn/issues?q=is%3Aopen+label%3Aproduct%3Azap) and
+Implementation is tracked in [GitHub Issues](https://github.com/englishstventures/osn/issues?q=is%3Aopen+label%3Aproduct%3Azap) and
 [`../wiki/zap/zap.md`](../wiki/zap/zap.md).
 
 ## Vibe
@@ -91,6 +91,6 @@ volume forces it.
 
 ## Build plan
 
-See the [open Zap issues](https://github.com/xchromo/osn/issues?q=is%3Aopen+label%3Aproduct%3Azap) — the milestones break
+See the [open Zap issues](https://github.com/englishstventures/osn/issues?q=is%3Aopen+label%3Aproduct%3Azap) — the milestones break
 the work into phases (M0 scaffold → M1 1:1 DMs → M2 groups →
 M3 organisation chats → M4 polish + AI view).

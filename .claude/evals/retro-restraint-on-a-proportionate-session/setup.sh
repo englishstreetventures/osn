@@ -313,7 +313,7 @@ CARD
 # The brief. Untracked: it is what the session was handed, not repository
 # content.
 cat > ISSUE.md <<'ISSUE'
-# xchromo/osn#1039 — Detect a cloned passkey from its signature counter
+# englishstventures/osn#1039 — Detect a cloned passkey from its signature counter
 
 **Type** Feature
 **Labels** `product:osn-core`, `area:security`, `complexity:5`

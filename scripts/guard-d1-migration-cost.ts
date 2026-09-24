@@ -380,7 +380,7 @@ export function runGuard(chain: string, dir: string, budget: number, budgetsPath
         `${affordable} replays a day against the ${DAILY_ROWS_WRITTEN_CEILING} rows/day ` +
         `free-tier ceiling, down from ${rebuildsPerDay(budget)} at the budget. The chain has ` +
         `grown, which is what this guard watches: squash it into a fresh baseline the way ` +
-        `xchromo/osn#984 did, or raise the budget deliberately with the reason in the commit.`,
+        `englishstventures/osn#984 did, or raise the budget deliberately with the reason in the commit.`,
     );
     return false;
   }

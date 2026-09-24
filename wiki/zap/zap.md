@@ -55,7 +55,7 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 | Media handling | Direct upload, CDN, P2P | Encrypted media blobs need a delivery mechanism |
 | Spam / abuse | Content moderation on ciphertext? | E2E rules out server-side moderation; need client-side reporting |
 
-Tracked as an open decision issue in `xchromo/osn`.
+Tracked as an open decision issue in `englishstventures/osn`.
 
 ## c2b (consumer-to-business) chats
 

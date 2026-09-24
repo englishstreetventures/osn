@@ -36,7 +36,7 @@ if [ ! -d .git ]; then
 fi
 
 cat > TASK-ISSUE.md <<'ISSUE'
-# xchromo/osn#951 — Inventory every API route and the gate that wraps it
+# englishstventures/osn#951 — Inventory every API route and the gate that wraps it
 
 **Type:** Task
 **Labels:** `product:shared`, `area:docs`

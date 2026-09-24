@@ -754,7 +754,7 @@ async function runResolving(issueRepo: string, labels: string): Promise<Card> {
       join(binDir, "gh"),
       `#!/bin/sh
 case "$*" in
-  *"repo view"*) printf '%s' 'xchromo/osn' ;;
+  *"repo view"*) printf '%s' 'englishstventures/osn' ;;
   *"pr list"*)
     printf '%s' '[{"number":1046,"closingIssuesReferences":[{"number":1041,"repository":{"name":"${name}","owner":{"login":"${owner}"}}}]}]' ;;
   *"issue view"*) printf '%s' '${labels}' ;;
@@ -810,7 +810,7 @@ esac
 // card it writes carries a null `complexity.declared` for ever, because nothing
 // re-runs the collector once the transcripts go with the container.
 test("--resolve-issue recovers the pull request, issue and rating", async () => {
-  const card = await runResolving("xchromo/osn", "product:shared,area:ops,complexity:3");
+  const card = await runResolving("englishstventures/osn", "product:shared,area:ops,complexity:3");
 
   expect(card.pr.number).toBe(1046);
   expect(card.issue.number).toBe(1041);
@@ -818,12 +818,12 @@ test("--resolve-issue recovers the pull request, issue and rating", async () => 
 });
 
 // The one that must not regress. Most of this repository's pull requests close
-// a finding in the private `xchromo/osn-tracker`, whose `severity:`/`area:`
+// a finding in the private `englishstventures/osn-tracker`, whose `severity:`/`area:`
 // labels must never reach a card committed to a public repository. `not-fetched`
 // is not `none`: a rating may exist there and nobody looked.
 test("--resolve-issue withholds the labels of an issue in another repository", async () => {
   const card = await runResolving(
-    "xchromo/osn-tracker",
+    "englishstventures/osn-tracker",
     "severity:high,area:security,complexity:5",
   );
 

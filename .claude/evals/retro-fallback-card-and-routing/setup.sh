@@ -286,7 +286,7 @@ CARD
 # The issue the work was taken from. Untracked: it is the brief handed to the
 # session, not repository content — and it is where the rating actually lives.
 cat > ISSUE.md <<'ISSUE'
-# xchromo/osn#1041 — Filter the organiser registry list by claim state
+# englishstventures/osn#1041 — Filter the organiser registry list by claim state
 
 **Type** Feature
 **Labels** `product:cire`, `complexity:1`

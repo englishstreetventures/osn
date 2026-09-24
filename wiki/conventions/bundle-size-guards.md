@@ -28,7 +28,7 @@ gates what a from-zero D1 rebuild spends against a free-tier quota, and it is
 here because it obeys the same two rules and was built from this page. The page
 name still says bundles because the file has not moved.
 
-A fourth guard, `scripts/guard-lint-warnings.sh` (xchromo/osn#1008), gates how
+A fourth guard, `scripts/guard-lint-warnings.sh` (englishstventures/osn#1008), gates how
 many warning-severity `oxlint` diagnostics the whole monorepo may carry —
 again nothing to do with bundles, again built from this page's two rules.
 
@@ -118,7 +118,7 @@ touching a threshold. In short:
 > see bytes that never land in the directory it reads. Measured on
 > musubi/landing: 5 inline style blocks + 4 inline script blocks in
 > `dist/index.html` alone, about 3116 bytes gzip-equivalent — real budget the
-> guard cannot see. Tracker issue `xchromo/osn-tracker#636` holds the two ways to close this
+> guard cannot see. Tracker issue `englishstventures/osn-tracker#636` holds the two ways to close this
 > (parse the HTML too, or force `inlineStylesheets: "never"` so everything
 > lands in `dist/_astro` where the guard already looks); this is a product
 > decision, not something fixed in this script.
@@ -187,7 +187,7 @@ every file in `dist/_astro`, so **splitting a chunk cannot reduce it and usually
 raises it**: each chunk is compressed on its own, losing the shared dictionary,
 and carries its own boilerplate.
 
-`xchromo/osn#1026` made a locked module unreachable rather than merely
+`englishstventures/osn#1026` made a locked module unreachable rather than merely
 upsold, and took the vendors module's three panels out of the first load on the
 same argument the registry was already split on. Measured both ways, clean, one
 build at a time:
@@ -250,7 +250,7 @@ The cire dev deploy crossed a hard ceiling by growing. Every
 `ALTER TABLE ... DROP COLUMN` added to the migration chain made each from-zero
 rebuild a little dearer, and on 2026-09-09 thirteen merges spent 104,091 D1 rows
 written against a free-tier limit of 100,000 a day account-wide
-(xchromo/osn#979). No commit was wrong; no version of the job failed a test.
+(englishstventures/osn#979). No commit was wrong; no version of the job failed a test.
 [[free-tier-limits]] holds the ceiling itself; [[dev-environment]] holds what the
 rebuild now does.
 
@@ -282,11 +282,11 @@ D1 rows written** — two schema writes at 27 apiece.
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes --limit=200`. The `--limit` is the point: it returns the 200 heaviest queries, not the week.*
 
 **The soft anchor**, which agrees within about a fifth and no better. The
-57-file chain squashed by xchromo/osn#984 measures 269 schema writes here, and
+57-file chain squashed by englishstventures/osn#984 measures 269 schema writes here, and
 its rebuild cost **8,007 D1 rows written** in total — but that total covers
 drop, replay *and* seed, so it bounds the chain only once the seed is taken off,
 and the seed's cost is the part not known precisely.
-<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the xchromo/osn#979 investigation, not re-derived -->
+<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the englishstventures/osn#979 investigation, not re-derived -->
 
 | Bound on the constant | Where it comes from |
 |---:|---|
@@ -357,7 +357,7 @@ sits.
 
 The other half of that: **this guard has a remedy the bundle guards do not.**
 Squashing the chain into a fresh baseline puts the number back down instead of
-moving the line up, which is exactly what xchromo/osn#984 did — 269 schema
+moving the line up, which is exactly what englishstventures/osn#984 did — 269 schema
 writes to 68. Reach for that before raising the budget.
 
 ### Where it runs
@@ -378,7 +378,7 @@ non-`correctness` finding at `warn`, so `bun run lint` exits 0 whatever the
 warning count is — the CI step at `ci.yml`'s `lint` job proved only that no
 error-level rule fired. Over one recent epic the count drifted 1020 → 1035 →
 1037 → 1061 with no CI step noticing, and the only way to know was to read
-the number by hand on every branch (xchromo/osn#1008). Some of the rules
+the number by hand on every branch (englishstventures/osn#1008). Some of the rules
 sitting at `warn` are repo-specific and exist because the mistake they catch
 actually happened — `house/no-tracker-ref-in-comment`,
 `house/no-non-subscribing-store-read` — and with nothing enforcing the total

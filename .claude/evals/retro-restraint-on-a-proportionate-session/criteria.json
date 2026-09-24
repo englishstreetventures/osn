@@ -14,7 +14,7 @@
     },
     {
       "name": "finds_the_unpriced_model",
-      "description": "`spend.unpriced_models` names `claude-opus-4-9`, whose `by_model` entry shows 121 messages at `usd_equivalent` 0. `RETRO.md` must report that the rate table is missing that model and that the session's total is therefore an under-count rather than a true figure, and route it to an issue on `xchromo/osn` against `tools/pr-metrics`. Score 2 if the finding is present, names the model, and says the total is understated; 1 if it notes the empty pricing or the missing model without drawing the under-count conclusion; 0 if absent. This is the one substantive finding in the scenario: a `RETRO.md` reporting no findings at all scores 0 here.",
+      "description": "`spend.unpriced_models` names `claude-opus-4-9`, whose `by_model` entry shows 121 messages at `usd_equivalent` 0. `RETRO.md` must report that the rate table is missing that model and that the session's total is therefore an under-count rather than a true figure, and route it to an issue on `englishstventures/osn` against `tools/pr-metrics`. Score 2 if the finding is present, names the model, and says the total is understated; 1 if it notes the empty pricing or the missing model without drawing the under-count conclusion; 0 if absent. This is the one substantive finding in the scenario: a `RETRO.md` reporting no findings at all scores 0 here.",
       "max_score": 2
     },
     {

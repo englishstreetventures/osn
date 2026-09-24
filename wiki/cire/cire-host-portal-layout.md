@@ -246,7 +246,7 @@ component was previously reading a container it did not live in.
      `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix,
      **P-W2**, is shipped — PR #860 (write through the signal instead of
      deleting the entry) and PR #864 (stale-while-revalidate); tracked in
-     `xchromo/osn-tracker`.
+     `englishstventures/osn-tracker`.
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
 

@@ -1866,7 +1866,7 @@ interface ResolvedIdentity {
  *
  * **Labels are read only from an issue in this same repository.** Most of this
  * repository's pull requests close a finding in the private
- * `xchromo/osn-tracker`, whose `severity:`/`area:` labels must never reach a
+ * `englishstventures/osn-tracker`, whose `severity:`/`area:` labels must never reach a
  * card committed to a public one. That case records `not-fetched`, which is not
  * `none`: a rating may well exist, and nobody looked. `backfill.ts` draws the
  * same four outcomes for the same reasons.

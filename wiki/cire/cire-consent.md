@@ -301,7 +301,7 @@ mounted first.
     out — Escape or the sheet's own close reaches it — but an undecided guest
     looking at a third-party embed *inside* the sheet has no consent affordance
     in front of them unless the category is already off, which is what puts a
-    `<ConsentGate>` placeholder there. Tracked in `xchromo/osn#1061`.
+    `<ConsentGate>` placeholder there. Tracked in `englishstventures/osn#1061`.
 
 Only one mounted component renders the dialog at a time
 (`claimConsentDialogHost`), or a page with both a banner and a footer link would

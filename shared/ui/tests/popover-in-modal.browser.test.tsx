@@ -115,7 +115,7 @@ describe("Popover inside Modal", () => {
     // Not the behaviour anyone wants — this records where the fix currently
     // stops. `frame` makes the dialog `overflow-clip` and moves scrolling to
     // a child, so mounting the panel into that dialog clears the top layer only
-    // to land inside the clip. Invert this assertion when xchromo/osn#1089 is
+    // to land inside the clip. Invert this assertion when englishstventures/osn#1089 is
     // fixed; a bare `toBe(true)` would otherwise start passing silently and
     // nobody would know the limitation had gone.
     mount({ frame: true });

@@ -413,11 +413,11 @@ lists first.
 
 **Only when that issue lives in this same repository.** Most of this
 repository's pull requests close a finding in the private
-`xchromo/osn-tracker` repo instead, and that issue's labels are never fetched
+`englishstventures/osn-tracker` repo instead, and that issue's labels are never fetched
 at all — its `severity:`/`area:` pair must not reach a card committed here
 (see `AGENTS.md` §Issues on not linking a finding from a public file).
 Such a card writes `complexity.method: "not-fetched"`, not `"none"`: a rating
-may well exist on that issue, nobody checked. `xchromo/osn#1012` tracks
+may well exist on that issue, nobody checked. `englishstventures/osn#1012` tracks
 whether and how to surface it safely later.
 
 `complexity.method` can therefore read five ways: `"confirmed"` /

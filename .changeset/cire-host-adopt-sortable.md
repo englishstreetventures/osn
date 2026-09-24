@@ -12,7 +12,7 @@ like.
 
 That also unblocks `ChecklistView`, `BudgetView` and `RegistryView`, which stayed
 on arrow buttons precisely because adopting drag meant re-supplying the whole
-keyboard path by hand (`xchromo/osn-tracker#429` asks for exactly that shared
+keyboard path by hand (`englishstventures/osn-tracker#429` asks for exactly that shared
 mechanism). Each is now a UX decision rather than an accessibility project, and
 each is its own follow-up.
 

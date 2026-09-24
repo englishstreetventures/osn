@@ -35,7 +35,7 @@ This page captures **what we are building, why, and the staged plan**.
 Nothing here has shipped yet. Live work is in GitHub Issues:
 
 ```bash
-gh issue list --repo xchromo/osn --state open --search "Verified Identity"
+gh issue list --repo englishstventures/osn --state open --search "Verified Identity"
 ```
 
 ## Why
@@ -229,7 +229,7 @@ This system creates **Special Category Personal Data** under GDPR Art.
 Hard requirements:
 
 - **DPIA** before M1 ships. Add to `[[compliance/gdpr]]` and link from
-  C-M3 in `xchromo/osn-tracker`.
+  C-M3 in `englishstventures/osn-tracker`.
 - **Data map** updates: new processor (KYC vendor), new categories
   (biometric template hashes, document numbers via hash), new
   retention rule (verified_attributes default 24 months from
@@ -270,7 +270,7 @@ mDL acceptance.
 
 ## Phased plan
 
-The `Verified Identity` epics in `xchromo/osn` carry the live work — one per
+The `Verified Identity` epics in `englishstventures/osn` carry the live work — one per
 milestone, each with its own sub-issues. Summary:
 
 - **V-M0 — Foundations**: vendor + DPIA + schema + SD-JWT VC issuance

@@ -79,7 +79,7 @@ git config branch.fix/cire-api-guest-session-ttl.gh-merge-base main
 cat > review-findings.md <<'NOTE'
 # Review notes — cire guest sessions, 2026-08-28
 
-Four findings out of this pass. All four are filed on `xchromo/osn-tracker`
+Four findings out of this pass. All four are filed on `englishstventures/osn-tracker`
 already; numbers below.
 
 ## osn-tracker#598 — S-M2

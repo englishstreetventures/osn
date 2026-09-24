@@ -30,7 +30,7 @@ same arrangement `@shared/toast` already uses with `--toast-*`, generalised.
 
 That is the whole integration. `tokens.css` also carries the `@source` and
 `@custom-variant base` directives the components need, so no app declares them —
-[#1041](https://github.com/xchromo/osn/issues/1041) verified both propagate
+[#1041](https://github.com/englishstventures/osn/issues/1041) verified both propagate
 through a bare package specifier, and that the relative `@source` resolves
 against the package's real path rather than through the `node_modules` symlink.
 

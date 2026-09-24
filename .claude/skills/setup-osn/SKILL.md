@@ -52,7 +52,7 @@ If absent: `brew install bun`. If it does not print the version in `.bun-version
 `gh --version`; if absent, `brew install gh`. Then three checks, because an installed `gh` is not a working one:
 
 1. `gh auth status` — if not logged in, `gh auth login` (GitHub.com, HTTPS, browser)
-2. `gh repo view xchromo/osn` — a failure means the token lacks `repo`; `gh auth refresh -s repo`
+2. `gh repo view englishstventures/osn` — a failure means the token lacks `repo`; `gh auth refresh -s repo`
 3. `gh pr list` from the repo root — an empty list is a pass; an error is not
 
 `gh` is what `prep-pr` opens pull requests with and `new-feat` files issues with. Moving a Project item needs the `project` scope as well: `gh auth refresh -s project`, when the user wants that.

@@ -210,7 +210,7 @@ ordinary case, so the common path is unaffected; the restriction lands only
 where the new credential's own provenance is weaker than the credential it
 would remove.
 
-This is scoped into `xchromo/osn#952` alongside the recovery cooldown, because
+This is scoped into `englishstventures/osn#952` alongside the recovery cooldown, because
 they are one column and one comparison.
 
 ### What shipped, and where it diverges from the above
@@ -276,14 +276,14 @@ signal we do not have.
 
 Ten passkeys is uncommon, so an account at the cap is a rare case — but the
 outcome was a permanently unreachable account, which is the exact failure this
-whole design exists to remove. `xchromo/osn#970`.
+whole design exists to remove. `englishstventures/osn#970`.
 
 An enrolment from a restricted recovery session is **not refused at
 `MAX_PASSKEYS_PER_ACCOUNT`, and not refused at any count**. Every other enrolment
 is refused at the cap exactly as before: the exemption turns on the bypass having
 been granted, never on the token's audience and never on the credential's
 provenance. A count-based refusal on this path is an account nobody can reach
-again, which is the whole of `xchromo/osn#970`.
+again, which is the whole of `englishstventures/osn#970`.
 
 What keeps the count from ratcheting instead is a reclaim, and
 `RECOVERY_ENROLMENT_PASSKEY_CEILING` — one credential above the cap — is the
@@ -361,7 +361,7 @@ reclaims it — its own loan is a candidate where an earlier recovery's is not.
 > restricted one, so the ceiling does not apply to it and an account at the cap
 > that recovers with a code is still unable to enrol. Raising the cap for an
 > ordinary session would drop the guarantee that a non-recovery enrolment at the
-> cap is refused, so it needs its own decision. Tracked as `xchromo/osn#983`.
+> cap is refused, so it needs its own decision. Tracked as `englishstventures/osn#983`.
 
 ## Shape of the change
 

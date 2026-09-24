@@ -71,7 +71,7 @@ three of its seven analyses on the grounds that "acting on an agent's own guess
 about difficulty is what would make this circular" — and a dispatch is the most
 consequential thing anyone acts on. Treat an unconfirmed rating as no rating.
 
-**Today the table never fires.** No issue in `xchromo/osn` carries a
+**Today the table never fires.** No issue in `englishstventures/osn` carries a
 `complexity:` label yet; the labels exist and nothing wears one. So in practice
 you are choosing from the task text, and the rubric above is the whole input.
 Say so when you do.

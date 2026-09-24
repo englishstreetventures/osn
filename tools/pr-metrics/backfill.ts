@@ -202,7 +202,7 @@ const NODE_QUERY_CHUNK = 50;
  * repository-scoped `issue(number:)` alias (the shape `commitCounts` uses
  * above for pull-request numbers): the linked issue is usually not in this
  * repository at all — most of this repository's pull requests close a
- * finding in the private `xchromo/osn-tracker` repo instead — so the same
+ * finding in the private `englishstventures/osn-tracker` repo instead — so the same
  * bare number can resolve to an unrelated issue in the wrong repository, or
  * to nothing (`NOT_FOUND`) when it happens to be a pull-request number
  * instead. Either way one bad alias makes the whole batched `gh api graphql`
@@ -300,7 +300,7 @@ async function fileLists(repo: string, numbers: number[]): Promise<Map<number, C
 }
 
 if (import.meta.main) {
-  const repo = flag("repo") ?? "xchromo/osn";
+  const repo = flag("repo") ?? "englishstventures/osn";
   const limit = flag("limit") ?? "100";
   const outDir = flag("out-dir") ?? defaultMetricsDir();
   const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
@@ -353,8 +353,8 @@ if (import.meta.main) {
   // A linked issue's labels are read only when the issue itself lives in
   // this same repository — see `issueLabelsById`'s doc comment for why a
   // repository-scoped alias can't be used for one elsewhere, and
-  // xchromo/osn#1012 for why one elsewhere (chiefly the private
-  // xchromo/osn-tracker) is never fetched at all: its labels can carry a
+  // englishstventures/osn#1012 for why one elsewhere (chiefly the private
+  // englishstventures/osn-tracker) is never fetched at all: its labels can carry a
   // severity/area pair that must not reach a card committed in this public
   // repository. Keyed by pull-request number so the per-pull loop below can
   // look its ref back up.

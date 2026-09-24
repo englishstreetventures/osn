@@ -11,20 +11,25 @@ import {
 
 test("reads the issue URLs in a repo listing", () => {
   const json = JSON.stringify([
-    { url: "https://github.com/xchromo/osn/issues/466" },
-    { url: "https://github.com/xchromo/osn/issues/467" },
+    { url: "https://github.com/englishstventures/osn/issues/466" },
+    { url: "https://github.com/englishstventures/osn/issues/467" },
   ]);
   expect(parseIssues(json)).toEqual([
-    "https://github.com/xchromo/osn/issues/466",
-    "https://github.com/xchromo/osn/issues/467",
+    "https://github.com/englishstventures/osn/issues/466",
+    "https://github.com/englishstventures/osn/issues/467",
   ]);
 });
 
 test("reads the URLs already on the board", () => {
   const json = JSON.stringify({
-    items: [{ content: { url: "https://github.com/xchromo/osn/issues/466" } }, { content: {} }],
+    items: [
+      { content: { url: "https://github.com/englishstventures/osn/issues/466" } },
+      { content: {} },
+    ],
   });
-  expect(parseBoard(json)).toEqual(new Set(["https://github.com/xchromo/osn/issues/466"]));
+  expect(parseBoard(json)).toEqual(
+    new Set(["https://github.com/englishstventures/osn/issues/466"]),
+  );
 });
 
 test("adds only what is missing, so a re-run is free", () => {
