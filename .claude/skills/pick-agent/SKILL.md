@@ -38,20 +38,24 @@ cost, and it will be wrong in places. Two consequences:
 - **This skill creates the evidence that will correct it.** Every card records
   `spend.effort` and `spend.by_model`. Once dispatches start varying, run
   `analyse-sessions` and let it argue with what is written here. Expect that to
-  happen; the numbers below are a starting position, not a settlement.
+  happen; the rubric below is a starting position, not a settlement.
 
 ## The rubric
 
 Match on what the task *demands*, never on how large the diff will be. A
 one-line fix to a race condition is not mechanical work.
 
-| Definition | model · effort | Give it |
-|---|---|---|
-| `implementer` | opus · xhigh | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
-| `mechanic` | sonnet · medium | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files. |
-| `explorer` | sonnet · low | Read-only orientation. Returns `file:line`, proposes nothing. |
-| `shepherd` | haiku · low | Polling a pull request to a terminal state. |
-| `attacker` | fable · high | Attacking a plan, cold. A different model on purpose. |
+Each definition's model and effort live in the `model:` and `effort:` lines of
+its file under `.claude/agents/`. Read the file of the one you choose rather
+than assuming either, and name both in your sentence.
+
+| Definition | Give it |
+|---|---|
+| `implementer` | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
+| `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files. |
+| `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
+| `shepherd` | Polling a pull request to a terminal state. |
+| `attacker` | Attacking a plan, cold, in a fresh context. |
 
 Where the issue carries a **confirmed** `complexity:` label, use it — it was set
 before work started, which is exactly why it is worth something:

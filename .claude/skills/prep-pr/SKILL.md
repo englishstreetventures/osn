@@ -244,9 +244,8 @@ bun run scripts/comment-delta.ts "$BASE"
 
 Report the net figure in the PR body's test-plan table. **This is a number to
 look at, not a gate** — there is no threshold to pass, and no cleanup is
-required to come out negative. `#929` legitimately rewrapped 334 comment lines
-to move 64 misattached doc blocks; a merge-and-rewrap nets near zero and that
-is correct.
+required to come out negative. Moving misattached doc blocks can touch
+hundreds of comment lines and net near zero, and that is correct.
 
 It exists because a comment-cleanup branch that *grows* comment volume is worth
 a second look before a human opens the diff, and nobody had been measuring it.

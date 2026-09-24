@@ -108,7 +108,7 @@ A failure does not end the run. A test that fails on this branch is the most imp
 
 Tests live in `tests/` at the package root, mirroring `src/` — every package, `cire/*` included. `src/services/foo.ts` pairs with `tests/services/foo.test.ts`. Test-only support code (mocks, request harnesses, fixtures) lives under `tests/` too, so `src/` holds nothing test-shaped. `scripts/` is not a workspace but follows the same rule, shell tests included. The one carve-out is the Miniflare-backed D1 lane at `tests/d1/` (cire's at `tests/db/`), which only `bun run test:d1` runs.
 
-**Resolve where a package's tests actually are from what is on disk, never from the convention alone.** The convention became universal on 2026-09-01; before that `cire/*`, the three landing sites and `scripts/` all kept tests beside their source, so a branch cut before the move, a vendored tree, or a long-lived branch that has not rebased will still be co-located. Run this first, and let it — not this page — decide what pairs with what:
+**Resolve where a package's tests actually are from what is on disk, never from the convention alone.** `cire/*`, the three landing sites and `scripts/` once kept tests beside their source, so an old branch, a vendored tree, or a branch that has not rebased may still be co-located. Run this first, and let it — not this page — decide what pairs with what:
 
 ```bash
 ls <workspace-path>/tests 2>/dev/null; find <workspace-path>/src -name '*.test.ts*' | head

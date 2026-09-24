@@ -66,11 +66,12 @@ top of its own routes.
 ISSUE
 
 # Name and one-line description only. Deliberately no model and no effort
-# level: those are what the skill under test supplies.
+# level: the skill under test sends the agent to `.claude/agents/<name>.md` for
+# those, and only the plugin variant has that directory.
 cat > AGENTS-AVAILABLE.md <<'AGENTS'
 # Subagent definitions available in this repository
 
-- **attacker** — Reads a plan cold and tries to break it. A different model on
+- **attacker** — Reads a plan cold and tries to break it. A fresh context on
   purpose, so it cannot agree with the author out of habit. Dispatched by
   stress-plan; never the agent that wrote the plan.
 - **explorer** — Read-only orientation. Finds where things live and returns

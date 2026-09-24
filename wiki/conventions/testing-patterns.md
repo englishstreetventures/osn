@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Testing Patterns
@@ -15,9 +15,9 @@ last-reviewed: 2026-09-23
 ## Directory Layout
 
 Test files live in `tests/` at the package root and mirror the `src/` structure. **Every**
-package, without exception — `cire/*`, the three landing sites and `scripts/` all kept their
-tests beside the source until 2026-09-01, and no longer do. Test-only support code (mocks,
-fixtures, request harnesses) lives under `tests/` too, never in `src/`:
+package, without exception, `cire/*`, the three landing sites and `scripts/` included.
+Test-only support code (mocks, fixtures, request harnesses) lives under `tests/` too, never
+in `src/`:
 
 ```
 pulse/api/

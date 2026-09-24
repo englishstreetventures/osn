@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Agent tooling
@@ -26,7 +26,7 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 ## Subagents
 
-`.claude/agents/*.md` defines one agent per role — `implementer`, `mechanic`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. Frontmatter is the only place per-task effort can be set, since a dispatch call carries a model but no effort. The `pick-agent` skill maps a task and its `complexity:` label to one. Two code-writing agents in one worktree corrupt each other's branches: give each its own worktree.
+`.claude/agents/*.md` defines one agent per role — `implementer`, `mechanic`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. Frontmatter is the only place either is stated: skills and wiki pages name the agent and read its file, so a model change touches one line. It is also the only place per-task effort can be set, since a dispatch call carries a model but no effort. The `pick-agent` skill maps a task and its `complexity:` label to one. Two code-writing agents in one worktree corrupt each other's branches: give each its own worktree.
 
 ## Skills and their evals
 
