@@ -57,7 +57,7 @@
  *
  * @see wiki/decisions/d1-session-first-primary.md — the choice, and why never
  * `first-unconstrained`.
- * @see wiki/systems/d1-read-replication.md — the mechanism, the measured
+ * @see wiki/shared/d1-read-replication.md — the mechanism, the measured
  * per-query cost, and how replication is turned on.
  */
 

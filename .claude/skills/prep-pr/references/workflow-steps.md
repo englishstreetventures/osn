@@ -62,12 +62,12 @@ No longer a file to prune. Move the issue's **Status** field in the **OSN Platfo
 
 ### Docs
 
-**Invoke `obsidian:obsidian-markdown` before writing any page under `wiki/`.** It is the syntax authority for this vault — wikilinks, callouts, embeds, properties, block IDs. Two constraints on top of it, both in the "Writing to the wiki" section of `CLAUDE.md`: edit with **Edit/Write in this worktree** (the Obsidian MCP and the `obsidian` CLI both write to `main`'s tree, so they search and nothing more), and keep anything a GitHub reader needs in tables and mermaid, which render on both surfaces.
+**Invoke the `write-wiki` skill before writing any page under `wiki/`.** It loads `obsidian:obsidian-markdown` for the syntax, and adds what this vault needs on top: edit with Edit/Write in this worktree, keep anything a GitHub reader needs in tables and mermaid, and write measured numbers with their command and date.
 
 Two things to check, both in the same PR as the code:
 
-- **`CLAUDE.md`** — only if this branch adds a pattern, package, convention or architectural decision a future session needs. Reusable context, not noise.
-- **The wiki page for every system this branch changes.** A modified system means an updated page; a new one means a new page, linked from at least two existing pages plus the CLAUDE.md navigation table and `wiki/index.md`. `CLAUDE.md` §Wiki maintenance rules holds the frontmatter and linking requirements — follow them there rather than repeating them here.
+- **`AGENTS.md`** — only if this branch adds a pattern, package, convention or architectural decision a future session needs. Reusable context, not noise.
+- **The wiki page for every system this branch changes.** A modified system means an updated page; a new one means a new page, linked from at least two existing pages and `wiki/index.md`. The `write-wiki` skill holds the frontmatter and linking requirements — follow them there rather than repeating them here.
 
 **Then check the links you just wrote resolve.** `mcp__obsidian-wiki__find_broken_links` indexes `main` and cannot see this branch, so check locally — the `comm -23` recipe is in `references/wikilink-check.md`.
 

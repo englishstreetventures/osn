@@ -582,10 +582,10 @@ test("the CLI names unmarked subagent transcripts when a card comes back empty",
     expect(stderr).toContain("1 subagent transcript(s) carry no TASK-BRANCH marker");
     // The pointer the operator is sent to must exist; a rename would otherwise
     // break it silently.
-    expect(stderr).toContain("wiki/observability/session-metrics.md");
+    expect(stderr).toContain("wiki/conventions/session-metrics.md");
     expect(
       await Bun.file(
-        new URL("../../../wiki/observability/session-metrics.md", import.meta.url).pathname,
+        new URL("../../../wiki/conventions/session-metrics.md", import.meta.url).pathname,
       ).text(),
     ).toContain("## Attributing subagent spend");
   } finally {

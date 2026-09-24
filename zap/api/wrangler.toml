@@ -7,7 +7,7 @@ compatibility_date = "2025-03-01"
 # flag `process.env.INTERNAL_SERVICE_SECRET` is undefined in production — which
 # silently disabled BOTH the inbound `/internal/register-service` endpoint (501)
 # and zap-api's own outbound ARC registration with osn-api (consent checks then
-# fail closed). See wiki/runbooks/production-deploy §9.3.
+# fail closed). See wiki/shared/production-deploy §9.3.
 compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 # No top-level binding on purpose: the `local` environment runs on bun:sqlite via

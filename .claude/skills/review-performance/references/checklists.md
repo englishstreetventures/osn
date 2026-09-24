@@ -31,7 +31,7 @@ the verdict under `## Sections checked` with the file and line you looked at.
 
 ## Effect runtime
 
-- `Effect.provide(SomeLive)` inside a per-request `runPromise`. That rebuilds the layer graph on every call — a new DB connection and an OpenTelemetry SDK restart per request. The layer graph is built once at boot and threaded through route factories. See `wiki/architecture/backend-patterns.md`.
+- `Effect.provide(SomeLive)` inside a per-request `runPromise`. That rebuilds the layer graph on every call — a new DB connection and an OpenTelemetry SDK restart per request. The layer graph is built once at boot and threaded through route factories. See `wiki/shared/backend-patterns.md`.
 - A `yield*` chain of independent effects that `Effect.all` would run together.
 - CPU-heavy synchronous work inside an effect without `Effect.sync`.
 

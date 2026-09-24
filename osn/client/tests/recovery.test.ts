@@ -151,7 +151,7 @@ describe("createRecoveryClient", () => {
 
       expect(calls[0]!.url).toBe("https://osn.example.com/login/recovery/email/begin");
       expect(calls[0]!.init?.method).toBe("POST");
-      // `wiki/systems/sessions.md`: the issuer is a different origin from every
+      // `wiki/osn/sessions.md`: the issuer is a different origin from every
       // app that calls it, and a cross-origin fetch on the default
       // `same-origin` mode silently discards `Set-Cookie` — no error, no
       // warning, just no session. That is the bug class behind the 2026-08-06

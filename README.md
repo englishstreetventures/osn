@@ -14,7 +14,7 @@ Two names, and they mean different things.
 
 **Musubi** is our implementation and the product built on it: the social app, its marketing site, the brand, and `musubi.social`, the instance we host. Musubi is to OSN as Mastodon is to the fediverse.
 
-The rule that decides which name anything takes: *if an independent implementation must use the same string to interoperate, it is OSN; otherwise it is Musubi.* So the token audiences, well-known paths and claim names stay OSN, while the app, the RP ID and the hosted instance are Musubi. Full detail in `wiki/architecture/osn-and-musubi.md`.
+The rule that decides which name anything takes: *if an independent implementation must use the same string to interoperate, it is OSN; otherwise it is Musubi.* So the token audiences, well-known paths and claim names stay OSN, while the app, the RP ID and the hosted instance are Musubi. Full detail in `wiki/shared/osn-and-musubi.md`.
 
 OSN's graph is general — edges carry their own semantics, so `follows` and `reports-to` are one primitive. A corporate directory is a profile of OSN rather than a different system.
 
@@ -41,7 +41,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
 | OSN / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
 
-CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages) on merge to `main`. D1 migrations apply automatically. See `wiki/runbooks/production-deploy.md`.
+CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages) on merge to `main`. D1 migrations apply automatically. See `wiki/shared/production-deploy.md`.
 
 ## Applications
 
@@ -71,7 +71,7 @@ A bespoke digital wedding invite: a tactile, animated guest site plus a portal w
 - Two auth models that never overlap. Guests trade a family claim code for a hashed session cookie, and never need an OSN account. Organisers sign in with their OSN passkey, checked against wedding ownership
 - Optional account linking lets a guest attach their seat to an OSN account
 
-Detail lives in `wiki/apps/cire.md` and `wiki/systems/cire-auth.md`.
+Detail lives in `wiki/cire/cire.md` and `wiki/cire/cire-auth.md`.
 
 ### Pulse (Events)
 
@@ -115,7 +115,7 @@ Secure, playful messaging that doubles as the ecosystem's support and announceme
 - **Organisation tooling** — dashboards for triage, agent assignment, analytics, SLA monitoring and audit.
 - **Locality and government channels** — users opt into a locality (home city, plus a temporary one while travelling) and get official notices — floods, evacuations, public safety. AI-assisted queries route people to authoritative answers ("where is the nearest relief centre?") in real time.
 
-`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo xchromo/osn --label product:zap`) and `wiki/apps/zap.md`.
+`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo xchromo/osn --label product:zap`) and `wiki/zap/zap.md`.
 
 ### Social media (spec only, deferred)
 
@@ -199,7 +199,7 @@ Four environments, two drivers, one Drizzle type:
 | `staging` | Cloudflare D1 | Deployed |
 | `production` | Cloudflare D1 | Deployed |
 
-`@shared/db-utils` broadens the Drizzle handle over both the sync (bun:sqlite) and async (D1) result kinds, so the same query code runs everywhere — service code must `await`. See `wiki/systems/database-environments.md`.
+`@shared/db-utils` broadens the Drizzle handle over both the sync (bun:sqlite) and async (D1) result kinds, so the same query code runs everywhere — service code must `await`. See `wiki/shared/database-environments.md`.
 
 ### Frontend
 
@@ -282,7 +282,7 @@ bun run --cwd pulse/db db:studio    # Drizzle Studio
 bun run db:reset                    # reset every local database
 ```
 
-`CLAUDE.md` holds the full command list and the code conventions.
+`AGENTS.md` holds the everyday commands and code rules; `wiki/conventions/commands.md` has the full list.
 
 ## Data Models (conceptual)
 
@@ -349,7 +349,7 @@ On merge, CI runs `changeset version` to bump versions and update changelogs, co
 
 Read next:
 
-- [`CLAUDE.md`](CLAUDE.md) — conventions, commands, key patterns, wiki navigation
+- [`AGENTS.md`](AGENTS.md) — the entry point for coding agents: workflow, standing rules, commands
 - [`wiki/index.md`](wiki/index.md) — map of the knowledge base
 - [GitHub Issues](https://github.com/xchromo/osn/issues) — planned work, open decisions; findings live in the private `xchromo/osn-tracker`
 

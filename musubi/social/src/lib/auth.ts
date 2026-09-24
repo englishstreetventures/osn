@@ -6,7 +6,7 @@ export const PRODUCT_NAME = "Musubi";
 /**
  * Cloudflare Turnstile sitekey — the CLIENT half of the bot-protection gate on
  * `/register/begin` and the identifier-bound `/login/passkey/begin` (see
- * `wiki/systems/turnstile.md`).
+ * `wiki/shared/turnstile.md`).
  *
  * Public and baked in at build time. Key-optional in both directions: blank ⇒
  * no widget renders and no token is sent, which is correct only while osn-api's

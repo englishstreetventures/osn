@@ -30,7 +30,7 @@ import { createSortable, maybeTransformStyle, SortableProvider } from "./sortabl
  * animated nothing while every drop-semantics test stayed green. A bench would
  * have caught it in a second.
  *
- * See `wiki/architecture/drag-and-drop.md`.
+ * See `wiki/shared/drag-and-drop.md`.
  */
 export const meta = { title: "shared/sortable", layout: "padded" as const };
 

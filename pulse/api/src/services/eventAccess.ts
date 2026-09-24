@@ -134,7 +134,7 @@ export const checkEventVisibility = (
  * non-breaking `canViewAttendees` flag on the attendee response so existing
  * clients keep working while the UI migrates; the eventual organiser-only
  * *cutover* of the row payload itself is deferred (see
- * `[[wiki/systems/event-access]]`).
+ * `[[wiki/pulse/event-access]]`).
  *
  * Pure + synchronous: it only inspects ownership, so it needs no DB round
  * trip and can be called inline in the route handler. Accepts a trimmed

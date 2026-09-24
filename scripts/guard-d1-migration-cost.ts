@@ -46,7 +46,7 @@ export const ROWS_WRITTEN_PER_SCHEMA_WRITE = 27;
 
 /**
  * Cloudflare D1 Free, rows written per day, shared across every database on
- * the account. wiki/runbooks/free-tier-limits.md is the source and says to
+ * the account. wiki/shared/free-tier-limits.md is the source and says to
  * re-verify it against Cloudflare's own pricing page before acting on it.
  */
 export const DAILY_ROWS_WRITTEN_CEILING = 100_000;

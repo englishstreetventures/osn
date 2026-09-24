@@ -103,6 +103,6 @@ gh issue list --repo xchromo/osn --label "complexity:1" --search "-label:complex
 ## What consumes this
 
 `@tools/pr-metrics` reads the label into `complexity.declared` on the card, and
-`wiki/observability/session-metrics.md` holds the queries that use it. That page
+`wiki/conventions/session-metrics.md` holds the queries that use it. That page
 also carries the rule this skill exists to protect: the card stores exactly one
 scalar judgement, and this is it.

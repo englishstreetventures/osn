@@ -97,7 +97,7 @@ export type UpdateSettingsBody = Schema.Schema.Type<typeof UpdateSettingsBody>;
 /**
  * The settings an EDITOR co-host may write. Everything else on this body is
  * wedding identity or money — owner-only in the roles matrix (see the root
- * wiki's `[[wiki/systems/cire-auth]]`).
+ * wiki's `[[wiki/cire/cire-auth]]`).
  *
  * The RSVP deadline is the exception because it is the one field here that
  * *runs the wedding* rather than describing it: a co-host chasing replies is

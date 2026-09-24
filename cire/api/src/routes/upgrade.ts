@@ -13,7 +13,7 @@
  * SELLS an entitlement on that entitlement is a 402 loop. This is also why the
  * role gates are mounted with no key: a key passed here would fold an
  * entitlement lookup into the owner/member query on a route whose answer can
- * never depend on it. See `wiki/systems/cire-entitlements.md`.
+ * never depend on it. See `wiki/cire/cire-entitlements.md`.
  *
  * **Key-optional.** With no `STRIPE_SECRET_KEY` these routes are not mounted,
  * so a deployment without Stripe has no purchase surface rather than a broken

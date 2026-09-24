@@ -3,7 +3,7 @@
  *
  * The step-up ceremony that CONSUMES a TOTP code lives with the other step-up
  * routes in `./step-up.ts`; these four are the credential's own lifecycle. See
- * `[[wiki/systems/totp]]`.
+ * `[[wiki/osn/totp]]`.
  */
 
 import { Elysia, t } from "elysia";

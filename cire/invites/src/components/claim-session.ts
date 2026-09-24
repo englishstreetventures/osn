@@ -12,7 +12,7 @@ import { isValidClaimResponse } from "./utils";
  * returning household from a stranger and would otherwise fire a guaranteed-401
  * request on every single invite page load. Workers Free is 100k requests/day
  * ACCOUNT-WIDE across cire-api and osn-api, and that budget is the binding
- * constraint on this stack (see [[wiki/runbooks/free-tier-limits]]) — so the
+ * constraint on this stack (see [[wiki/shared/free-tier-limits]]) — so the
  * wasted call is the one line item that scales with page views rather than with
  * guests.
  *

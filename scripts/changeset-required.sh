@@ -52,7 +52,7 @@ is_allowed() {
     # to live in THIS block because a path with no `/` never reaches the one
     # below.
     skills-lock.json) return 0 ;;
-    *.md) return 0 ;; # top-level README.md, CLAUDE.md
+    *.md) return 0 ;; # top-level README.md, AGENTS.md, CLAUDE.md
     *) return 1 ;;    # any other root file (bun.lock, turbo.json, …)
   esac
 
@@ -63,13 +63,6 @@ is_allowed() {
     # `.claude/` is agent instructions — slash-commands, skills, settings; it is
     # read by the coding agent, never by a build.
     .github/* | .claude/* | scripts/* | wiki/* | docs/*) return 0 ;;
-    # RETIRED PATHS — both were prose that shipped in no package, and both
-    # were removed on 2026-08-21: `cire/wiki/` folded into `wiki/`, and
-    # `cire/CLAUDE.md` became `wiki/apps/cire-development.md` when the repo
-    # settled on exactly one CLAUDE.md at the root. Neither path exists now,
-    # so these two cases can only ever match that PR's own deletions.
-    # DROP BOTH once it has merged.
-    cire/wiki/* | cire/CLAUDE.md) return 0 ;;
     # Third-party skills installed by `npx skills add`, pinned by the root
     # `skills-lock.json` above. Agent instructions, like `.claude/*`: read by
     # the coding agent, built into no package. Both entries are live again as

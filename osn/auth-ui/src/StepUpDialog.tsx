@@ -112,7 +112,7 @@ export interface StepUpDialogProps {
    * Where no authenticator is enrolled the dialog really is passkey-only, the
    * state the name was written for.
    *
-   * @see wiki/systems/passkey-primary.md — the settled meaning, and why the
+   * @see wiki/osn/passkey-primary.md — the settled meaning, and why the
    * prop was not renamed.
    */
   passkeyOnly?: boolean;

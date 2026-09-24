@@ -61,7 +61,7 @@ export function ConsentPreferences() {
     //
     // Plain utilities in `class`, never `base:` ones: `Modal`'s own defaults
     // are `:where(…)`, so a plain utility beats them and a `base:` one ties —
-    // see `wiki/architecture/component-library.md`.
+    // see `wiki/shared/component-library.md`.
     <Modal
       open
       onClose={closeConsentPreferences}

@@ -12,7 +12,7 @@
  * top layer immediately, so a CSS-only exit has nothing to paint, and the
  * platform's fix for that — the `overlay` property — is Chrome and Edge only.
  * `Modal` defers the `close()` call instead, which is why this still fades out
- * in Safari. See `wiki/architecture/component-library.md`.
+ * in Safari. See `wiki/shared/component-library.md`.
  */
 
 import Button from "@cire/ui/button";

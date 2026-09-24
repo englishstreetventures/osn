@@ -147,7 +147,7 @@ export interface OsnAuthService {
    * `setSession` don't accept one, so the caller must unwrap `.session`
    * explicitly rather than being able to hand the result straight to either.
    *
-   * @see wiki/architecture/account-recovery-factors.md — the restricted session.
+   * @see wiki/osn/account-recovery-factors.md — the restricted session.
    */
   readonly refreshHeldSession: () => Effect.Effect<HeldSession, TokenRefreshError>;
 

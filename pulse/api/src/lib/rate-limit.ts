@@ -30,7 +30,7 @@ const ONE_HOUR_MS = 60 * 60_000;
 /**
  * Limit values per write endpoint. Starting points justified inline; tuned
  * to be generous for legitimate organiser / attendee flows but tight enough
- * to make scripted abuse uneconomic. See `[[wiki/systems/rate-limiting]]`.
+ * to make scripted abuse uneconomic. See `[[wiki/shared/rate-limiting]]`.
  */
 export const PULSE_WRITE_LIMITS = {
   // Event creation is the heaviest write (insert + re-read + materialise).

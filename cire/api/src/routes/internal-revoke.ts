@@ -26,7 +26,7 @@ const PREFIX = "/internal";
  * osn-api) and has no inbound ARC verifier — standing up osn-api key
  * distribution + a workerd-safe ARC receiver here is out of proportion to one
  * revoke hook. So this mirrors OSN's documented internal-bootstrap posture
- * (`Authorization: Bearer <shared secret>`, see `[[wiki/systems/arc-tokens]]`):
+ * (`Authorization: Bearer <shared secret>`, see `[[wiki/osn/arc-tokens]]`):
  * a single shared secret (`CIRE_INTERNAL_REVOKE_SECRET`, a wrangler secret),
  * compared in constant time. Absent secret ⇒ the route is DISABLED (503), never
  * open. osn-api must be provisioned with the same secret and send it as the

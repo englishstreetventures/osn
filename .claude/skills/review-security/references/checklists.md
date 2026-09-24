@@ -43,7 +43,7 @@ the verdict under `## Sections checked` with the file and line you looked at.
 ## Sensitive Data Exposure (OWASP A04)
 
 - API responses that leak internal fields (password hashes, full user records, internal IDs beyond what the caller needs)
-- A request body that reaches a service or a Drizzle call without passing a boundary schema. This repo validates twice and never mixes the two: Elysia TypeBox at the HTTP boundary, Effect Schema inside services (`wiki/architecture/schema-layers.md`). A route handler that hands `body` straight to the database is the finding
+- A request body that reaches a service or a Drizzle call without passing a boundary schema. This repo validates twice and never mixes the two: Elysia TypeBox at the HTTP boundary, Effect Schema inside services (`wiki/shared/schema-layers.md`). A route handler that hands `body` straight to the database is the finding
 - Personally identifiable information written to logs
 
 ## Redirects

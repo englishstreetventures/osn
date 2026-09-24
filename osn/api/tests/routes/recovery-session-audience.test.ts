@@ -9,7 +9,7 @@
  * Every test carries an ordinary-access-token control, because a 401 is also
  * what a broken harness returns.
  *
- * See `wiki/architecture/account-recovery-factors.md` §B.
+ * See `wiki/osn/account-recovery-factors.md` §B.
  */
 
 import { passkeys, sessions } from "@osn/db/schema";

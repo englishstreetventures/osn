@@ -5,7 +5,7 @@ interface ImportMetaEnv {
    * Where the primary "Create your invitation" CTA points — the organiser
    * portal. Dev default (the local organiser dev server) lives in `lib/site.ts`;
    * prod is `https://host.cireweddings.com` once the organiser portal moves off
-   * `app.cireweddings.com` (see the migration plan in [[wiki/apps/cire-landing]]).
+   * `app.cireweddings.com` (see the migration plan in [[wiki/cire/cire-landing]]).
    * Baked in at build time by Vite.
    */
   readonly PUBLIC_ORGANISER_URL?: string;

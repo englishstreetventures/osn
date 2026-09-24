@@ -8,7 +8,7 @@
  * account-takeover chains — so the "renders, does not redirect" assertions here
  * are security tests, not shape tests.
  *
- * See [[wiki/systems/oidc-provider]].
+ * See [[wiki/osn/oidc-provider]].
  */
 
 import { createHash } from "node:crypto";

@@ -11,7 +11,7 @@
  * WHY THERE IS NO `stripe` PACKAGE HERE. Three endpoints and one signature check
  * do not justify the official SDK on a Worker: it is built around Node's http
  * stack, and cire-api ships inside a 1MB compressed Worker budget it already
- * shares with Elysia, Drizzle and Effect (see `wiki/runbooks/free-tier-limits`).
+ * shares with Elysia, Drizzle and Effect (see `wiki/shared/free-tier-limits`).
  * The REST API is form-encoded POSTs and JSON replies; `fetch` is the whole
  * client. If this file ever grows past the handful of calls the gift flow needs,
  * that trade is worth re-running — it is a trade, not a principle.

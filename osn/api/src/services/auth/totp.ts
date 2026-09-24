@@ -18,7 +18,7 @@
  *   verification, so the route is not an oracle for whether an account has a
  *   second factor.
  *
- * See `[[wiki/systems/totp]]`.
+ * See `[[wiki/osn/totp]]`.
  */
 
 import { accounts, securityEvents, totpCredentials } from "@osn/db/schema";

@@ -33,7 +33,7 @@ export function createAuthContext(config: AuthConfig) {
   // The four step-up AMR allow-lists, in one place. TOTP joins the two sets
   // that already accept an emailed OTP; it joins neither
   // `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr` — see
-  // `[[wiki/systems/step-up]]` for the whole table and the reasoning.
+  // `[[wiki/osn/step-up]]` for the whole table and the reasoning.
   const recoveryGenerateAllowedAmr = new Set<string>(
     config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp", "totp"],
   );

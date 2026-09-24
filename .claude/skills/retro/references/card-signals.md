@@ -4,7 +4,7 @@ Read with Step 2 of `SKILL.md`. Each row is a field, the one question it
 answers, and the shape of a finding it can justify. The last column is the trap
 — the reading that looks obvious and is wrong.
 
-`wiki/observability/session-metrics.md` holds the schema and the reasoning; this
+`wiki/conventions/session-metrics.md` holds the schema and the reasoning; this
 file is only about what a **single** card licenses you to say.
 
 ## Spend

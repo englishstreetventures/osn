@@ -369,7 +369,7 @@ test("backfill cards a marked subagent, and agrees with `card` on both figure an
   }
 });
 
-// `wiki/observability/session-metrics.md` §Backfilling states this rule and
+// `wiki/conventions/session-metrics.md` §Backfilling states this rule and
 // nothing tested it: a zero-cost card is indistinguishable from a genuinely
 // cheap one once it is in the datalake, and it drags every average it touches.
 test("a merged PR with no local transcript is skipped, not written as a zero card", async () => {
@@ -613,7 +613,7 @@ esac
   }
 });
 
-// `wiki/observability/session-metrics.md` §Backfilling: a linked issue outside
+// `wiki/conventions/session-metrics.md` §Backfilling: a linked issue outside
 // this repository — chiefly the private `xchromo/osn-tracker`, which closes
 // most of this repository's pull requests — is never fetched at all, because
 // its labels can carry a severity/area pair that must not reach a card

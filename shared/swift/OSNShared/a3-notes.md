@@ -71,7 +71,7 @@
   lists passkeys, shows the profile when `.signedIn` carries one (`nil` on a
   restored session — handled, not force-unwrapped), and a sign-out button.
   No rename/delete UI — both need a step-up ceremony
-  (`wiki/systems/step-up.md`), out of scope.
+  (`wiki/osn/step-up.md`), out of scope.
 - `ensureFreshAccessToken()` runs immediately before every
   `PasskeyManagementClient.list()` call in `MusubiAccountView`, per
   `RequestHelpers.applyBearerAccessToken`'s no-expiry-check/no-401-retry

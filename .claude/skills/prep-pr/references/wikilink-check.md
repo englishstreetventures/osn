@@ -7,7 +7,7 @@ Reference for `prep-pr` Step 7.
 ```bash
 # every wikilink target on the branch, minus every page that exists
 # both sides reduced to a bare page name, since links come in both
-# `[[arc-tokens]]` and `[[systems/arc-tokens]]` form
+# `[[arc-tokens]]` and `[[osn/arc-tokens]]` form
 comm -23 \
   <(git diff "$BASE"...HEAD --name-only -- 'wiki/**/*.md' \
       | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \

@@ -42,7 +42,7 @@ for repo in xchromo/osn xchromo/osn-tracker; do
   # metric stops questioning anything. Fibonacci so that cost ÷ complexity is a
   # real division, and it rates the *problem*: a one-line fix to a race
   # condition is not a 1. `/new-feat` applies one through the rate-complexity
-  # skill; see wiki/observability/session-metrics.md.
+  # skill; see wiki/conventions/session-metrics.md.
   create "complexity:1" "0e8a16" "One file, no new behaviour"
   create "complexity:2" "7ed321" "One package, an existing pattern followed"
   create "complexity:3" "fbca04" "One package, something must be designed"

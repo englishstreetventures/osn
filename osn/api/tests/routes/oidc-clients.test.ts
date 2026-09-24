@@ -9,7 +9,7 @@
  * point of the surface: a client registered through the API can run the
  * complete authorize → consent → token flow with no operator involved.
  *
- * See [[wiki/systems/oidc-provider]].
+ * See [[wiki/osn/oidc-provider]].
  */
 
 import { createHash } from "node:crypto";

@@ -21,13 +21,13 @@ import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
  * 2. **An emailed code** and **3. an authenticator-app code** each mint a
  *    *restricted* recovery session, whose one permitted action is enrolling a
  *    passkey. So those two paths end in an enrolment screen, not a signed-in
- *    app — see `wiki/architecture/account-recovery-factors.md` §B.
+ *    app — see `wiki/osn/account-recovery-factors.md` §B.
  *
  * Why the restricted paths never adopt their session
  * --------------------------------------------------
  * Adopting early unmounts this component: `@musubi/social` hides its auth
  * dialogs the moment `session()` is truthy, which is the trap
- * `wiki/systems/passkey-primary.md` records against registration.
+ * `wiki/osn/passkey-primary.md` records against registration.
  *
  * Adopting *late* is no better, and this is where the resemblance to
  * `<Register>` stops. `<Register>` holds an `osn-access` token; these paths

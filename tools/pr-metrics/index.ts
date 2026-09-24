@@ -23,7 +23,7 @@
  * Any formula that folds diff size into a difficulty number collapses those
  * into the same row, and the metric then quietly punishes the hardest
  * legitimate work in the repository. So outliers are a query over raw fields
- * (see `wiki/observability/session-metrics.md`), never a field in here.
+ * (see `wiki/conventions/session-metrics.md`), never a field in here.
  *
  * Data comes from Claude Code's own session transcripts under
  * `~/.claude/projects/<encoded-cwd>/`, which record `gitBranch` on every
@@ -921,7 +921,7 @@ export interface DeclaredComplexity {
  * Read the declared rating off an issue's labels.
  *
  * The number lives on the issue rather than in the card because it has to be
- * set before work starts — see `wiki/observability/session-metrics.md`. The
+ * set before work starts — see `wiki/conventions/session-metrics.md`. The
  * card only transcribes it.
  *
  * Two labels rather than one: `complexity:unconfirmed` marks a rating no human
@@ -1126,7 +1126,7 @@ export function renderDetails(card: Card): string {
     "|---|---|",
     ...rows.map(([label, value]) => `| ${label} | ${value} |`),
     "",
-    `<sub>Card: \`.claude/metrics/${branchSlug(card.pr.branch)}.json\` · phase \`${card.pr.phase}\` · [schema](../blob/main/wiki/observability/session-metrics.md)</sub>`,
+    `<sub>Card: \`.claude/metrics/${branchSlug(card.pr.branch)}.json\` · phase \`${card.pr.phase}\` · [schema](../blob/main/wiki/conventions/session-metrics.md)</sub>`,
     "</details>",
   ].join("\n");
 }
@@ -2067,7 +2067,7 @@ if (import.meta.main) {
       `⚠️  pr-metrics: ${unattributed} subagent transcript(s) carry no TASK-BRANCH marker and sit`,
     );
     console.warn("   under a `main`/`HEAD` session, so their spend lands on no card. See");
-    console.warn("   wiki/observability/session-metrics.md §Attributing subagent spend.");
+    console.warn("   wiki/conventions/session-metrics.md §Attributing subagent spend.");
   }
 
   if (card.spend.unpriced_models.length > 0) {

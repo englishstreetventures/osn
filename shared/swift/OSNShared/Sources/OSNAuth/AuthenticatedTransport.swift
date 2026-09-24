@@ -34,7 +34,7 @@ private final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, @un
 /// Each client used to repeat the same five steps — build the request, paste
 /// on whatever token the Keychain held, send it, check the status, decode —
 /// and the paste step had no expiry check and no retry. A screen left open
-/// past the access token's five-minute TTL (`wiki/systems/identity-model.md`)
+/// past the access token's five-minute TTL (`wiki/osn/identity-model.md`)
 /// therefore just failed, and every new call site had to remember to call
 /// `OSNSession.ensureFreshAccessToken()` first; forgetting was silent.
 ///

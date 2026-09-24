@@ -14,7 +14,7 @@
  * nothing returns 202 like one that revokes everything. So each test below
  * names, in its comment, the edit that turns it red.
  *
- * See `wiki/architecture/account-recovery-factors.md` §D.
+ * See `wiki/osn/account-recovery-factors.md` §D.
  */
 
 import { Database } from "bun:sqlite";

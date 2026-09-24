@@ -93,8 +93,8 @@ export interface AuthConfig {
    * already control. The rule and both its windows are in `step-up.ts`
    * (`provenanceRefusal`).
    *
-   * @see wiki/systems/step-up.md
-   * @see wiki/architecture/account-recovery-factors.md
+   * @see wiki/osn/step-up.md
+   * @see wiki/osn/account-recovery-factors.md
    */
   passkeyDeleteAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   /**

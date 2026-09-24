@@ -7,7 +7,7 @@ import { createTestLayer } from "../helpers/db";
 
 /**
  * `makeAppRunner` is the seam that removed the per-request layer rebuild
- * (see [[architecture/backend-patterns]] "Build the layer graph ONCE"). These
+ * (see [[shared/backend-patterns]] "Build the layer graph ONCE"). These
  * tests pin its two branches directly: the fallback path builds the layer
  * exactly once and reuses it across every `run` call, and the injected path
  * returns the shared runtime verbatim.

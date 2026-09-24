@@ -25,4 +25,4 @@ CTA targets + canonical origin are build-time env vars (see `.env.example`):
 
 Site metadata and CTA targets live in `src/lib/site.ts`.
 
-See [`wiki/apps/osn-landing.md`](../../wiki/apps/osn-landing.md).
+See [`wiki/musubi/osn-landing.md`](../../wiki/musubi/osn-landing.md).

@@ -42,7 +42,7 @@ site's. Reference by **repo path**, never a `[[wikilink]]` — a wikilink does n
 resolve in an editor's hover, in a diff, or on GitHub:
 
 ```ts
-/** @see wiki/systems/rate-limiting.md — window sizes and the fail-closed rule. */
+/** @see wiki/shared/rate-limiting.md — window sizes and the fail-closed rule. */
 ```
 
 **3. A public issue reference**, when the code is provisional and the issue says

@@ -37,7 +37,7 @@ import ModuleSidebar from "./ModuleSidebar";
  * and spacing; what it keeps is layout, placement, timing and interaction,
  * which is what it exists for.
  *
- * See `wiki/conventions/component-lab.md` and `wiki/systems/cire-entitlements.md`.
+ * See `wiki/conventions/component-lab.md` and `wiki/cire/cire-entitlements.md`.
  */
 export const meta = { title: "cire/host/ModuleSidebar", layout: "padded" as const };
 

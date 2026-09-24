@@ -10,7 +10,7 @@
  * status never settable. This file owns HTTP shape validation, auth, and
  * rate limiting only.
  *
- * See [[wiki/systems/oidc-provider]].
+ * See [[wiki/osn/oidc-provider]].
  */
 
 import { Elysia, t } from "elysia";

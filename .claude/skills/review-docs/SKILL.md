@@ -1,11 +1,11 @@
 ---
 name: review-docs
-description: Use when reviewing the documentation a branch changes — CLAUDE.md, READMEs and pages under wiki/ — or sweeping the whole wiki with --full. Cross-checks every claim a page makes against the code, finds wikilinks and heading anchors the branch broke, checks frontmatter and page shape, and reports D-C/H/M/L findings in the four-field format.
+description: Use when reviewing the documentation a branch changes — AGENTS.md, READMEs and pages under wiki/ — or sweeping the whole wiki with --full. Cross-checks every claim a page makes against the code, finds wikilinks and heading anchors the branch broke, checks frontmatter and page shape, and reports D-C/H/M/L findings in the four-field format.
 ---
 
 Review the documentation on the current branch — or the whole `wiki/` tree when `$ARGUMENTS` is `--full` — and report what is wrong, stale, unreachable or badly shaped.
 
-Docs in scope: `CLAUDE.md` and `README.md` at the root, any `README.md` inside a workspace, and every `.md` under `wiki/`.
+Docs in scope: `AGENTS.md` and `README.md` at the root, any `README.md` inside a workspace, and every `.md` under `wiki/`.
 
 ## Step 0 — Write the report skeleton before you read anything
 
@@ -47,7 +47,7 @@ git diff --name-only "$BASE"...HEAD -- '*.md' 'wiki/**'
 git diff --name-only "$BASE"...HEAD          # the code the docs have to agree with
 ```
 
-A stacked branch merges into its parent, not `main`; the config keeps the parent's pages out of this diff. With `--full`, scope is every file under `wiki/` plus the root `CLAUDE.md` and `README.md`. If `$ARGUMENTS` names workspaces or paths, scope to the docs relevant to those.
+A stacked branch merges into its parent, not `main`; the config keeps the parent's pages out of this diff. With `--full`, scope is every file under `wiki/` plus the root `AGENTS.md` and `README.md`. If `$ARGUMENTS` names workspaces or paths, scope to the docs relevant to those.
 
 Write `## Scope` now: the files in scope, and the files out of scope and why.
 
@@ -71,7 +71,7 @@ A claim the code contradicts is **D-C** when a reader would act on it and break 
 
 ```bash
 git diff "$BASE"...HEAD -U0 -- ':!*.md' | grep '^-' | grep -v '^---'   # what the code stopped saying
-git grep -n '<old value>' -- 'wiki/**/*.md' CLAUDE.md README.md         # who still says it
+git grep -n '<old value>' -- 'wiki/**/*.md' AGENTS.md README.md         # who still says it
 ```
 
 A page in the diff that still carries the old value is a finding. A page outside the diff that carries it is stale as of this branch too — it is not this branch's file, so it goes under `## Suggested next sweeps`, named by path, not silently dropped. Do the same for a value the branch changed in a page: if the page now says 14 and the code still says 30, the page is wrong, not the code.
@@ -98,17 +98,17 @@ git grep -n '\[\[<page>#\|\](#' -- 'wiki/**/*.md' <page>              # who link
 
 A link whose target heading no longer exists is a finding on the branch even when the linking page is outside the diff — the branch broke it.
 
-**Other link shapes.** Wiki-to-wiki links are `[[wikilinks]]`, not relative markdown; a link to a file outside the vault (`[[CLAUDE]]` for the root `CLAUDE.md`) does not resolve in Obsidian and should be a relative markdown link; a link from a page to a source file is relative to the page and must resolve — `test -e` it from the page's directory.
+**Other link shapes.** Wiki-to-wiki links are `[[wikilinks]]`, not relative markdown; a link to a file outside the vault (`[[AGENTS]]` for the root `AGENTS.md`) does not resolve in Obsidian and should be a relative markdown link; a link from a page to a source file is relative to the page and must resolve — `test -e` it from the page's directory.
 
 ## Step 4 — Frontmatter, shape, and the two rendering surfaces
 
 Every page under `wiki/` except `wiki/README.md` has YAML frontmatter with `title` (matches the `#` heading), `tags`, `related` (≥ 2 wikilinks as `"[[page]]"` strings) and `last-reviewed` (`YYYY-MM-DD`, bumped on every touch). `packages`, where present, names real `package.json` names; `status` is one of `active`/`current`/`planned`/`in-progress`/`completed`/`deprecated` and matches reality. A `related` list written inline and one written as a YAML block are both valid — flagging either shape is noise.
 
-Shape: a purpose opener a reader landing from a wikilink can orient on in two sentences; overview separated from deep detail; every page links to at least two others and is reachable from `wiki/index.md` and the `CLAUDE.md` navigation table. On a branch, check the branch's own `index.md` — a page created here reads as an orphan to any index of `main`.
+Shape: a purpose opener a reader landing from a wikilink can orient on in two sentences; overview separated from deep detail; every page links to at least two others and is reachable from `wiki/index.md`. On a branch, check the branch's own `index.md` — a page created here reads as an orphan to any index of `main`.
 
 Communication aids are recommended with the surface in mind. Tables, mermaid, footnotes and the five alert-compatible callouts (`note`/`tip`/`important`/`warning`/`caution`) render on GitHub and in Obsidian; every other callout type, `[[wikilinks]]`, embeds, block IDs and `==highlights==` render in Obsidian only; `.base` and `.canvas` files are raw YAML/JSON on GitHub and unreadable to a grep-only session. So a list of N comparable things wants a table, a multi-step flow wants a mermaid diagram, a warning buried in a paragraph wants a callout — and a `.base` or `.canvas` carrying content that exists nowhere else is **D-M**.
 
-Bloat is a finding too: a runbook describing shipped work as upcoming, a `CLAUDE.md` row that restates a wiki page instead of summarising and linking it, a "Phase N" label with no decision behind it, a reference to a store, env var or column that no longer exists.
+Bloat is a finding too: a runbook describing shipped work as upcoming, an `AGENTS.md` line that restates a wiki page instead of stating the rule and linking it, anything in `AGENTS.md` that only one kind of task needs (that belongs in the wiki or a skill), a "Phase N" label with no decision behind it, a reference to a store, env var or column that no longer exists.
 
 The full per-section checklist — currency, bloat, aids, structure, frontmatter, links, hygiene — is in `references/checklist.md`; on a `--full` sweep, work through it page by page.
 
@@ -130,7 +130,7 @@ IDs: `D-C1`, `D-C2`, … Critical; `D-H1`, … High; `D-M1`, … Medium; `D-L1`,
 
 - **D-C** — the doc will mislead a reader into a broken action: a runbook naming tables, routes or tools that do not exist; a code example that cannot compile; a security claim the code contradicts.
 - **D-H** — stale architecture described as current: package names, paths, removed patterns. Sends the reader to the wrong place.
-- **D-M** — structure and communication: lists that should be tables, prose flows that should be diagrams, no purpose opener, `CLAUDE.md`/wiki duplication, a page absent from the map, load-bearing `.base`/`.canvas`.
+- **D-M** — structure and communication: lists that should be tables, prose flows that should be diagrams, no purpose opener, `AGENTS.md`/wiki duplication, a page absent from the map, load-bearing `.base`/`.canvas`.
 - **D-L** — frontmatter polish, a stale `last-reviewed`, a broken link to a low-traffic page, wording drift. Batch into one commit.
 
 ## Report shape

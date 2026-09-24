@@ -224,7 +224,7 @@ test("the body names the counter, the day, the figure and the database", () => {
   expect(body).toContain("D1 rows written — 2026-09-09");
   expect(body).toContain("104,091 of 100,000 (104%)");
   expect(body).toContain("`cire-db-dev`");
-  expect(body).toContain("wiki/runbooks/free-tier-limits.md");
+  expect(body).toContain("wiki/shared/free-tier-limits.md");
   // A database that spent nothing that day is not worth a row.
   expect(body).not.toContain("`cire-db`");
 });

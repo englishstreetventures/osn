@@ -8,7 +8,7 @@
  * recovery session** `tokens.ts` builds — `aud: "osn-recovery"`, a 15-minute
  * absolute lifetime, rejected by every verifier in this service and in the three
  * downstream services — whose only privilege is enrolling a passkey. See
- * `[[wiki/architecture/account-recovery-factors]]` §B.
+ * `[[wiki/osn/account-recovery-factors]]` §B.
  *
  * Four properties carry this module, and each is enforced here rather than at
  * the routes:

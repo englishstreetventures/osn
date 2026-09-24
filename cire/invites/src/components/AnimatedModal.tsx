@@ -128,7 +128,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // — would render this panel 6.25% wider on a laptop than it is on a
       // phone. The family is named in `no-restyle`'s allow lists because the
       // rule's grammar cannot classify a `max-w-*` built from a custom
-      // `--container-*` entry; see wiki/architecture/design-tokens.md.
+      // `--container-*` entry; see wiki/shared/design-tokens.md.
       class="max-w-column-md md:mb-8"
     >
       {/* `z-10` because tree order alone is not enough. This chip is an

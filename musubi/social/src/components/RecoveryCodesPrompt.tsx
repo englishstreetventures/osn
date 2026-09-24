@@ -30,7 +30,7 @@ import { getTokenClaims } from "../lib/utils";
  * next load.
  *
  * App-local rather than shared: the copy names this product and the link names
- * a route only this app has. See `wiki/architecture/osn-and-musubi.md`.
+ * a route only this app has. See `wiki/shared/osn-and-musubi.md`.
  */
 export function RecoveryCodesPrompt(props: { accessToken: string }) {
   const profileId = () => getTokenClaims(props.accessToken).profileId;

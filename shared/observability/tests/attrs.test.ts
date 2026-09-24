@@ -25,7 +25,7 @@ import type { AuthMethod, AuthRateLimitedEndpoint } from "../src/metrics/attrs";
  * passkey and do nothing else, and doing so is what lifts the restriction.
  *
  * A future member that does not clear that bar does not belong here, whatever
- * it is called. See `wiki/architecture/account-recovery-factors.md` §B.
+ * it is called. See `wiki/osn/account-recovery-factors.md` §B.
  */
 describe("AuthMethod", () => {
   it("includes exactly the passkey-primary surface plus the restricted recovery factors", () => {

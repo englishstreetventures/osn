@@ -237,7 +237,7 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // --- Cire guest PII + session credential ---
     // Cire (wedding invites) runs its own Cloudflare D1 / R2 and a guest
     // session class entirely separate from OSN auth (see
-    // wiki/systems/cire-auth.md). cire/api does not yet carry
+    // wiki/cire/cire-auth.md). cire/api does not yet carry
     // @shared/observability (no redacted logger) — these entries are the
     // interim guard for the day it adopts the shared logger, and for any
     // cross-service log line that mirrors a cire payload.

@@ -34,7 +34,7 @@ export type Result = (typeof RESULT_VALUES)[number];
  * absolute lifetime, rejected by every verifier in this service and in the three
  * downstream services, and able to do exactly one thing: enrol a passkey. So
  * neither reinstates the OTP primary login `[[passkey-primary]]` removed; see
- * `wiki/architecture/account-recovery-factors.md` §B.
+ * `wiki/osn/account-recovery-factors.md` §B.
  */
 export type AuthMethod =
   | "passkey"

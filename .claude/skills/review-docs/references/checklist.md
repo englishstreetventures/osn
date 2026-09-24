@@ -15,8 +15,8 @@ The `SKILL.md` gives the retrieval procedure — which claims to extract from a 
 ## 2. Bloat — legacy content to trim
 
 - **Runbooks describing shipped work as future work** — mark historical or delete. D-M.
-- **Duplicated detail between `CLAUDE.md` and a wiki page** — the `CLAUDE.md` row is a one-line summary plus a `[[wiki/...]]` link; if both hold the detail, one drifts. D-M.
-- **"Phase N" language without a decision** — deferred decisions live for months with no resolution; suggest `wiki/deferred-decisions.md` or removal. D-M.
+- **Duplicated detail between `AGENTS.md` and a wiki page** — the `AGENTS.md` line states the rule plus the wiki path; if both hold the detail, one drifts. D-M.
+- **"Phase N" language without a decision** — deferred decisions live for months with no resolution; suggest `wiki/decisions/deferred-decisions.md` or removal. D-M.
 - **Defunct config / env / store references** — env vars, Redis namespaces, columns, in-memory stores that no longer exist. D-H.
 - **Forward-looking "will migrate to"** for migrations that shipped. D-M.
 
@@ -35,7 +35,7 @@ The `SKILL.md` gives the retrieval procedure — which claims to extract from a 
 - **No purpose opener** — the page starts in implementation detail; a reader from a wikilink needs two orienting sentences. D-M.
 - **Overview and deep detail interleaved** — split into Overview / Current surface / Details, or into sibling pages. D-M.
 - **Fewer than two outgoing wikilinks** — `wiki/README.md`'s convention. D-L.
-- **Not reachable from the map** — every `wiki/**/*.md` is linked from `wiki/index.md` and from the `CLAUDE.md` Wiki Navigation table. On a `--full` sweep `mcp__obsidian-wiki__find_orphaned_notes` finds these; on a branch, check the branch's own `index.md` by hand — a page created on the branch reads as an orphan to any index of `main`. D-M.
+- **Not reachable from the map** — every `wiki/**/*.md` is linked from `wiki/index.md`. On a `--full` sweep `mcp__obsidian-wiki__find_orphaned_notes` finds these; on a branch, check the branch's own `index.md` by hand — a page created on the branch reads as an orphan to any index of `main`. D-M.
 - **`related` that does not signal navigation** — empty or stale `related` blocks. D-L.
 
 ## 5. Frontmatter
@@ -56,9 +56,9 @@ Every `wiki/**/*.md` except `wiki/README.md`:
 - **Broken wikilinks** — on a `--full` sweep, `mcp__obsidian-wiki__find_broken_links` uses Obsidian's own resolver and handles `[[page#Heading]]`, `[[page#^id]]`, `[[page|alias]]` and path-style targets. On a branch it is blind — use the `comm -23` recipe in `SKILL.md`. D-L for a low-traffic page, D-M for a page in the navigation table.
 - **Not findings** — a TOML array header in a code fence (`[[env.<name>.d1_databases]]`); a target ending in `\`, which is the escaped pipe of an alias inside a table cell (`[[page\|alias]]` — Obsidian needs it so the table does not split on the pipe). Check the name before the `\` resolves and move on.
 - **Heading or block anchors that moved** — `[[page#Heading]]` breaks silently on a heading rename. For any page the branch reorganised, find what links in (`get_backlinks`, or `git grep '\[\[<page>#'`). D-M.
-- **Out-of-vault wikilinks** — the vault root is `wiki/`; `[[CLAUDE]]` for the repo-root `CLAUDE.md` does not resolve in graph view. Use `` [`../CLAUDE.md`](../CLAUDE.md) ``. D-L.
+- **Out-of-vault wikilinks** — the vault root is `wiki/`; `[[AGENTS]]` for the repo-root `AGENTS.md` does not resolve in graph view. Use `` [`../AGENTS.md`](../AGENTS.md) ``. D-L.
 - **Relative markdown links between wiki pages** — the convention is `[[wikilinks]]`. D-L.
-- **Source-file links** — relative and correct from the page's directory (`[osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts)` from `wiki/systems/`). A broken one is worse than none. D-M.
+- **Source-file links** — relative and correct from the page's directory (`[osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts)` from `wiki/osn/`; one more `../` from `wiki/shared/observability/`). A broken one is worse than none. D-M.
 
 ## 7. Docs-specific security hygiene
 

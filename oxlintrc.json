@@ -266,7 +266,7 @@
             // because the allow list is consulted AFTER classification.
             // `@cire/invites` needs `max-w-column-*` because every built-in step
             // is rem and it is the one app that moves its root font-size; see
-            // wiki/architecture/design-tokens.md.
+            // wiki/shared/design-tokens.md.
             //
             // Here and not in the baseline `allow` above, on purpose. A
             // contract's `allow` REPLACES the top-level one rather than

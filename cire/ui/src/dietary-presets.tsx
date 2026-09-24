@@ -106,7 +106,7 @@ function PresetCheckbox(props: {
     //
     // It also makes each pill paint above non-positioned in-flow boxes, which
     // is why the sheets that hold this give their close chip an explicit
-    // z-index. See wiki/architecture/frontend-patterns.md.
+    // z-index. See wiki/shared/frontend-patterns.md.
     <label class="font-body border-ui-hairline text-ui-ink has-[:checked]:border-ui-accent has-[:checked]:bg-ui-accent-wash has-[:focus-visible]:ring-ui-focus text-ui-sm relative flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 whitespace-nowrap transition-colors duration-200 select-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-2">
       {/* A real checkbox, visually hidden rather than replaced: the checked
           state, the space key, the screen-reader announcement and the label

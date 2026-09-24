@@ -976,7 +976,7 @@ export const sessions = sqliteTable(
 //
 // The four profile columns are a login-time snapshot of the ID token's claims
 // so the portal chrome has a name to render; they expire with the row and are
-// re-taken on every sign-in. See `[[wiki/systems/cire-auth]]`.
+// re-taken on every sign-in. See `[[wiki/cire/cire-auth]]`.
 export const organiserSessions = sqliteTable(
   "organiser_sessions",
   {
@@ -1005,7 +1005,7 @@ export const organiserSessions = sqliteTable(
 //
 // `osn_account_id` is the OSN *account* principal (resolved server-to-server
 // over ARC from the access token's profile id — see
-// `[[wiki/systems/cire-auth]]`). Account-level (not profile-level) so any of a
+// `[[wiki/cire/cire-auth]]`). Account-level (not profile-level) so any of a
 // user's OSN profiles can see the invitation. Like `weddings.owner_osn_profile_id`
 // it is an opaque cross-database reference, deliberately NOT a foreign key:
 // cire's D1 and osn's D1 are separate databases. `osn_profile_id` records which

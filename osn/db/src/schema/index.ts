@@ -161,8 +161,8 @@ export const passkeys = sqliteTable(
      * safer by restricting its children. Raw inheritance would restrict every
      * device in a lineage for the life of the account.
      *
-     * @see wiki/systems/step-up.md
-     * @see wiki/architecture/account-recovery-factors.md
+     * @see wiki/osn/step-up.md
+     * @see wiki/osn/account-recovery-factors.md
      */
     provenanceAmr: text("provenance_amr"),
   },
@@ -417,7 +417,7 @@ export type NewRecoveryCode = typeof recoveryCodes.$inferInsert;
 // database are separate trust domains, so a database dump alone yields no
 // working second factor.
 //
-// See `[[wiki/systems/totp]]`.
+// See `[[wiki/osn/totp]]`.
 // ---------------------------------------------------------------------------
 
 export const totpCredentials = sqliteTable(
@@ -740,7 +740,7 @@ export type NewDeletionJob = typeof deletionJobs.$inferInsert;
 // of relying parties: Related Origin Requests are capped at five registrable
 // labels by client policy, the redirect flow is capped by nothing.
 //
-// See [[wiki/systems/oidc-provider]].
+// See [[wiki/osn/oidc-provider]].
 // ---------------------------------------------------------------------------
 
 export const oauthClients = sqliteTable(

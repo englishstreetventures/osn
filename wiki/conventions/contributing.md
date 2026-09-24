@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-23
 ---
 
 # Contributing
@@ -16,7 +16,7 @@ last-reviewed: 2026-08-31
 
 ### Technology Choices
 
-- **Effect.ts**: trial with OSN/Pulse first, then decide on broader adoption (an open decision issue in `xchromo/osn`)
+- **Effect.ts** is the backend, settled: every API, the shared packages and `@osn/client` are built on it. `effect` and `@effect/vitest` are pinned exactly, not with a caret, because the release is pre-GA. The frontends do not use it — see [[frontend-patterns]]
 - **E2E encryption everywhere**: encrypt all user-to-user communication end-to-end
 - **Personalisation data**: show it to the user, and let the user reset it
 
@@ -65,7 +65,7 @@ Always use the `bunx --bun` flag for tooling. This bypasses Node.js and runs dir
 
 ### Changesets
 
-Every PR **must** include a changeset:
+Every PR that touches a versioned package **must** include a changeset (the exceptions are below):
 
 ```bash
 bun run changeset
@@ -80,6 +80,24 @@ bun run changeset
 | `"@shared/db-utils"` | `"db-utils"` |
 
 The Changeset Check workflow runs `bunx changeset status` to catch typos before merge. A bad package reference passes the check but fails the Release workflow on main, and blocks all later versioning.
+
+Never mix version-less packages (`@cire/*`) and versioned ones in one changeset — split them. `scripts/validate-changesets.sh` enforces both rules.
+
+**When none is needed.** A pull request that touches nothing a versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, top-level prose — needs no changeset, because there is no honest package to name. The test is an allowlist, `scripts/changeset-required.sh` (fixtures in `scripts/tests/changeset-required.test.sh`); anything not on it, `bun.lock` and root `turbo.json`/`tsconfig.json` included, still requires one. Always pipe the diff in:
+
+```bash
+git diff --name-only origin/main...HEAD | bash scripts/changeset-required.sh
+```
+
+A bare run at a terminal refuses, but a bare run from a non-interactive shell (as from an agent) cannot tell closed stdin from an empty diff, so it is no substitute.
+
+`.changeset/config.json` must keep `"privatePackages": { "version": true, "tag": false }`. Every workspace package is `private: true`, and `@changesets/config` 4 defaults that `version` to `false`: drop the line and `changeset add` aborts with "No versionable packages found".
+
+### Dependencies
+
+- **Never a bare `bun install`.** Resolving on one machine drops every lockfile entry for a platform it is not running on — on a Mac, all the non-darwin binaries CI needs. Install with `bun install --frozen-lockfile`; when a dependency changes, splice its `bun.lock` entry by hand and prove it with `bun install --frozen-lockfile`. `bun run reset` still chains a bare install, so check `git diff bun.lock` after it and discard the pruning.
+- **Add with `--cwd`, not `--filter`:** `bun add drizzle-orm --cwd pulse/db`.
+- **Release-age soak.** `bunfig.toml` sets `minimumReleaseAge = 259200` (3 days), so a fresh publish cannot install at once. Each entry in `minimumReleaseAgeExcludes` must carry a `# DROP AFTER <name> <YYYY-MM-DD>` comment dated no more than 30 days out; `bun run check:release-age-excludes` (also in CI) fails on a missing, invalid, expired or over-long marker, and on the soak dropping below 259200.
 
 ### Versioning
 

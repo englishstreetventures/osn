@@ -499,7 +499,7 @@ test("classifyPath puts generated files ahead of every other bucket", () => {
   expect(classifyPath(".changeset/nervous-pugs-cheer.md")).toBe("generated");
   expect(classifyPath("cire/db/drizzle/0003_add_vendors.sql")).toBe("generated");
   expect(classifyPath("osn/api/tests/auth.test.ts")).toBe("test");
-  expect(classifyPath("wiki/systems/sessions.md")).toBe("docs");
+  expect(classifyPath("wiki/osn/sessions.md")).toBe("docs");
   expect(classifyPath("README.md")).toBe("docs");
   expect(classifyPath(".github/workflows/ci.yml")).toBe("config");
   expect(classifyPath("osn/api/src/routes/auth.ts")).toBe("source");
@@ -510,7 +510,7 @@ test("parseNumstat buckets lines and collects packages", () => {
     [
       "312\t88\tosn/api/src/routes/auth.ts",
       "140\t0\tosn/api/tests/auth.test.ts",
-      "210\t40\twiki/systems/sessions.md",
+      "210\t40\twiki/osn/sessions.md",
       "800\t60\tbun.lock",
       "12\t2\tshared/crypto/src/index.ts",
     ].join("\n"),

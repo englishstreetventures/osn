@@ -35,7 +35,7 @@
  * The stamp is therefore **not** how an operator measures a drain either;
  * versions are slot numbers and are reused by the next rotation. `last_used_at`
  * is the gauge, because the same statement that re-encrypts a row sets it —
- * see `[[wiki/systems/totp]]`.
+ * see `[[wiki/osn/totp]]`.
  */
 
 /** Length of `OSN_TOTP_ENCRYPTION_KEY` once base64-decoded. AES-256. */

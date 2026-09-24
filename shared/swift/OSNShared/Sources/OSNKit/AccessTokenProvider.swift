@@ -44,7 +44,7 @@ public struct AccessTokenProvider: Sendable {
     /// A stored token within this many seconds of its `expiresAt` counts as
     /// already gone, so one is never sent moments before the server would
     /// reject it mid-flight. Access tokens live five minutes
-    /// (`wiki/systems/identity-model.md`), so this is a clock-skew
+    /// (`wiki/osn/identity-model.md`), so this is a clock-skew
     /// allowance, not a refresh schedule.
     public static let expirySkew: TimeInterval = 30
 

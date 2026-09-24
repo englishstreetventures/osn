@@ -20,7 +20,7 @@ cat lefthook.yml                                  # what the hooks actually run
 sed -n 1,20p scripts/setup.sh                     # the non-interactive tail this skill hands off to
 ```
 
-`CLAUDE.md` §Local URLs holds the portless setup and the named hosts; §Tooling holds the hook conventions. If any of those disagree with what is below, the tree wins.
+`wiki/conventions/devloop-urls.md` holds the portless setup and the named hosts; `lefthook.yml` holds the hooks. If any of those disagree with what is below, the tree wins.
 
 ## When a step cannot run
 
@@ -92,7 +92,7 @@ bash scripts/setup.sh
 
 It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run check`, `bun run lint` and `bun run fmt:check`.
 
-The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `CLAUDE.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high` and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
+The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high` and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 

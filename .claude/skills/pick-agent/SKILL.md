@@ -107,7 +107,7 @@ capability — which the rubric above is an attempt to name.
 
 **One task, one agent.** Two agents writing code in the same worktree corrupt
 each other's branches. If work must run in parallel, give each its own worktree
-— `CLAUDE.md` says so and it has already cost this repository a lost task.
+— `AGENTS.md` says so and it has already cost this repository a lost task.
 
 ## What consumes this
 

@@ -4,7 +4,7 @@ import SwiftUI
 /// Read-only account screen: the signed-in profile (when the session carries
 /// one — a restored session doesn't, and there is no "fetch current profile"
 /// endpoint to fill that in) plus the account's passkeys. Rename and delete
-/// need a step-up ceremony (`wiki/systems/step-up.md`) and are out of scope
+/// need a step-up ceremony (`wiki/osn/step-up.md`) and are out of scope
 /// here — no buttons for either.
 public struct MusubiAccountView: View {
     private let session: OSNSession

@@ -308,7 +308,7 @@ Auditing a defect class — when a finding is an instance of a class, enumerate 
 
 One issue per finding that this branch does **not** fix. Title leads with the finding ID; body keeps the same four fields the PR uses.
 
-**The issue body must stand on its own.** Someone opening it in six months, with no branch checked out and no wiki open, must be able to see what is wrong, where, and what to do. Name the file and line. State the concrete fix. A body that points at a wiki page instead of saying the thing — "see `wiki/todo/api.md`", "tracked in the TODO" — is not an issue, it is a bookmark, and the page it points at moves or dies. Where a wiki page genuinely adds context, name it by **repo path** (`wiki/systems/rate-limiting.md`) and put the fact in the issue anyway; a `[[wikilink]]` does not resolve on GitHub.
+**The issue body must stand on its own.** Someone opening it in six months, with no branch checked out and no wiki open, must be able to see what is wrong, where, and what to do. Name the file and line. State the concrete fix. A body that points at a wiki page instead of saying the thing — "see `wiki/todo/api.md`", "tracked in the TODO" — is not an issue, it is a bookmark, and the page it points at moves or dies. Where a wiki page genuinely adds context, name it by **repo path** (`wiki/shared/rate-limiting.md`) and put the fact in the issue anyway; a `[[wikilink]]` does not resolve on GitHub.
 
 A full worked `gh issue create` — flags, four-field body, closing line — is in `references/issue-filing-example.md`.
 
@@ -349,7 +349,7 @@ leads the title. Planned work this branch completes goes in the same list, from
 the public repo. **Never delete an issue**; close it.
 
 `references/workflow-steps.md` carries the rest: the `gh issue list` searches,
-the Up Next promotion, and the docs pass — what to check in `CLAUDE.md` and the
+the Up Next promotion, and the docs pass — what to check in `AGENTS.md` and the
 wiki, and how to verify the wikilinks you wrote resolve.
 
 Report the issues opened and the issue numbers this branch closes — Step 8 needs

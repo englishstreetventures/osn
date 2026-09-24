@@ -10,7 +10,7 @@
 /* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
    brand. If you change a token here, change it in cire/invites/src/styles/global.css
-   too (and vice versa). See [[wiki/apps/cire-landing]] → "Brand parity".
+   too (and vice versa). See [[wiki/cire/cire-landing]] → "Brand parity".
 
    The COLOUR tokens are byte-identical. The two font tokens are not, and cannot
    be: both sites now self-host Cormorant Garamond and Lato, but by different

@@ -141,7 +141,7 @@ crons = ["0 */6 * * *"]
 # automatically on every merge to main, ahead of the approval-gated production
 # jobs. It shares NOTHING with production identity — a dev account is a different
 # account, and a dev passkey is a different credential. See
-# `[[wiki/runbooks/dev-environment]]`.
+# `[[wiki/shared/dev-environment]]`.
 #
 # RP ID is `dev.musubi.social`, the origin `@musubi/social`'s dev deployment is
 # served from — a WebAuthn ceremony may only run on an origin same-site with the
@@ -301,7 +301,7 @@ crons = ["0 */6 * * *"]
 
 # ── production ───────────────────────────────────────────────────────────────
 # OSN identity lives on its own zone: musubi.social (cutover 2026-07-27, see
-# `[[wiki/runbooks/musubi-identity-migration]]`). The custom-domain route below
+# `[[wiki/musubi/musubi-identity-migration]]`). The custom-domain route below
 # serves osn-api on id.musubi.social and auto-provisions DNS + edge cert since the
 # zone is in this Cloudflare account.
 #
@@ -431,7 +431,7 @@ crons = ["0 */6 * * *"]
 #                              Set it BEFORE replacing OSN_TOTP_ENCRYPTION_KEY,
 #                              and delete it once the drain is done. Present but
 #                              malformed fails the boot, like the current key.
-#                              Procedure: wiki/runbooks/production-deploy.md.
+#                              Procedure: wiki/shared/production-deploy.md.
 #   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
 #   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   RESEND_API_KEY             Resend bearer key — REQUIRED non-local (preferred

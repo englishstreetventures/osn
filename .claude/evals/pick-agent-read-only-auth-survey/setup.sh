@@ -45,8 +45,8 @@ cat > TASK-ISSUE.md <<'ISSUE'
 — `osn/api`, `pulse/api`, `zap/api`, `cire/api` — and, against each route, the
 middleware that wraps it. Quote the shortest line that proves the gate.
 
-**Why** — Blocks #952, the rewrite of `wiki/systems/cire-auth.md` and
-`wiki/systems/identity-model.md`. Neither page can be trusted until we know
+**Why** — Blocks #952, the rewrite of `wiki/cire/cire-auth.md` and
+`wiki/osn/identity-model.md`. Neither page can be trusted until we know
 what the routes actually are; both were last reviewed before the vendor portal
 shipped.
 

@@ -37,7 +37,7 @@ crons = ["0 4 * * *"]
 # Workers & Pages → cire-api → Observability / Logs. Free + low-overhead.
 # `head_sampling_rate = 1` logs 100% of requests — correct at our current low
 # volume; drop it (e.g. 0.1) only if we ever approach the Workers Logs daily
-# ingest cap. See [[wiki/runbooks/free-tier-limits]] (Monitoring section).
+# ingest cap. See [[wiki/shared/free-tier-limits]] (Monitoring section).
 # Named environments do NOT inherit this top-level block — it is redeclared
 # under [env.production.observability] below.
 [observability]
@@ -243,7 +243,7 @@ binding = "IMAGES"
 # its own D1, its own R2 buckets, its own rate-limit namespaces, and its own OSN
 # identity origin (id.dev.musubi.social) — nothing here reads or writes a byte of
 # live-wedding data. Its D1 is wiped and re-seeded on every deploy, so treat any
-# data in it as disposable. See [[wiki/runbooks/dev-environment]].
+# data in it as disposable. See [[wiki/shared/dev-environment]].
 #
 # Named environments inherit NOTHING from the top level, so every section below
 # is a deliberate redeclaration: vars, routes, unsafe.bindings, d1_databases,

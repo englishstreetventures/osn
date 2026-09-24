@@ -6,7 +6,7 @@
  * On the local machine the repository lives at `~/.work/osn.git`, and every
  * worktree — `main/` included — is a subdirectory of it. That parent is the
  * path a shell completes first and the place `git worktree list` is run, so a
- * session starts there often. It is not a worktree: it holds no `CLAUDE.md`,
+ * session starts there often. It is not a worktree: it holds no `AGENTS.md`,
  * no `.claude/settings.json` and no `.claude/skills/`, so a session rooted
  * there runs with no hooks, no skills and none of the repository's
  * instructions, and nothing says so.
@@ -45,7 +45,7 @@ export const GUARD_MARKER = "bare-root-guard";
  * leaves an equal or newer one alone, so the text can be corrected on machines
  * that already have it.
  */
-export const GUARD_VERSION = 1;
+export const GUARD_VERSION = 2;
 
 const GUARD_COMMENT = `# ${GUARD_MARKER} v${GUARD_VERSION}`;
 const GUARD_PATTERN = new RegExp(`#\\s*${GUARD_MARKER}\\s+v(\\d+)`);
@@ -66,7 +66,7 @@ const GUARD_PATTERN = new RegExp(`#\\s*${GUARD_MARKER}\\s+v(\\d+)`);
  */
 const REFUSAL = [
   "STOP — this directory holds the repository worktrees. It is not one of them.",
-  "This session has none of the repository configuration: no hooks, no skills, no CLAUDE.md.",
+  "This session has none of the repository configuration: no hooks, no skills, no AGENTS.md.",
   "Moving does not fix it. Neither cd nor EnterWorktree reloads project settings — they are read from the directory the session started in.",
   "Do no work here. Ask the user to start a session inside a worktree (main/, or one beside it).",
   "Git commands that need a working tree fail here: fatal: this operation must be run in a work tree. Nothing is broken and there is nothing to repair — the working tree is in the worktrees.",

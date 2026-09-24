@@ -1,0 +1,301 @@
+---
+title: Frontend Patterns
+aliases:
+  - UI tokens
+  - shared UI
+  - Tailwind patterns
+  - component patterns
+tags:
+  - architecture
+  - frontend
+  - solidjs
+  - tailwind
+status: current
+related:
+  - "[[component-library]]"
+  - "[[pulse-close-friends]]"
+  - "[[pulse]]"
+  - "[[testing-patterns]]"
+  - "[[browser-tests]]"
+  - "[[cire-development]]"
+packages:
+  - "@pulse/web"
+  - "@shared/ui"
+last-reviewed: 2026-09-23
+---
+
+# Frontend Patterns
+
+**The frontends do not use Effect.** Effect is the backend's (every API, the shared packages and `@osn/client`). Whether the Solid apps adopt it stays open until they move to Solid v2, and gets decided then.
+
+## Component Library
+
+UI primitives (Button, Input, Card, Dialog, etc.) live in `@shared/ui` as Zaidan-style components — copy-pasted source backed by Kobalte headless primitives and styled with Tailwind + CVA. See [[component-library]] for the full guide on adding, using, and testing components.
+
+## Shared UI Tokens
+
+Visual treatments that appear in more than one component live in `pulse/web/src/lib/ui.ts` as exported constants. Changing a colour or ring style should be a **single-file edit**.
+
+### Current Tokens
+
+```typescript
+CLOSE_FRIEND_RING_CLASS  // green outline on attendees who are close friends
+```
+
+### How They Flow
+
+The `RsvpAvatar` component reads the `CLOSE_FRIEND_RING_CLASS` constant and applies it via `cn()` to the `Avatar` wrapper. Both `RsvpSection` and `RsvpModal` use `RsvpAvatar` — so the entire event-detail page's close-friend affordance updates from one file.
+
+```
+lib/ui.ts (CLOSE_FRIEND_RING_CLASS)
+  └─ RsvpAvatar (reads constant, applies via cn() to Avatar wrapper)
+       ├─ RsvpSection (uses RsvpAvatar for inline attendee list)
+       └─ RsvpModal (uses RsvpAvatar for full attendee grid)
+```
+
+### The Rule
+
+When you copy the same Tailwind class list into a second component, do one of these:
+1. **Use a Zaidan component** if the pattern is a standard UI primitive (button, card, input) — see [[component-library]]
+2. **Lift a token into `lib/ui.ts`** if the pattern is app-specific visual treatment (close-friend ring, status colours)
+
+### Testing
+
+The `RsvpAvatar` test asserts that the constant reaches the DOM, so you can check the link stays intact. A broken import or a renamed constant would drop the visual treatment with no runtime error.
+
+## Shared Auth Components
+
+Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
+
+- `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, **mandatory** passkey enrollment)
+- `<SignIn />` — passkey-only login (identifier-bound or discoverable). Routes to `<RecoveryLoginForm>` via the "Lost your passkey?" link
+- `<RecoveryLoginForm />` — recovery-code login (lost-device escape hatch)
+- `<StepUpDialog />` — sudo ceremony for sensitive actions (recovery generate, email change, passkey delete)
+- `<SessionsView />` — per-device session list + "sign out everywhere else"
+- `<PasskeysView />` — passkey rename / delete (step-up gated)
+- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+
+Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/auth-ui/*` and injects a client from `@osn/client`.
+
+## Lazy Loading
+
+Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never load the chunk.
+
+## Rendering and animation gotchas
+
+Every one of these cost a real bug. They were all found in cire, but none of them
+is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
+Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
+`@musubi/social` the same way. What unites them is that **the fast test tier cannot
+see any of them**: jsdom and happy-dom compute no styles and no layout, so a
+green unit suite proves nothing here. Pin the class contract in the fast tier and
+measure the real thing in the browser tier ([[browser-tests]]).
+
+### Tailwind class names must be literal source text
+
+The scanner reads source as text. A computed class — `` `grid-cols-${n}` ``, or any
+concatenation — emits **no CSS at all**, silently, because an unknown class is
+simply ignored. Where a layout constant must exist in JS too (a key handler
+stepping by a grid's column count, say), keep the literal at the usage site,
+export the constant, and add a static drift guard in the tests asserting the two
+agree. `SECTION_MENU_COLUMNS` (`cire/host` `invite/InviteBuilder.tsx`) and the
+`auto-grid` / `page-frame` utilities use this pattern.
+
+### `createMemo` runs eagerly, so declare memos below their dependencies
+
+Unlike a plain accessor, a memo's computation runs at creation. A memo declared
+above the `const` it reads throws a TDZ error at component-init — not on first
+read, which is where you would look for it.
+
+### A `transform` on any ancestor breaks `position: fixed`
+
+It makes `fixed` resolve against that ancestor rather than the viewport, **and**
+makes the ancestor a stacking context that no `z-index` can escape. Motion One
+leaves its final inline `transform` on the elements it animates, so anything
+`fixed` mounted inside an animated section is doubly trapped: mispositioned
+(measured 723–814px down the page instead of at the viewport edge — off-screen on
+a phone) and painted below page-level overlays. This is what left cire's RSVP save
+toast behind the `z-100` sheet it fires underneath.
+
+**Fix:** mount page-level overlays at the component root, as siblings of the
+modals, never inside an animated section.
+
+**Testing it:** do NOT reach for `document.elementFromPoint`. `@shared/toast`'s
+container is deliberately `pointer-events: none`, so it hit-tests as transparent
+even when painted perfectly. Assert the mechanism instead — no fixed-position
+containing block between the element and `<body>`, and a computed `z-index` above
+`Z_LAYER.MODAL`.
+
+### Motion One leaves its final keyframe as inline style, and Solid will not clean it up
+
+A fade-out ending at `opacity: 0` leaves `opacity: 0` on the element forever.
+Harmless while the element never returns — and a blank-screen bug the moment
+something brings it back, because Solid's style binding on that node typically
+owns only `display`. It happily restores `display` onto a fully transparent box.
+
+Whenever you add a path that **re-shows** what an animation hid, clear what that
+animation wrote (`el.style.opacity = ""`, `el.style.transform = ""`). Writing those
+two is safe where writing `display` is not, precisely because Solid does not
+manage them — there is no binding to desynchronise.
+
+The unit tier cannot see this: jsdom computes no styles, and those tests mock the
+animation away, so the cause never runs. Assert it in the browser tier with
+`checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` — `display`
+alone was never the failure. (Found on cire's guest sign-out control: the restored
+claim form sat at `opacity: 0` in both design packs, with 800 unit tests green.)
+
+### Write an animation's inline end state when it finishes, never before it starts
+
+Motion reverts to base styles on finish, which is why a reveal keeps an inline end
+state. Writing that `opacity: 1` up front instead paints one full-brightness frame
+that the animation's first keyframe drops back to zero — the viewer sees content
+blink in, vanish, and fade in again.
+
+A staggered child is worse: nothing hides it (only its container carries
+`opacity-0`), so a `startDelay` leaves every child at full opacity from the moment
+the container appears until Motion commits its first frame. Hide the children
+inline first, run the animations, and settle the inline end state in a `finally`,
+so a stalled or throwing step can never leave them invisible.
+
+One frame is invisible to jsdom **and** to the browser tier's assertions-after-the-
+fact — catch it by sampling `getComputedStyle` per `requestAnimationFrame` in a
+real browser (`UnlockReveal.motion.ts`, both packs).
+
+### Anything a choreography animates must be in the DOM before it runs
+
+Cire's post-claim components are `lazy`, so on a cold cache their chunk is still in
+flight when the claim resolves, `<Suspense fallback={null}>` renders no cards, and
+the reveal animates an empty section with nothing to stagger. The cards then slam
+into the layout at full opacity when the chunk lands. `awaitEventCards`
+(`cire/invites` `components/await-event-cards.ts`) is the fix: the sequence awaits
+it through the `waitForEvents` hook, **under** the fade-out of the step before it
+rather than on top of it, and both halves of the wait are capped so a chunk that
+never arrives still reveals the page.
+
+### `position: sticky` resolves its offsets against the scrollport
+
+Not against its parent's content box — so the usual "cancel the container's padding
+with a negative margin" trick inverts on a sticky element: a negative bottom margin
+*hoists it up* over the content instead of stretching it down into the padding.
+
+A full-bleed sticky action bar must instead have the scroll container drop its own
+bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
+— the `flushBottom` prop on `AnimatedModal`, used by cire's `RsvpModal`.
+
+For that to work the panel around the scrollport must not itself scroll, which is
+`Modal`'s `frame` — see [[wiki/shared/component-library]] §Overlays, which
+also covers the `<dialog>` user-agent padding that put this exact bar 16px above
+the edge it seats on.
+
+### The top layer is above every `z-index`, and outside it everything is `inert`
+
+A `<dialog>` opened with `showModal()` paints above every stacking context in the
+document by definition, so nothing outside the top layer can be raised over it at
+any number — and a modal dialog additionally makes every node outside itself
+inert, so a popover or toast shown out there is *visible and dead*. Both halves
+matter the moment an app adopts `@shared/ui`'s `Modal`, and the second one is the
+half a `z-index` guard cannot see. The mechanism, the two doors into the top
+layer, and what it means for a menu opened from inside a sheet are in
+[[wiki/shared/component-library]] §What has to sit above a modal.
+
+### A width-only reflow guard cannot see a drag that only changes height
+
+`createAutoSize()` (`cire/vendor/src/lib/auto-size.ts`, byte-identical in
+`cire/host`) animates a frame's height on a `ResizeObserver` delivery, and
+guards against animating a plain text reflow (a narrower window rewrapping
+the content) by comparing the observed width to the last one: unchanged width
+means real content changed, not layout. That guard has one blind spot —
+anything that changes height at a **fixed** width reads as a content change
+on every delivery, because the one signal the guard checks did not move.
+
+A `resize-y` `<textarea>` is exactly that case. Dragging its resize grip
+changes height continuously at a fixed width, so every delivery inside the
+frame's animation cap sets `overflow: hidden`, `contain: layout paint` and a
+fresh transition it never finishes, forcing a synchronous
+`getBoundingClientRect()` per frame — the reflow the guard exists to prevent,
+arriving through the one axis it does not watch. `Textarea`'s `resize` prop
+(`cire/host` and `cire/vendor` `components/ui/Field.tsx`, default `"y"`) is
+the fix: opt a textarea out of user-resize when it sits inside an
+auto-sized frame. Passing `class="resize-none"` at a call site does **not**
+work — `Field.tsx` appends its own resize class after the caller's, so both
+land on the element and Tailwind resolves the conflict by the two utilities'
+order in the generated stylesheet, not by attribute order. Reach for a real
+prop, not a class override, whenever a component appends its own class after
+the caller's (xchromo/osn-tracker#130).
+
+### `sr-only` is `position: absolute`, so a pill in a scroller needs a positioned parent
+
+Tailwind's `sr-only` hides a control by taking it out of flow — 1x1px,
+`clip-path: inset(50%)`, and **`position: absolute`**. An absolutely positioned
+box resolves against the nearest *positioned* ancestor, so a visually hidden
+`<input>` inside a static `<label>` inside a scrolling track does not belong to
+the track at all: it belongs to whatever box is positioned further up, and it
+does not travel when the track scrolls.
+
+Clicking the label focuses that input, and the browser then scrolls every
+scrollable ancestor to reveal it — toward a position that is correct for the
+distant containing block and wrong by the track's whole scroll offset. On cire's
+guest RSVP sheet that scrolled the `<dialog>` itself: `dialog.scrollLeft` went
+0 → 1213 at 1024px and 0 → 1182 at 414px, sliding the entire sheet sideways with
+no way back.
+
+**Fix:** make the label a containing block (`relative`). Then the input is where
+it looks, and the scroll the browser performs is zero.
+
+**Second-order cost, and it is not optional.** Positioning the label promotes it
+past every *non*-positioned box, so anything relying on being an
+earlier-in-tree positioned sibling — a close chip pinned over a scroller, say —
+now paints underneath. Give that element an explicit `z-index` in the same
+change, and hit-test it: `document.elementFromPoint` at the chip's own centre
+answers the chip when it is right and the pill when it is not.
+
+**Testing it:** assert the containing block directly — `input.offsetParent`
+is the label — rather than only the symptom. A scroll-offset assertion passes as
+soon as *any* fix is in place, including a `clip` on an ancestor, so it cannot
+tell you the cause came back.
+
+### `overflow: hidden` is still a scroll container; `overflow: clip` is not
+
+`hidden` refuses the user a scrollbar and grants everything else: `scrollIntoView`,
+`element.scrollLeft = n`, and the scroll the platform performs when focus lands
+on a descendant it believes sits outside the box. A `hidden` box that gets
+scrolled has no affordance to scroll back. `clip` is not a scroll container at
+all and has no scroll offset to move — which is why `@shared/ui`'s `Modal`
+frame panel clips.
+
+Both axes have to say `clip`. Beside an `auto` or `scroll` axis, a `clip`
+computes to `hidden` (CSS Overflow 3 §3.1), so `overflow-x-clip` next to
+`overflow-y-auto` buys nothing at all — verified in Chromium: the pair computes
+to `hidden` / `auto`. If a box must scroll on one axis, it is a scroll container,
+and the fix belongs at the cause rather than here.
+
+### A reveal needs a wrapper that outlives the content it reveals
+
+Animating a box open needs two states on **one** element, and an element that
+Solid's `<Show>` has just inserted has only the state it was inserted with. Two
+consequences, both of which bit:
+
+- Declaring the transition on the content means reaching for `@starting-style`
+  to invent a from-state — which then also fires on the very first paint, so a
+  field that was already open before the sheet opened animates in behind the
+  sheet's own entry.
+- An *exit* transition means holding the content in the document while the box
+  collapses. For a form that is a focusable input inside a box of zero height:
+  reachable by keyboard, invisible to the eye.
+
+`@cire/ui/reveal` is the shape that avoids both. The grid wrapper is
+unconditional and moves `grid-template-rows: 0fr → 1fr` — an ordinary transition
+on an element that was already there, and one that mounts open simply is open.
+Only the content is inside the `<Show>`, so the close is instant and nothing
+focusable survives it. `1fr` resolves to the content's own height, so nothing is
+measured and no JavaScript runs; `interpolate-size: allow-keywords` with
+`height: auto` says the same thing more directly but is not yet in every engine
+these apps are opened in.
+
+## Source Files
+
+- [shared/ui/src/ui/](../../shared/ui/src/ui/) — Zaidan component primitives
+- [shared/ui/src/lib/utils.ts](../../shared/ui/src/lib/utils.ts) — `cn()` utility
+- [pulse/web/src/lib/ui.ts](../../pulse/web/src/lib/ui.ts) — shared UI tokens
+- [osn/auth-ui/src/Register.tsx](../../osn/auth-ui/src/Register.tsx) — shared registration component
+- [osn/auth-ui/src/SignIn.tsx](../../osn/auth-ui/src/SignIn.tsx) — shared sign-in component

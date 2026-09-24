@@ -11,7 +11,7 @@
 -- the mean 15.4M and the maximum 92.7M, so a mean describes the three largest
 -- pull requests and invents month-over-month growth that is not there.
 --
--- Full schema and the reasoning behind it: wiki/observability/session-metrics.md
+-- Full schema and the reasoning behind it: wiki/conventions/session-metrics.md
 
 CREATE OR REPLACE VIEW cards AS
   SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true);

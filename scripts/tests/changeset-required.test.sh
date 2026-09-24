@@ -33,24 +33,9 @@ scripts/changeset-required.sh'
 
 run_case "wiki and top-level prose only" skip \
   'wiki/TODO.md
+AGENTS.md
 CLAUDE.md
 README.md'
-
-# cire's own vault. Under `cire/`, but shipped by no cire package.
-run_case "cire wiki only" skip \
-  'cire/wiki/index.md
-cire/wiki/architecture/guest-event-editor.md'
-
-run_case "cire wiki plus a cire source file" required \
-  'cire/wiki/index.md
-cire/host/src/lib/osn.ts'
-
-run_case "retired cire/CLAUDE.md alone" skip \
-  'cire/CLAUDE.md'
-
-run_case "retired cire/CLAUDE.md plus a source file" required \
-  'cire/CLAUDE.md
-cire/api/src/index.ts'
 
 # Agent instructions: read by the coding agent, shipped by no package.
 run_case "agent instructions only" skip \

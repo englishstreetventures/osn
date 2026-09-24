@@ -22,7 +22,7 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * `cire-api` with the `graph:read,graph:resolve-account` scopes. Workers have
  * no long-lived process, so the ephemeral-key + startup self-registration +
  * rotation dance that pulse-api uses does not apply here — see
- * `[[wiki/systems/cire-auth]]`.
+ * `[[wiki/cire/cire-auth]]`.
  */
 
 const ARC_ISSUER = "cire-api";

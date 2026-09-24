@@ -5,12 +5,12 @@ tags: [convention, wiki, obsidian, search]
 related:
   - "[[index]]"
   - "[[contributing]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-09-23
 ---
 
 # Searching the wiki
 
-`CLAUDE.md` carries the short version: three tiers, and grep is the one that
+`AGENTS.md` carries the short version: three tiers, and grep is the one that
 works everywhere. This page is the long version — what each tier can do, where
 it exists, and the traps in the two that talk to a running Obsidian.
 
@@ -18,7 +18,7 @@ it exists, and the traps in the two that talk to a running Obsidian.
 first two tiers below reach a local Obsidian over `127.0.0.1` and are simply
 absent in a remote or CI session, which is exactly the session most likely to
 need a search protocol. That is why the grep tier stays written out in
-`CLAUDE.md` itself rather than only here.
+`AGENTS.md` itself rather than only here.
 
 Three ways, in order. Try each; drop to the next when it isn't there.
 
@@ -82,7 +82,7 @@ obsidian files vault=wiki folder=systems               # list files in a folder
 
 Two repo-specific rules the skill can't know:
 
-- **Paths are vault-root-relative, and the vault root is `wiki/`.** `path=systems/arc-tokens.md`, not `path=wiki/systems/...` — the latter errors with `File not found`. `file=` takes a wikilink target (`file=arc-tokens`) instead.
+- **Paths are vault-root-relative, and the vault root is `wiki/`.** `path=osn/arc-tokens.md`, not `path=wiki/osn/...` — the latter errors with `File not found`. `file=` takes a wikilink target (`file=arc-tokens`) instead.
 - **Read only, same as the MCP and for the same reason.** The CLI acts on the vault, and the vault is `main`'s `wiki/`. `create`, `append`, and `property:set` would write to `main`'s working tree, not your branch. There are three vaults registered (`wiki`, `echo_chamber`, `vault_india_22`) — always pass `vault=wiki` rather than trusting the default.
 
 **3. grep** — works everywhere, including remote and CI. Reads your worktree's own `wiki/`:

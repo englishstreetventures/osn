@@ -96,7 +96,7 @@ An issue is read once, months later, by someone with no branch checked out and n
 - **Name the file and line** in **Issue**. "Missing rate limit" is not a location.
 - **State the fix** in **Solution** — the function to call, the column to add, the header to set. Not "add a limit".
 - **No pointer-only bodies.** "See `wiki/todo/api.md`", "tracked in the TODO", "migrated from <file>" is a bookmark, not an issue. The page it points at moves, gets rewritten, or is deleted — the migration of 2026-08-15 deleted every one of them.
-- **Wiki links are context, never the content.** Where a page genuinely helps, name it by repo path (`wiki/systems/rate-limiting.md`) and still put the fact in the issue. A `[[wikilink]]` does not resolve on GitHub.
+- **Wiki links are context, never the content.** Where a page genuinely helps, name it by repo path (`wiki/shared/rate-limiting.md`) and still put the fact in the issue. A `[[wikilink]]` does not resolve on GitHub.
 - **Spell out the acronyms and IDs** the body leans on the first time they appear. The ID in the title is a handle, not an explanation.
 
 One issue per finding, with the ID leading the title and the four fields as the body:

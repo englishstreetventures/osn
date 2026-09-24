@@ -13,7 +13,7 @@
  * a response, because the remaining oracle after the bodies are uniform is
  * cost. See its own header.
  *
- * See `wiki/architecture/account-recovery-factors.md` §B and
+ * See `wiki/osn/account-recovery-factors.md` §B and
  * §"Enumeration, timing and flood control".
  */
 
@@ -766,7 +766,7 @@ describe("POST /login/recovery/totp/complete", () => {
 // non-resolving branch must match the COSTLIEST resolving one, not the
 // cheapest.
 //
-// See `wiki/architecture/account-recovery-factors.md`
+// See `wiki/osn/account-recovery-factors.md`
 // §"Enumeration, timing and flood control".
 // ---------------------------------------------------------------------------
 

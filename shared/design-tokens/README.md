@@ -63,7 +63,7 @@ the 3,120 class attributes in the tree.
 The prefix is `ui-` because that is what these names are *for*, and because a
 prefix is read as a claim about ownership: nothing here belongs to the identity
 system, and most of the surfaces painting with it never touch an OSN ceremony.
-`wiki/architecture/osn-and-musubi.md` is what decides which name a new package,
+`wiki/shared/osn-and-musubi.md` is what decides which name a new package,
 token or identifier takes.
 
 ## The contract

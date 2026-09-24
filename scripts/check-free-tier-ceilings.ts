@@ -3,7 +3,7 @@
  * Watch the Cloudflare free-tier counters and file one issue when a day gets
  * near a ceiling.
  *
- * `wiki/runbooks/free-tier-limits.md` used to list these ceilings and say to
+ * `wiki/shared/free-tier-limits.md` used to list these ceilings and say to
  * watch them, which meant a person opening a dashboard. Nobody did, so the D1
  * rows-written ceiling was crossed on 2026-08-30 and again on 2026-09-09 and
  * was only found by hand on 2026-09-10 (xchromo/osn#979).
@@ -36,7 +36,7 @@
 // https://developers.cloudflare.com/d1/platform/pricing/ and
 // https://developers.cloudflare.com/d1/platform/limits/ (which is where the
 // two storage figures live). The same numbers are in
-// `wiki/runbooks/free-tier-limits.md` and have to move with these.
+// `wiki/shared/free-tier-limits.md` and have to move with these.
 //
 // Storage uses decimal megabytes and gigabytes, which is how Cloudflare prices
 // it. Were they binary the true ceilings would be larger, so this errs toward
@@ -324,7 +324,7 @@ export function renderIssueBody(breaches: readonly Breach[], window: Window, now
     "What to do: find which job or route spent the rows, and either cut it or move",
     "to Workers Paid. For D1, `bunx wrangler d1 insights <db> --time-period=7d",
     "--sort-by=writes --limit=20 --json` names the query. The ceilings, what breaks",
-    "at each, and the upgrade costs are in `wiki/runbooks/free-tier-limits.md`.",
+    "at each, and the upgrade costs are in `wiki/shared/free-tier-limits.md`.",
     "",
     "Filed by `.github/workflows/free-tier-ceiling-alert.yml`, which runs",
     "`scripts/check-free-tier-ceilings.ts` once a day and edits this issue in",

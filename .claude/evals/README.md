@@ -632,9 +632,9 @@ is part of the diff.
 
 Not "does the agent know this?" but **what does the skill add on top of
 everything already in the repository.** The baseline run is not an ignorant
-agent: it gets `CLAUDE.md`, the whole `wiki/`, and every committed script,
+agent: it gets the root instructions file, the whole `wiki/`, and every committed script,
 including the ones that answer the question outright. `scripts/validate-changesets.sh`
-is a working oracle for the changeset scenario, and `CLAUDE.md` names the exact
+is a working oracle for the changeset scenario, and the instructions file at the fixture commit names the exact
 trap the fixture plants.
 
 That is the honest question to ask of a skill, and it has one hard consequence:

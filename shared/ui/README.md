@@ -16,8 +16,8 @@ a versioned dependency.
 
 Nothing here knows about a session, an API client or an app's colour names. A
 component that needs one of those belongs in one of the other two packages. The
-line and the reason behind it are in `wiki/architecture/osn-and-musubi.md`;
-`wiki/architecture/component-library.md` is the long form of this README.
+line and the reason behind it are in `wiki/shared/osn-and-musubi.md`;
+`wiki/shared/component-library.md` is the long form of this README.
 
 ## Using it
 
@@ -41,7 +41,7 @@ no app declares either. What an app still owes is a `--ui-*` mapping block —
 `--ui-surface`, `--ui-ink`, `--ui-accent`, the rest — pointing the contract at
 its own colour names. `pulse/web/src/app.css` and
 `cire/host/src/styles/global.css` are the worked examples, and the vocabulary is
-in `wiki/architecture/design-tokens.md`.
+in `wiki/shared/design-tokens.md`.
 
 Components are styled entirely in `base:`-prefixed contract utilities
 (`base:bg-ui-surface`, `base:text-ui-ink`). `base:` compiles to `:where(…)`, so

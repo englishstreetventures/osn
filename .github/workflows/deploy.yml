@@ -45,7 +45,7 @@ name: Deploy
 # The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
 # origin. Its database takes migrations forward on each deploy and is wiped and
 # re-seeded once a night by cire-dev-db-rebuild.yml, not on every merge. See
-# [[wiki/runbooks/dev-environment]].
+# [[wiki/shared/dev-environment]].
 on:
   push:
     branches: [main]
@@ -226,7 +226,7 @@ jobs:
   # and the secret itself never reaches the step. Nothing depends on this job —
   # no `needs:` edge — so it cannot delay or fail a deploy. It exists to be read
   # on the day the dev credential appears, or the day it goes missing again.
-  # See [[wiki/runbooks/dev-environment]] §Two Environments, two tokens for the
+  # See [[wiki/shared/dev-environment]] §Two Environments, two tokens for the
   # ordered move and why deleting the repository-scope secret early breaks
   # every deploy in the repository.
   credential-scope:
@@ -970,7 +970,7 @@ jobs:
   # invites moved to `invite.`, organiser to `host.`). The apex custom domain is
   # attached to the `cire-landing` Pages project in the Cloudflare dashboard (a
   # Pages custom domain, not a wrangler config route) — see
-  # wiki/apps/cire-landing.md cutover steps.
+  # wiki/cire/cire-landing.md cutover steps.
   deploy-cire-landing:
     name: Deploy cire/landing — production (apex)
     needs: [build, changes, deploy-cire-landing-dev]
@@ -1345,7 +1345,7 @@ jobs:
           if [ -z "${VITE_TURNSTILE_SITEKEY}" ]; then
             echo "::error::Repo Variable PUBLIC_TURNSTILE_SITEKEY is empty or unset."
             echo "osn-api has TURNSTILE_SECRET_KEY set, so a build without the sitekey"
-            echo "fails closed on every sign-in and registration. See wiki/systems/turnstile.md."
+            echo "fails closed on every sign-in and registration. See wiki/shared/turnstile.md."
             exit 1
           fi
         env:
@@ -1374,7 +1374,7 @@ jobs:
   # ═══ zap/api (Worker + D1) ═════════════════════════════════════════════════
   # DORMANT: zap-api is not yet provisioned in prod (the D1 database doesn't
   # exist yet). Until the real D1 id is filled in (a deploy-time step — see
-  # wiki/runbooks/production-deploy.md), the "Detect zap prod provisioning"
+  # wiki/shared/production-deploy.md), the "Detect zap prod provisioning"
   # step below detects the placeholder and emits provisioned=false, causing
   # both the migrate + deploy steps to be skipped. The job runs green + inert.
   # Once zap-db-prod is created and its id replaces the placeholder, both steps

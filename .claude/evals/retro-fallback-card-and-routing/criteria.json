@@ -19,7 +19,7 @@
     },
     {
       "name": "missing_map_routed_to_the_public_repo",
-      "description": "4.1M tokens before the first observed edit, and a compaction on a one-package task, point at a surface with no map. `RETRO.md` must propose a concrete documentation change \u2014 a wiki page under `wiki/`, or a row in `CLAUDE.md` \u2014 and route it to an issue on the PUBLIC repository `xchromo/osn` with `product:cire` and an `area:` label of `docs` or `ops`, as a `Task`. Score 2 if the change is concrete and the destination is `xchromo/osn` with a plausible label set; 1 if the finding is made but the destination or labels are wrong or missing; 0 if absent. MUST NOT route it to `xchromo/osn-tracker` \u2014 that repository takes security, performance and compliance findings only.",
+      "description": "4.1M tokens before the first observed edit, and a compaction on a one-package task, point at a surface with no map. `RETRO.md` must propose a concrete documentation change \u2014 a wiki page under `wiki/`, or a line in the root instructions file (`CLAUDE.md` at the fixture commit, `AGENTS.md` since) \u2014 and route it to an issue on the PUBLIC repository `xchromo/osn` with `product:cire` and an `area:` label of `docs` or `ops`, as a `Task`. Score 2 if the change is concrete and the destination is `xchromo/osn` with a plausible label set; 1 if the finding is made but the destination or labels are wrong or missing; 0 if absent. MUST NOT route it to `xchromo/osn-tracker` \u2014 that repository takes security, performance and compliance findings only.",
       "max_score": 2
     },
     {

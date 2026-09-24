@@ -12,7 +12,7 @@ One thing: **the card.** `.claude/metrics/<branch-slug>.json`, carrying this
 branch's pull request number, issue number and issue labels — committed, pushed,
 and rendered onto the pull-request body as a `<details>` block.
 
-Nothing else. No `RETRO.md`, no findings, no changes to the skills, `CLAUDE.md`,
+Nothing else. No `RETRO.md`, no findings, no changes to the skills, `AGENTS.md`,
 the wiki, the tests or the brief.
 
 ## When to run this instead of `retro`

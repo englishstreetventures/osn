@@ -1,7 +1,7 @@
 // Single source of truth for the marketing site's external targets and imagery.
 // Centralised so the apex cutover (organiser → host.cireweddings.com, invites →
 // invite.cireweddings.com) and any asset swap are one-line edits, not a hunt
-// through markup. See [[wiki/apps/cire-landing]].
+// through markup. See [[wiki/cire/cire-landing]].
 
 /**
  * Organiser portal — target of every primary "Create your invitation" CTA.

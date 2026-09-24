@@ -28,4 +28,4 @@ CTA target + canonical origin are build-time env vars (see `.env.example`):
 
 Site metadata, CTA target and the category list live in `src/lib/site.ts`.
 
-See [`wiki/apps/pulse-landing.md`](../../wiki/apps/pulse-landing.md).
+See [`wiki/pulse/pulse-landing.md`](../../wiki/pulse/pulse-landing.md).

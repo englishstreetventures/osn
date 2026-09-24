@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Use when running the retrospective on a piece of work that has just finished — the retro, normally the step straight after `prep-pr` opens the pull request — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `CLAUDE.md`, the wiki, the tests or the brief. Also the owner of the card — nothing else writes one carrying the pull request's identity.
+description: Use when running the retrospective on a piece of work that has just finished — the retro, normally the step straight after `prep-pr` opens the pull request — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `AGENTS.md`, the wiki, the tests or the brief. Also the owner of the card — nothing else writes one carrying the pull request's identity.
 ---
 
 Run the retrospective for the branch named in `$ARGUMENTS`, or the current
@@ -209,7 +209,7 @@ artefact that would have prevented it.
 The five sources, in the order they are worth mining:
 
 1. **What was re-derived.** A fact the session worked out from the source that
-   a wiki page, a `CLAUDE.md` row or a skill could have stated. This is the
+   a wiki page, a `AGENTS.md` row or a skill could have stated. This is the
    highest-yield source and the reason `tokens_before_first_edit` is on the
    card.
 2. **What was corrected.** Every `corrective_turn` is a course correction that
@@ -231,8 +231,8 @@ The five sources, in the order they are worth mining:
 
 | Signal | Usually means | Where the fix goes |
 |---|---|---|
-| High `tokens_before_first_edit`, package with no wiki page | No map for that surface | A new `wiki/` page, and a row in `CLAUDE.md` §Wiki Navigation |
-| A fact re-derived that one line could have stated | `CLAUDE.md` is missing a row, or the wiki page is missing a heading | Prefer the wiki page; `CLAUDE.md` only for something every session needs |
+| High `tokens_before_first_edit`, package with no wiki page | No map for that surface | A new `wiki/` page, and a line in `wiki/index.md` |
+| A fact re-derived that one line could have stated | `AGENTS.md` is missing a row, or the wiki page is missing a heading | Prefer the wiki page; `AGENTS.md` only for something every session needs |
 | `corrective_turns` ≥ 3 | The brief was unclear | **The prompt.** Say what the task should have carried. No issue — there is nobody to assign it to |
 | A skill ran and the mistake happened anyway | The skill is missing a trap | That `SKILL.md`, as a named failure mode, not a general exhortation |
 | A review finding a gate could have caught | Missing test, missing house rule, missing CI step | `tests/`, `tools/oxlint/house`, or `.github/workflows` |
@@ -249,7 +249,7 @@ the task it struggled with as hard and the documentation it read as adequate.
 The defence is that every finding names an artefact and a moment, never a
 difficulty. "This was tricky" is not a finding. "The session read
 `osn/api/src/lib/origin-guard.ts` three times because
-`wiki/systems/rate-limiting.md` does not say which routes are exempt" is.
+`wiki/shared/rate-limiting.md` does not say which routes are exempt" is.
 
 **2. A new skill is almost never the answer.** Skills are context that every
 future session pays for, they are measured by evals, and one nobody invokes
@@ -279,7 +279,7 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 
 | Kind | Where | Labels |
 |---|---|---|
-| A wiki page or `CLAUDE.md` change | Make it **on this branch** if it is small and the pull request is still open; otherwise an issue in `xchromo/osn` | `area:docs`, `product:` of the surface, `--type Task` |
+| A wiki page or `AGENTS.md` change | Make it **on this branch** if it is small and the pull request is still open; otherwise an issue in `xchromo/osn` | `area:docs`, `product:` of the surface, `--type Task` |
 | A missing test, house rule or CI gate | Issue in `xchromo/osn` | `area:ops` or `area:schema` as it fits, `--type Task` |
 | A skill or agent-definition change | Issue in `xchromo/osn` | `area:ops`, `product:shared`, `--type Task` |
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |
@@ -326,7 +326,7 @@ reply it is nowhere.
 
 ## What this reads and feeds
 
-`wiki/observability/session-metrics.md` is the reference for every field and
+`wiki/conventions/session-metrics.md` is the reference for every field and
 for why the card holds exactly one scalar judgement.
 `tools/pr-metrics/README.md` has the commands. **`analyse-sessions` is the
 corpus-level counterpart**: this skill looks at one session and may propose a

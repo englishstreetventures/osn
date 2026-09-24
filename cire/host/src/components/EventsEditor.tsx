@@ -79,7 +79,7 @@ const UNNAMED_EVENT = "Untitled event";
  *
  * All three now come from `createSortableList` in `@shared/sortable`, which
  * owns and tests the five obligations that make them work — see its docblock,
- * and `wiki/architecture/drag-and-drop.md`, before changing any of it.
+ * and `wiki/shared/drag-and-drop.md`, before changing any of it.
  */
 export default function EventsEditor(props: { weddingId: string }) {
   const { authFetch } = useAuth();

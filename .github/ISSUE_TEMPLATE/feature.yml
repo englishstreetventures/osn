@@ -56,7 +56,7 @@ body:
       label: Notes
       description: >-
         Constraints, the files or systems this touches, prior issues or PRs. Reference a wiki
-        page by repo path (`wiki/systems/rate-limiting.md`) and restate the fact here anyway —
+        page by repo path (`wiki/shared/rate-limiting.md`) and restate the fact here anyway —
         a [[wikilink]] does not resolve on GitHub, and pages move.
     validations:
       required: false

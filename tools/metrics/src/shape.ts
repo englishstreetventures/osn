@@ -2,7 +2,7 @@
  * The data-shaping behind every chart, kept free of Solid and Plot so it can be
  * tested under `bun test` without a DOM or a bundler.
  *
- * Two rules from `wiki/observability/session-metrics.md` govern everything here:
+ * Two rules from `wiki/conventions/session-metrics.md` govern everything here:
  *
  *   - Median, never mean, for a per-pull-request distribution. The corpus is
  *     severely right-skewed and a mean describes its three largest cards.

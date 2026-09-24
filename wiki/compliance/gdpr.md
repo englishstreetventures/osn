@@ -28,7 +28,7 @@ becomes the controller; we process on its instruction).
 |---|---|---|---|
 | Art. 5(1)(a) — Lawfulness, fairness, transparency | Tell users what we collect and why, before collecting | **Partial** — cire guest site ships `/privacy` + `/terms` with a site-wide footer (PR #124, C-H4); OSN landing-side notice still not built | [[data-map]] is the source; cire notice published, landing-side notice pending |
 | Art. 5(1)(b) — Purpose limitation | Use data only for the declared purpose | OK in code; not documented | [[data-map]] |
-| Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded | [[identity-model]], [[sessions]], [[observability/overview]] |
+| Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded | [[identity-model]], [[sessions]], [[shared/observability/overview]] |
 | Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@musubi/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
 | Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Gap** — no documented retention schedule | [[retention]] |
 | Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most `wiki/systems/` pages |

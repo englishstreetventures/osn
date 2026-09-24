@@ -20,7 +20,7 @@
  *    module upholds the same P6 invariant as the access token: nothing we hand
  *    out lets an outside observer join two profiles into one account.
  *
- * See [[wiki/systems/oidc-provider]].
+ * See [[wiki/osn/oidc-provider]].
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";

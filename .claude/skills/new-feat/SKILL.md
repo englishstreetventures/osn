@@ -55,7 +55,7 @@ gh issue create --repo xchromo/osn \
 
 **Done when** — the observable result. Not "implemented"; the thing a reviewer can check.
 
-**Notes** — constraints, the files or systems it touches, anything already decided. Wiki pages by repo path (`wiki/systems/rate-limiting.md`), and the fact they carry restated here — a `[[wikilink]]` does not resolve on GitHub.
+**Notes** — constraints, the files or systems it touches, anything already decided. Wiki pages by repo path (`wiki/shared/rate-limiting.md`), and the fact they carry restated here — a `[[wikilink]]` does not resolve on GitHub.
 BODY
 )
 ```
@@ -104,7 +104,7 @@ If the session was given a **designated `claude/*` branch**, use that exact name
 
 Explore and plan; do not implement yet. Dispatch a `Plan` subagent when one is available, otherwise do it inline. If dispatched, open its prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute the planning spend to this branch's card; without it the spend banks against whatever branch this session happened to be on.
 
-**Start in the wiki, not the source.** The systems the work touches have pages holding their contract, finding history and observability — cheaper to read than to reconstruct from code. Follow the three-tier ladder in `CLAUDE.md` §Searching the wiki (Obsidian MCP when present, else the `obsidian` CLI, else grep), then open the source to confirm what the pages claim.
+**Start in the wiki, not the source.** The systems the work touches have pages holding their contract, finding history and observability — cheaper to read than to reconstruct from code. Follow the three-tier ladder in `AGENTS.md` §The wiki (detail in `wiki/conventions/wiki-search.md`) (Obsidian MCP when present, else the `obsidian` CLI, else grep), then open the source to confirm what the pages claim.
 
 The plan names:
 
@@ -116,7 +116,7 @@ The plan names:
 - **the issue's premise, verified.** An issue states what was true when it was written; check the sentence the work rests on before the plan inherits it
 - Effect, WebSocket or E2E-encryption considerations, if any
 - the changeset — always needed unless every changed file is on the allowlist in `scripts/changeset-required.sh`; `@cire/*` packages are version-less and never share a changeset with a versioned one
-- **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` and that outbound HTTP goes through `instrumentedFetch`; which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/observability/overview.md` holds the rules.
+- **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` and that outbound HTTP goes through `instrumentedFetch`; which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/shared/observability/overview.md` holds the rules.
 
 ## Step 3 — Attack the plan before building on it
 

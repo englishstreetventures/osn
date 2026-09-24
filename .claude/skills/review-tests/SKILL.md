@@ -148,6 +148,16 @@ rather than edited: restore the five headings, put the gap back under
 
 A test asserting only that a function returns without throwing is not coverage. Say so, as `T-U`, and name what it should assert.
 
+**No tautological tests.** A test that cannot fail however the code under test changes is not coverage, and it is worse than no test: it reads as coverage. Check every test the branch adds or changes against these shapes:
+
+- **It asserts its own setup.** A mock is told to return `X` and the test asserts `X` came back, with no code of ours transforming it on the way. The same goes for a fixture written and then read straight back.
+- **It computes the expected value the way the code does.** The expectation calls the function under test, or copies its formula, so a wrong formula is wrong on both sides.
+- **It asserts a hand-written mirror.** A constraint test against a `CREATE TABLE` string, a list of values typed out beside the constant it claims to check, a type restated as a literal. It proves what the author typed, not what the source declares.
+- **Its assertion cannot be false.** `expect(true)`, `toBeDefined()` on something just constructed, `toBeTruthy()` on an object, a snapshot of a mock's output, or `expect.anything()` where the value matters.
+- **It asserts nothing a user or caller sees.** It checks that a mock was called, and not what the call did.
+
+To test a suspect, ask: if I broke the line this test names, would it go red? When the answer is no, that is `T-U` for the export it claims to cover — the export is untested. Name the real behaviour to assert in the `Solution`, and in the `Why` name the change that would pass unnoticed.
+
 **A comment is a claim, not a test.** A `// covered by the integration suite`, a
 describe block named after a case it never asserts, or a doc comment listing
 error modes is not evidence any of it runs. Grep for the assertion. Coverage is

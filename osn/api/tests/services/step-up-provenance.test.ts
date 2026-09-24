@@ -20,8 +20,8 @@
  * the raw AMR of the registering step-up passes every other test in this file
  * and leaves the pivot open behind one extra request.
  *
- * See `wiki/systems/step-up.md` and
- * `wiki/architecture/account-recovery-factors.md` §D.
+ * See `wiki/osn/step-up.md` and
+ * `wiki/osn/account-recovery-factors.md` §D.
  */
 
 import { it, expect, describe } from "@effect/vitest";

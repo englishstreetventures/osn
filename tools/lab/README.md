@@ -41,7 +41,7 @@ view. For a component's full range of variants and states, open its own group:
 | `design-system/theming` | The same `@shared/ui` components under musubi's mapping, cire's ramp, and no mapping at all — what `@theme inline` buys |
 
 The `design-system/*` group is the token contract (`@shared/design-tokens`,
-[design tokens](../../wiki/architecture/design-tokens.md)) as something to look
+[design tokens](../../wiki/shared/design-tokens.md)) as something to look
 at rather than read. Every list in it is iterated from the contract's own exports
 (`CONTRACT_COLOR_TOKENS`, `CONTRACT_SCALES`, `contrastPairs()`), and the literal
 utility for each token lives in a table that is `satisfies`-checked against the

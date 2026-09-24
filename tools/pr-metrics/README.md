@@ -49,7 +49,7 @@ predate cards, or whose card was never written.
 
 ## Read this before changing it
 
-**`wiki/observability/session-metrics.md`** is the reference: the field-by-field
+**`wiki/conventions/session-metrics.md`** is the reference: the field-by-field
 schema, why the card holds exactly one scalar judgement, the two fields that
 name a cause rather than a cost, and the DuckDB queries that read the cards back.
 (In Obsidian: [[session-metrics]].)

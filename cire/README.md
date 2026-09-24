@@ -23,7 +23,7 @@ cire/
 └── wiki/         # Cire-internal Obsidian knowledge graph
 ```
 
-OSN-facing integration docs live in the root wiki: `wiki/apps/cire.md` and `wiki/systems/cire-auth.md`.
+OSN-facing integration docs live in the root wiki: `wiki/cire/cire.md` and `wiki/cire/cire-auth.md`.
 
 ## Apps & Services
 

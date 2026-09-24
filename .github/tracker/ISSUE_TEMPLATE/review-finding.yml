@@ -11,7 +11,7 @@ body:
         The body has to stand alone. Name the file and line, state the concrete fix, spell out
         the acronyms. A body that only points at a wiki page or a TODO is a bookmark, not a
         finding — those pages move and get deleted. Where a page adds real context, name it by
-        repo path (`wiki/systems/rate-limiting.md`) and restate the fact here anyway.
+        repo path (`wiki/shared/rate-limiting.md`) and restate the fact here anyway.
 
   - type: input
     id: finding-id

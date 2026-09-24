@@ -18,7 +18,7 @@ import { minorToDecimal } from "../lib/money";
  *
  * The number comes from the CPU budget, NOT from how many gifts a wedding
  * plausibly has. Cloudflare Workers Free allows 10 ms of CPU per
- * invocation (`wiki/runbooks/free-tier-limits.md`), and building this file is
+ * invocation (`wiki/shared/free-tier-limits.md`), and building this file is
  * dominated by `serialiseCsv`, which trims, scans and quotes every one of the
  * fourteen cells in a row: measured at roughly 6 ms for 2,000 rows and 11 ms
  * for 5,000, so the higher figure spends the whole budget and the request is

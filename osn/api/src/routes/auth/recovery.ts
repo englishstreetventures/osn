@@ -219,7 +219,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
       // All three are unauthenticated, and all three end in a RESTRICTED
       // recovery session (`aud: "osn-recovery"`, 15-minute absolute lifetime)
       // whose only privilege is enrolling a passkey. Nothing here is a login
-      // factor; see `[[wiki/architecture/account-recovery-factors]]` §B.
+      // factor; see `[[wiki/osn/account-recovery-factors]]` §B.
       // -------------------------------------------------------------------------
       .post(
         "/login/recovery/email/begin",

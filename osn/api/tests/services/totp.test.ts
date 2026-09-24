@@ -910,7 +910,7 @@ describe("which gates a totp-AMR step-up token reaches", () => {
   //
   // Each case pins the DIRECT gate: whether a token carrying `amr: ["totp"]`
   // satisfies that verifier. None of them says anything about what a chain of
-  // ceremonies can reach — see wiki/systems/totp.md §Threat model.
+  // ceremonies can reach — see wiki/osn/totp.md §Threat model.
   const mintTotpToken = (accountId: string, purpose: Parameters<typeof auth.issueStepUpToken>[2]) =>
     auth.issueStepUpToken(accountId, "totp", purpose);
 

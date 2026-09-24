@@ -39,7 +39,7 @@ export function createDefaultOnboardingCompleteRateLimiter(): RateLimiterBackend
  * legitimate boot-time fetches and React StrictMode double-invocation
  * aren't affected, but tight enough to deflect a malformed-token flood
  * paying the JWKS verify cost. Mirrors the discipline applied on POST and
- * matches `[[wiki/systems/rate-limiting]]`.
+ * matches `[[wiki/shared/rate-limiting]]`.
  */
 const STATUS_RATE_LIMIT_MAX = 60;
 const STATUS_RATE_LIMIT_WINDOW_MS = 60 * 1000;

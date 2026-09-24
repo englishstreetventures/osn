@@ -3,12 +3,22 @@ title: OSN Wiki — vault README
 tags: [wiki, meta]
 related:
   - "[[index]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-23
 ---
 
 # OSN Wiki
 
-This directory is an [Obsidian](https://obsidian.md/) vault that holds the OSN project's knowledge graph — the whole monorepo's, cire included. Cire kept a second vault at `cire/wiki/` until 2026-08-21; it folded in here, and its pages carry a `cire-` prefix wherever a bare name would collide with an existing one.
+This directory is an [Obsidian](https://obsidian.md/) vault that holds the whole monorepo's knowledge graph. Its folders mirror the monorepo:
+
+| Folder | Holds |
+|---|---|
+| `osn/`, `musubi/`, `pulse/`, `cire/`, `zap/` | One per product: its overview, systems, architecture and runbooks |
+| `shared/` | What applies to more than one product; `shared/observability/` for logging, tracing and metrics |
+| `conventions/` | How we work |
+| `decisions/` | Decision records and the open questions in `deferred-decisions.md` |
+| `compliance/` | The legal programme |
+
+Filenames are unique across the vault, so a `[[wikilink]]` never needs a folder.
 
 ## Opening in Obsidian
 
@@ -28,12 +38,12 @@ When you first open the vault, configure these settings in Obsidian:
 
 This wiki is written for AI agents to read. Key navigation patterns:
 
-- Start at `CLAUDE.md` (repo root) for the slim index with a Wiki Navigation table
+- Start at [[index]]; `AGENTS.md` at the repo root is the agent entry point
 - Follow `[[wiki links]]` to reach detailed pages — only read the pages you need
 - Check `tags` in YAML frontmatter to filter by concern (e.g., `#runbook`, `#system`, `#observability`)
 - Check `related` in frontmatter for explicit navigation edges
 - Check `status` field: `active` = current, `planned` = not yet built, `deprecated` = avoid
-- Prefer searching this vault over the MCP Connector plugin (`mcp-tools-istefox`) when it's reachable — semantic search and partial reads cost far fewer tokens than grepping and reading whole pages. `CLAUDE.md` holds the ladder (MCP → `obsidian` CLI → grep), which tools to reach for, and why the MCP is read-only. The plugin lives under the gitignored `.obsidian/`, so each machine installs it itself.
+- Prefer searching this vault over the MCP Connector plugin (`mcp-tools-istefox`) when it's reachable — semantic search and partial reads cost far fewer tokens than grepping and reading whole pages. [[wiki-search]] holds the ladder (MCP → `obsidian` CLI → grep), which tools to reach for, and why the MCP is read-only. The plugin lives under the gitignored `.obsidian/`, so each machine installs it itself.
 
 ## Conventions
 

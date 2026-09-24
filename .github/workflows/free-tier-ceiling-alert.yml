@@ -1,7 +1,7 @@
 # Watch the Cloudflare free-tier counters and file one issue when a day gets
 # near a ceiling.
 #
-# `wiki/runbooks/free-tier-limits.md` listed the ceilings and said to watch
+# `wiki/shared/free-tier-limits.md` listed the ceilings and said to watch
 # them, which meant a person opening a dashboard. Nobody did, so the D1
 # rows-written ceiling was crossed on 2026-08-30 and again on 2026-09-09 and was
 # only found by hand on 2026-09-10 (#979). Three other days in between ran at
@@ -76,7 +76,7 @@ jobs:
       # need — and no write right of any kind. It is not a deploy token. The
       # deploy tokens live only on the `dev` and `production` Environments, and
       # since 2026-09-13 repository scope holds no credential that can write to
-      # Cloudflare at all. See `wiki/runbooks/dev-environment.md`
+      # Cloudflare at all. See `wiki/shared/dev-environment.md`
       # §"Two Environments, two tokens".
       #
       # The env var below keeps the plain name because

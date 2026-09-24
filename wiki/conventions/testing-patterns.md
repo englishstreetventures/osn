@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-22
+last-reviewed: 2026-09-23
 ---
 
 # Testing Patterns
@@ -179,6 +179,18 @@ catalogue of how that goes wrong here. Every entry below was found by
 deliberately breaking the code and watching the test stay green — never by
 reading it. One epic produced four such tests and four destroyed fixes from
 these three causes alone.
+
+### Tautological tests
+
+A tautological test passes whatever the code under test does, because it checks the test against itself. Do not write one; `review-tests` reports each as an untested export. The shapes:
+
+- asserting what a mock or fixture was just told to return, with none of our code in between;
+- computing the expected value by calling the function under test, or copying its formula;
+- asserting a hand-written mirror — a `CREATE TABLE` string, a list typed out beside the constant it claims to check (see [[#Rules]] on DDL mirrors);
+- an assertion that cannot be false: `expect(true)`, `toBeDefined()` on a value just built, a snapshot of a mock;
+- asserting only that a mock was called, not what the call did.
+
+The check is the same as for the entries below: break the line the test names, and it must go red.
 
 ### `created_at` is unix seconds, so rows written together tie
 

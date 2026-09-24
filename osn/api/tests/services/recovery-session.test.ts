@@ -15,7 +15,7 @@
  *  - **Guards.** The no-slide rule, the rotation carry-forward and the
  *    restriction lift are new behaviour, and each goes red on its own edit.
  *
- * See `[[wiki/systems/sessions]]` and `wiki/architecture/account-recovery-factors.md` §B.
+ * See `[[wiki/osn/sessions]]` and `wiki/osn/account-recovery-factors.md` §B.
  */
 
 import { it, expect, describe } from "@effect/vitest";
@@ -1100,7 +1100,7 @@ describe("restricted recovery session — what the lift refuses to do", () => {
 });
 
 describe("restricted recovery session — the caps it does not lift", () => {
-  // Documented in `[[wiki/systems/sessions]]`, and a documented property with no
+  // Documented in `[[wiki/osn/sessions]]`, and a documented property with no
   // test quietly stops being true.
 
   it.effect("a recovery session counts against the per-account session cap", () => {

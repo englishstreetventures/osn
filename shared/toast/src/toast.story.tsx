@@ -22,7 +22,7 @@ import type { ToastPosition, ToastTone } from "./types";
  * these toasts exactly as it re-themes the app. Use it: the accent colours are
  * per-ramp, and dark is where a too-dark accent hides.
  *
- * See `wiki/systems/toast.md`.
+ * See `wiki/shared/toast.md`.
  */
 export const meta = { title: "shared/toast", layout: "padded" as const };
 

@@ -17,7 +17,7 @@ import { parseTokenResponse, type Session } from "./tokens";
  *     nor a recovery code. Unlike (3) these establish a RESTRICTED session that
  *     can only enrol a passkey and expires in 15 minutes; a UI must send the
  *     user straight into passkey enrolment. See
- *     `wiki/architecture/account-recovery-factors.md`.
+ *     `wiki/osn/account-recovery-factors.md`.
  *
  * Kept in its own module so UI surfaces (settings panel, sign-in recovery
  * modal) can import the exact shape they need without pulling in the full

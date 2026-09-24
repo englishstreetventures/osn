@@ -18,7 +18,7 @@ followed to the letter. If the brief names a worktree path, work there and
 nowhere else. If it contradicts what you find in the repository, say so in your
 report rather than quietly picking one.
 
-Read `CLAUDE.md` before you touch a file. Run the gates it names before you claim
+Read `AGENTS.md` before you touch a file. Run the gates it names before you claim
 to be done, and report their real output — a gate you did not run is `NOT RUN`,
 which is a true and useful thing to say. A stated verification that did not
 happen is the one failure that cannot be recovered downstream.

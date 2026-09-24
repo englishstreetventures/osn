@@ -16,7 +16,7 @@
  * returning `kind: "error"` for the second — so the two paths below are not a
  * judgement call.
  *
- * See [[wiki/systems/oidc-provider]].
+ * See [[wiki/osn/oidc-provider]].
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";

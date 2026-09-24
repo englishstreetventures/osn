@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-23
 ---
 
 # Component Lab
@@ -260,8 +260,7 @@ worked out in `src/lab/three.tsx`:
 > checks on `npx skills update`. Nothing here recomputes it, so fixing
 > something in place fails no gate of ours — it either stops the next update or
 > is thrown away by it. A fix goes upstream and comes back as a new pin. oxlint, oxfmt and the skill-quality loop leave the
-> tree alone for that reason — see `CLAUDE.md` §Conventions, "Agent skills and
-> their evals".
+> tree alone for that reason — see [[agent-tooling#Third-party skills]].
 
 ## Gates
 

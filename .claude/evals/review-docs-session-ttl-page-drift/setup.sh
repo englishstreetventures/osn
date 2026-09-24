@@ -67,10 +67,10 @@ perl -pi -e '
   s/30-day TTL, host-scoped/14-day TTL, host-scoped/;
   s/so a 30-day credential that auto-exercises/so a 14-day credential that auto-exercises/;
   s/^### Claim-code format \(C1\)$/### Claim-code format/;
-' wiki/systems/cire-auth.md
-grep -q '14-day TTL, host-scoped' wiki/systems/cire-auth.md
-grep -q 'a 14-day credential' wiki/systems/cire-auth.md
-grep -q '^### Claim-code format$' wiki/systems/cire-auth.md
+' wiki/cire/cire-auth.md
+grep -q '14-day TTL, host-scoped' wiki/cire/cire-auth.md
+grep -q 'a 14-day credential' wiki/cire/cire-auth.md
+grep -q '^### Claim-code format$' wiki/cire/cire-auth.md
 
 # `@cire/*` is version-less, so this changeset is correct as it stands; it
 # exists so the branch looks like every other branch in this repository.

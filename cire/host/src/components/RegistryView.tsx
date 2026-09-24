@@ -364,7 +364,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // cheap — `@shared/sortable`'s `createSortableList` supplies the whole keyboard
   // and screen-reader path — but it is a UX change, so it is its own issue.
   // sensor and no announcements, so adopting it here would mean re-supplying the
-  // whole keyboard path by hand — see `[[cire/wiki/architecture/drag-and-drop]]`.
+  // whole keyboard path by hand — see `wiki/shared/drag-and-drop.md`.
   const move = async (index: number, delta: -1 | 1) => {
     const ordered = items();
     const target = index + delta;

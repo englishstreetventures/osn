@@ -119,7 +119,7 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
  * after the legitimate rotation gains nothing they couldn't already do with
  * the live token, and any replay OUTSIDE this window still revokes the family.
  * Mirrors the "reuse leeway" interval standard in rotating-refresh-token
- * implementations. See `[[wiki/systems/sessions]]`.
+ * implementations. See `[[wiki/osn/sessions]]`.
  */
 export const ROTATION_GRACE_MS = 10_000;
 /**
@@ -150,7 +150,7 @@ export const MAX_PASSKEYS_PER_ACCOUNT = 10;
  * `MAX_PASSKEYS_PER_ACCOUNT` alone still governs every ordinary enrolment, which
  * is still refused at the cap.
  *
- * @see wiki/architecture/account-recovery-factors.md
+ * @see wiki/osn/account-recovery-factors.md
  */
 export const RECOVERY_ENROLMENT_PASSKEY_CEILING = MAX_PASSKEYS_PER_ACCOUNT + 1;
 
