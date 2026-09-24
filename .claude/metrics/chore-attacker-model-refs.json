@@ -27,7 +27,7 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 0.2214525,
+    "usd_equivalent": 1.8250825000000002,
     "tokens": {
       "input": 73,
       "output": 2457,
@@ -58,7 +58,7 @@
           "cache_write_1h": 0,
           "cache_read": 1574410
         },
-        "usd_equivalent": 0,
+        "usd_equivalent": 1.60363,
         "messages": 32
       }
     },
@@ -84,16 +84,14 @@
           "cache_write_1h": 0,
           "cache_read": 1574410
         },
-        "usd_equivalent": 0,
+        "usd_equivalent": 1.60363,
         "messages": 32
       }
     },
     "effort": {
       "medium": 32
     },
-    "unpriced_models": [
-      "claude-opus-5-5"
-    ]
+    "unpriced_models": []
   },
   "diff": {
     "files": {

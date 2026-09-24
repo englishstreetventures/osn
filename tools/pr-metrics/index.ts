@@ -62,6 +62,7 @@ export const IDLE_CAP_SECONDS = 300;
  * named `usd_equivalent` everywhere for that reason.
  */
 export const MODEL_RATES = {
+  "claude-opus-5-5": [4, 20],
   "claude-opus-5": [5, 25],
   "claude-opus-4-8": [5, 25],
   "claude-opus-4-7": [5, 25],
@@ -88,7 +89,7 @@ const MODEL_SNAPSHOT_SUFFIX = /-\d{8}$/;
  * arrive from a transcript this script did not write, and `in` walks the
  * prototype chain: `MODEL_RATES["constructor"]` returns `Object`'s constructor,
  * which then destructures to `[undefined, undefined]` and prices the whole card
- * as `NaN`. `hasOwn` sees only the nine real entries.
+ * as `NaN`. `hasOwn` sees only the table's own entries.
  */
 export function rateKeyFor(model: string): PricedModel | null {
   const bare = model.replace(MODEL_SNAPSHOT_SUFFIX, "");

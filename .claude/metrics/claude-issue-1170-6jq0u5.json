@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1171,
+    "branch": "claude/issue-1170-6jq0u5",
+    "base_sha": "9ee8cd9c736b938258cdfb26bfd408f8b094b0e5",
+    "head_sha": "badca5b6e52c26ba40ee757cb22ce54acdb3eafc",
+    "generated_at": "2026-09-24T14:48:34.067Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1170,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-24T14:39:56.715Z",
+    "last_ts": "2026-09-24T14:48:32.405Z",
+    "span_seconds": 516,
+    "active_seconds": 516,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.721162899999998,
+    "tokens": {
+      "input": 120,
+      "output": 12440,
+      "thinking": 1464,
+      "cache_write_5m": 122469,
+      "cache_write_1h": 104403,
+      "cache_read": 4292936
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 54,
+          "output": 11994,
+          "thinking": 1464,
+          "cache_write_5m": 0,
+          "cache_write_1h": 104403,
+          "cache_read": 2382456
+        },
+        "usd_equivalent": 2.0283023999999994,
+        "messages": 27
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 66,
+          "output": 446,
+          "thinking": 0,
+          "cache_write_5m": 122469,
+          "cache_write_1h": 0,
+          "cache_read": 1910480
+        },
+        "usd_equivalent": 0.6928605000000002,
+        "messages": 33
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 54,
+          "output": 11994,
+          "thinking": 1464,
+          "cache_write_5m": 0,
+          "cache_write_1h": 104403,
+          "cache_read": 2382456
+        },
+        "usd_equivalent": 2.0283023999999994,
+        "messages": 27
+      },
+      "subagent": {
+        "tokens": {
+          "input": 66,
+          "output": 446,
+          "thinking": 0,
+          "cache_write_5m": 122469,
+          "cache_write_1h": 0,
+          "cache_read": 1910480
+        },
+        "usd_equivalent": 0.6928605000000002,
+        "messages": 33
+      }
+    },
+    "effort": {
+      "medium": 60
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 1,
+      "docs": 0,
+      "config": 1,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 8,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 4,
+        "deleted": 6
+      },
+      "source": {
+        "added": 2,
+        "deleted": 1
+      }
+    },
+    "packages": [
+      "tools/pr-metrics"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": 503396,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 39,
+      "Skill": 6,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "ToolSearch": 2,
+      "Edit": 2,
+      "mcp__github__issue_read": 1,
+      "Read": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__Claude_Code_Remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "new-feat": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "general-purpose": 3
+    }
+  }
+}

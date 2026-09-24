@@ -133,6 +133,14 @@ test("rateKeyFor keeps an unknown model unpriced, dated or not", () => {
   expect(rateKeyFor("constructor")).toBeNull();
 });
 
+test("rateKeyFor prices Claude Opus 5.5", () => {
+  expect(rateKeyFor("claude-opus-5-5")).toBe("claude-opus-5-5");
+  expect(costOf({ ...emptyTokens(), cache_read: 1_000_000 }, "claude-opus-5-5")).toBeCloseTo(
+    0.4,
+    6,
+  );
+});
+
 test("aggregateSpend names unpriced models so the gap is visible", () => {
   const spend = aggregateSpend([
     assistant({ message: { model: "claude-nextgen-9", usage: usage({ output_tokens: 10 }) } }),
