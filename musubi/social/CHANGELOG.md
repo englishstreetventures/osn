@@ -1,5 +1,17 @@
 # @osn/social
 
+## 0.17.4
+
+### Patch Changes
+
+- b229bf5: Name the GitHub organisation as `englishstventures` wherever a comment or
+  test cites a repository or issue, in place of the old `xchromo` owner.
+  Comments and test strings only; no behaviour changes.
+- Updated dependencies [b229bf5]
+  - @shared/design-tokens@0.3.2
+  - @shared/ui@0.2.4
+  - @osn/auth-ui@3.0.4
+
 ## 0.17.3
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shared/design-tokens
 
+## 0.3.2
+
+### Patch Changes
+
+- b229bf5: Name the GitHub organisation as `englishstventures` wherever a comment or
+  test cites a repository or issue, in place of the old `xchromo` owner.
+  Comments and test strings only; no behaviour changes.
+
 ## 0.3.1
 
 ### Patch Changes

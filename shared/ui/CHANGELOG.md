@@ -1,5 +1,13 @@
 # @shared/ui
 
+## 0.2.4
+
+### Patch Changes
+
+- b229bf5: Name the GitHub organisation as `englishstventures` wherever a comment or
+  test cites a repository or issue, in place of the old `xchromo` owner.
+  Comments and test strings only; no behaviour changes.
+
 ## 0.2.3
 
 ### Patch Changes

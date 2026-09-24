@@ -1,5 +1,14 @@
 # @osn/pulse
 
+## 0.24.4
+
+### Patch Changes
+
+- Updated dependencies [b229bf5]
+  - @pulse/api@0.27.14
+  - @shared/design-tokens@0.3.2
+  - @shared/ui@0.2.4
+
 ## 0.24.3
 
 ### Patch Changes
