@@ -7,6 +7,7 @@ import {
   guests,
   guestEvents,
   imports,
+  organiserSessions,
   weddingEntitlements,
   weddingHosts,
   weddings,
@@ -17,6 +18,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -1409,6 +1411,141 @@ describe("authz — /changes gate", () => {
       body: JSON.stringify({ changeId: id }),
     });
     expect(applyOther.status).toBe(404);
+  });
+});
+
+// ── Authn: the organiser session cookie on /changes ─────────────────────────
+
+// Spelled out rather than imported: `lib/cookie.ts` keeps its names private, and
+// a test that hard-codes the wire name catches a rename that would sign every
+// organiser out.
+const ORGANISER_COOKIE_NAME = "cire_org_session";
+
+/**
+ * A POST the way a signed-in browser sends it: the session cookie and no
+ * `Authorization` header. `appRequest` adds the allowlisted `Origin` unless
+ * `origin` replaces it; `bearer` adds a bearer token beside the cookie.
+ */
+function cookiePost(
+  app: ReturnType<typeof buildApp>["app"],
+  path: string,
+  sessionToken: string,
+  body: object,
+  extra: { origin?: string; bearer?: string } = {},
+) {
+  return appRequest(app, path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `${ORGANISER_COOKIE_NAME}=${sessionToken}`,
+      ...(extra.origin ? { Origin: extra.origin } : {}),
+      ...(extra.bearer ? { Authorization: `Bearer ${extra.bearer}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Every other case in this file signs in with a bearer token. A browser sends
+ * the `cire_org_session` cookie instead, and `osnAuth` tries it first. These
+ * cases send the cookie with no bearer, so the bearer path cannot answer for
+ * them, except the two at the end, which send both to pin the order. Every
+ * organiser route shares the one resolver, so one write route shows the cookie
+ * reaches it.
+ */
+describe("authn — the organiser session cookie on /changes", () => {
+  const csvBody = { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV };
+
+  it("lets a live session cookie preview and apply, as a bearer does", async () => {
+    const { app, db } = buildApp();
+    const session = await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+
+    const previewRes = await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody);
+    expect(previewRes.status).toBe(200);
+    const preview = (await previewRes.json()) as {
+      changeId: string;
+      baseRevision: string;
+      plan: { familyCreates: unknown[] };
+    };
+    expect(preview.baseRevision).toBe("genesis");
+    expect(preview.plan.familyCreates).toHaveLength(2);
+
+    const applyRes = await cookiePost(app, `${CHANGES_BASE}/apply`, session, {
+      changeId: preview.changeId,
+    });
+    expect(applyRes.status).toBe(200);
+    expect(db.select().from(events).all()).toHaveLength(2);
+    expect(db.select().from(families).all()).toHaveLength(2);
+    expect(db.select().from(guests).all()).toHaveLength(2);
+  });
+
+  it("401s a cookie that names no session, with no bearer to fall back on", async () => {
+    const { app, db } = buildApp();
+    // The owner is signed in elsewhere, so a lookup that ignored the token and
+    // took any live row would let this through.
+    await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, "nosuchtoken", csvBody);
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
+    expect(db.select().from(imports).all()).toHaveLength(0);
+  });
+
+  it("401s the same cookie once its session has expired", async () => {
+    const { app, db } = buildApp();
+    const session = await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+    expect((await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody)).status).toBe(200);
+    expect(db.select().from(imports).all()).toHaveLength(1);
+
+    // Only the row's expiry moves; the browser still holds the same token.
+    db.update(organiserSessions)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(organiserSessions.osnProfileId, "usr_dev_bootstrap_owner"))
+      .run();
+
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody);
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
+    expect(db.select().from(imports).all()).toHaveLength(1);
+  });
+
+  it("403s a live cookie whose profile is not on the wedding", async () => {
+    const { app, db } = buildApp();
+    const session = await seedOrganiserSession(db, "usr_not_a_member");
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody);
+    expect(res.status).toBe(403);
+    // No `message` key: the wedding gate refused, not the origin guard.
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    expect(db.select().from(imports).all()).toHaveLength(0);
+  });
+
+  // The origin guard reads `Origin`, not the credential. What this pins is that
+  // the route is mounted behind the guard, which is what stops a cross-site form
+  // from riding the owner's cookie.
+  it("403s a live cookie sent from a foreign origin — the route sits behind the origin guard", async () => {
+    const { app, db } = buildApp();
+    const session = await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody, {
+      origin: "http://evil.example",
+    });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden", message: "Origin not allowed" });
+    expect(db.select().from(imports).all()).toHaveLength(0);
+  });
+
+  it("reads a live cookie before a bearer — the cookie's profile is the caller", async () => {
+    const { app, db } = buildApp();
+    const session = await seedOrganiserSession(db, "usr_not_a_member");
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, session, csvBody, { bearer });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+  });
+
+  it("falls through to the bearer when the cookie names no session", async () => {
+    const { app } = buildApp();
+    const res = await cookiePost(app, `${CHANGES_BASE}/preview`, "nosuchtoken", csvBody, {
+      bearer,
+    });
+    expect(res.status).toBe(200);
   });
 });
 

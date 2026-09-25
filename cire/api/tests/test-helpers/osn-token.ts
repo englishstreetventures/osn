@@ -1,4 +1,5 @@
 import { makeAccessTokenSigner } from "@shared/crypto/testing";
+import type { AccessTokenClaims } from "@shared/crypto/testing";
 
 /**
  * The issuer these test tokens claim, matching `createApp`'s `osnIssuerUrl`
@@ -13,10 +14,13 @@ export const OSN_TEST_ISSUER = "http://localhost:4000";
 export type OsnTestAuth = {
   /** Public verifying key — pass as `osnTestKey` to `createApp`. */
   key: CryptoKey;
-  /** Mints a 5-minute ES256 access token (`aud: "osn-access"`) for `profileId`. */
-  sign(profileId: string): Promise<string>;
-  /** Mints one claiming a different issuer, for the rejection path. */
-  signAsOtherIssuer(profileId: string): Promise<string>;
+  /**
+   * Mints an ES256 access token (`aud: "osn-access"`) for `profileId`, valid
+   * for five minutes and issued by `OSN_TEST_ISSUER`. `claims` overrides any
+   * of that to reach a reject path: `{ expiresIn: "-120s" }` for an expired
+   * token, `{ issuer }` for a foreign one, `{ audience }` for the wrong one.
+   */
+  sign(profileId: string, claims?: AccessTokenClaims): Promise<string>;
 };
 
 /**
@@ -27,15 +31,13 @@ export type OsnTestAuth = {
  *
  * Thin adapter over `@shared/crypto/testing`'s `makeAccessTokenSigner` — the
  * single implementation shared with the pulse and zap route suites. The
- * `{ key, sign }` shape is kept because sixteen cire suites destructure it.
+ * `{ key, sign }` shape is kept because the cire route suites destructure it.
  */
 export async function makeOsnTestAuth(): Promise<OsnTestAuth> {
   const signer = await makeAccessTokenSigner();
   return {
     key: signer.publicKey,
-    sign: (profileId: string) =>
-      signer.sign(profileId, { expiresIn: "5m", issuer: OSN_TEST_ISSUER }),
-    signAsOtherIssuer: (profileId: string) =>
-      signer.sign(profileId, { expiresIn: "5m", issuer: "https://id.evil.invalid" }),
+    sign: (profileId, claims) =>
+      signer.sign(profileId, { expiresIn: "5m", issuer: OSN_TEST_ISSUER, ...claims }),
   };
 }

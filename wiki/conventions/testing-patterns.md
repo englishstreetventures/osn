@@ -37,6 +37,7 @@ cire/api/
   tests/
     test-helpers.ts                # appRequest() -- Elysia request harness
     test-helpers/osn-token.ts      # makeOsnTestAuth()
+    test-helpers/organiser-session.ts  # seedOrganiserSession()
     routes/rsvp.test.ts            # HTTP integration tests
     db/d1-integration.test.ts      # Miniflare tier -- see The D1 integration lane
 cire/host/
@@ -342,7 +343,8 @@ Reach for these before hand-rolling setup:
 | Harness | Use for |
 |---|---|
 | `@shared/crypto/testing` → `makeAccessTokenSigner()` | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites. |
-| `cire/api/tests/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
+| `cire/api/tests/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. `sign(profileId, claims?)` takes the same claims, so a cire suite reaches the expired, foreign-issuer and wrong-audience reject paths. |
+| `cire/api/tests/test-helpers/organiser-session.ts` → `seedOrganiserSession()` | A live `cire_org_session` token for a profile, minted by `organiserSessionService.create`, the function the OIDC callback calls. Send it as a `Cookie` with no bearer to test that an organiser route reads the cookie. |
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |

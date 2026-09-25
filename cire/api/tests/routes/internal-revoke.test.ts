@@ -8,6 +8,7 @@ import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { appRequest } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 
 const SECRET = "test-internal-revoke-secret";
 const REVOKE_PATH = "/internal/revoke-organiser-sessions";
@@ -17,23 +18,6 @@ const freshDb = (): Db => {
   seedDb(db);
   return db;
 };
-
-/** Mints an organiser session directly against `db`, returning its raw token. */
-function seedSession(db: Db, osnProfileId: string): Promise<string> {
-  return Effect.runPromise(
-    organiserSessionService
-      .create({
-        osnProfileId,
-        osnSub: `pw_${osnProfileId}`,
-        email: `${osnProfileId}@example.test`,
-        handle: osnProfileId,
-        displayName: "Organiser",
-        avatarUrl: null,
-      })
-      .pipe(Effect.provideService(DbService, db))
-      .pipe(Effect.map((s) => s.token)),
-  );
-}
 
 /** True when `token` still resolves to a live session in `db`. */
 function isLive(db: Db, token: string): Promise<boolean> {
@@ -83,9 +67,9 @@ describe("POST /internal/revoke-organiser-sessions", () => {
 
   it("revokes every live session for the profile on a valid call", async () => {
     const db = freshDb();
-    const browser = await seedSession(db, "usr_target");
-    const phone = await seedSession(db, "usr_target");
-    const other = await seedSession(db, "usr_bystander");
+    const browser = await seedOrganiserSession(db, "usr_target");
+    const phone = await seedOrganiserSession(db, "usr_target");
+    const other = await seedOrganiserSession(db, "usr_bystander");
     const app = createApp(db, { internalRevokeSecret: SECRET });
 
     const res = await post(app, SECRET, { osnProfileId: "usr_target" });
