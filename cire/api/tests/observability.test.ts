@@ -3,32 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 
 import { runCire, runCireSync } from "../src/observability";
-
-/**
- * Capture everything Effect's logger writes for one run. Effect's default
- * loggers emit through `globalThis.console`, so we temporarily swap those
- * methods for a sink. (`globalThis.console` is used rather than the bare
- * `console` global so the no-console lint rule — which targets production code
- * — isn't tripped by this test-only interception.)
- */
-async function captureLogs(run: () => unknown | Promise<unknown>): Promise<string> {
-  const lines: string[] = [];
-  const sink = (...args: unknown[]): void => {
-    lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
-  };
-  // `console` is an ambient `const` in both the Workers and Bun type
-  // declarations, so it never merges into `typeof globalThis`'s properties —
-  // it exists on the real global object at runtime regardless.
-  const c = (globalThis as typeof globalThis & { console: Console }).console;
-  const original = { log: c.log, info: c.info, warn: c.warn, error: c.error, debug: c.debug };
-  Object.assign(c, { log: sink, info: sink, warn: sink, error: sink, debug: sink });
-  try {
-    await run();
-  } finally {
-    Object.assign(c, original);
-  }
-  return lines.join("\n");
-}
+import { captureLogs } from "./test-helpers/capture-logs";
 
 /**
  * T-U1: the load-bearing contract of `runCire` / `runCireSync` is that they

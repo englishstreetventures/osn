@@ -13,6 +13,9 @@ import {
 } from "../../src/db/d1-session";
 import { createD1Db } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
+import { runCire } from "../../src/observability";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 // Two halves. The routing tests use recording stand-ins, because what matters
 // there is WHICH client each query reached, which a real D1 will not tell you.
@@ -35,18 +38,18 @@ function recordingClient(name: string, log: string[]): D1QueryClient {
 }
 
 describe("session routing", () => {
-  it("falls back to the raw binding when no session is in scope", () => {
+  it("falls back to the raw binding when no session is in scope", async () => {
     const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
 
-    client.prepare("select 1");
+    await captureLogs(() => client.prepare("select 1"));
 
     expect(log).toEqual(["binding:prepare:select 1"]);
   });
 
   it("routes prepare and batch to the session in scope", async () => {
     const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
     const session = recordingClient("session", log);
 
     await withD1Session(session, async () => {
@@ -59,12 +62,12 @@ describe("session routing", () => {
 
   it("restores the fallback once the session scope ends", async () => {
     const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
 
     await withD1Session(recordingClient("session", log), async () => {
       client.prepare("inside");
     });
-    client.prepare("after");
+    await captureLogs(() => client.prepare("after"));
 
     expect(log).toEqual(["session:prepare:inside", "binding:prepare:after"]);
   });
@@ -77,7 +80,7 @@ describe("session routing", () => {
     // (older) bookmark, quietly losing read-your-writes. Interleaved on
     // purpose, with a yield between the two queries of each "request".
     const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
 
     const request = (name: string) =>
       withD1Session(recordingClient(name, log), async () => {
@@ -114,7 +117,7 @@ describe("session routing", () => {
       },
     } as unknown as D1Database;
 
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
     runInD1Session(fake, () => {
       client.prepare("select 1");
     });
@@ -131,7 +134,7 @@ describe("session routing", () => {
     // That is precisely where an async-context mechanism can lose or cross its
     // stores, so assert it here rather than trusting it.
     const log: string[] = [];
-    const client = createSessionRoutedClient(recordingClient("binding", log));
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
 
     const query = (label: string) =>
       Effect.promise(async () => {
@@ -159,6 +162,137 @@ describe("session routing", () => {
       "b:prepare:first",
       "b:prepare:second",
     ]);
+  });
+});
+
+// A query that reaches the raw binding gives no wrong answer, only a missed
+// replica, so no other test can notice it. These pin the two signals that make
+// it visible: the counter, and one warning per client.
+describe("counting queries that ran outside a session", () => {
+  const MISSING = "cire.d1.session_missing";
+  const WARNING = "D1 query ran outside a session";
+
+  const warnings = (out: string): string[] =>
+    out.split("\n").filter((line) => line.includes(WARNING));
+
+  it("counts a query prepared on the raw binding", async () => {
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
+    const before = await counterValue(MISSING, { entry: "fetch" });
+
+    await captureLogs(() => client.prepare("select 1"));
+
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before + 1);
+  });
+
+  it("does not count a query a session served", async () => {
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
+    const before = await counterValue(MISSING, { entry: "fetch" });
+
+    await withD1Session(recordingClient("session", log), async () => {
+      client.prepare("select 1");
+      await client.batch([]);
+    });
+
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before);
+  });
+
+  it("does not count a batch, whose statements were counted as they were prepared", async () => {
+    // Drizzle's D1 driver prepares every statement through the client before it
+    // calls `batch`, so counting the batch as well would count N statements as
+    // N+1. The batch still goes to the binding.
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
+    const before = await counterValue(MISSING, { entry: "fetch" });
+
+    await captureLogs(() => client.batch([]));
+
+    expect(log).toEqual(["binding:batch:0"]);
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before);
+  });
+
+  it("labels the count with the entry point that built the client", async () => {
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "scheduled");
+    const fetchBefore = await counterValue(MISSING, { entry: "fetch" });
+    const scheduledBefore = await counterValue(MISSING, { entry: "scheduled" });
+
+    await captureLogs(() => client.prepare("select 1"));
+
+    expect(await counterValue(MISSING, { entry: "scheduled" })).toBe(scheduledBefore + 1);
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(fetchBefore);
+  });
+
+  it("warns once per client, but counts every query", async () => {
+    // The `fetch` client lives as long as the isolate, so a warning per query
+    // would put one log line on every query a lost path makes. The count is
+    // per query all the same: it is what measures how much a lost path costs.
+    const log: string[] = [];
+    const first = createSessionRoutedClient(recordingClient("binding", log), "scheduled");
+    const before = await counterValue(MISSING, { entry: "scheduled" });
+
+    const out = await captureLogs(() => {
+      first.prepare("one");
+      first.prepare("two");
+    });
+
+    expect(await counterValue(MISSING, { entry: "scheduled" })).toBe(before + 2);
+    expect(warnings(out)).toHaveLength(1);
+    // The fields print on the line after the message.
+    expect(out).toContain('"entry":"scheduled"');
+
+    const second = createSessionRoutedClient(recordingClient("binding", log), "scheduled");
+    expect(warnings(await captureLogs(() => second.prepare("three")))).toHaveLength(1);
+  });
+
+  it("counts and warns from inside a cire fiber, and the query still runs", async () => {
+    // Production's shape: the query runs inside `runCire`, so the warning's own
+    // `runCireSync` re-enters the same runtime from inside one of its fibers.
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
+    const before = await counterValue(MISSING, { entry: "fetch" });
+
+    const out = await captureLogs(() =>
+      runCire(
+        Effect.promise(async () => {
+          client.prepare("nested");
+        }),
+      ),
+    );
+
+    expect(log).toEqual(["binding:prepare:nested"]);
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before + 1);
+    expect(warnings(out)).toHaveLength(1);
+  });
+
+  it("keeps running and counting queries when the warning itself fails", async () => {
+    // Losing the session must cost latency, never the query, so a logger that
+    // throws cannot be allowed to fail it. Nor may it stop the count, which is
+    // the one signal left, or be retried on every later query.
+    const log: string[] = [];
+    const client = createSessionRoutedClient(recordingClient("binding", log), "fetch");
+    const before = await counterValue(MISSING, { entry: "fetch" });
+    const c = (globalThis as typeof globalThis & { console: Console }).console;
+    const original = { log: c.log, info: c.info, warn: c.warn, error: c.error, debug: c.debug };
+    let logCalls = 0;
+    const boom = (): never => {
+      logCalls += 1;
+      throw new Error("logger down");
+    };
+    Object.assign(c, { log: boom, info: boom, warn: boom, error: boom, debug: boom });
+    let callsAfterFirst = 0;
+    try {
+      expect(() => client.prepare("one")).not.toThrow();
+      callsAfterFirst = logCalls;
+      expect(() => client.prepare("two")).not.toThrow();
+    } finally {
+      Object.assign(c, original);
+    }
+
+    expect(log).toEqual(["binding:prepare:one", "binding:prepare:two"]);
+    expect(await counterValue(MISSING, { entry: "fetch" })).toBe(before + 2);
+    expect(logCalls).toBe(callsAfterFirst);
   });
 });
 
@@ -198,7 +332,7 @@ describe("against a real D1", () => {
     async () => {
       // The end-to-end shape of production: one Drizzle handle over the shim,
       // built once, with the session established per invocation around it.
-      const db: Db = createD1Db(createSessionRoutedClient(d1));
+      const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
       await runInD1Session(d1, async () => {
         await db.run(sql`insert into probe (id, label) values ('p1', 'written in session')`);
@@ -212,7 +346,7 @@ describe("against a real D1", () => {
   it(
     "routes a batch through the session too",
     async () => {
-      const db: Db = createD1Db(createSessionRoutedClient(d1));
+      const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
       await runInD1Session(d1, async () => {
         // `.batch()` is the D1-only driver path (bun:sqlite has none), and it is
@@ -239,7 +373,7 @@ describe("against a real D1", () => {
       // session (which is why `withD1Session` exists next to `runInD1Session`)
       // lets the test watch it go from "nothing read yet" to a real position.
       const session = d1.withSession(D1_SESSION_CONSTRAINT);
-      const db: Db = createD1Db(createSessionRoutedClient(d1));
+      const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
       expect(session.getBookmark()).toBeNull();
 
@@ -297,10 +431,13 @@ describe("against a real D1", () => {
       // The degraded path: if the async context is ever lost, every query goes
       // straight to the binding — which is exactly the behaviour before this
       // change, so losing the context costs latency, never correctness.
-      const db: Db = createD1Db(createSessionRoutedClient(d1));
+      const db: Db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 
-      await db.run(sql`insert into probe (id, label) values ('p4', 'no session')`);
-      const rows = await db.all<{ label: string }>(sql`select label from probe where id = 'p4'`);
+      let rows: { label: string }[] = [];
+      await captureLogs(async () => {
+        await db.run(sql`insert into probe (id, label) values ('p4', 'no session')`);
+        rows = await db.all<{ label: string }>(sql`select label from probe where id = 'p4'`);
+      });
 
       expect(rows).toEqual([{ label: "no session" }]);
     },

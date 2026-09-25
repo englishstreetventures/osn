@@ -17,10 +17,20 @@
  * a per-request Drizzle client is not something the app can be handed. Instead
  * the handle is built over a *stable* client shim whose `prepare`/`batch`
  * delegate to whichever session is current on the async context, established
- * per request by {@link runInD1Session}. Outside a session (unit tests, the
- * bun:sqlite dev server, a handler that somehow escaped the async context) the
- * shim falls through to the raw binding, which is exactly today's behaviour —
- * so losing the context degrades to "always primary", never to a wrong answer.
+ * per request by {@link runInD1Session}. Outside a session (unit tests, or a
+ * handler that escaped the async context) the shim falls through to the raw
+ * binding, which sends every query to the primary — so losing the context
+ * degrades to "always primary", never to a wrong answer.
+ *
+ * Because that degradation gives no wrong answer, no test or error would show
+ * it, so the shim makes it visible itself: every query prepared on the raw
+ * binding increments `cire.d1.session_missing` (by entry point), and the first
+ * one per client logs a warning. On workerd the counter is inert until a metric
+ * reader exists (see the export caveat in `metrics.ts`), so the warning in
+ * Workers Logs is the deployed signal. It says a context was lost, not where:
+ * to find the path, drive it through the probe binding in `tests/index.test.ts`
+ * ("D1 session routing at the entry points"), which records every query that
+ * reaches the raw binding.
  *
  * That degradation covers a *missing* session only. A binding that cannot open
  * one at all is a different thing: {@link runInD1Session} calls `withSession`
@@ -63,6 +73,11 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { Effect } from "effect";
+
+import { metricD1SessionMissing, type D1SessionEntry } from "../metrics";
+import { runCireSync } from "../observability";
+
 /**
  * The half of `D1Database` that Drizzle's D1 driver actually calls.
  * `drizzle-orm@0.45.2`'s `d1/session.js` uses `client.prepare(sql)` and
@@ -87,13 +102,46 @@ const currentSession = new AsyncLocalStorage<D1QueryClient>();
  * context, falling back to `fallback` (the raw binding) when there is none.
  *
  * Stable for the life of the isolate: build the Drizzle handle over this once,
- * and every request routes itself.
+ * and every request routes itself. `entry` names the Worker entry point the
+ * client serves, and labels the count of queries that fell back.
+ *
+ * Only `prepare` is counted. Drizzle's D1 driver prepares every statement of a
+ * batch through this client before calling `batch`, so the statements are
+ * already counted and counting the batch too would count N as N+1.
  */
-export function createSessionRoutedClient(fallback: D1QueryClient): D1QueryClient {
-  const active = (): D1QueryClient => currentSession.getStore() ?? fallback;
+export function createSessionRoutedClient(
+  fallback: D1QueryClient,
+  entry: D1SessionEntry,
+): D1QueryClient {
+  let warned = false;
+
+  const onMissingSession = (): void => {
+    // Counted before the log, so a failing log never stops the count.
+    metricD1SessionMissing(entry);
+    if (warned) return;
+    // Set before logging: if the log throws, this client stays quiet rather
+    // than retry a failing call on every query it serves.
+    warned = true;
+    // Re-entering the cire runtime from inside one of its own fibers (the
+    // query's) is sound: `runSync` runs a fresh fiber on its own scheduler.
+    runCireSync(
+      Effect.logWarning("D1 query ran outside a session, so it went to the primary", { entry }),
+    );
+  };
+
   return {
-    prepare: (query) => active().prepare(query),
-    batch: <T>(statements: D1PreparedStatement[]) => active().batch<T>(statements),
+    prepare: (query) => {
+      const session = currentSession.getStore();
+      if (session) return session.prepare(query);
+      try {
+        onMissingSession();
+      } catch {
+        // Telemetry never fails a query. The query still runs on the binding.
+      }
+      return fallback.prepare(query);
+    },
+    batch: <T>(statements: D1PreparedStatement[]) =>
+      (currentSession.getStore() ?? fallback).batch<T>(statements),
   };
 }
 

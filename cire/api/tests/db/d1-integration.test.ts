@@ -158,7 +158,7 @@ beforeAll(async () => {
   // a raw binding the deployed Worker never uses. With no session in scope the
   // shim delegates straight to `d1`, which is the point: the shim has to be
   // transparent to all of this.
-  db = createD1Db(createSessionRoutedClient(d1));
+  db = createD1Db(createSessionRoutedClient(d1, "fetch"));
 }, MF_TIMEOUT_MS);
 
 afterAll(async () => {

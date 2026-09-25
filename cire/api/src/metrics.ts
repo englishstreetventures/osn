@@ -140,6 +140,11 @@ export const CIRE_METRICS = {
   // the two apart (only one of them spends our network on a user's URL) and
   // `result` says how it ended. Neither is per-wedding.
   registryImageSave: "cire.registry.image.save",
+  // A D1 query prepared on the raw binding because no session was on the async
+  // context, so it went to the primary and skipped read replication. Gives no
+  // wrong answer, so nothing else notices it. Should read zero on a deployed
+  // tier; `entry` names the Worker entry point whose client lost the session.
+  d1SessionMissing: "cire.d1.session_missing",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -387,6 +392,9 @@ export type RegistryImageSaveResult =
   | "too_large"
   | "error";
 type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryImageSaveResult };
+/** The Worker entry point a session-routed D1 client was built for. */
+export type D1SessionEntry = "fetch" | "scheduled";
+type D1SessionMissingAttrs = { entry: D1SessionEntry };
 type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
@@ -556,6 +564,13 @@ const registryImageSave = createCounter<RegistryImageSaveAttrs>({
   name: CIRE_METRICS.registryImageSave,
   description: "Registry item image saves, by source + outcome",
   unit: "{save}",
+});
+
+const d1SessionMissing = createCounter<D1SessionMissingAttrs>({
+  name: CIRE_METRICS.d1SessionMissing,
+  description:
+    "D1 queries prepared on the raw binding because no session was in scope, by Worker entry point. Should be zero",
+  unit: "{query}",
 });
 
 const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
@@ -835,6 +850,9 @@ export const metricRegistryImageSave = (
   source: RegistryImageSource,
   result: RegistryImageSaveResult,
 ): void => registryImageSave.inc({ source, result });
+
+export const metricD1SessionMissing = (entry: D1SessionEntry): void =>
+  d1SessionMissing.inc({ entry });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
 

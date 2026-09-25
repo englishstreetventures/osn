@@ -273,7 +273,7 @@ const handler: ExportedHandler<Env> = {
       // is baked into the cached app graph, so it must be stable for the life of
       // the isolate, while the D1 session it queries through has to be per
       // request. The shim is the seam between the two — see db/d1-session.ts.
-      const db = createD1Db(createSessionRoutedClient(env.DB));
+      const db = createD1Db(createSessionRoutedClient(env.DB, "fetch"));
       // Any authenticated OSN user is a first-class organiser: they sign in,
       // see their own weddings (an empty list for a new account — never a 503),
       // and create new ones via POST /api/organiser/weddings. There is no
@@ -561,7 +561,7 @@ const handler: ExportedHandler<Env> = {
     // write-heavy, so this buys little today — but it keeps one path through
     // the D1 client rather than two, and the reads each sweep does to find its
     // work can be served by a replica once the first query has run.
-    const db = createD1Db(createSessionRoutedClient(env.DB));
+    const db = createD1Db(createSessionRoutedClient(env.DB, "scheduled"));
     const dbLayer = Layer.succeed(DbService, db);
 
     // One session PER SWEEP, not one shared by all six. `waitUntil` only
