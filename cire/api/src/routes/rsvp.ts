@@ -228,23 +228,24 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               }
             }
 
+            // Normalised once, after every gate has passed: the write and the
+            // preset counter below both read these replies.
+            const replies = body.rsvps.map((rsvp) => ({
+              guestId: rsvp.guestId,
+              eventId: rsvp.eventId,
+              status: rsvp.status,
+              dietary: rsvp.dietary,
+              dietaryPresets: withOtherForFreeText(rsvp),
+              // Only stamp a consent record when there is special-category
+              // data to authorise; clearing the whole answer clears the
+              // record too.
+              dietaryConsent: hasDietaryData(rsvp) && rsvp.dietaryConsent,
+            }));
+
             // Ownership + invitation already validated above — service method does
             // not re-check. Upsert the whole batch AND read back the family's
-            // current rows in ONE D1 round-trip (P-W1) instead of two.
-            const updatedRsvps = yield* rsvpService.submitRsvpsAndList(
-              body.rsvps.map((rsvp) => ({
-                guestId: rsvp.guestId,
-                eventId: rsvp.eventId,
-                status: rsvp.status,
-                dietary: rsvp.dietary,
-                dietaryPresets: withOtherForFreeText(rsvp),
-                // Only stamp a consent record when there is special-category
-                // data to authorise; clearing the whole answer clears the
-                // record too.
-                dietaryConsent: hasDietaryData(rsvp) && rsvp.dietaryConsent,
-              })),
-              familyId,
-            );
+            // current rows in one D1 round-trip instead of two.
+            const updatedRsvps = yield* rsvpService.submitRsvpsAndList(replies, familyId);
 
             yield* Effect.sync(() => {
               metricRsvpBatchSize(body.rsvps.length);
@@ -253,10 +254,15 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               // presets — a declined reply can be changed back, and the consent
               // gate above applies to it either way — but the counter answers
               // "how many plates need this", and a declined reply needs none.
-              // `maybe` counts: the kitchen has to be ready for them.
-              for (const rsvp of body.rsvps) {
-                if (rsvp.status === "declined") continue;
-                for (const preset of withOtherForFreeText(rsvp)) metricDietaryPreset(preset);
+              // `maybe` counts: the kitchen has to be ready for them. A preset
+              // named twice in one reply is one plate, as the row stores it once.
+              for (const reply of replies) {
+                if (reply.status === "declined") continue;
+                const presets = reply.dietaryPresets;
+                // A list of one or none cannot repeat, so it skips the Set.
+                for (const preset of presets.length > 1 ? new Set(presets) : presets) {
+                  metricDietaryPreset(preset);
+                }
               }
             });
 

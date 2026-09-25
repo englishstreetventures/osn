@@ -53,6 +53,8 @@ function buildRsvpUpsertStatements(
     const dietaryConsentAt = input.dietaryConsent ? now : null;
     const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
     const consentSource: ConsentSource = input.consentSource ?? "guest";
+    // Serialised once: the insert and the conflict-update store the same value.
+    const dietaryPresets = serialisePresets(input.dietaryPresets);
     return db
       .insert(rsvps)
       .values({
@@ -61,7 +63,7 @@ function buildRsvpUpsertStatements(
         eventId: input.eventId,
         status: input.status,
         dietary: input.dietary,
-        dietaryPresets: serialisePresets(input.dietaryPresets),
+        dietaryPresets,
         dietaryConsentAt,
         dietaryConsentVersion,
         consentSource,
@@ -72,7 +74,7 @@ function buildRsvpUpsertStatements(
         set: {
           status: input.status,
           dietary: input.dietary,
-          dietaryPresets: serialisePresets(input.dietaryPresets),
+          dietaryPresets,
           dietaryConsentAt,
           dietaryConsentVersion,
           // Overwrite the writer/consent provenance too: an organiser

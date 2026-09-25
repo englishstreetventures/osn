@@ -93,6 +93,45 @@ describe("rsvpService.submitRsvp", () => {
   );
 
   it(
+    "upserts — re-submitted presets replace the stored ones, serialised the same way",
+    withDb(
+      Effect.gen(function* () {
+        // The insert and the conflict-update each write the column, so a first
+        // submit only proves the insert half. The second and third submits hit
+        // the update: a repeat and allergy-first order must come out deduplicated
+        // and diet-first, and an empty list must clear the column.
+        const db = yield* DbService;
+        const priya = yield* lookupGuest("Ada");
+        const reply = {
+          guestId: priya.id,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietary: "",
+          dietaryConsent: true,
+        } as const;
+        const storedPresets = Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ presets: rsvpsTable.dietaryPresets })
+              .from(rsvpsTable)
+              .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, HINDU_ID)))
+              .get(),
+          ),
+        ).pipe(Effect.map((row) => row?.presets));
+
+        yield* rsvpService.submitRsvp({ ...reply, dietaryPresets: ["halal"] });
+        expect(yield* storedPresets).toBe("halal");
+
+        yield* rsvpService.submitRsvp({ ...reply, dietaryPresets: ["nuts", "vegetarian", "nuts"] });
+        expect(yield* storedPresets).toBe("vegetarian,nuts");
+
+        yield* rsvpService.submitRsvp({ ...reply, dietaryPresets: [], dietaryConsent: false });
+        expect(yield* storedPresets).toBe("");
+      }),
+    ),
+  );
+
+  it(
     "persists dietary requirements",
     withDb(
       Effect.gen(function* () {
