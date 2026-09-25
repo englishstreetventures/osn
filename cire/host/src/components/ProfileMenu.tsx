@@ -1,6 +1,6 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import type { RpSession } from "@shared/rp-auth";
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { haptic, hapticsAvailable } from "../lib/haptics";
 import {
@@ -70,6 +70,14 @@ export default function ProfileMenu(props: {
       return null;
     }
   };
+  // An avatar that will not load — a dead link, or a host the CSP's `img-src`
+  // does not allow, which the browser reports the same way — shows the initial
+  // instead of an empty circle. Keyed on the URL, so a new one gets its own try.
+  const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);
+  const avatarUrl = () => {
+    const url = httpsAvatarUrl();
+    return url !== failedAvatarUrl() ? url : null;
+  };
 
   return (
     <DropdownMenu placement="bottom-end" gutter={8}>
@@ -78,14 +86,21 @@ export default function ProfileMenu(props: {
         class="border-border bg-surface/40 hover:border-gold-dim flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors duration-(--dur-fast)"
       >
         <Show
-          when={httpsAvatarUrl()}
+          when={avatarUrl()}
           fallback={
             <span aria-hidden="true" class="font-display text-gold text-ui-base leading-none">
               {initial()}
             </span>
           }
         >
-          {(url) => <img src={url()} alt="" class="h-full w-full rounded-full object-cover" />}
+          {(url) => (
+            <img
+              src={url()}
+              alt=""
+              onError={() => setFailedAvatarUrl(url())}
+              class="h-full w-full rounded-full object-cover"
+            />
+          )}
         </Show>
       </DropdownMenu.Trigger>
 

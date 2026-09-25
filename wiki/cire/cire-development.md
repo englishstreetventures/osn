@@ -19,6 +19,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
+  - "[[cire-registry]]"
 last-reviewed: 2026-09-25
 ---
 
@@ -240,6 +241,64 @@ The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 bun run --cwd cire/invites build
 cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
+
+## Portal security headers
+
+The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
+static Astro builds on Cloudflare Pages. Every response header they send comes
+from `public/_headers`, which Pages applies to every path. `astro dev` does
+not read that file, so the devloop runs with no CSP at all.
+
+**The committed file is the production policy.** Its `connect-src`, `img-src`,
+`report-uri` and `Reporting-Endpoints` name `https://api.cireweddings.com` and
+nothing else. After `astro build`, the integration in `src/lib/tier-headers.ts`
+rewrites the copy in `dist/`: every production cire-api origin becomes the
+origin of the `PUBLIC_CIRE_API_URL` the bundle was built with. So:
+
+| Build | The policy in `dist/_headers` names |
+|---|---|
+| Production (`deploy.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
+| Dev (`deploy.yml` sets `https://api.dev.cireweddings.com`) | The dev API and the dev API's CSP report collector |
+| Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
+
+The integration reads the env from Vite's resolved config, the same object that
+fills `import.meta.env.PUBLIC_*` in the bundle, and resolves it through
+`resolveApiUrl` in `src/lib/api-origin.ts`, the same chain `src/lib/osn.ts`
+uses. It fails the build in three cases, so a mismatch surfaces in CI rather
+than as a blocked API on a deployed tier:
+
+- `_headers` no longer names the production origin
+- `PUBLIC_CIRE_API_URL` does not parse as an http(s) URL. An empty value counts.
+- No `.js` file in `dist/` contains the origin the header now names
+
+So write only the production origin in `public/_headers`, never a dev or
+loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
+
+**Both policies are still report-only.** Each file has two CSP headers: an
+enforced one with the three directives that cannot break a page
+(`frame-ancestors`, `object-src`, `base-uri`), and the full policy as
+`Content-Security-Policy-Report-Only`. Enforcing the full policy is a rename of
+that header plus deleting the three-directive line. Two things come first:
+
+- **A real-browser pass on the dev tier that files no report.** For
+  `@cire/host`: sign-in, the invite builder, image cropping, the registry's shop
+  link picker and the CSV export. For `@cire/vendor`: sign-in, the claim link
+  and the enquiry list. Reports from the dev tier go to the dev API's collector
+  (`POST /api/csp-report`, logged by the dev Worker), never production's.
+- **The organiser portal's `img-src`.** The registry's shop link picker shows
+  candidate images straight from each shop's own host (see [[cire-registry]],
+  "Link preview"), which the policy does not allow. Enforcing it as written
+  blanks the picker.
+
+A profile avatar can come from any host, and neither policy allows one. Both
+avatar components fall back to the account's initial when the image fails to
+load, a CSP block included.
+
+The guest site (`cire/invites`) solves the same problem another way. It is an
+SSR Worker, so its CSP is built by middleware from constants in
+`src/lib/security-headers.ts`, and it keeps loopback origins in its production
+policy so local runs work. It does not yet derive the API origin per build, so
+its dev tier's policy still names the production API.
 
 ## Guest-site SSR bundle size
 

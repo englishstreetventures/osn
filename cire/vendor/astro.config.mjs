@@ -3,6 +3,8 @@ import { devPort } from "@shared/dev-urls";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 
+import tierHeaders from "./src/lib/tier-headers";
+
 export default defineConfig({
   // Portless assigns the port and passes it as `PORT`; the literal is the
   // fallback for a devloop without portless (`PORTLESS=0`, or running
@@ -14,7 +16,9 @@ export default defineConfig({
   // Astro 6 behaviour so the upgrade does not change rendered markup.
   compressHTML: true,
   output: "static",
-  integrations: [solidJs()],
+  // Points the CSP in `dist/_headers` at this build's cire-api (and its CSP
+  // report collector) — see `src/lib/tier-headers.ts`.
+  integrations: [solidJs(), tierHeaders()],
 
   // Both faces are downloaded at build time and served from our own origin.
   // All three page shells used to <link> fonts.googleapis.com, which cost a DNS

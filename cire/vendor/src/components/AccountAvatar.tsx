@@ -12,7 +12,7 @@
  * menu library to draw.
  */
 import type { RpSession } from "@shared/rp-auth";
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 /** The trigger's box. Worn by the real trigger and by the placeholder alike. */
 export const AVATAR_TRIGGER_CLASS =
@@ -43,6 +43,16 @@ export function httpsAvatarUrl(session: RpSession | null | undefined): string | 
 }
 
 /**
+ * The last avatar URL that failed to load — a dead link, or a host the CSP's
+ * `img-src` does not allow, which the browser reports the same way. Module
+ * scope, so `TopBar`'s placeholder and the real trigger agree: once the
+ * placeholder has failed, the swap does not try the URL again and flash an
+ * empty circle. A URL that failed once stays on the initial until the page
+ * reloads; a different URL gets its own try.
+ */
+const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);
+
+/**
  * What sits inside the circle: the avatar image, else the account's initial.
  *
  * `alt=""` is correct — whatever wraps this carries the accessible name
@@ -51,16 +61,27 @@ export function httpsAvatarUrl(session: RpSession | null | undefined): string | 
  */
 export default function AccountAvatar(props: { session: RpSession | null | undefined }) {
   const initial = () => accountName(props.session).charAt(0).toUpperCase();
+  const avatarUrl = () => {
+    const url = httpsAvatarUrl(props.session);
+    return url !== failedAvatarUrl() ? url : null;
+  };
   return (
     <Show
-      when={httpsAvatarUrl(props.session)}
+      when={avatarUrl()}
       fallback={
         <span aria-hidden="true" class="font-display text-gold text-ui-base leading-none">
           {initial()}
         </span>
       }
     >
-      {(url) => <img src={url()} alt="" class="h-full w-full rounded-full object-cover" />}
+      {(url) => (
+        <img
+          src={url()}
+          alt=""
+          onError={() => setFailedAvatarUrl(url())}
+          class="h-full w-full rounded-full object-cover"
+        />
+      )}
     </Show>
   );
 }

@@ -36,6 +36,43 @@ describe("ProfileMenu", () => {
     expect(trigger.querySelector("img")).toBeNull();
   });
 
+  it("falls back to the initial when the avatar image fails to load", () => {
+    // A host the CSP's `img-src` does not allow is blocked, and a blocked image
+    // fires `error` like a dead link does. The failed URL is remembered for the
+    // whole page, so each test here uses its own.
+    render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://avatars.test/menu.png" }}
+        onSignOut={() => {}}
+      />
+    ));
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.error(trigger.querySelector("img")!);
+    expect(trigger.querySelector("img")).toBeNull();
+    expect(trigger.textContent).toBe("A");
+  });
+
+  it("tries a new avatar URL even after an earlier one failed", () => {
+    const { unmount } = render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://avatars.test/old.png" }}
+        onSignOut={() => {}}
+      />
+    ));
+    fireEvent.error(screen.getByRole("button", { name: /account menu/i }).querySelector("img")!);
+    unmount();
+    render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://avatars.test/new.png" }}
+        onSignOut={() => {}}
+      />
+    ));
+    const img = screen
+      .getByRole("button", { name: /account menu/i })
+      .querySelector("img") as HTMLImageElement;
+    expect(img.src).toBe("https://avatars.test/new.png");
+  });
+
   it("refuses a non-https avatar URL and falls back to the initial", () => {
     // The OIDC `picture` claim is unvalidated at every earlier hop, so the sink
     // is what enforces the scheme.

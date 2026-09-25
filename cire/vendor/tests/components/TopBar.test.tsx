@@ -226,6 +226,36 @@ describe("TopBar", () => {
     expect(after.className).toBe(boxBefore);
   });
 
+  it("keeps showing the initial across the swap once the avatar has failed to load", async () => {
+    // A host the CSP's `img-src` does not allow is blocked, which fires `error`.
+    // The real trigger must not try the same URL again and flash an empty
+    // circle before failing a second time.
+    render(() => (
+      <TopBar
+        session={{ ...(session as object), avatarUrl: "https://avatars.test/swap.png" } as never}
+        view="listings"
+        onView={() => {}}
+        onHome={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
+    const before = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.error(before.querySelector("img")!);
+    expect(before.querySelector("img")).toBeNull();
+
+    fireEvent.pointerEnter(before);
+    await waitFor(
+      () =>
+        expect(screen.getByRole("button", { name: /account menu/i })).toHaveAttribute(
+          "aria-expanded",
+        ),
+      CHUNK,
+    );
+    const after = screen.getByRole("button", { name: /account menu/i });
+    expect(after.querySelector("img")).toBeNull();
+    expect(after.textContent).toBe("A");
+  });
+
   it("loads the menu on focus, before a click can arrive", async () => {
     renderBar();
     fireEvent.focus(screen.getByRole("button", { name: /account menu/i }));

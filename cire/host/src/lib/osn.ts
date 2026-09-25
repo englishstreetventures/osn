@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "./api-origin";
+
 // The organiser's musubi account pages. Sign-in itself never goes through
 // here — cire/api owns the OIDC redirect — but passkeys and recovery codes
 // are bound to the `musubi.social` RP ID, so managing them has to happen on
@@ -7,9 +9,12 @@ export const OSN_ACCOUNT_URL = import.meta.env.PUBLIC_OSN_ACCOUNT_URL ?? "http:/
 
 // cire/api origin. Dev default matches @cire/api's `bun run dev`
 // (src/local.ts, port 8787). PUBLIC_API_URL is the legacy name, still
-// honoured as a fallback.
-export const CIRE_API_URL =
-  import.meta.env.PUBLIC_CIRE_API_URL ?? import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
+// honoured as a fallback. The build resolves the same chain for the CSP it
+// writes into `dist/_headers` (`lib/tier-headers.ts`).
+export const CIRE_API_URL = resolveApiUrl(
+  import.meta.env.PUBLIC_CIRE_API_URL,
+  import.meta.env.PUBLIC_API_URL,
+);
 
 // cire/invites (guest invite) origin. Used by the "Preview invite" button to open
 // the guest site with the host preview code pre-filled. Dev default matches

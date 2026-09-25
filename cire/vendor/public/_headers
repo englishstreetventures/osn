@@ -5,67 +5,62 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com http://localhost:8787; connect-src 'self' https://api.cireweddings.com http://localhost:8787; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 /claim*
   Referrer-Policy: no-referrer
 
-# Long-cache the immutable, content-hashed Astro bundles — this now includes
-# the self-hosted font files the comment above describes, which used to come
-# from fonts.gstatic.com with this exact header and lost it on the move to
-# our own origin (englishstventures/osn-tracker#131). Every path under /_astro/ carries
-# a content hash in the filename, so a year-long cache is unconditionally
-# safe: a changed file is a new URL, never the same one with different bytes.
+# Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
+# files included. Every path under /_astro/ carries a content hash in the
+# filename, so a year-long cache is unconditionally safe: a changed file is a
+# new URL, never the same one with different bytes.
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
-# Landed with the organiser's policy (VP-S-L3 said do both together — the two
-# portals share a shape). Same staging: an ENFORCED line carrying only
-# directives that cannot break a working page, plus a REPORT-ONLY line carrying
-# the real lock-down, reporting to cire-api's first-party collector until a
-# real-browser pass over sign-in, the claim link and the enquiry list comes back
-# clean. Flip the header name to `Content-Security-Policy` then.
+# The same shape as the organiser portal's policy (`cire/host/public/_headers`):
+# an ENFORCED line carrying only directives that cannot break a working page,
+# plus a REPORT-ONLY line carrying the real lock-down, reporting to cire-api's
+# first-party collector until a real-browser pass over the dev tier — sign-in,
+# the claim link and the enquiry list — comes back with no reports. Then rename
+# the header to `Content-Security-Policy` and drop the three-directive line.
 #
-# GOOGLE FONTS ARE GONE from `style-src` and `font-src`, and that is a source
-# change rather than a tightening on a guess: `astro.config.mjs` now downloads
+# THIS FILE IS THE PRODUCTION POLICY. The build rewrites the copy in `dist/`
+# (`src/lib/tier-headers.ts`): every `https://api.cireweddings.com` above
+# becomes the origin of the `PUBLIC_CIRE_API_URL` the bundle was built with, so
+# the dev tier allows and reports to its own API, and a local
+# `wrangler pages dev dist` build allows the local one. Write only the
+# production origin here; the build fails if this file stops naming it, or if
+# the origin it writes appears in no client script.
+#
+# NO GOOGLE FONTS in `style-src` or `font-src`: `astro.config.mjs` downloads
 # Schibsted Grotesk and Cormorant Garamond at build time via
 # `fontProviders.google()`, and none of the three page shells links
-# fonts.googleapis.com any more. The comment that stood here said "self-host
-# here too and both entries go" — this is that. It matters most on `/claim`,
-# which is opened straight from an emailed invite: that page used to tell Google
-# about every vendor who followed the link, before rendering a word.
+# fonts.googleapis.com. It matters most on `/claim`, which is opened straight
+# from an emailed invite: a Google stylesheet there would tell Google about
+# every vendor who followed the link, before rendering a word.
 #
-# `script-src 'unsafe-inline'` is now load-bearing rather than incidental: the
-# theme-boot script (`THEME_BOOT_SCRIPT`) is `is:inline` on all three shells so
-# it can run before first paint, and an inline script cannot be an external
-# hashed file. Astro's island bootstrap is external `/_astro/*` and covered
-# by 'self'.
+# `script-src 'unsafe-inline'` is load-bearing: the theme-boot script
+# (`THEME_BOOT_SCRIPT`) is `is:inline` on all three shells so it can run before
+# first paint, and an inline script cannot be an external hashed file. Astro's
+# island bootstrap is external `/_astro/*` and covered by 'self'.
 #
 # Other differences from `cire/host/public/_headers`, audited from source:
 #   - No `blob:` in `img-src`: no cropper, no object URLs (`data:` is kept for
 #     inline SVG data URIs).
 #   - `connect-src` is cire-api only. Sign-in is a top-level redirect through
 #     cire/api's OIDC leg and account management links out to musubi — both
-#     navigations, which no `connect-src` governs. The localhost entry keeps a
-#     local `wrangler pages dev dist` pointed at a local API.
+#     navigations, which no `connect-src` governs.
 #
-# On avatars: `ProfileMenu` renders the OIDC `picture` claim, which can point at
-# ANY https host — it is unvalidated at every hop between osn-api and here, so
-# the sink (`AccountAvatar.httpsAvatarUrl`) is what enforces the scheme.
-#
-# The `img-src` above does NOT currently restrain it, and it is worth being
-# precise about why, because the organiser's copy of this comment reads as
-# though it does. `img-src` lives only on the REPORT-ONLY line; the enforced
-# header carries `frame-ancestors`, `object-src` and `base-uri` and nothing
-# else. So the allowlist is **staged, not active**: today it would only file a
-# violation report, not block the request.
-#
-# That is fine while nothing populates the claim — osn-api writes `avatarUrl`
-# null on registration and on erasure, and has no update path — but it is the
-# thing to fix *before* OSN ships avatar hosting, or the portal starts issuing
-# a request to a user-named host on every page load, carrying the vendor's IP
-# and a `strict-origin-when-cross-origin` Referer. Bind promoting this policy to
-# enforcement to that milestone, and add the avatar host here at the same time.
+# On avatars: `AccountAvatar` renders the OIDC `picture` claim, which can point
+# at ANY https host — it is unvalidated at every hop between osn-api and here,
+# so the sink (`httpsAvatarUrl`) is what enforces the scheme. `img-src` allows
+# no avatar host, and while this policy is report-only it does not restrain the
+# request either: a set avatar would load and file a violation report. OSN hosts
+# no avatars yet (osn-api writes `avatarUrl` null on registration and on
+# erasure, and has no update path), so nothing populates the claim. Once
+# enforced, an avatar from a host not listed here is blocked and
+# `AccountAvatar` shows the initial instead. Add OSN's avatar host here when it
+# exists: englishstventures/osn#1207.
 #
 # The `/claim*` rule above only overrides `Referrer-Policy` (a claim token rides
 # in the URL); Cloudflare merges the rules, so that path keeps both CSP headers.
