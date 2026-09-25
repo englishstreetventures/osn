@@ -1,12 +1,19 @@
 # The guards that keep this repo honest, and the things they guard. `.github/`
-# is self-owning, so neither this file nor the CI wiring can change without an
-# owner's review. GitHub applies the LAST matching pattern for a given path —
-# every pattern here names the same owner, so order is not load-bearing today
-# even where two patterns overlap (`tools/oxlint/house/package.json` matches
-# both `package.json` and `/tools/oxlint/**`), but a later pattern that overlaps
-# an earlier one and names a different owner would win.
+# is self-owning, so a change to this file or the CI wiring requests an owner's
+# review. It requests one and does not block a merge: the branch ruleset does
+# not require code-owner review.
+#
+# GitHub applies the LAST matching pattern for a given path — every pattern
+# here names the same owner, so order is not load-bearing today even where two
+# patterns overlap (`tools/oxlint/house/package.json` matches both
+# `package.json` and `/tools/oxlint/**`), but a later pattern that overlaps an
+# earlier one and names a different owner would win.
+#
+# `scripts/` is deliberately unanchored, so it owns a `scripts/` directory at
+# any depth: a guard added under a package's own `scripts/` has an owner the
+# moment it is written, not only once it moves to the root.
 /.github/            @chav-aniket
-/scripts/            @chav-aniket
+scripts/             @chav-aniket
 
 # The indirection the guards run through. Owning the workflow without owning
 # these leaves the cheapest bypass unreviewed: every CI step calls a guard by

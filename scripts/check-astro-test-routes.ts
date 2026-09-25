@@ -1,12 +1,21 @@
 #!/usr/bin/env bun
 /**
- * Lint guard: fail if any Astro app has a routable test file under `src/pages`.
+ * Lint guard: fail if any Astro app has a test, spec or fixture under `src/pages`
+ * that Astro would route.
  *
  * Astro routes every file under `src/pages` into a live page, EXCEPT one whose
  * name (or an ancestor directory's name, anywhere between `src/pages` and the
  * file) starts with `_` — that is the one prefix its router treats as private.
- * A `*.test.ts`/`*.spec.ts` left un-prefixed there is therefore built and
- * deployed as a real route, not skipped as "just a test file". Measured:
+ * A `*.test.ts`/`*.spec.ts` or a fixture left un-prefixed there is therefore
+ * built and deployed as a real route, not skipped as "just a test file".
+ *
+ * A name matches when it contains `.test.` or `.spec.`, or the word `fixture`
+ * in any case (`fixtures.ts`, `invite.fixture.ts`, `InviteFixture.ts`). The
+ * same test applies to directory names, since every file under an un-prefixed
+ * `fixtures/` is routed whatever it is called; a matching directory is
+ * reported once and not walked further. Any un-prefixed symlink is refused
+ * outright: Astro follows it and routes what it points at, whatever that is
+ * called, and no app has one today. Measured:
  * exactly this happened to cire/invites — three drift-guard tests sat
  * un-prefixed under `src/pages`, got routed, and dragged 119 KB gzip of vitest
  * into the deployed Worker. The general half of that finding is
@@ -22,10 +31,15 @@
 import { readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 
-const TEST_ROUTE = /\.(?:test|spec)\./;
+const TEST_ROUTE = /\.(?:test|spec)\.|fixture/i;
 
-export async function findTestRoutes(pagesDir: string): Promise<readonly string[]> {
-  const violations: string[] = [];
+export interface TestRoute {
+  readonly path: string;
+  readonly kind: "file" | "directory" | "symlink";
+}
+
+export async function findTestRoutes(pagesDir: string): Promise<readonly TestRoute[]> {
+  const violations: TestRoute[] = [];
 
   async function walk(dir: string): Promise<void> {
     let entries;
@@ -41,11 +55,14 @@ export async function findTestRoutes(pagesDir: string): Promise<readonly string[
       // router excludes — walking past it would flag files Astro never routes.
       if (entry.name.startsWith("_")) continue;
 
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
+      const path = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        violations.push({ path, kind: "symlink" });
+      } else if (entry.isDirectory()) {
+        if (TEST_ROUTE.test(entry.name)) violations.push({ path, kind: "directory" });
+        else await walk(path);
       } else if (entry.isFile() && TEST_ROUTE.test(entry.name)) {
-        violations.push(full);
+        violations.push({ path, kind: "file" });
       }
     }
   }
@@ -130,17 +147,19 @@ if (import.meta.main) {
 
     const violations = await findTestRoutes(pagesDir);
 
-    for (const violation of violations) {
+    for (const { path, kind } of violations) {
       failed = true;
-      const rel = relative(pagesDir, violation);
-      console.error(
-        `::error::${app}/src/pages/${rel} is a *.test.*/*.spec.* file with no \`_\` prefix — Astro routes it as a live page and ships it in the deployed bundle (this cost cire/invites' Worker 119 KB gzip). Prefix the file, or an ancestor directory, with \`_\` to exclude it from routing, or move it out of src/pages entirely.`,
-      );
+      const rel = relative(pagesDir, path) + (kind === "directory" ? "/" : "");
+      const message =
+        kind === "symlink"
+          ? "is a symlink with no `_` prefix. Astro follows it and routes whatever it points at, which this check cannot see. Replace it with the file or directory it points at, or prefix it with `_` to exclude it from routing."
+          : `is named like a test, spec or fixture ${kind} and has no \`_\` prefix. Astro routes page and endpoint files under src/pages as live routes and ships them in the deployed bundle (a routed test cost cire/invites' Worker 119 KB gzip). Rename it if it is a real page, prefix it (or an ancestor directory) with \`_\` to exclude it from routing, or move it out of src/pages.`;
+      console.error(`::error::${app}/src/pages/${rel} ${message}`);
     }
   }
 
   if (failed) process.exit(1);
   console.log(
-    "✅ check-astro-test-routes: no *.test.*/*.spec.* files routed under any app's src/pages.",
+    "✅ check-astro-test-routes: no test, spec or fixture files routed under any app's src/pages.",
   );
 }

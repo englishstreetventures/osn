@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-25
 ---
 
 # Access Control
@@ -187,9 +187,11 @@ Tracked with `C-` IDs:
 4. **GitHub org hardening** — required hardware-key MFA, signed commits, branch
    protection, codeowners on prod paths. ID: **C-L4**. **Partly done (2026-08-30):**
    `.github/CODEOWNERS` now names an owner for the paths that decide whether a
-   guard runs at all — `/.github/`, `/scripts/`, `/bunfig.toml`, `package.json`
-   (unanchored, so every workspace manifest matches), `/oxlintrc.json`,
-   `/lefthook.yml`, `/bun.lock`, `/.bun-version` and `/tools/oxlint/**`. Branch
+   guard runs at all — `/.github/`, `scripts/`, `bunfig.toml` and
+   `package.json` (all three unanchored, so a `scripts/` directory, a
+   `bunfig.toml` or a workspace manifest matches at any depth),
+   `/oxlintrc.json`, `/lefthook.yml`, `/bun.lock`, `/.bun-version` and
+   `/tools/oxlint/**`. Branch
    protection is ruleset `13921406` on `englishstventures/osn` (active: pull request
    required, linear history, no deletion, no force-push, `CI` and
    `Require changeset` as required status checks).

@@ -123,6 +123,32 @@ resolve_label() {
   echo "$(basename "$(dirname "$abs")")/$(basename "$abs")"
 }
 
+# True when "$1" is a source map for a chunk beside it: the same path without
+# `.map` is a file, and the content parses as a JSON object with a numeric
+# `version`, a `sources` array and a `mappings` string — the shape the SSR
+# build writes. The path reaches bun as an argument, never as part of the
+# script, and the script catches every failure and always exits 0, so a file
+# that is not a map reads as "other" rather than tripping `set -e`.
+is_source_map() {
+  local f="$1" verdict
+  [ -f "${f%.map}" ] || return 1
+  verdict=$(bun -e '
+    let ok = false;
+    try {
+      const m = JSON.parse(await Bun.file(process.argv[1]).text());
+      ok =
+        m !== null &&
+        typeof m === "object" &&
+        !Array.isArray(m) &&
+        typeof m.version === "number" &&
+        Array.isArray(m.sources) &&
+        typeof m.mappings === "string";
+    } catch {}
+    console.log(ok ? "source-map" : "other");
+  ' -- "$f" </dev/null) || return 1
+  [ "$verdict" = "source-map" ]
+}
+
 # Runs the actual measurement for one app, in a subshell so its `cd` and any
 # `exit` never escape to affect a sibling record in --all's loop. Args:
 # <label for messages> <directory to cd into> <worker|static> <threshold>.
@@ -149,6 +175,16 @@ run_guard() {
 
     if [ ! -d "$measure_dir" ]; then
       echo "::error::${label} ${measure_dir} is missing — run \`astro build\` before this guard."
+      exit 1
+    fi
+
+    # The measurement below lists files with `find -type f`, which skips a
+    # symlink, but wrangler uploads and Pages serves the file a link points
+    # at. A build emits none today, so a link is refused rather than
+    # followed: the measured set stays at least as large as what ships.
+    links=$(find "$measure_dir" -type l | tr '\n' ' ')
+    if [ -n "$links" ]; then
+      echo "::error::${label} ${measure_dir} holds a symlink (${links% }), which this guard does not measure. Replace it with the file it points at."
       exit 1
     fi
 
@@ -179,18 +215,32 @@ run_guard() {
     total=0
     count=0
     if [ "$mode" = "worker" ]; then
+      if ! command -v bun >/dev/null 2>&1; then
+        echo "::error::${label}: bun is not on PATH, and the worker guard needs it to tell a source map from any other file named *.map."
+        exit 1
+      fi
       # `no_bundle: true` (the adapter's generated config) means `wrangler
-      # deploy` ships every file in `dist/server` as its own module rather
+      # deploy` ships each module in `dist/server` as its own file rather
       # than concatenating them, so the sum of each file's OWN gzip size is
       # what crosses the wire — not the gzip of the directory as a whole.
-      # Everything except `wrangler.json` is uploaded, so measure exactly
-      # that set: matching on `*.mjs` would coincide with it today and stop
-      # matching the moment the adapter emitted a `.js` chunk, which its own
-      # generated `rules` already declare as an ES module. `.map` files are
-      # excluded too: they're uploaded to Cloudflare for symbolication
-      # (`upload_source_maps` in `wrangler.jsonc`), not part of the script
-      # the Worker runs, and roughly double the reading if left in.
+      #
+      # Wrangler uploads only the files its module rules match (`*.js` and
+      # `*.mjs` from the generated config, plus its own defaults), and this
+      # counts more than that, never less: every file except the adapter's
+      # top-level `wrangler.json` and real source maps. Matching on `*.mjs`
+      # would coincide with the upload today and stop matching the moment
+      # the adapter emitted a `.js` chunk.
+      #
+      # A source map is left out because it IS one (`is_source_map`: a JSON
+      # map beside the chunk it names), not because its name ends in `.map`.
+      # The maps go to Cloudflare for symbolication (`upload_source_maps` in
+      # `wrangler.jsonc`), never as a module the Worker runs, and would
+      # roughly double the reading if counted. Any other file named `*.map`
+      # is measured, so a name alone cannot hide bytes from this guard.
       while IFS= read -r -d '' f; do
+        if [[ "$f" == *.map ]] && is_source_map "$f"; then
+          continue
+        fi
         # `-n` keeps the source filename out of the gzip header. Without it
         # the measured total shifts by tens of bytes whenever a chunk is
         # renamed or its content hash changes, so the same build measures
@@ -198,7 +248,7 @@ run_guard() {
         size=$(gzip -nc "$f" | wc -c)
         total=$((total + size))
         count=$((count + 1))
-      done < <(find "$measure_dir" -type f ! -name 'wrangler.json' ! -name '*.map' -print0)
+      done < <(find "$measure_dir" -type f ! -path "$measure_dir/wrangler.json" -print0)
     else
       # The static apps have no Worker bundle to measure — `astro build`
       # writes font binaries fetched from Google (hashed names,

@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Guards that gate on a number
@@ -95,10 +95,18 @@ the threshold arithmetic lives in the script's own comment — read that before
 touching a threshold. In short:
 
 - **`worker`** — cire/invites, the only `output: "server"` app. Measures
-  `dist/server` (every file except the adapter's generated `wrangler.json` and
-  `*.map`, since `no_bundle: true` ships each chunk as its own module) and
-  separately refuses any `*.map` under the sibling `dist/client`, which is
-  served publicly as Static Assets. See [[cire-development]] for why
+  `dist/server` file by file, since `no_bundle: true` ships each chunk as its
+  own module. It counts every file except the adapter's top-level
+  `wrangler.json` and real source maps, which is more than wrangler uploads
+  (only files its module rules match), never less. A `*.map` is left out only
+  when the chunk it is named after sits beside it and it parses as a source
+  map (a JSON object with a numeric `version`, a `sources` array and a
+  `mappings` string); any other file named `*.map` is measured, so a name
+  alone cannot hide bytes. That check runs through `bun`, which every caller
+  already has. Both modes refuse a symlink in the directory they measure,
+  since wrangler and Pages ship the file a link points at and `find -type f`
+  would skip it. It separately refuses any `*.map` under the sibling
+  `dist/client`, which is served publicly as Static Assets. See [[cire-development]] for why
   cire/invites' bundle is shaped the way it is (sessions off, SSR-only
   minification, server-only source maps, why `zod` stays).
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
@@ -237,6 +245,15 @@ file — starts with `_`. A `*.test.ts`/`*.spec.ts` left un-prefixed there is
 therefore built and deployed as a real route, which is exactly how
 cire/invites picked up 119 KB gzip of vitest. This check walks all six apps'
 `src/pages` looking for that shape.
+
+A name fails when it contains `.test.` or `.spec.`, or the word `fixture` in
+any case (`fixtures.ts`, `invite.fixture.ts`, `InviteFixture.ts`), and has no
+`_` prefix on it or an ancestor. Directory names are checked the same way,
+because every file under an un-prefixed `fixtures/` is routed whatever it is
+called; a failing directory is reported once. A real page whose name holds
+the word — a sports `fixtures.astro`, say — has to be renamed, since a `_`
+prefix would take it off the site. Any un-prefixed symlink fails too, because
+Astro follows it and routes whatever it points at.
 
 It needs no build and no per-app baseline — a plain directory walk — so it runs
 in the fast `lint` job in `ci.yml`, not `build-test`.

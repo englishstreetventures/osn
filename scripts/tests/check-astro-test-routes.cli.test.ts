@@ -16,7 +16,7 @@
 // script under test, matching every other file under scripts/.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,14 +55,17 @@ async function withFixtureApp(
   }
 }
 
-test("the real CLI exits 0 when no page under src/pages matches *.test.*/*.spec.*", async () => {
+const SUCCESS_LINE = "no test, spec or fixture files routed under any app's src/pages";
+
+test("the real CLI exits 0 when no name under src/pages is a test, spec or fixture", async () => {
   await withFixtureApp(
     async (pagesDir) => {
       await writeFile(join(pagesDir, "index.astro"), "<h1>hi</h1>\n");
     },
     async (appRoot) => {
-      const { exitCode, stderr } = await runCli([appRoot]);
+      const { exitCode, stdout, stderr } = await runCli([appRoot]);
       expect(stderr).toBe("");
+      expect(stdout).toContain(SUCCESS_LINE);
       expect(exitCode).toBe(0);
     },
   );
@@ -97,6 +100,147 @@ test("the real CLI exits non-zero on an un-prefixed *.spec.ts under src/pages", 
       const { exitCode, stderr } = await runCli([appRoot]);
       expect(stderr).toContain("checkout.spec.ts");
       expect(exitCode).not.toBe(0);
+    },
+  );
+});
+
+// A fixture is test data, not a page, but Astro cannot tell: an un-prefixed
+// `fixtures.ts` under src/pages is an endpoint like any other `.ts` file there.
+test.each([
+  "fixtures.ts",
+  "invite.fixture.ts",
+  "InviteFixture.ts",
+  "guest-fixtures.json",
+  "Checkout.Test.ts",
+])("the real CLI exits non-zero on an un-prefixed %s under src/pages", async (name) => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      await writeFile(join(pagesDir, name), "export const GET = () => new Response('ok');\n");
+    },
+    async (appRoot) => {
+      const { exitCode, stderr } = await runCli([appRoot]);
+      expect(stderr).toContain(`src/pages/${name}`);
+      expect(stderr).toContain("Rename it");
+      expect(exitCode).not.toBe(0);
+    },
+  );
+});
+
+// Every file under an un-prefixed `fixtures/` directory is routed
+// (`/fixtures/<name>`), whatever the file itself is called. The directory is
+// reported once, not once per file inside it.
+test("the real CLI reports an un-prefixed fixtures directory once, not each file in it", async () => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      await mkdir(join(pagesDir, "fixtures"), { recursive: true });
+      await writeFile(join(pagesDir, "fixtures/data.ts"), "export const GET = () => 1;\n");
+      await writeFile(join(pagesDir, "fixtures/b.fixture.ts"), "export const GET = () => 1;\n");
+    },
+    async (appRoot) => {
+      const { exitCode, stderr } = await runCli([appRoot]);
+      expect(stderr).toContain("src/pages/fixtures/ ");
+      expect(stderr.match(/::error::/g)).toHaveLength(1);
+      expect(exitCode).not.toBe(0);
+    },
+  );
+});
+
+test("the real CLI exits non-zero on an un-prefixed *.spec.* directory under src/pages", async () => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      await mkdir(join(pagesDir, "checkout.spec.d"), { recursive: true });
+      await writeFile(join(pagesDir, "checkout.spec.d/index.ts"), "export const GET = () => 1;\n");
+    },
+    async (appRoot) => {
+      const { exitCode, stderr } = await runCli([appRoot]);
+      expect(stderr).toContain("src/pages/checkout.spec.d/");
+      expect(exitCode).not.toBe(0);
+    },
+  );
+});
+
+// `test` and `spec` count only between dots, so an ordinary page whose name
+// merely contains the letters is left alone.
+test.each([
+  "latest.astro",
+  "contest.ts",
+  "test-drive.astro",
+  "inspect.astro",
+  "specials/index.astro",
+])("the real CLI exits 0 on %s, a page name that only contains test or spec", async (name) => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      await mkdir(join(pagesDir, name, ".."), { recursive: true });
+      await writeFile(join(pagesDir, name), "<h1>hi</h1>\n");
+    },
+    async (appRoot) => {
+      const { exitCode, stdout, stderr } = await runCli([appRoot]);
+      expect(stderr).toBe("");
+      expect(stdout).toContain(SUCCESS_LINE);
+      expect(exitCode).toBe(0);
+    },
+  );
+});
+
+test("the real CLI exits 0 on `_`-prefixed fixture files and directories", async () => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      await writeFile(join(pagesDir, "_fixtures.ts"), "export const GET = () => 1;\n");
+      await mkdir(join(pagesDir, "_fixtures"), { recursive: true });
+      await writeFile(
+        join(pagesDir, "_fixtures/invite.fixture.ts"),
+        "export const GET = () => 1;\n",
+      );
+    },
+    async (appRoot) => {
+      const { exitCode, stdout, stderr } = await runCli([appRoot]);
+      expect(stderr).toBe("");
+      expect(stdout).toContain(SUCCESS_LINE);
+      expect(exitCode).toBe(0);
+    },
+  );
+});
+
+// Astro follows a symlink under src/pages and routes what it points at,
+// whatever that is called, so the check refuses any link it would walk past.
+test.each([
+  ["a file", "about.astro", false],
+  ["a directory", "weddings", true],
+] as const)(
+  "the real CLI exits non-zero on an un-prefixed symlink to %s under src/pages",
+  async (_label, linkName, isDir) => {
+    await withFixtureApp(
+      async (pagesDir) => {
+        const target = join(pagesDir, "..", isDir ? "elsewhere" : "elsewhere.astro");
+        if (isDir) {
+          await mkdir(target, { recursive: true });
+          await writeFile(join(target, "drift-guard.test.ts"), "export const GET = () => 1;\n");
+        } else {
+          await writeFile(target, "<h1>hi</h1>\n");
+        }
+        await symlink(target, join(pagesDir, linkName));
+      },
+      async (appRoot) => {
+        const { exitCode, stderr } = await runCli([appRoot]);
+        expect(stderr).toContain(`src/pages/${linkName}`);
+        expect(stderr).toContain("symlink");
+        expect(exitCode).not.toBe(0);
+      },
+    );
+  },
+);
+
+test("the real CLI exits 0 on a `_`-prefixed symlink under src/pages", async () => {
+  await withFixtureApp(
+    async (pagesDir) => {
+      const target = join(pagesDir, "..", "elsewhere");
+      await mkdir(target, { recursive: true });
+      await symlink(target, join(pagesDir, "_linked"));
+    },
+    async (appRoot) => {
+      const { exitCode, stderr } = await runCli([appRoot]);
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
     },
   );
 });
@@ -196,7 +340,7 @@ test("the real CLI exits non-zero, naming the path, when a configured app's src/
 test("the real CLI exits non-zero when the app override list is empty", async () => {
   const { exitCode, stdout, stderr } = await runCli([]);
   expect(stderr).toContain("empty list");
-  expect(stdout).not.toContain("no *.test.*/*.spec.* files routed");
+  expect(stdout).not.toContain(SUCCESS_LINE);
   expect(exitCode).not.toBe(0);
 });
 

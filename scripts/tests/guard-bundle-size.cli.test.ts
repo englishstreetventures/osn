@@ -22,8 +22,12 @@
 //   3. the measured directory missing -> exit 1, "is missing"
 //   4. the measured directory holding only excluded files -> exit 1, "holds no
 //      deployable files"
-//   5. a large *.map beside small real files, sized so counting the map would
+//   5. a large source map beside its own chunk, sized so counting the map would
 //      trip the threshold and excluding it would not -> exit 0
+//   5a. a *.map with no chunk beside it, or whose content is not a source map,
+//      is measured like any other file
+//   5b. only the adapter's top-level wrangler.json is skipped, not one nested
+//      deeper
 //   6. a *.map under the sibling dist/client -> exit 1
 //   7. static mode counts only *.js/*.css, ignoring everything else
 //   8. a package-dir with no row in the budgets file -> exit 1, naming the file
@@ -38,7 +42,7 @@
 // every other file under scripts/ (the `script-tests` CI job runs with none).
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +77,16 @@ async function gzipSize(path: string): Promise<number> {
   const proc = Bun.spawn(["gzip", "-nc", path], { stdout: "pipe" });
   const [buf] = await Promise.all([new Response(proc.stdout).arrayBuffer(), proc.exited]);
   return buf.byteLength;
+}
+
+// A source map in the shape the SSR build writes: a JSON object with a numeric
+// `version`, a `sources` array and a `mappings` string. The mappings are
+// random base64, so the file stays large after gzip.
+function sourceMapJson(file: string, mappingsLength: number): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const bytes = crypto.getRandomValues(new Uint8Array(mappingsLength));
+  const mappings = Array.from(bytes, (b) => alphabet[b % 64]).join("");
+  return JSON.stringify({ version: 3, file, sources: ["../src/entry.ts"], names: [], mappings });
 }
 
 // A fixture "package directory" needs two path segments under the root for
@@ -133,7 +147,6 @@ test("exits non-zero when dist/server holds only excluded files", async () => {
   await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
     await mkdir(join(pkgDir, "dist/server"), { recursive: true });
     await writeFile(join(pkgDir, "dist/server/wrangler.json"), "{}");
-    await writeFile(join(pkgDir, "dist/server/entry.mjs.map"), "{}");
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
     expect(stdout).toContain("holds no deployable files");
@@ -141,7 +154,7 @@ test("exits non-zero when dist/server holds only excluded files", async () => {
   });
 });
 
-test("excluding *.map is load-bearing: counting it would trip the threshold, excluding it does not", async () => {
+test("excluding a real source map is load-bearing: counting it would trip the threshold, excluding it does not", async () => {
   const root = await mkdtemp(join(tmpdir(), "guard-bundle-size-cli-"));
   try {
     const pkgDir = join(root, "fixture-app", "pkg");
@@ -149,8 +162,8 @@ test("excluding *.map is load-bearing: counting it would trip the threshold, exc
     const entryPath = join(pkgDir, "dist/server/entry.mjs");
     const mapPath = join(pkgDir, "dist/server/entry.mjs.map");
     await writeFile(entryPath, "export default 1;\n");
-    // Random, so it does not gzip down to nothing — a genuinely large map.
-    await writeFile(mapPath, crypto.getRandomValues(new Uint8Array(20000)));
+    // Random mappings, so it does not gzip down to nothing — a genuinely large map.
+    await writeFile(mapPath, sourceMapJson("entry.mjs", 20000));
 
     const entrySize = await gzipSize(entryPath);
     const mapSize = await gzipSize(mapPath);
@@ -181,6 +194,170 @@ test("exits non-zero when dist/client holds a source map", async () => {
     expect(exitCode).not.toBe(0);
   });
 });
+
+// A file is left out of the worker total because it IS a source map, not
+// because its name ends in `.map`. Each case writes a real chunk plus one
+// `.map`-named file that fails one half of that test, and asserts the total
+// covers both files — under a threshold high enough that a pass proves the file
+// was counted, not that the script died on it.
+async function expectMapCounted(mapName: string, mapContent: string | Uint8Array): Promise<void> {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    const entryPath = join(pkgDir, "dist/server/entry.mjs");
+    await writeFile(entryPath, "export default 1;\n");
+    const mapPath = join(pkgDir, "dist/server", mapName);
+    await writeFile(mapPath, mapContent);
+
+    const expected = (await gzipSize(entryPath)) + (await gzipSize(mapPath));
+    const { exitCode, stdout, stderr } = await runCli(budgetsFile, root, pkgDir);
+    expect(stderr).toBe("");
+    expect(stdout).toContain(`gzip total: ${expected} bytes across 2 files`);
+    expect(exitCode).toBe(0);
+  });
+}
+
+test("a *.map with no chunk of the same name beside it is measured, even when it parses as a source map", async () => {
+  await expectMapCounted("payload.map", sourceMapJson("payload", 2000));
+});
+
+test("a *.map named after a real chunk is measured when its content is not JSON", async () => {
+  await expectMapCounted("entry.mjs.map", crypto.getRandomValues(new Uint8Array(2000)));
+});
+
+test.each([
+  ["an empty object", "{}"],
+  ["an array", "[]"],
+  ["null", "null"],
+  ["an object with no mappings", JSON.stringify({ version: 3, sources: [] })],
+  ["an object with no sources", JSON.stringify({ version: 3, mappings: "AAAA" })],
+  ["an object with no version", JSON.stringify({ sources: [], mappings: "AAAA" })],
+  ["a string version", JSON.stringify({ version: "3", sources: [], mappings: "AAAA" })],
+  ["a non-string mappings", JSON.stringify({ version: 3, sources: [], mappings: [1] })],
+])(
+  "a *.map named after a real chunk is measured when it is JSON but %s, not a source map",
+  async (_label, content) => {
+    await expectMapCounted("entry.mjs.map", content);
+  },
+);
+
+// The file name reaches the checker as an argument, never as part of its
+// source, so a chunk named with quotes and `$(…)` is read, not run.
+test("a real source map beside a chunk whose name holds shell and JS metacharacters is still excluded", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    const chunkName = "weird $(touch pwned) ' \" `x` name.mjs";
+    const chunkPath = join(pkgDir, "dist/server", chunkName);
+    await writeFile(chunkPath, "export default 1;\n");
+    await writeFile(
+      join(pkgDir, "dist/server", `${chunkName}.map`),
+      sourceMapJson(chunkName, 2000),
+    );
+
+    const expected = await gzipSize(chunkPath);
+    const { exitCode, stdout, stderr } = await runCli(budgetsFile, root, pkgDir);
+    expect(stderr).toBe("");
+    expect(stdout).toContain(`gzip total: ${expected} bytes across 1 files`);
+    expect(exitCode).toBe(0);
+    expect(await Bun.file(join(pkgDir, "pwned")).exists()).toBe(false);
+    expect(await Bun.file(join(pkgDir, "dist/server/pwned")).exists()).toBe(false);
+  });
+});
+
+// Without bun every real map would read as "not a map" and the total would
+// roughly double, failing with a misleading "exceeds the" line. The guard names
+// the missing tool instead.
+const PATH_WITHOUT_BUN = "/usr/bin:/bin";
+test.skipIf(Bun.which("bun", { PATH: PATH_WITHOUT_BUN }) !== null)(
+  "worker mode exits non-zero, naming bun, when bun is not on PATH",
+  async () => {
+    await withFixture(
+      ["fixture-app/pkg worker 999999999"],
+      async ({ pkgDir, root, budgetsFile }) => {
+        await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+        await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
+
+        const proc = Bun.spawn(["/bin/bash", SCRIPT, pkgDir], {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: {
+            PATH: PATH_WITHOUT_BUN,
+            BUNDLE_SIZE_BUDGETS_FILE: budgetsFile,
+            BUNDLE_SIZE_BUDGETS_ROOT: root,
+          },
+        });
+        const [stdout, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          proc.exited,
+        ]);
+        expect(stdout).toContain("bun is not on PATH");
+        expect(stdout).not.toContain("gzip total");
+        expect(exitCode).not.toBe(0);
+      },
+    );
+  },
+);
+
+// The chunk a map is named after has to be a file. A directory of the same
+// name does not make the map a real one.
+test("a source-map-shaped *.map beside a directory of the same name is measured", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server/chunks"), { recursive: true });
+    const entryPath = join(pkgDir, "dist/server/entry.mjs");
+    await writeFile(entryPath, "export default 1;\n");
+    const mapPath = join(pkgDir, "dist/server/chunks.map");
+    await writeFile(mapPath, sourceMapJson("chunks", 2000));
+
+    const expected = (await gzipSize(entryPath)) + (await gzipSize(mapPath));
+    const { exitCode, stdout, stderr } = await runCli(budgetsFile, root, pkgDir);
+    expect(stderr).toBe("");
+    expect(stdout).toContain(`gzip total: ${expected} bytes across 2 files`);
+    expect(exitCode).toBe(0);
+  });
+});
+
+test("only the top-level wrangler.json is skipped; one nested deeper is measured", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server/chunks"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/wrangler.json"), "{}");
+    const entryPath = join(pkgDir, "dist/server/entry.mjs");
+    await writeFile(entryPath, "export default 1;\n");
+    const nestedPath = join(pkgDir, "dist/server/chunks/wrangler.json");
+    await writeFile(nestedPath, JSON.stringify({ payload: "x".repeat(500) }));
+
+    const expected = (await gzipSize(entryPath)) + (await gzipSize(nestedPath));
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain(`gzip total: ${expected} bytes across 2 files`);
+    expect(exitCode).toBe(0);
+  });
+});
+
+// `find -type f` does not list a symlink, but wrangler uploads the file a
+// link points at and Pages serves it, so a link is refused rather than left
+// out of the total.
+test.each([
+  ["worker", "dist/server", "entry.mjs"],
+  ["static", "dist/_astro", "client.js"],
+] as const)(
+  "%s mode exits non-zero, naming the link, when the measured directory holds a symlink",
+  async (mode, dir, realName) => {
+    await withFixture(
+      [`fixture-app/pkg ${mode} 999999999`],
+      async ({ pkgDir, root, budgetsFile }) => {
+        await mkdir(join(pkgDir, dir), { recursive: true });
+        await writeFile(join(pkgDir, dir, realName), "export default 1;\n");
+        const outside = join(root, "payload.mjs");
+        await writeFile(outside, "export const big = 1;\n");
+        await symlink(outside, join(pkgDir, dir, "linked.mjs"));
+
+        const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+        expect(stdout).toContain("symlink");
+        expect(stdout).toContain(`${dir}/linked.mjs`);
+        expect(stdout).not.toContain("gzip total");
+        expect(exitCode).not.toBe(0);
+      },
+    );
+  },
+);
 
 test("static mode counts only *.js and *.css, ignoring everything else in dist/_astro", async () => {
   const root = await mkdtemp(join(tmpdir(), "guard-bundle-size-cli-"));
