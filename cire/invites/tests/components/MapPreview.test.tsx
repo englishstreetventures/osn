@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { MapPreview } from "../../src/components/MapPreview";
 import type { EventSummary } from "../../src/components/types";
 import { defaultGrants } from "../../src/lib/consent/record";
-import { grantCategory, saveConsent } from "../../src/lib/consent/store";
+import { grantCategory, saveConsent, setReloadPageForTest } from "../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../src/lib/consent/testing";
 
 const baseEvent: EventSummary = {
@@ -300,6 +300,24 @@ describe("MapPreview", () => {
       saveConsent({ ...defaultGrants(), embeds: false });
 
       expect(container.querySelector("iframe")).toBeNull();
+    });
+
+    it("does not reload the page when consent is withdrawn — the unmount already cleared the map", () => {
+      // The map runs only inside its own cross-origin iframe, and removing the
+      // iframe destroys everything running in it. A reload would cost a full
+      // document load and clear nothing more.
+      seedConsentForTest({ embeds: true });
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      // After the seed: seeding resets the store, which puts the no-op back.
+      const reload = vi.fn();
+      setReloadPageForTest(reload);
+      const { container } = render(() => <MapPreview event={baseEvent} />);
+      expect(container.querySelector("iframe")).not.toBeNull();
+
+      saveConsent({ ...defaultGrants(), embeds: false });
+
+      expect(container.querySelector("iframe")).toBeNull();
+      expect(reload).not.toHaveBeenCalled();
     });
   });
 

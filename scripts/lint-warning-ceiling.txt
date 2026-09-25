@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1034   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-rsvp-perf @ 2026-09-25 — -1 after merging main at 1035: this branch removes one warning in the RSVP submit path. No rule was disabled and nothing was suppressed.
+1031   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-invites-hygiene @ 2026-09-25 — -3 after rebasing onto main at 1034: finding tags removed from comments in the cire/invites consent store and its test (house/no-tracker-ref-in-comment). No rule was disabled and nothing was suppressed.

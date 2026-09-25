@@ -36,10 +36,29 @@ import type { ConsentCategory } from "./categories";
  * The preferences dialog surfaces this distinction rather than hiding it: an
  * `"always"` vendor is listed with a plain "loads on every visit" note instead
  * of being tucked under a toggle that doesn't govern it.
+ *
+ * ## `runsInPage` — what withdrawing consent has to clear
+ *
+ * Every `"gated"` vendor declares where its code runs, because that decides
+ * whether switching its category off needs a page reload (see `saveConsent` in
+ * `store.ts`). `ConsentGate` unmounts the embed either way; the question is
+ * whether the unmount stops everything the vendor started.
+ *
+ *  - `true` — the vendor's code runs in the invite page's own JavaScript realm,
+ *    like Pinterest's `pinit_main.js`, a `<script>` in the top document. The
+ *    globals, listeners and timers it set up outlive the unmount, and only a
+ *    reload stops them.
+ *  - `false` — the vendor runs only inside its own iframe, like the Google Maps
+ *    embed. Removing the iframe destroys that browsing context and everything
+ *    running in it, so the unmount has already done all a reload could.
+ *
+ * Storage is not the test. A reload clears neither the vendor's storage on its
+ * own origin nor anything it wrote to ours, so setting cookies does not make a
+ * vendor `true`.
  */
 export type ConsentEnforcement = "gated" | "always";
 
-export interface ConsentVendor {
+interface ConsentVendorFields {
   /** Stable id — referenced by `<ConsentGate vendor="...">` and by tests. */
   readonly id: string;
   /** Display name, as the guest should recognise it. */
@@ -53,13 +72,30 @@ export interface ConsentVendor {
    * here MUST appear somewhere in `CSP_DIRECTIVES` — asserted by the tests.
    */
   readonly origins: readonly string[];
-  /** Whether the consent gate actually blocks it. See the module doc. */
-  readonly enforcement: ConsentEnforcement;
   /** The vendor's own privacy policy; `null` for first-party storage. */
   readonly privacyUrl: string | null;
   /** Where the data ends up, for the privacy-page transfer column. */
   readonly transfer: string | null;
 }
+
+/** A vendor the consent gate blocks until its category is granted. */
+export interface GatedConsentVendor extends ConsentVendorFields {
+  readonly enforcement: "gated";
+  /** Does its code run in the page's own realm? See the module doc. */
+  readonly runsInPage: boolean;
+}
+
+/** A vendor that loads regardless of the guest's choice. */
+export interface UngatedConsentVendor extends ConsentVendorFields {
+  readonly enforcement: "always";
+}
+
+/**
+ * One registry entry. `enforcement` says whether the consent gate actually
+ * blocks it — see the module doc — and only a gated vendor declares
+ * `runsInPage`, so a new gated vendor fails the type check until it does.
+ */
+export type ConsentVendor = GatedConsentVendor | UngatedConsentVendor;
 
 export const CONSENT_VENDORS: readonly ConsentVendor[] = [
   {
@@ -102,6 +138,7 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
     purpose: "Shows an interactive map of each venue inside the event details.",
     origins: ["https://www.google.com", "https://maps.gstatic.com", "https://maps.googleapis.com"],
     enforcement: "gated",
+    runsInPage: false,
     privacyUrl: "https://policies.google.com/privacy",
     transfer: "Google LLC (US)",
   },
@@ -116,6 +153,7 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
       "https://i.pinimg.com",
     ],
     enforcement: "gated",
+    runsInPage: true,
     privacyUrl: "https://policy.pinterest.com/privacy-policy",
     transfer: "Pinterest, Inc. (US)",
   },
@@ -135,8 +173,12 @@ export function vendorsInCategory(category: ConsentCategory): readonly ConsentVe
  * Vendors in a category whose loading the consent choice actually controls —
  * what the dialog lists under the toggle itself.
  */
-export function gatedVendorsInCategory(category: ConsentCategory): readonly ConsentVendor[] {
-  return vendorsInCategory(category).filter((vendor) => vendor.enforcement === "gated");
+export function gatedVendorsInCategory(category: ConsentCategory): readonly GatedConsentVendor[] {
+  return vendorsInCategory(category).filter(isGated);
+}
+
+function isGated(vendor: ConsentVendor): vendor is GatedConsentVendor {
+  return vendor.enforcement === "gated";
 }
 
 /**

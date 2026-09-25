@@ -58,16 +58,13 @@ export function ConsentGate(props: ConsentGateProps) {
   // so a stored refusal is never briefly overridden by the opt-out default.
   onMount(hydrateConsent);
 
-  // Whether this gate ever actually ran third-party code decides whether a
-  // later refusal has anything to tear down — see `noteGatedContentLoaded`.
-  // Read inside the `Show`'s children so it runs when children render, not on
-  // the placeholder branch, and only for a `"gated"` vendor: an `"always"`
-  // vendor was never blocked by this switch, so revoking the category changes
-  // nothing it is doing and a reload would clear nothing.
+  // Which vendor's code this gate actually ran decides whether a later refusal
+  // needs a reload to tear it down — see `noteGatedContentLoaded`. Read inside
+  // the `Show`'s children so it runs when children render, not on the
+  // placeholder branch. The store decides from the vendor registry whether that
+  // vendor needs a reload at all.
   const noteLoaded = () => {
-    if (vendorById(props.vendor)?.enforcement === "gated") {
-      noteGatedContentLoaded(props.category);
-    }
+    noteGatedContentLoaded(props.category, props.vendor);
     return props.children;
   };
 

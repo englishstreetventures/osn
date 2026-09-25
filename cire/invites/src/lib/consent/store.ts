@@ -16,7 +16,7 @@ import {
   normaliseGrants,
   preDecisionGrants,
 } from "./record";
-import { gatedVendorsInCategory } from "./vendors";
+import { vendorById } from "./vendors";
 
 /**
  * The shared, page-wide consent state.
@@ -161,26 +161,33 @@ export function setReloadPageForTest(fn: () => void): void {
 }
 
 /**
- * Does moving from `previous` to `next` revoke a category that governs at
- * least one `"gated"` vendor?
+ * Does moving from `previous` to `next` revoke a category under which a vendor
+ * whose code runs in this page rendered?
  *
- * Category-level, not vendor-level, because a category is the unit the toggle
- * actually grants or revokes. Only `"gated"` vendors count: an `"always"`
- * vendor was never blocked by this category's switch, so revoking the category
- * changes nothing that vendor is doing.
+ * Checked per vendor, not per category, because vendors in one category differ
+ * in what an unmount leaves behind. The Google Maps preview runs only inside
+ * its own iframe, and unmounting it destroys everything running there; the
+ * Pinterest widget runs `pinit_main.js` in this page, whose globals, listeners
+ * and timers outlive the unmount. Only the second needs a reload, and that is
+ * `runsInPage` in the vendor registry. Only `"gated"` vendors can count: an
+ * `"always"` vendor was never blocked by the switch, so revoking the category
+ * changes nothing it is doing.
  */
-function revokesGatedCategory(previous: ConsentGrants, next: ConsentGrants): boolean {
+function revokeNeedsReload(previous: ConsentGrants, next: ConsentGrants): boolean {
   return CONSENT_CATEGORIES.some(
     (category) =>
       previous[category] &&
       !next[category] &&
-      gatedVendorsInCategory(category).length > 0 &&
-      loadedGatedCategories.has(category),
+      [...(loadedGatedContent.get(category) ?? [])].some((vendorId) => {
+        const vendor = vendorById(vendorId);
+        return vendor?.enforcement === "gated" && vendor.runsInPage;
+      }),
   );
 }
 
 /**
- * Categories whose gated content actually rendered during this visit.
+ * For each category, the vendors whose gated content rendered under it during
+ * this visit.
  *
  * The reload exists to tear down third-party code that already ran. If none
  * ever ran, there is nothing to tear down and the reload is pure cost — and
@@ -191,40 +198,50 @@ function revokesGatedCategory(previous: ConsentGrants, next: ConsentGrants): boo
  * a full document load, every island's hydration and a re-fetch of the invite
  * to clear nothing at all.
  *
- * A plain module-level `Set`, not a signal: nothing renders from it, it only
+ * Keyed by the category the GATE checked, not the one the registry files the
+ * vendor under, because the gate's category is the one whose revoke unmounts
+ * the embed.
+ *
+ * A plain module-level `Map`, not a signal: nothing renders from it, it only
  * has to be readable at save time, and a signal would invalidate the store's
  * subscribers on every gate mount for no benefit. It resets on reload, which is
  * exactly right — a reload is what clears the thing it tracks.
  */
-const loadedGatedCategories = new Set<ConsentCategory>();
+const loadedGatedContent = new Map<ConsentCategory, Set<string>>();
 
 /**
- * Record that a gated vendor's content rendered. Called by `ConsentGate` when
- * it actually renders children for a `"gated"` vendor — not when it renders the
+ * Record that a gate for `category` rendered `vendorId`'s content. Called by
+ * `ConsentGate` when it actually renders children — not when it renders the
  * placeholder, which runs no third-party code.
  */
-export function noteGatedContentLoaded(category: ConsentCategory): void {
-  loadedGatedCategories.add(category);
+export function noteGatedContentLoaded(category: ConsentCategory, vendorId: string): void {
+  const vendorIds = loadedGatedContent.get(category) ?? new Set<string>();
+  vendorIds.add(vendorId);
+  loadedGatedContent.set(category, vendorIds);
 }
 
 /**
  * Persist `grants` as the guest's decision and close the dialog.
  *
- * CON-S-M1: switching a gated category off unmounts its embeds (see
- * `ConsentGate`), but that only stops FURTHER requests — a vendor's script
- * that already ran (globals it set, listeners it attached, its own storage) is
- * still live in the page for the rest of the visit. Under the opt-out defaults
- * this is the common case, not an edge one: the banner appears after the
- * gated embeds have already loaded, so "Reject all" is nearly always clicked
- * with a third-party context already running.
+ * Switching a gated category off unmounts its embeds (see `ConsentGate`). For
+ * an embed that runs inside its own iframe that is a full teardown. For one
+ * whose script ran in this page, it only stops FURTHER requests: the globals
+ * it set, the listeners it attached and the timers it started stay live for
+ * the rest of the visit. Under the opt-out defaults this is the common case,
+ * not an edge one: the banner appears after the gated embeds have already
+ * loaded, so "Reject all" is nearly always clicked with a third-party context
+ * already running.
  *
- * The only clean teardown is a reload, and it is gated on two conditions, both
- * load-bearing:
+ * The only clean teardown for that is a reload. It stops the vendor's code; it
+ * does not clear storage the vendor already wrote. It is gated on three
+ * conditions, all load-bearing:
  *
  *  1. Granted → revoked ONLY. Not revoked → granted (nothing to tear down),
  *     not a no-op save (nothing changed), not a first-time grant (nothing was
  *     ever running to begin with).
- *  2. The cookie write must have actually SUCCEEDED, checked by reading it
+ *  2. A vendor whose code runs in this page rendered under the revoked
+ *     category this visit ({@link revokeNeedsReload}).
+ *  3. The cookie write must have actually SUCCEEDED, checked by reading it
  *     back ({@link writeConsentToDocumentAndVerify}) rather than trusting that
  *     the write call merely returned — it swallows failures by design. A
  *     reload on an unpersisted refusal would throw the choice away on the very
@@ -239,7 +256,7 @@ export function saveConsent(grants: ConsentGrants): void {
   setRecord(next);
   setPreferencesOpen(false);
 
-  if (written && revokesGatedCategory(previous, next.grants)) {
+  if (written && revokeNeedsReload(previous, next.grants)) {
     reloadPage();
   }
 }
@@ -351,5 +368,5 @@ export function resetConsentStoreForTest(): void {
   setPreferencesOpen(false);
   setDialogHostId(null);
   reloadPage = noopReloadPageForTest;
-  loadedGatedCategories.clear();
+  loadedGatedContent.clear();
 }

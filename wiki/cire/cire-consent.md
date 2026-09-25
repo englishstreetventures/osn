@@ -4,7 +4,7 @@ tags: [architecture, privacy, compliance, web, cire]
 related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 # Site-wide consent framework
 
@@ -119,7 +119,8 @@ undeclared transfer (silent, and the one that matters).
 
 **To add a third party:**
 
-1. Add a `ConsentVendor` entry to `CONSENT_VENDORS`.
+1. Add a `ConsentVendor` entry to `CONSENT_VENDORS`. A `"gated"` vendor must
+   also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
 3. Wrap the component in `<ConsentGate category="…" vendor="…">`. If it lands in
@@ -146,6 +147,22 @@ voice.
   site's typography behind a switch and swap the typeface mid-visit. Tracked as
   an issue under `label:product:cire`. Until then the dialog and `/privacy` both say "loads on every
   visit" rather than implying the toggle covers it.
+
+### `runsInPage` — gated vendors only
+
+Every `"gated"` vendor states where its code runs, because that decides whether
+switching its category off needs a page reload (see the next section).
+`ConsentGate` unmounts the embed either way; the question is whether the unmount
+stops everything the vendor started.
+
+| Vendor | `runsInPage` | Why |
+|---|---|---|
+| Pinterest | `true` | `pinit_main.js` is a `<script>` in the invite page. Its globals, listeners and timers outlive the unmount. |
+| Google Maps | `false` | The embed is a sandboxed cross-origin `<iframe>`. Removing it destroys that browsing context and everything running in it. |
+
+Storage is not the test. A reload clears neither a vendor's storage on its own
+origin nor anything it wrote to ours, so a vendor that sets cookies but runs
+only in its own frame is still `false`.
 
 ## Storage
 
@@ -200,33 +217,37 @@ late: the request has gone before any script reads it.
 link is a cross-site top-level navigation and `Strict` would withhold the cookie
 on exactly that first hop — re-prompting someone who already decided.
 
-### Withdrawal tears down what already ran (osn-tracker#162 / CON-S-M1)
+### Withdrawal stops code that already ran
 
 Switching a category off unmounts its gated embeds immediately — `ConsentGate`
-doesn't render children, it disposes them, so no further request escapes. But a
-vendor's script that already ran before the switch flipped has already set its
-own globals, attached its own listeners and written its own storage, and none
-of that unwinds just because the DOM node is gone. Under the opt-out defaults
-this is not an edge case: where a gated embed HAS loaded, the banner appeared
-after it, so "Reject all" is clicked with a third-party context already live.
+doesn't render children, it disposes them, so no further request escapes. For
+an embed that runs in its own iframe, that is a full teardown. For one whose
+script ran in the invite page, it is not: the globals it set, the listeners it
+attached and the timers it started stay live after the DOM node is gone. Under
+the opt-out defaults this is not an edge case: where a gated embed HAS loaded,
+the banner appeared after it, so "Reject all" is clicked with a third-party
+context already live.
 
 `saveConsent` (`store.ts`) reloads the page — `location.reload()`, via an
 injectable module-level `reloadPage` reference so tests can substitute a spy.
-Three conditions gate it, all load-bearing:
+The reload stops the vendor's code; it does not clear storage the vendor has
+already written. Three conditions gate it, all load-bearing:
 
 1. **Granted → revoked only.** Not revoked → granted, not a no-op save, not a
    first-time grant — none of those leave anything to tear down.
-2. **The category's gated content must actually have rendered this visit**,
-   tracked by `noteGatedContentLoaded`, which `ConsentGate` calls when it
-   renders children for a `"gated"` vendor — never for the placeholder, which
-   runs no third-party code. Both gated vendors (the Pinterest board, the
-   Google Maps preview) mount only inside a click-opened event details sheet,
-   while the banner appears immediately, so a guest who lands and presses
-   "Reject all" has usually opened neither. Reloading them would spend a full
+2. **A vendor with `runsInPage` must have rendered under the revoked category
+   this visit.** `ConsentGate` calls `noteGatedContentLoaded(category, vendor)`
+   when it renders children — never for the placeholder, which runs no
+   third-party code — and the store keys what it records by the gate's own
+   category, the one whose revoke unmounts the embed. Two cases skip the reload.
+   A guest who saw only the map loses nothing to a plain unmount. And both gated
+   vendors mount only inside a click-opened event details sheet, while the
+   banner appears immediately, so a guest who lands and presses "Reject all"
+   has usually opened neither. A reload in either case would spend a full
    document load, every island's hydration and a re-fetch of the invite to
-   clear nothing at all. The tracking is a plain module-level `Set`, not a
-   signal — nothing renders from it, and it resets on reload, which is exactly
-   right, since a reload is what clears the thing it tracks.
+   clear nothing. The record is a plain module-level `Map`, not a signal:
+   nothing renders from it, and it resets on reload, which is exactly right,
+   since a reload is what clears the thing it tracks.
 3. **The cookie write must have actually succeeded**, checked with a read-back
    of `document.cookie` (`writeConsentToDocumentAndVerify` in `cookie.ts`)
    rather than trusting that the write call merely returned — it swallows
@@ -236,8 +257,11 @@ Three conditions gate it, all load-bearing:
    back on the opt-out defaults with no record of having tried.
 
 The preferences dialog states this plainly rather than leaving it implicit — a
-silent reload the guest didn't expect is its own kind of surprising — and
-hedges it on "if", because condition 2 means it does not always happen.
+silent reload the guest didn't expect is its own kind of surprising — and says
+the page "may" reload, because condition 2 means it does not always happen. It
+also says that anything already sent to the company can't be recalled, in the
+same terms as `/privacy`: neither the unmount nor the reload takes back what a
+vendor received or stored. `ConsentBanner.test.tsx` pins both sentences.
 
 ### Two versions, two jobs
 

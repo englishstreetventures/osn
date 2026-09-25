@@ -43,6 +43,7 @@ describe("onRequest middleware", () => {
     expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     // The downstream response is passed through (headers added in place).
     expect(res.headers.get("Content-Type")).toBe("text/html");
   });

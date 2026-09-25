@@ -3,8 +3,9 @@ import type { MiddlewareHandler } from "astro";
 import { applySecurityHeaders } from "./lib/security-headers";
 
 /**
- * Astro SSR middleware — attaches the site's security headers (CSP + the four
- * classic hardening headers) to every server-rendered response.
+ * Astro SSR middleware — attaches the site's security headers (CSP, the
+ * hardening headers and `X-Robots-Tag: noindex`) to every server-rendered
+ * response.
  *
  * This is the REAL home for these headers on the guest site: `cire/invites` is an
  * SSR Worker (`@astrojs/cloudflare`), and the `public/_headers` file only

@@ -4,13 +4,16 @@
 # not a Pages site. Cloudflare Workers Static Assets DOES honour this file — but
 # ONLY for responses served by the static-asset layer (the prerendered /privacy
 # + /terms pages and the /_astro/* bundles). It does NOT apply to the dynamic,
-# Worker-rendered invite routes (/<slug> and the bare-domain / redirect): those
-# get the same headers from the Astro SSR middleware (src/middleware.ts ->
-# src/lib/security-headers.ts), which is the source of truth for the CSP.
+# Worker-rendered routes (/<slug>, /<slug>/registry and the bare-domain /
+# redirect): those get the same headers from the Astro SSR middleware
+# (src/middleware.ts -> src/lib/security-headers.ts), which is the source of
+# truth for the CSP.
 #
-# Keep the policy below IN SYNC with CSP_DIRECTIVES in
-# src/lib/security-headers.ts (a unit test asserts the directive set; this file
-# is the static-asset mirror of it).
+# Keep the headers below IN SYNC with securityHeaders() in
+# src/lib/security-headers.ts; tests/lib/security-headers.test.ts fails when
+# they drift. The one SSR header deliberately NOT mirrored here is
+# X-Robots-Tag: noindex keeps the invite and gift pages out of search, and
+# leaving it off this file keeps the prerendered /privacy and /terms indexable.
 #
 # ROLLOUT: shipped as Content-Security-Policy-Report-Only (reports, blocks
 # nothing) until a real-browser smoke test confirms zero violations — then flip

@@ -81,18 +81,21 @@ export function ConsentPreferences() {
         Choose what this invite is allowed to load. You can change this at any time from the link in
         the footer of any page.
       </p>
-      {/* Turning off a category whose content already ran this
-            visit reloads the page — see `saveConsent` in
-            `lib/consent/store.ts` — so that company's code is cleared, not
-            just stopped from running again. Stated here rather than left
-            implicit, because a silent reload the guest didn't expect is its
-            own kind of surprising. Hedged on "if", because the reload only
-            happens when there is something to clear: a guest who never
-            opened an event's details sheet loaded no embed, and reloading them
-            would cost a full page load to clear nothing. */}
+      {/* Turning off a category removes its embeds at once, and reloads
+            the page when an embed that already ran left code running in the
+            page itself — see `saveConsent` in `lib/consent/store.ts` — so
+            that company's code is stopped, not just kept from loading again.
+            Stated here rather than left implicit, because a silent reload the
+            guest didn't expect is its own kind of surprising. Hedged on
+            "may", because the reload only happens when there is something
+            the removal could not stop: a guest who never opened an event's
+            details sheet loaded no embed, and an embed that runs in its own
+            frame (the map) stops with the frame. Neither the removal nor the
+            reload takes back what the company already received or stored,
+            and the second sentence says so in the same terms as `/privacy`. */}
       <p class="font-body text-text-muted/80 text-ui-sm mt-1.5 leading-relaxed">
-        Switching something off takes effect straight away. If content from that company already
-        loaded during this visit, the page reloads to clear it.
+        Switching something off stops it straight away, and the page may reload to do that. Anything
+        already sent to that company can't be recalled.
       </p>
 
       <div class="mt-5 flex flex-col gap-4">

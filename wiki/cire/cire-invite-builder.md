@@ -710,6 +710,19 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
 - **`/privacy`, `/terms`** — opt back into static prerendering
   (`export const prerender = true`); only the invite route is per-request SSR.
 
+**Search engines index the legal pages and nothing else.** Every SSR response
+carries `X-Robots-Tag: noindex, nofollow`, set by `securityHeaders()` in
+`cire/invites/src/lib/security-headers.ts` and applied by `src/middleware.ts`.
+The invite and the gift page (`/<slug>/registry`) show a couple's names and
+photo and are meant for invited guests, so they stay out of search. It is a
+header rather than a `robots.txt` disallow: a crawler that obeys a disallow
+never fetches the page to see a `noindex`, and a disallowed URL can still be
+indexed from links elsewhere. The prerendered legal pages are served by the
+static-asset layer without running the Worker, so they get only the
+`public/_headers` rules, which leave `X-Robots-Tag` out on purpose.
+`tests/lib/security-headers.test.ts` fails if `_headers` gains it, and
+`tests/pages/legal-pages.test.ts` fails if a legal page stops prerendering.
+
 **History (changed 2026-08-02).** `/` used to resolve a "primary wedding" via a
 public `GET /api/primary-wedding` and redirect to `/<slug>` — returning the sole
 wedding, or the **most-recently-created** when several existed. That was a

@@ -56,6 +56,13 @@ describe.each(pages)("%s", (page) => {
     expect(source).toContain("LEGAL_ENTITY.contactEmail");
   });
 
+  // The asset layer serves a prerendered page without running the Worker, so
+  // the middleware's `X-Robots-Tag: noindex` never reaches it. Turn this off
+  // and the page becomes SSR, gets that header and drops out of search.
+  it("is prerendered, so it stays indexable", () => {
+    expect(source).toMatch(/^export const prerender = true$/m);
+  });
+
   it("shows its draft banner only while the operator's details are unfilled", () => {
     expect(source).toContain("draftPending(");
     expect(source).toContain("{draft && (");

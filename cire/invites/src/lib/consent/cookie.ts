@@ -240,9 +240,9 @@ export function migrateBareConsentCookie(): void {
  * `writeConsentToDocument` returns `void` and swallows a blocked write by
  * design (see its doc), so a caller that needs to know whether the write
  * really took — the reload-on-revoke path in `store.ts`, which reloads the
- * page after a revoke of a category whose embed actually ran this visit, so
- * that embed's leftover globals, listeners and storage don't outlive the
- * visit — cannot use "the call returned" as its success signal. A browser
+ * page after a revoke of a category under which an embed that runs code in
+ * this page rendered, so that code's globals, listeners and timers stop —
+ * cannot use "the call returned" as its success signal. A browser
  * that blocks cookies outright, or a Set-Cookie the browser itself rejects
  * (an oversized value, say), leaves `document.cookie` unchanged, and the
  * read-back is the only way to see that from here.

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PinterestBoard } from "../../src/components/PinterestBoard";
 import { readConsentFromDocument } from "../../src/lib/consent/cookie";
 import { defaultGrants } from "../../src/lib/consent/record";
-import { saveConsent } from "../../src/lib/consent/store";
+import { saveConsent, setReloadPageForTest } from "../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../src/lib/consent/testing";
 
 const VALID_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
@@ -439,6 +439,21 @@ describe("PinterestBoard", () => {
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(removeSpy).toHaveBeenCalled();
     expect(clearSpy).toHaveBeenCalled();
+  });
+
+  it("reloads the page when the guest withdraws consent after the board mounted", () => {
+    // Removing the tag does not unload what `pinit_main.js` already set up in
+    // this page — its globals, listeners and timers. Only a reload does.
+    seedConsentForTest({ embeds: true });
+    // After the seed: seeding resets the store, which puts the no-op back.
+    const reload = vi.fn();
+    setReloadPageForTest(reload);
+    render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    expect(scriptHandle.last()).toBeDefined();
+
+    saveConsent({ ...defaultGrants(), embeds: false });
+
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   describe("fallback link follows the embed", () => {

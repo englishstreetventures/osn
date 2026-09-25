@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -115,12 +118,20 @@ describe("buildCsp", () => {
 describe("securityHeaders", () => {
   const headers = securityHeaders();
 
-  it("includes the CSP plus the four classic hardening headers", () => {
+  it("includes the CSP plus the classic hardening headers", () => {
     expect(headers[cspHeaderName()]).toBe(buildCsp());
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["X-Frame-Options"]).toBe("DENY");
     expect(headers["Permissions-Policy"]).toBe("camera=(), microphone=(), geolocation=()");
+  });
+
+  it("keeps the SSR pages out of search indexes", () => {
+    // The invite and gift pages carry a couple's names and photo and are meant
+    // for invited guests only. A header rather than a robots.txt disallow: a
+    // crawler that obeys a disallow never fetches the page to see a noindex,
+    // and a disallowed URL can still be indexed from links elsewhere.
+    expect(headers["X-Robots-Tag"]).toBe("noindex, nofollow");
   });
 
   it("emits Reporting-Endpoints resolving the report-to group to the collector", () => {
@@ -144,6 +155,7 @@ describe("applySecurityHeaders", () => {
     expect(h.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(h.get("X-Frame-Options")).toBe("DENY");
     expect(h.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
+    expect(h.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 
   it("does not clobber a header a route already set", () => {
@@ -152,5 +164,44 @@ describe("applySecurityHeaders", () => {
     expect(h.get("X-Frame-Options")).toBe("SAMEORIGIN");
     // ...but still fills in the ones that were absent.
     expect(h.get(cspHeaderName())).toBeTruthy();
+  });
+});
+
+/**
+ * `public/_headers` covers what the middleware cannot reach: the prerendered
+ * `/privacy` and `/terms` and the `/_astro/*` bundles, served by the static-asset
+ * layer without running the Worker. Only rule lines count — the file's comments
+ * name headers too.
+ */
+function headerRules(source: string): { path: string; name: string; value: string }[] {
+  const rules: { path: string; name: string; value: string }[] = [];
+  let path = "";
+  for (const line of source.split("\n")) {
+    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+    if (!/^\s/.test(line)) {
+      path = line.trim();
+      continue;
+    }
+    const colon = line.indexOf(":");
+    rules.push({ path, name: line.slice(0, colon).trim(), value: line.slice(colon + 1).trim() });
+  }
+  return rules;
+}
+
+describe("public/_headers", () => {
+  const rules = headerRules(
+    readFileSync(join(import.meta.dirname, "../../public/_headers"), "utf8"),
+  );
+
+  it("sends exactly the SSR security headers on the static-asset responses, except X-Robots-Tag", () => {
+    const all = rules.filter((rule) => rule.path === "/*");
+    const mirrored = Object.fromEntries(
+      Object.entries(securityHeaders()).filter(([name]) => name !== "X-Robots-Tag"),
+    );
+    expect(Object.fromEntries(all.map((rule) => [rule.name, rule.value]))).toEqual(mirrored);
+  });
+
+  it("never sends X-Robots-Tag, so the legal pages stay indexable", () => {
+    expect(rules.filter((rule) => rule.name.toLowerCase() === "x-robots-tag")).toEqual([]);
   });
 });

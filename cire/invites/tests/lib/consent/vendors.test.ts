@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { CONSENT_CATEGORIES, isConsentCategory } from "../../../src/lib/consent/categories";
@@ -10,6 +13,24 @@ import {
   vendorsInCategory,
 } from "../../../src/lib/consent/vendors";
 import { CSP_DIRECTIVES, CSP_REPORT_ENDPOINT } from "../../../src/lib/security-headers";
+
+/**
+ * The `vendor` id on every `<ConsentGate>` under `src/`, read from the source
+ * text so the test sees the ids that actually ship.
+ */
+function gateVendorIds(): string[] {
+  const srcDir = join(import.meta.dirname, "../../../src");
+  const ids: string[] = [];
+  for (const file of readdirSync(srcDir, { recursive: true, encoding: "utf8" })) {
+    if (!file.endsWith(".tsx")) continue;
+    const source = readFileSync(join(srcDir, file), "utf8");
+    for (const tag of source.matchAll(/<ConsentGate\b[^>]*>/g)) {
+      const id = /\bvendor="([^"]+)"/.exec(tag[0])?.[1];
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
 
 /** Every origin named anywhere in the CSP, flattened. */
 const cspOrigins = new Set<string>(Object.values(CSP_DIRECTIVES).flat());
@@ -82,6 +103,32 @@ describe("vendor registry shape", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // A vendor allowed to load script into the page runs code in it, so it must
+  // say so. The CSP's `script-src` is a second record of which origins those
+  // are, independent of the flag.
+  it("marks every gated vendor whose origin may run script in the page as runsInPage", () => {
+    const scriptOrigins = new Set<string>(CSP_DIRECTIVES["script-src"]);
+    const loadsScript = CONSENT_VENDORS.filter(
+      (vendor) =>
+        vendor.enforcement === "gated" &&
+        vendor.origins.some((origin) => scriptOrigins.has(origin)),
+    );
+    expect(loadsScript.map((vendor) => vendor.id)).toContain("pinterest");
+    expect(
+      loadsScript.filter((vendor) => vendor.enforcement === "gated" && !vendor.runsInPage),
+    ).toEqual([]);
+  });
+
+  // What decides whether withdrawing consent reloads the page. The Pinterest
+  // widget's `pinit_main.js` runs in the invite page itself; the map runs only
+  // inside its own iframe, which unmounting destroys.
+  it("records which gated vendors run code in the page itself", () => {
+    const runsInPage = Object.fromEntries(
+      gatedVendorsInCategory("embeds").map((vendor) => [vendor.id, vendor.runsInPage]),
+    );
+    expect(runsInPage).toEqual({ "google-maps": false, pinterest: true });
+  });
+
   it("never marks a `necessary` vendor as gated", () => {
     // A strictly-necessary vendor by definition loads without consent; claiming
     // the toggle governs it would be false, and the toggle can't be switched off
@@ -120,12 +167,13 @@ describe("vendor registry shape", () => {
     expect(vendorById("consent-record")!.origins).toEqual([]);
   });
 
-  it("resolves the ids the gated components reference", () => {
-    // `<ConsentGate vendor="...">` takes a string; these two are the live call
-    // sites, and a typo there would silently degrade the placeholder to
-    // "This content" instead of naming the company.
-    expect(vendorById("pinterest")?.name).toBe("Pinterest");
-    expect(vendorById("google-maps")?.name).toBe("Google Maps");
+  it("resolves every vendor id a `<ConsentGate>` in the source names to a gated vendor", () => {
+    // `vendor` is a plain string prop, so a typo type-checks. It would degrade
+    // the placeholder to "This content", and it would skip the reload that
+    // withdrawing consent owes a vendor running in the page.
+    const ids = gateVendorIds();
+    expect(ids).toEqual(expect.arrayContaining(["google-maps", "pinterest"]));
+    expect(ids.filter((id) => vendorById(id)?.enforcement !== "gated")).toEqual([]);
     expect(vendorById("nope")).toBeUndefined();
   });
 });

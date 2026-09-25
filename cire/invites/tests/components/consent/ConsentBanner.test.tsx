@@ -155,6 +155,16 @@ describe("ConsentPreferences dialog", () => {
     expect(panel.querySelector(`#${labelId}`)?.textContent).toContain("privacy choices");
   });
 
+  // Withdrawal stops a vendor's embed and its code; it takes back nothing the
+  // vendor already received or stored. The dialog is what the guest reads when
+  // they withdraw, so it has to say the same as the privacy notice.
+  it("says withdrawal stops a vendor without claiming to take back what it received", () => {
+    const text = dialog()!.textContent ?? "";
+    expect(text).toContain("Switching something off stops it straight away");
+    expect(text).toContain("Anything already sent to that company can't be recalled.");
+    expect(text).not.toMatch(/\b(removed|cleared|deleted)\b/i);
+  });
+
   it("locks the strictly-necessary category on", () => {
     const necessary = [
       ...dialog()!.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
