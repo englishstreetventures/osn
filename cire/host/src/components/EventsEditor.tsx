@@ -24,6 +24,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { loadHeadRevision } from "../lib/change-revision";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -37,7 +38,7 @@ import { invalidateGuests } from "../lib/guests-store";
 import { haptic } from "../lib/haptics";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan } from "./ChangePreview";
+import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
@@ -46,6 +47,8 @@ interface PreviewResponse {
   plan: ChangePlan;
   warnings: string[];
   baseRevision: string;
+  /** Set when the save removes every event; apply echoes it back. */
+  clears: ClearedHalves | null;
 }
 
 /** Stand-in for a not-yet-named event. Deliberately the same string the row
@@ -120,10 +123,15 @@ export default function EventsEditor(props: { weddingId: string }) {
   const changesUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
 
-  /** Load events through the shared cache, then seed the draft. Guests and
-   *  households are NOT loaded here: the save posts `scope: "events"`, so the
-   *  server-side diff leaves households/guests/attendance alone regardless of
-   *  what the draft carries for them — passing empty arrays is safe.
+  /** Read the change head, then load the events fresh and seed the draft at
+   *  that head. The head comes first and the cached events are dropped: rows
+   *  loaded before the head could miss an event a co-host committed, which the
+   *  save would then read as a removal while the head already counted it.
+   *
+   *  Guests and households are NOT loaded here: the save posts
+   *  `scope: "events"`, so the server-side diff leaves households/guests/
+   *  attendance alone regardless of what the draft carries for them — passing
+   *  empty arrays is safe.
    *
    *  The EVENTS slice is a different matter, because `scope: "events"` is
    *  exactly what makes the server act on it. A load that resolves without
@@ -132,6 +140,8 @@ export default function EventsEditor(props: { weddingId: string }) {
    *  has no events, which reads as "delete every event". `ensureEventsLoaded`
    *  resolving `false` is what the check below refuses. */
   async function loadInto() {
+    const revision = await loadHeadRevision(authFetch, props.weddingId);
+    invalidateEvents(props.weddingId);
     const events = await ensureEventsLoaded(props.weddingId, async () => {
       const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
       if (res.status === 401) {
@@ -145,7 +155,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       if (!fresh || rows == null) throw new Error("event slice unavailable");
       return rows;
     });
-    store.load(events, [], []);
+    store.load(events, [], [], revision);
   }
 
   onMount(async () => {
@@ -214,7 +224,12 @@ export default function EventsEditor(props: { weddingId: string }) {
       const res = await authFetch(changesUrl("preview"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desiredState: store.toWire(), scope: "events" }),
+        body: JSON.stringify({
+          desiredState: store.toWire(),
+          scope: "events",
+          removeManual: true,
+          baseRevision: store.baseRevision(),
+        }),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -240,7 +255,11 @@ export default function EventsEditor(props: { weddingId: string }) {
       const res = await authFetch(changesUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: p.changeId }),
+        // Removing every event is applied only with the count the preview
+        // showed echoed back.
+        body: JSON.stringify(
+          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
+        ),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -266,8 +285,20 @@ export default function EventsEditor(props: { weddingId: string }) {
       invalidateGuests(props.weddingId);
       setPreview(null);
       setEditingKey(null);
-      await loadInto();
-      store.commit();
+      try {
+        await loadInto();
+        store.commit();
+      } catch (err) {
+        // The save went through, so the draft describes rows the server has
+        // since given ids the draft never received: saving it again would post
+        // every new event as new a second time. So the draft is dropped — before
+        // any redirect too, since the tab-close guard would otherwise hold a
+        // dirty draft open — and the editor stays shut until it reloads.
+        store.reset();
+        if (isAuthExpired(err)) return redirectToLogin();
+        setLoadError("Saved, but the editor could not reload. Refresh to continue.");
+        return;
+      }
       haptic("commit");
       toast.success("Schedule saved");
     } catch (err) {
@@ -391,6 +422,7 @@ export default function EventsEditor(props: { weddingId: string }) {
             <ChangePreview
               plan={p().plan}
               warnings={p().warnings}
+              clears={p().clears}
               busy={busy()}
               confirmLabel="Confirm & save"
               onConfirm={() => void handleApply()}

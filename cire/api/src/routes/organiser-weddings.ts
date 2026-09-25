@@ -75,7 +75,12 @@ const rosterDefect = (set: { status?: number | string }, read: string, weddingId
     return { error: "Internal error" };
   });
 
-/** Mark a claim-code-bearing JSON response uncacheable (see {@link rosterDefect}). */
+/**
+ * Mark a roster read uncacheable. `/guests` and `/households` carry claim codes
+ * (see {@link rosterDefect}); all three reads, `/events` included, seed an
+ * editor draft that must be no older than the change head the editor read just
+ * before them, which a cached copy could be.
+ */
 const noStore = (set: { headers: HTTPHeaders }) => {
   set.headers["cache-control"] = "no-store";
 };
@@ -168,6 +173,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             set.status = 500;
             return { error: "Internal error" };
           }
+          noStore(set);
           return runCire(
             claimService.listEvents(weddingId).pipe(
               Effect.provideService(DbService, db),

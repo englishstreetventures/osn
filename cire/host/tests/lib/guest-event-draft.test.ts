@@ -85,9 +85,11 @@ const GUESTS: OrganiserGuestRow[] = [
   },
 ];
 
+const REVISION = "rev_loaded";
+
 function loaded() {
   const store = createGuestEventDraft();
-  store.load(EVENTS, GUESTS);
+  store.load(EVENTS, GUESTS, [], REVISION);
   return store;
 }
 
@@ -122,6 +124,53 @@ describe("createGuestEventDraft — load + dirty", () => {
       expect(store.dirty()).toBe(true);
       store.commit();
       expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+
+  it("keeps the change head it was loaded at, and a reload replaces it", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      expect(store.baseRevision()).toBeNull();
+      store.load(EVENTS, GUESTS, [], "rev_1");
+      expect(store.baseRevision()).toBe("rev_1");
+      store.load(EVENTS, GUESTS, [], "rev_2");
+      expect(store.baseRevision()).toBe("rev_2");
+      dispose();
+    });
+  });
+});
+
+describe("createGuestEventDraft — reset", () => {
+  it("drops a dirty draft entirely: nothing loaded, nothing to save, no revision", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.addFamily();
+      store.updateGuest(store.draft.families[0]!.guests[0]!.key, { firstName: "Adaeze" });
+      expect(store.dirty()).toBe(true);
+
+      store.reset();
+
+      expect(store.loaded()).toBe(false);
+      expect(store.dirty()).toBe(false);
+      expect(store.canUndo()).toBe(false);
+      expect(store.baseRevision()).toBeNull();
+      expect(store.draft.families).toHaveLength(0);
+      expect(store.draft.events).toHaveLength(0);
+      expect(store.errors()).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("can be loaded again afterwards", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.reset();
+      store.load(EVENTS, GUESTS, [], "rev_after");
+      expect(store.loaded()).toBe(true);
+      expect(store.dirty()).toBe(false);
+      expect(store.draft.families[0]!.guests).toHaveLength(2);
+      expect(store.baseRevision()).toBe("rev_after");
       dispose();
     });
   });
@@ -604,18 +653,23 @@ describe("createGuestEventDraft — guest-less households", () => {
 
   function loadedWithEmpty() {
     const store = createGuestEventDraft();
-    store.load(EVENTS, GUESTS, [
-      {
-        familyId: "fam_a",
-        publicId: "SHARMA-KITE-77Q2",
-        familyName: "Sharma",
-        guestCount: 2,
-        codeSharedAt: null,
-        firstOpenedAt: null,
-        deactivatedAt: null,
-      },
-      EMPTY_HOUSEHOLD,
-    ]);
+    store.load(
+      EVENTS,
+      GUESTS,
+      [
+        {
+          familyId: "fam_a",
+          publicId: "SHARMA-KITE-77Q2",
+          familyName: "Sharma",
+          guestCount: 2,
+          codeSharedAt: null,
+          firstOpenedAt: null,
+          deactivatedAt: null,
+        },
+        EMPTY_HOUSEHOLD,
+      ],
+      REVISION,
+    );
     return store;
   }
 

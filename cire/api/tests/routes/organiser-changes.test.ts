@@ -13,9 +13,12 @@ import {
   weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -62,6 +65,25 @@ function ownerPost(app: ReturnType<typeof buildApp>["app"], path: string, body: 
 
 function ownerGet(app: ReturnType<typeof buildApp>["app"], path: string) {
   return appRequest(app, path, { method: "GET", headers: { Authorization: `Bearer ${bearer}` } });
+}
+
+/** The head revision an editor reads before it loads the rows it seeds a draft from. */
+async function headOf(app: ReturnType<typeof buildApp>["app"]): Promise<string> {
+  const res = await ownerGet(app, `${CHANGES_BASE}/head`);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { revision: string }).revision;
+}
+
+/**
+ * POST an editor draft the way the editor does: stating `removeManual` and
+ * carrying the head it was loaded at (read just now unless the body names one).
+ */
+async function editorPreview(app: ReturnType<typeof buildApp>["app"], body: object) {
+  return ownerPost(app, `${CHANGES_BASE}/preview`, {
+    removeManual: true,
+    baseRevision: await headOf(app),
+    ...body,
+  });
 }
 
 // ── CSV front door through /changes ─────────────────────────────────────────
@@ -304,8 +326,9 @@ describe("POST /changes/preview + /apply — single-sheet uploads", () => {
     expect(previewRes.status).toBe(200);
     const { changeId } = (await previewRes.json()) as { changeId: string };
 
-    // Drop an event between preview and apply. Direct event routes don't advance
-    // headRevision, so the 409 concurrency guard doesn't fire — the apply-time
+    // Drop an event between preview and apply, straight in the table. A write
+    // outside the change pipeline doesn't move headRevision, so the 409
+    // concurrency guard doesn't fire — the apply-time
     // re-hydration is the only thing standing between the sheet and a silently
     // dropped invitation. Asserting the located 422 is what distinguishes live
     // re-reading from replaying the preview's snapshot.
@@ -551,7 +574,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
   it("previews then applies an editor DesiredState draft", async () => {
     const { app, db } = buildApp();
 
-    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const previewRes = await editorPreview(app, { desiredState });
     expect(previewRes.status).toBe(200);
     const preview = (await previewRes.json()) as {
       changeId: string;
@@ -587,7 +610,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     // Now an editor save that shows only ONE household (the draft is the whole
     // truth) → the other imported household must be removed even though it is
     // source='import' and absent (removeManual is implicit for the editor).
-    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const preview = await editorPreview(app, { desiredState });
     await ownerPost(app, `${CHANGES_BASE}/apply`, {
       changeId: ((await preview.json()) as { changeId: string }).changeId,
     });
@@ -606,7 +629,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       ...desiredState,
       families: [{ ...desiredState.families[0]!, familyName: "   " }],
     };
-    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState: blankName });
+    const res = await editorPreview(app, { desiredState: blankName });
     expect(res.status).toBe(400);
   });
 
@@ -614,7 +637,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     const { app, db } = buildApp();
 
     // Seed through the editor front door, then read back what a draft loads.
-    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const seed = await editorPreview(app, { desiredState });
     await ownerPost(app, `${CHANGES_BASE}/apply`, {
       changeId: ((await seed.json()) as { changeId: string }).changeId,
     });
@@ -643,7 +666,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
         },
       ],
     };
-    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+    const preview = await editorPreview(app, {
       desiredState: renamedState,
     });
     expect(preview.status).toBe(200);
@@ -673,13 +696,13 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
     // Seed a household through the editor, so there is something a widened
     // scope could destroy.
-    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const seed = await editorPreview(app, { desiredState });
     const seedId = ((await seed.json()) as { changeId: string }).changeId;
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
     expect(db.select().from(families).all()).toHaveLength(1);
 
     // An events-only save: the events editor carries no households at all.
-    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+    const previewRes = await editorPreview(app, {
       desiredState: { events: desiredState.events, families: [] },
       scope: "events",
     });
@@ -717,13 +740,13 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
     // Seed a household through the editor, so there is something a widened
     // scope could destroy.
-    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const seed = await editorPreview(app, { desiredState });
     const seedId = ((await seed.json()) as { changeId: string }).changeId;
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
     expect(db.select().from(families).all()).toHaveLength(1);
 
     // An events-only save: the events editor carries no households at all.
-    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+    const previewRes = await editorPreview(app, {
       desiredState: { events: desiredState.events, families: [] },
       scope: "events",
     });
@@ -833,7 +856,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
           },
         ],
       };
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState: seedState });
+      const preview = await editorPreview(app, { desiredState: seedState });
       const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
         changeId: ((await preview.json()) as { changeId: string }).changeId,
       });
@@ -885,7 +908,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       expect(guestRows).toHaveLength(2);
       const doomed = guestRows.find((g) => g.lastName === "Editorhousehold")!;
 
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const preview = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id),
       });
       const { changeId, plan } = (await preview.json()) as {
@@ -913,7 +936,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       ]);
       const doomed = guestRows.find((g) => g.firstName === "Bo")!;
 
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const preview = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
           { firstName: "Bo", lastName: "Newcomer" },
         ]),
@@ -944,7 +967,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       // Apply re-derives the desired state from R2 and re-diffs against live
       // state, so the id-authoritative matching has to survive that round trip
       // (it is read back off the change row, not re-decided from the request).
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const preview = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
           { firstName: "Bo", lastName: "Newcomer" },
         ]),
@@ -979,7 +1002,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       ]);
       const doomed = guestRows.find((g) => g.firstName === "Bo")!;
 
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const preview = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
           { firstName: "Bo", lastName: "Newcomer" },
         ]),
@@ -1064,7 +1087,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       db.delete(guests).where(eq(guests.id, gone.id)).run();
 
       // The draft still lists Bo, with its id — the shape a stale editor posts.
-      const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const res = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, () => false),
       });
       expect(res.status).toBe(409);
@@ -1082,7 +1105,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
       // Empty the household but keep it in the draft (what the editor now posts
       // once households load separately from guests).
-      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      const preview = await editorPreview(app, {
         desiredState: draftWithout(family, guestRows, () => true),
       });
       const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
@@ -1123,9 +1146,16 @@ describe("POST /changes/apply — 409 on stale baseRevision", () => {
     // Applying A now must 409 — the wedding changed under it since preview.
     const applyA = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: idA });
     expect(applyA.status).toBe(409);
-    const body = (await applyA.json()) as { error: string; currentRevision: string };
+    const body = (await applyA.json()) as {
+      error: string;
+      baseRevision: string;
+      currentRevision: string;
+    };
     expect(body.error).toBe("State changed — re-preview");
-    expect(body.currentRevision).toBe(idB);
+    // A preview at genesis, a head that has since moved to B's commit.
+    expect(body.baseRevision).toBe("genesis");
+    expect(body.currentRevision).not.toBe("genesis");
+    expect(body.currentRevision).toBe(await headOf(app));
   });
 
   it("does NOT 409 when only a second preview (no apply) intervened", async () => {
@@ -1143,6 +1173,570 @@ describe("POST /changes/apply — 409 on stale baseRevision", () => {
     });
     const applyA = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: idA });
     expect(applyA.status).toBe(200);
+  });
+});
+
+// ── Editor drafts: load-time revision, scope, emptied halves ────────────────
+
+/** Seed the wedding with the two-sheet import (2 events, 2 households). */
+async function seedSheets(app: ReturnType<typeof buildApp>["app"]) {
+  const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+    eventsCsv: EVENTS_CSV,
+    guestsCsv: GUESTS_CSV,
+  });
+  const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+    changeId: ((await preview.json()) as { changeId: string }).changeId,
+  });
+  expect(applyRes.status).toBe(200);
+}
+
+/**
+ * The DesiredState an editor would build from the wedding's rows as they are
+ * now — every row with its id, attendance by event name.
+ */
+function draftFromDb(db: ReturnType<typeof buildApp>["db"]) {
+  const eventRows = db
+    .select()
+    .from(events)
+    .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+    .all();
+  const familyRows = db
+    .select()
+    .from(families)
+    .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+    .all()
+    .filter((f) => f.kind !== "host");
+  const guestRows = db.select().from(guests).all();
+  const links = db.select().from(guestEvents).all();
+  const eventName = new Map(eventRows.map((e) => [e.id, e.name]));
+  return {
+    events: eventRows.map((e) => ({
+      id: e.id,
+      name: e.name,
+      startAt: e.startAt,
+      endAt: e.endAt,
+      timezone: e.timezone,
+      location: null,
+      address: e.address,
+      dressCodeDescription: e.dressCodeDescription,
+      dressCodePalette: [],
+      pinterestUrl: e.pinterestUrl,
+      mapsUrl: e.mapsUrl,
+      sortOrder: e.sortOrder,
+    })),
+    families: familyRows.map((f) => ({
+      id: f.id,
+      publicId: f.publicId,
+      familyName: f.familyName,
+      guests: guestRows
+        .filter((g) => g.familyId === f.id)
+        .map((g) => ({
+          id: g.id,
+          firstName: g.firstName,
+          lastName: g.lastName,
+          nickname: g.nickname,
+          eventNames: links.filter((l) => l.guestId === g.id).map((l) => eventName.get(l.eventId)!),
+        })),
+    })),
+  };
+}
+
+async function applyChange(app: ReturnType<typeof buildApp>["app"], preview: Response) {
+  expect(preview.status).toBe(200);
+  const { changeId } = (await preview.json()) as { changeId: string };
+  const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+  expect(applyRes.status).toBe(200);
+}
+
+describe("GET /changes/head", () => {
+  it("is genesis on a wedding with no committed change, and uncacheable", async () => {
+    const { app } = buildApp();
+    const res = await ownerGet(app, `${CHANGES_BASE}/head`);
+    expect(res.status).toBe(200);
+    // A cached copy would pin an editor to a stale revision.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await jsonBody(res)).toEqual({ revision: "genesis" });
+  });
+
+  it("moves when a change is applied, and again when it is reverted", async () => {
+    const { app } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId, baseRevision } = (await preview.json()) as {
+      changeId: string;
+      baseRevision: string;
+    };
+    expect(await headOf(app)).toBe(baseRevision);
+
+    await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    const afterApply = await headOf(app);
+    expect(afterApply).not.toBe(baseRevision);
+
+    // Reverting the newest change keeps it the newest row — the head still has
+    // to move, because the wedding did.
+    await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId });
+    expect(await headOf(app)).not.toBe(afterApply);
+  });
+
+  it("401 with no credential at all", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${CHANGES_BASE}/head`, { method: "GET" });
+    expect(res.status).toBe(401);
+  });
+
+  it("403 for a signed-in stranger, 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const stranger = await appRequest(app, `${CHANGES_BASE}/head`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${await auth.sign("usr_not_a_member")}` },
+    });
+    expect(stranger.status).toBe(403);
+    expect(await jsonBody(stranger)).toEqual({ error: "forbidden" });
+
+    const unknown = await ownerGet(app, "/api/organiser/weddings/wed_nope/changes/head");
+    expect(unknown.status).toBe(404);
+  });
+
+  it("serves the organiser's session cookie — the way the browser calls it", async () => {
+    const { app, db } = buildApp();
+    const { token } = await Effect.runPromise(
+      organiserSessionService
+        .create({
+          osnProfileId: "usr_dev_bootstrap_owner",
+          osnSub: "pw_owner",
+          email: "owner@example.test",
+          handle: "owner",
+          displayName: "Owner",
+          avatarUrl: null,
+        })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const res = await appRequest(app, `${CHANGES_BASE}/head`, {
+      method: "GET",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ revision: "genesis" });
+
+    const forged = await appRequest(app, `${CHANGES_BASE}/head`, {
+      method: "GET",
+      headers: { cookie: "cire_org_session=nosuchtoken" },
+    });
+    expect(forged.status).toBe(401);
+  });
+
+  it("is per wedding — another wedding's change does not move it", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const before = await headOf(app);
+    db.insert(weddings)
+      .values({
+        id: "wed_other_head",
+        slug: "other-head",
+        displayName: "Other",
+        ownerOsnProfileId: "usr_other_owner",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    db.insert(imports)
+      .values({
+        id: "chg_other_wedding",
+        weddingId: "wed_other_head",
+        uploadedAt: Date.now(),
+        format: "csv",
+        eventsR2Key: "k",
+        guestsR2Key: "k",
+        summary: "{}",
+        status: "applied",
+        appliedAt: Date.now(),
+      })
+      .run();
+    expect(await headOf(app)).toBe(before);
+  });
+
+  it("403 read_only_role for a viewer co-host", async () => {
+    const { app, db } = buildApp();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_head_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_head_viewer",
+        addedByOsnProfileId: "usr_dev_bootstrap_owner",
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await appRequest(app, `${CHANGES_BASE}/head`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${await auth.sign("usr_head_viewer")}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+  });
+});
+
+/**
+ * The editor seeds its draft once, at load, and the editor door reads every
+ * row the draft lacks as a removal. A change committed after that load is
+ * absent from the draft without the organiser having removed anything, so the
+ * draft has to name the revision it was loaded at and be refused once the head
+ * has moved.
+ */
+describe("POST /changes/preview — an editor draft is only as current as its load", () => {
+  it("refuses a draft loaded before a co-host added a household, and removes nothing", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+
+    // The organiser opens the editor: the head first, then the rows.
+    const loadedAt = await headOf(app);
+    const draft = draftFromDb(db);
+
+    // A co-host adds a household and saves.
+    const cohostDraft = draftFromDb(db);
+    await applyChange(
+      app,
+      await editorPreview(app, {
+        desiredState: {
+          ...cohostDraft,
+          families: [...cohostDraft.families, { familyName: "Cohostadded", guests: [] }],
+        },
+        scope: "guests",
+      }),
+    );
+    expect(db.select().from(families).all()).toHaveLength(3);
+
+    // The organiser's draft never saw it. Previewed as-is it is refused.
+    const stale = await editorPreview(app, {
+      desiredState: draft,
+      scope: "guests",
+      baseRevision: loadedAt,
+    });
+    expect(stale.status).toBe(409);
+    expect(await jsonBody(stale)).toEqual({
+      error: "State changed — reload the editor",
+      reason: "stale_draft",
+    });
+    // Nothing stored, nothing removed.
+    expect(db.select().from(families).all()).toHaveLength(3);
+    expect(
+      db
+        .select()
+        .from(imports)
+        .all()
+        .filter((r) => r.status === "preview"),
+    ).toHaveLength(0);
+
+    // The same draft stamped with the current head would have planned the
+    // co-host's household away — which is the loss the refusal prevents.
+    const fresh = await editorPreview(app, { desiredState: draft, scope: "guests" });
+    const { plan } = (await fresh.json()) as {
+      plan: { familyRemoves: { familyName: string }[] };
+    };
+    expect(plan.familyRemoves.map((f) => f.familyName)).toEqual(["Cohostadded"]);
+  });
+
+  it("refuses a draft loaded before a revert brought a household back", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+
+    // Change 2 removes Sampleton.
+    const withBoth = draftFromDb(db);
+    const removal = await editorPreview(app, {
+      desiredState: {
+        ...withBoth,
+        families: withBoth.families.filter((f) => f.familyName !== "Sampleton"),
+      },
+      scope: "guests",
+    });
+    const removalId = ((await removal.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, removal);
+    expect(db.select().from(families).all()).toHaveLength(1);
+
+    // The organiser opens the editor on the one remaining household.
+    const loadedAt = await headOf(app);
+    const draft = draftFromDb(db);
+
+    // A co-host reverts change 2: Sampleton is back.
+    const revert = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: removalId });
+    expect(revert.status).toBe(200);
+    expect(db.select().from(families).all()).toHaveLength(2);
+
+    const stale = await editorPreview(app, {
+      desiredState: draft,
+      scope: "guests",
+      baseRevision: loadedAt,
+    });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { reason: string }).reason).toBe("stale_draft");
+    expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("400s an editor draft that carries no base revision", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState: draftFromDb(db),
+      scope: "guests",
+      removeManual: true,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s an editor draft that does not state removeManual", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState: draftFromDb(db),
+      scope: "guests",
+      baseRevision: await headOf(app),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /changes/preview — a guests-scoped editor save leaves the schedule alone", () => {
+  it("emits no event operation even when the draft's event list is empty", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const eventsBefore = db.select().from(events).all();
+
+    // Rename a guest; carry no events at all.
+    const draft = draftFromDb(db);
+    draft.families[0]!.guests[0]!.lastName = "Renamed";
+    const preview = await editorPreview(app, {
+      desiredState: { events: [], families: draft.families },
+      scope: "guests",
+    });
+    expect(preview.status).toBe(200);
+    const body = (await preview.clone().json()) as {
+      scope: string;
+      clears: unknown;
+      plan: {
+        eventCreates: unknown[];
+        eventUpdates: unknown[];
+        eventRemoves: unknown[];
+        guestUpdates: unknown[];
+        eventLinkRemoves: unknown[];
+      };
+    };
+    expect(body.scope).toBe("guests");
+    expect(body.plan.eventCreates).toHaveLength(0);
+    expect(body.plan.eventUpdates).toHaveLength(0);
+    expect(body.plan.eventRemoves).toHaveLength(0);
+    // Attendance resolved against the live schedule: no invitation dropped.
+    expect(body.plan.eventLinkRemoves).toHaveLength(0);
+    expect(body.plan.guestUpdates).toHaveLength(1);
+    expect(body.clears).toBeNull();
+
+    await applyChange(app, preview);
+    expect(db.select().from(events).all()).toEqual(eventsBefore);
+    expect(db.select().from(guestEvents).all()).toHaveLength(3);
+  });
+
+  it("refuses a draft whose event was renamed since it loaded, rather than dropping its invitations", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+
+    // A write that does not go through the change pipeline, so the head stays
+    // put — the row-level check is what has to catch it.
+    const [mehndi] = db.select().from(events).where(eq(events.name, "Mehndi")).all();
+    db.update(events).set({ name: "Henna" }).where(eq(events.id, mehndi!.id)).run();
+
+    const res = await editorPreview(app, { desiredState: draft, scope: "guests" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    expect(db.select().from(guestEvents).all()).toHaveLength(3);
+  });
+
+  it("refuses a draft whose two events swapped names since it loaded", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    const linksBefore = db
+      .select()
+      .from(guestEvents)
+      .all()
+      .map((l) => `${l.guestId}::${l.eventId}`)
+      .toSorted();
+
+    // Every name the draft holds still resolves — to the other event. Only the
+    // id-and-name check on the draft's events can see that.
+    const [mehndi] = db.select().from(events).where(eq(events.name, "Mehndi")).all();
+    const [reception] = db.select().from(events).where(eq(events.name, "Reception")).all();
+    db.update(events).set({ name: "Swap" }).where(eq(events.id, mehndi!.id)).run();
+    db.update(events).set({ name: "Mehndi" }).where(eq(events.id, reception!.id)).run();
+    db.update(events).set({ name: "Reception" }).where(eq(events.id, mehndi!.id)).run();
+
+    const res = await editorPreview(app, { desiredState: draft, scope: "guests" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    expect(
+      db
+        .select()
+        .from(guestEvents)
+        .all()
+        .map((l) => `${l.guestId}::${l.eventId}`)
+        .toSorted(),
+    ).toEqual(linksBefore);
+  });
+
+  it("refuses a draft carrying an event that has since been deleted", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    // Nobody in the draft attends Mehndi, so no attendance name goes missing:
+    // only the draft's own event list shows it is out of date.
+    for (const family of draft.families) {
+      for (const guest of family.guests) {
+        guest.eventNames = guest.eventNames.filter((n) => n !== "Mehndi");
+      }
+    }
+    const [mehndi] = db.select().from(events).where(eq(events.name, "Mehndi")).all();
+    db.delete(guestEvents).where(eq(guestEvents.eventId, mehndi!.id)).run();
+    db.delete(events).where(eq(events.id, mehndi!.id)).run();
+
+    const res = await editorPreview(app, { desiredState: draft, scope: "guests" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+  });
+
+  it("refuses attendance naming an event that no longer exists", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    draft.families[0]!.guests[0]!.eventNames = ["Mehndi", "Afterparty"];
+
+    const res = await editorPreview(app, {
+      desiredState: { events: [], families: draft.families },
+      scope: "guests",
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+  });
+});
+
+/**
+ * An editor draft with an empty half is a legitimate "remove them all" — and
+ * also exactly what a client that seeded a slice from nothing would post. The
+ * preview names the count; apply only goes ahead when the request echoes it.
+ */
+describe("POST /changes/apply — an editor save that empties a half must be confirmed", () => {
+  async function previewClear(
+    app: ReturnType<typeof buildApp>["app"],
+    body: { desiredState: unknown; scope: "guests" | "events" },
+  ) {
+    const res = await editorPreview(app, body);
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      changeId: string;
+      clears: { events: number; households: number } | null;
+    };
+  }
+
+  it("removes every household only with the preview's count echoed back", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const { changeId, clears } = await previewClear(app, {
+      desiredState: { events: draftFromDb(db).events, families: [] },
+      scope: "guests",
+    });
+    expect(clears).toEqual({ events: 0, households: 2 });
+
+    const unconfirmed = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(unconfirmed.status).toBe(400);
+    expect(((await unconfirmed.json()) as { reason: string }).reason).toBe("unconfirmed_clear");
+    expect(db.select().from(families).all()).toHaveLength(2);
+
+    // A count that does not match what apply now sees means the preview is out
+    // of date — refused as a conflict, not as a malformed request.
+    const mismatched = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      changeId,
+      confirmClears: { events: 0, households: 1 },
+    });
+    expect(mismatched.status).toBe(409);
+    expect(db.select().from(families).all()).toHaveLength(2);
+
+    const confirmed = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      changeId,
+      confirmClears: clears,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(db.select().from(families).all()).toHaveLength(0);
+  });
+
+  it("removes every event only with the preview's count echoed back", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const { changeId, clears } = await previewClear(app, {
+      desiredState: { events: [], families: [] },
+      scope: "events",
+    });
+    expect(clears).toEqual({ events: 2, households: 0 });
+
+    const unconfirmed = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(unconfirmed.status).toBe(400);
+    expect(db.select().from(events).all()).toHaveLength(2);
+
+    const confirmed = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      changeId,
+      confirmClears: clears,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(db.select().from(events).all()).toHaveLength(0);
+    // The households were never part of an events save.
+    expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("asks nothing of a save that still leaves households standing", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    const { changeId, clears } = await previewClear(app, {
+      desiredState: { ...draft, families: draft.families.slice(0, 1) },
+      scope: "guests",
+    });
+    expect(clears).toBeNull();
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(200);
+    expect(db.select().from(families).all()).toHaveLength(1);
+  });
+
+  it("asks nothing of an empty draft on a wedding with nothing to remove", async () => {
+    const { app } = buildApp();
+    const { changeId, clears } = await previewClear(app, {
+      desiredState: { events: [], families: [] },
+      scope: "guests",
+    });
+    expect(clears).toBeNull();
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+  });
+
+  it("400s a confirmation that is not two counts", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    for (const confirmClears of [null, { events: "0", households: 2 }]) {
+      const { changeId } = await previewClear(app, {
+        desiredState: { events: draftFromDb(db).events, families: [] },
+        scope: "guests",
+      });
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId, confirmClears });
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      expect(db.select().from(families).all()).toHaveLength(2);
+    }
+  });
+
+  it("does not apply to a spreadsheet upload", async () => {
+    const { app } = buildApp();
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    expect(((await res.json()) as { clears: unknown }).clears).toBeNull();
   });
 });
 
@@ -1164,6 +1758,44 @@ describe("POST /changes/revert", () => {
     expect(revert.status).toBe(200);
     // Before-image was the empty pre-import state → revert clears the families.
     expect(db.select().from(families).all()).toHaveLength(0);
+  });
+
+  // Only an applied change has anything to undo. A preview has no before-image
+  // and would fall back to replaying an older import over everything since; a
+  // reverted change would be restored a second time.
+  it("409s a change that was only previewed, and changes nothing", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    const preview = await editorPreview(app, {
+      desiredState: { ...draft, families: draft.families.slice(0, 1) },
+      scope: "guests",
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    const head = await headOf(app);
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "Change is not applied" });
+    expect(db.select().from(families).all()).toHaveLength(2);
+    expect(await headOf(app)).toBe(head);
+  });
+
+  it("409s a change that is already reverted", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const id = ((await preview.json()) as { changeId: string }).changeId;
+    await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: id });
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: id })).status).toBe(200);
+
+    // Something new lands after the revert; a second revert must not touch it.
+    await seedSheets(app);
+    const again = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: id });
+    expect(again.status).toBe(409);
+    expect(db.select().from(families).all()).toHaveLength(2);
   });
 });
 

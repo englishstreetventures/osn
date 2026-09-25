@@ -52,13 +52,26 @@ import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
-import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
+import {
+  authFetchMock,
+  redirectSpy,
+  resetOrganiserMocks,
+  toastSuccess,
+} from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/** The change head each editor reads before it loads its rows. */
+const HEAD = "rev_head";
+
+/** What an unrouted request gets: the change head for `/changes/head`, else `{}`. */
+function fallback(url: unknown) {
+  return String(url).endsWith("/changes/head") ? json({ revision: HEAD }) : json({});
 }
 
 const EVENTS = [
@@ -134,7 +147,7 @@ function primeLoad() {
     if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
     if (String(url).endsWith("/guests")) return Promise.resolve(json(GUESTS));
     if (String(url).endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
-    return Promise.resolve(json({}));
+    return Promise.resolve(fallback(url));
   });
 }
 
@@ -165,15 +178,20 @@ describe("EventsEditor", () => {
     expect(screen.getByText("Reception")).toBeTruthy();
   });
 
-  it("mounting fetches only /events, not /guests or /households", async () => {
+  it("mounting reads the change head, then /events only — not /guests or /households", async () => {
     primeLoad();
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
 
     const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+    // The head first: events read before it could miss one a co-host added
+    // that the head already counts.
+    expect(urls[0]).toBe("https://api.test/api/organiser/weddings/wed_a/changes/head");
     expect(urls.some((u) => u.endsWith("/events"))).toBe(true);
     expect(urls.some((u) => u.endsWith("/guests"))).toBe(false);
     expect(urls.some((u) => u.endsWith("/households"))).toBe(false);
+    // And the cached schedule is dropped, so the rows are read after the head.
+    expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
   });
 
   it("saving posts scope: 'events' to changes/preview", async () => {
@@ -198,6 +216,9 @@ describe("EventsEditor", () => {
       authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
     );
     expect(body.scope).toBe("events");
+    expect(body.removeManual).toBe(true);
+    // The head read at load, so a draft older than the head is refused.
+    expect(body.baseRevision).toBe(HEAD);
   });
 
   it("opens the drawer and edits an event name", async () => {
@@ -462,7 +483,7 @@ describe("EventsEditor", () => {
           }),
         );
       }
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
     await waitFor(() =>
@@ -496,7 +517,7 @@ describe("EventsEditor", () => {
       }
       if (u.endsWith("/guests")) return Promise.resolve(json([]));
       if (u.endsWith("/households")) return Promise.resolve(json([]));
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
@@ -545,7 +566,7 @@ describe("EventsEditor", () => {
       if (u.endsWith("/events")) return Promise.resolve(json([{ ...EVENTS[0], timezone: "" }]));
       if (u.endsWith("/guests")) return Promise.resolve(json([]));
       if (u.endsWith("/households")) return Promise.resolve(json([]));
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
@@ -600,6 +621,7 @@ describe("EventsEditor", () => {
           json({
             changeId: "chg_1",
             baseRevision: "genesis",
+            clears: null,
             warnings: ["1 event will be updated."],
             plan: {
               eventCreates: [],
@@ -623,7 +645,7 @@ describe("EventsEditor", () => {
         return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
       if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
       if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
@@ -647,7 +669,9 @@ describe("EventsEditor", () => {
     const applyCall = authFetchMock.mock.calls.find((c) =>
       String(c[0]).endsWith("/changes/apply"),
     )!;
-    expect(JSON.parse(String((applyCall[1] as RequestInit).body)).changeId).toBe("chg_1");
+    // Exactly the id: an ordinary save's `clears` is null, and a `confirmClears:
+    // null` would fail the API's decode and refuse every save.
+    expect(JSON.parse(String((applyCall[1] as RequestInit).body))).toEqual({ changeId: "chg_1" });
   });
 
   it("apply invalidates events and guests, but NOT households (T-S2)", async () => {
@@ -690,7 +714,7 @@ describe("EventsEditor", () => {
         return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
       if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
       if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
@@ -750,7 +774,7 @@ describe("EventsEditor", () => {
         );
       }
       if (u.endsWith("/changes/apply")) return Promise.resolve(json(applyBody, 409));
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
@@ -820,5 +844,214 @@ describe("EventsEditor", () => {
 
     await waitFor(() => expect(beforeUnloadAdds()).toBe(1));
     add.mockRestore();
+  });
+
+  /** Rename Ceremony and open the preview, answering it with `extra` merged in. */
+  async function renameAndPreview(
+    onApply: (body: Record<string, unknown>) => Response,
+    extra = {},
+  ) {
+    primeLoad();
+    const view = render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByLabelText("Event name")).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+    const save = await waitFor(() => screen.getByRole("button", { name: /Save changes/i }));
+
+    let applied = false;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/changes/preview")) {
+        return Promise.resolve(
+          json({
+            changeId: "chg_1",
+            baseRevision: HEAD,
+            warnings: [],
+            clears: null,
+            plan: {
+              eventCreates: [],
+              eventUpdates: [{}],
+              eventRemoves: [],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+            ...extra,
+          }),
+        );
+      }
+      if (u.endsWith("/changes/apply")) {
+        applied = true;
+        return Promise.resolve(onApply(JSON.parse(String(init?.body))));
+      }
+      // Every read after the apply fails.
+      if (applied) return Promise.resolve(json({ error: "Internal error" }, 500));
+      return Promise.resolve(fallback(url));
+    });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: /Review changes before applying/i })).toBeTruthy(),
+    );
+    return view;
+  }
+
+  /**
+   * The apply went through, but the reload that would hand the draft the new
+   * rows' server ids did not. Saving that draft again would post its new
+   * events as new a second time, so it is dropped rather than left dirty.
+   */
+  it("drops the draft when the reload after a successful apply fails, and re-seeds on remount", async () => {
+    const first = await renameAndPreview(() => json({ summary: { changeId: "chg_1" } }));
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Saved, but the editor could not reload/i)).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: /Save changes/i })).toBeNull();
+    expect(screen.queryByText("Wedding Ceremony")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add event/i })).toBeNull();
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(confirmNavigation()).toBe(true);
+
+    first.unmount();
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Save changes/i })).toBeNull();
+  });
+
+  it("drops the draft before signing in again when the reload finds the session expired", async () => {
+    await renameAndPreview(() => json({ summary: { changeId: "chg_1" } }));
+    // Every read after the apply finds the session gone.
+    const answer = authFetchMock.getMockImplementation()!;
+    let applied = false;
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (applied) return Promise.reject(new Error("AuthExpiredError"));
+      if (String(url).endsWith("/changes/apply")) applied = true;
+      return answer(url, init);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /Save changes/i })).toBeNull();
+    expect(screen.queryByText("Wedding Ceremony")).toBeNull();
+    expect(confirmNavigation()).toBe(true);
+  });
+
+  it("shows a load error, not a draft, when the head cannot be read", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/changes/head"))
+        return Promise.resolve(json({ error: "Internal error" }, 500));
+      if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText(/Could not load the schedule/i)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /^Edit$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add event/i })).toBeNull();
+  });
+
+  it("says to reload when the draft is older than the head", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    const save = await waitFor(() => screen.getByRole("button", { name: /Save changes/i }));
+
+    authFetchMock.mockImplementation((url: string) => {
+      if (String(url).endsWith("/changes/preview")) {
+        return Promise.resolve(
+          json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+        );
+      }
+      return Promise.resolve(fallback(url));
+    });
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.getByText(/reload the editor/i)).toBeTruthy());
+    expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
+  });
+
+  it("saves again with the head read after the last save", async () => {
+    // The head moves with every commit, including this editor's own; a second
+    // save still sending the first head would be refused every time.
+    let heads = ["rev_1", "rev_2"];
+    const posted: Record<string, unknown>[] = [];
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/changes/head")) {
+        const revision = heads[0]!;
+        heads = heads.length > 1 ? heads.slice(1) : heads;
+        return Promise.resolve(json({ revision }));
+      }
+      if (u.endsWith("/changes/preview")) {
+        posted.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          json({
+            changeId: `chg_${posted.length}`,
+            baseRevision: "x",
+            warnings: [],
+            clears: null,
+            plan: {
+              eventCreates: [],
+              eventUpdates: [{}],
+              eventRemoves: [],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+          }),
+        );
+      }
+      if (u.endsWith("/changes/apply")) {
+        return Promise.resolve(json({ summary: { changeId: "chg_1" } }));
+      }
+      if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: /Review changes before applying/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+
+    await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+    await waitFor(() => expect(posted).toHaveLength(2));
+    expect(posted.map((p) => p.baseRevision)).toEqual(["rev_1", "rev_2"]);
+  });
+
+  it("names a save that removes every event, and confirms the count on apply", async () => {
+    let applyBody: Record<string, unknown> | null = null;
+    await renameAndPreview(
+      (body) => {
+        applyBody = body;
+        return json({ summary: { changeId: "chg_1" } });
+      },
+      { clears: { events: 2, households: 0 } },
+    );
+    expect(
+      screen.getByRole("dialog", { name: /Review changes before applying/i }).textContent,
+    ).toMatch(/removes every event \(2\)/i);
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+    await waitFor(() => expect(applyBody).not.toBeNull());
+    expect(applyBody).toEqual({ changeId: "chg_1", confirmClears: { events: 2, households: 0 } });
   });
 });

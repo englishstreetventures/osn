@@ -10,6 +10,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { loadHeadRevision } from "../lib/change-revision";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -31,13 +32,15 @@ import {
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan } from "./ChangePreview";
+import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
   warnings: string[];
   baseRevision: string;
+  /** Set when the save removes every household; apply echoes it back. */
+  clears: ClearedHalves | null;
 }
 
 /**
@@ -66,8 +69,17 @@ export default function GuestsEditor(props: { weddingId: string }) {
   const changesUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
 
-  /** Load events + guests + households through the shared caches, then seed the
-   *  draft. Households are read separately because the guest rows only describe
+  /** Read the change head, then load events + guests + households and seed the
+   *  draft at that head.
+   *
+   *  The head comes FIRST and the rows after it, fetched fresh: the shared
+   *  caches may hold rows loaded long before, and a row a co-host committed in
+   *  between would be missing from the draft while the head already counted it
+   *  — the save would read it as a removal and the API could not tell. Dropping
+   *  the cached rows here makes every row the draft sees at least as new as the
+   *  head it sends back.
+   *
+   *  Households are read separately because the guest rows only describe
    *  households that HOLD a guest — see `buildDraft`. The draft-save posts the
    *  WHOLE DesiredState, so a slice that resolves without filling the cache (a
    *  generation-discarded load, e.g. an invalidate landing mid-fetch) must not
@@ -75,6 +87,10 @@ export default function GuestsEditor(props: { weddingId: string }) {
    *  The `!fresh` checks below throw instead, so the load error is surfaced
    *  rather than seeding an empty draft. */
   async function loadInto() {
+    const revision = await loadHeadRevision(authFetch, props.weddingId);
+    invalidateEvents(props.weddingId);
+    invalidateGuests(props.weddingId);
+    invalidateHouseholds(props.weddingId);
     const [events, guests, households] = await allAuthFirst([
       ensureEventsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
@@ -118,7 +134,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         return rows;
       }),
     ]);
-    store.load(events, guests, households);
+    store.load(events, guests, households, revision);
   }
 
   onMount(async () => {
@@ -170,7 +186,15 @@ export default function GuestsEditor(props: { weddingId: string }) {
       const res = await authFetch(changesUrl("preview"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desiredState: store.toWire() }),
+        // `scope: "guests"`: this editor never changes the schedule, so its save
+        // carries no authority over it — the events ride along only so the
+        // attendance columns can name them.
+        body: JSON.stringify({
+          desiredState: store.toWire(),
+          scope: "guests",
+          removeManual: true,
+          baseRevision: store.baseRevision(),
+        }),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -196,7 +220,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
       const res = await authFetch(changesUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: p.changeId }),
+        // Removing every household is applied only with the count the preview
+        // showed echoed back.
+        body: JSON.stringify(
+          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
+        ),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -217,8 +245,21 @@ export default function GuestsEditor(props: { weddingId: string }) {
       invalidateEvents(props.weddingId);
       invalidateHouseholds(props.weddingId);
       setPreview(null);
-      await loadInto();
-      store.commit();
+      try {
+        await loadInto();
+        store.commit();
+      } catch (err) {
+        // The save went through, so the draft describes rows the server has
+        // since given ids the draft never received: saving it again would post
+        // every new household as new a second time, and the server would
+        // remove and re-create them under fresh claim codes. So the draft is dropped — before
+        // any redirect too, since the tab-close guard would otherwise hold a
+        // dirty draft open — and the editor stays shut until it reloads.
+        store.reset();
+        if (isAuthExpired(err)) return redirectToLogin();
+        setLoadError("Saved, but the editor could not reload. Refresh to continue.");
+        return;
+      }
       haptic("commit");
       toast.success("Guest list saved");
     } catch (err) {
@@ -313,6 +354,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
               <ChangePreview
                 plan={p().plan}
                 warnings={p().warnings}
+                clears={p().clears}
                 busy={busy()}
                 confirmLabel="Confirm & save"
                 onConfirm={() => void handleApply()}

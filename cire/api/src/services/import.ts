@@ -51,7 +51,8 @@ export class ImportError extends Data.TaggedError("ImportError")<{
 
 /**
  * An id-authoritative desired state (the editor front door — see
- * {@link DiffOptions.matchByName}) named a row that no longer exists.
+ * {@link DiffOptions.matchByName}) named a row that no longer exists, or an
+ * event it can no longer resolve.
  *
  * Only the editor can raise this, and when it does the draft is provably stale:
  * it carries ids it can only have got from a load, so an id that resolves to
@@ -59,12 +60,12 @@ export class ImportError extends Data.TaggedError("ImportError")<{
  * — with name fallback off, a dangling row is not "unmatched", it is a REMOVE
  * plus a CREATE: the RSVPs attached to it are deleted, and a household comes back
  * with a fresh row carrying the claim code the draft still remembers, resurrecting
- * an invite a co-host may have deliberately revoked. `baseRevision` catches the
- * same race between preview and apply; this catches it between load and preview,
- * which nothing else does.
+ * an invite a co-host may have deliberately revoked. The editor's base revision
+ * refuses a draft once ANY change has committed since its load; this is the
+ * row-level check behind it, for a write that did not move the revision.
  */
 export class StaleDesiredState extends Data.TaggedError("StaleDesiredState")<{
-  /** How many desired rows named a row that is gone (never the ids themselves). */
+  /** How many desired rows or attendance names failed to resolve (never the values). */
   readonly unresolved: number;
 }> {}
 
@@ -299,6 +300,18 @@ export function diffAgainstDb(
       for (const existing of existingEvents) {
         eventIdByNorm.set(normaliseName(existing.name), existing.id);
         matchedEventIds.add(existing.id);
+      }
+      // On the id-authoritative door the desired events are the ones the draft
+      // was loaded with, and its attendance names them by the names they had
+      // then. An event since deleted, or renamed, would leave those names
+      // resolving to nothing (or to another event) below — dropping or moving
+      // invitations the organiser never touched — so it marks the draft stale.
+      if (!matchByName) {
+        for (const parsed of parsedEvents) {
+          if (parsed.id === undefined) continue;
+          const live = existingEventById.get(parsed.id);
+          if (!live || normaliseName(live.name) !== normaliseName(parsed.name)) unresolvedIds += 1;
+        }
       }
     }
 
@@ -591,6 +604,20 @@ export function diffAgainstDb(
     // destructive remove+create rather than an update — see StaleDesiredState.
     // Refused BEFORE the link/RSVP/entitlement reads below: nothing downstream
     // can make the plan safe, so they would be work spent on a plan we discard.
+    //
+    // Attendance names count too. The link pass skips a name that resolves to
+    // no event and then removes the guest's existing invitation to it; on this
+    // door every name comes from the draft's own event list, so one that
+    // resolves to nothing is stale, not a column to ignore.
+    if (!matchByName) {
+      for (const family of desiredFamilies) {
+        for (const guest of family.guests) {
+          for (const name of guest.eventNames) {
+            if (!eventIdByNorm.has(normaliseName(name))) unresolvedIds += 1;
+          }
+        }
+      }
+    }
     if (!matchByName && unresolvedIds > 0) {
       return yield* Effect.fail(new StaleDesiredState({ unresolved: unresolvedIds }));
     }

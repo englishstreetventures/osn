@@ -20,7 +20,16 @@ export class RevertParseError extends Data.TaggedError("RevertParseError")<{
   readonly reason: string;
 }> {}
 
+/**
+ * The change is not `applied`: a `preview` changed nothing and a `reverted`
+ * change has already been undone, so neither has anything to undo.
+ */
+export class ChangeNotApplied extends Data.TaggedError("ChangeNotApplied")<{
+  readonly status: string;
+}> {}
+
 export type RevertError =
+  | ChangeNotApplied
   | NoPriorImport
   | R2Error
   | RevertParseError
@@ -122,6 +131,7 @@ function reconcileToSnapshot(
  * plan therefore never asserts it restores them.
  *
  * Failure modes:
+ *  - `ChangeNotApplied` — the change is a `preview` or already `reverted`.
  *  - `NoPriorImport` — legacy path only: there is no earlier `applied` import.
  */
 export function revertImport(
@@ -141,6 +151,12 @@ export function revertImport(
     if (!current) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
+    // Only an applied change has anything to undo. A preview row has no
+    // before-image, so it would fall through to the legacy path and reset the
+    // wedding to an older import; a reverted row would be restored twice.
+    if (current.status !== "applied") {
+      return yield* Effect.fail(new ChangeNotApplied({ status: current.status }));
+    }
 
     // The status flip rides in the reconcile's FINAL batch (applyImport
     // `finalize`), mirroring the apply route: a crash can't leave the wedding
@@ -150,7 +166,7 @@ export function revertImport(
       db
         .update(imports)
         .set({ status: "reverted", revertedAt: Date.now() })
-        .where(eq(imports.id, current.id)),
+        .where(and(eq(imports.id, current.id), eq(imports.status, "applied"))),
     ];
 
     let summary: ImportSummary;

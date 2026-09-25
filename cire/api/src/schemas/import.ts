@@ -95,18 +95,17 @@ export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
 /**
  * Which halves of the wedding a change is AUTHORITATIVE over.
  *
- * A spreadsheet upload no longer has to carry both sheets: an organiser can post
- * just the events CSV, just the guests CSV, or both. The desired state is only
- * "the whole truth" for the halves that were actually uploaded — the other half
- * is untouched, NOT read as "everything is absent, remove it all".
+ * A spreadsheet upload need not carry both sheets: an organiser can post just
+ * the events CSV, just the guests CSV, or both. The desired state is only "the
+ * whole truth" for the halves that were actually uploaded — the other half is
+ * untouched, NOT read as "everything is absent, remove it all".
  *
- *  - `"both"` — events + guests reconcile (the historical two-sheet import, and
- *    GuestsEditor's draft-save, which still covers everything shown).
+ *  - `"both"` — events + guests reconcile (a two-sheet import).
  *  - `"events"` — only the schedule reconciles; households, guests and their
- *    attendance links are left exactly as they are.
+ *    attendance links are left exactly as they are. The events editor's save.
  *  - `"guests"` — only households/guests/attendance reconcile; the schedule is
- *    left as it is, and the guest sheet's attendance columns are matched against
- *    the events that already exist.
+ *    left as it is, and attendance is matched against the events that already
+ *    exist. The guests editor's save.
  */
 export const ChangeScope = Schema.Literals(["both", "events", "guests"]);
 export type ChangeScope = Schema.Schema.Type<typeof ChangeScope>;
@@ -245,8 +244,20 @@ export const PreviewBody = Schema.Struct({
 });
 export type PreviewBody = Schema.Schema.Type<typeof PreviewBody>;
 
+/**
+ * `confirmClears` echoes the preview's `clears` for an editor save that empties
+ * a half of the wedding (see `clearedHalves` in `services/changes.ts`). Apply
+ * refuses such a save without it, so a whole-list removal only happens from a
+ * client that showed the organiser the count.
+ */
 export const ApplyBody = Schema.Struct({
   changeId: Schema.String,
+  confirmClears: Schema.optional(
+    Schema.Struct({
+      events: Schema.Number,
+      households: Schema.Number,
+    }),
+  ),
 });
 export type ApplyBody = Schema.Schema.Type<typeof ApplyBody>;
 

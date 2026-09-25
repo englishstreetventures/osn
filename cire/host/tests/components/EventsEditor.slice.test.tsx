@@ -28,7 +28,11 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import EventsEditor from "../../src/components/EventsEditor";
-import { __resetEventsCache, invalidateEvents } from "../../src/lib/events-store";
+import {
+  __resetEventsCache,
+  ensureEventsLoaded,
+  invalidateEvents,
+} from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
@@ -38,6 +42,14 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/** The change head each editor reads before it loads its rows. */
+const HEAD = "rev_head";
+
+/** What an unrouted request gets: the change head for `/changes/head`, else `{}`. */
+function fallback(url: unknown) {
+  return String(url).endsWith("/changes/head") ? json({ revision: HEAD }) : json({});
 }
 
 const EVENTS = [
@@ -90,7 +102,7 @@ it("shows a load error instead of seeding an empty draft when the events load re
   authFetchMock.mockImplementation((url: string) => {
     const u = String(url);
     if (u.endsWith("/events")) return eventsFetch;
-    return Promise.resolve(json({}));
+    return Promise.resolve(fallback(url));
   });
 
   render(() => <EventsEditor weddingId="wed_a" />);
@@ -106,4 +118,26 @@ it("shows a load error instead of seeding an empty draft when the events load re
 
   await waitFor(() => expect(screen.getByText(/Could not load the schedule/i)).toBeTruthy());
   expect(screen.queryByText("Ceremony")).toBeNull();
+});
+
+// The draft carries the change head read BEFORE its rows, so rows cached before
+// that read — by the schedule table, say — must not seed it: they could lack an
+// event a co-host added, which the save would read as a removal while the head
+// already counted it.
+it("loads the schedule fresh after the head, even with a warm cache", async () => {
+  await ensureEventsLoaded("wed_a", async () => [{ ...EVENTS[0]!, name: "Stale Ceremony" }]);
+  authFetchMock.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+    return Promise.resolve(fallback(url));
+  });
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+
+  await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+  expect(screen.queryByText("Stale Ceremony")).toBeNull();
+  const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+  expect(urls.findIndex((u) => u.endsWith("/changes/head"))).toBeLessThan(
+    urls.findIndex((u) => u.endsWith("/events")),
+  );
 });

@@ -565,6 +565,14 @@ describe("GET /api/organiser/weddings/:weddingId/events", () => {
     expect(rows.map((r) => r.id)).toEqual(["evt_other"]);
   });
 
+  it("is marked uncacheable — the events editor seeds a draft from it", async () => {
+    // The draft is checked against the change head the editor read just before
+    // this load, so a cached copy older than that head must never be served.
+    const { app } = buildApp();
+    const res = await get(app, `/api/organiser/weddings/${OTHER_WEDDING_ID}/events`, OTHER_OWNER);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("returns 403 for a non-owner", async () => {
     const { app } = buildApp();
     const res = await get(app, `/api/organiser/weddings/${OTHER_WEDDING_ID}/events`, "usr_nobody");

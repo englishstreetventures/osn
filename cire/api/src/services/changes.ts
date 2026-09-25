@@ -10,10 +10,15 @@
  *     persist the uploaded sheets for legacy revert + re-diff on apply, and a
  *     {@link ChangeScope} recording which sheets a partial upload carried).
  *  2. {@link headRevision} — the wedding's optimistic-concurrency token (§6
- *     "Concurrency guard"): the id of the most-recently-applied-or-reverted
- *     change. Preview captures it into `baseRevision`; apply re-reads it and
- *     409s if it moved, so two co-hosts editing at once get a clean conflict
- *     instead of a silent last-writer-wins.
+ *     "Concurrency guard"): a digest of every committed change. The editor
+ *     reads it BEFORE loading the rows it seeds a draft from and sends it with
+ *     the preview; preview refuses a draft whose token is no longer the head,
+ *     stamps the head on the change row, and apply 409s if it moved since.
+ *     The check is not part of apply's write: two applies that both read the
+ *     head before either commits can both land, so the window between apply's
+ *     head read and its final batch is still open.
+ *  3. {@link clearedHalves} — whether an editor save empties a half of the
+ *     wedding, which apply refuses unless the request confirms the count.
  */
 import { events, imports } from "@cire/db";
 import { and, asc, eq, or } from "drizzle-orm";
@@ -21,7 +26,7 @@ import { Effect, Schema } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { ChangeScope, DesiredState } from "../schemas/import";
-import type { ParsedEvent, ParsedFamily } from "../schemas/import";
+import type { ImportPlan, ParsedEvent, ParsedFamily } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 import type { SpreadsheetParseError } from "./spreadsheet";
@@ -69,17 +74,25 @@ export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
 
 /**
  * An editor draft-save: the whole DesiredState (ids present for existing rows,
- * absent for new ones). The editor manages EVERYTHING it was shown — the draft
- * is the whole truth — so this path always diffs with `removeManual: true`
- * (never leaves an unmatched row behind because of provenance).
+ * absent for new ones) for the half of the wedding named by `scope`.
+ *
+ * Two fields state the contract the draft is built on rather than leaving the
+ * server to assume it:
+ *  - `removeManual: true` — the draft is the whole truth for its scope, so an
+ *    existing row it does not carry is a removal whatever its provenance. The
+ *    only legal value; a body without it is refused.
+ *  - `baseRevision` — the {@link headRevision} the editor read BEFORE loading the
+ *    rows it seeded the draft from. Preview refuses the draft when the head has
+ *    moved since, because a row a co-host added after that load is absent from
+ *    the draft for no reason the organiser chose, and would read as a removal.
  */
 export const DesiredStateChangeBody = Schema.Struct({
   desiredState: DesiredState,
-  // Which half of the wedding this save is authoritative over. Omitted by
-  // callers that still send the whole draft (e.g. GuestsEditor), which keeps
-  // the old "both" default; the events editor sends "events" explicitly since
-  // it no longer loads guests/households to populate the draft.
+  // Which half of the wedding this save is authoritative over. Both editors
+  // send it (`"guests"`, `"events"`); omitted, it defaults to `"both"`.
   scope: Schema.optional(ChangeScope),
+  removeManual: Schema.Literal(true),
+  baseRevision: Schema.String,
 });
 export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
 
@@ -124,11 +137,17 @@ export interface DecodedChange {
   /** The desired state both shapes reduce to — the input `diffAgainstDb` reads. */
   readonly desiredState: DesiredState;
   /**
-   * True for the editor front door: the draft is the whole truth, so the diff
-   * manages every row it was shown (`removeManual: true`). For a CSV upload this
-   * is the caller's `removeManual` toggle (default false — provenance default).
+   * True for the editor front door, which states it in its body: the draft is
+   * the whole truth, so the diff manages every row it was shown. For a CSV
+   * upload this is the caller's `removeManual` toggle (default false —
+   * provenance default).
    */
   readonly removeManual: boolean;
+  /**
+   * The head revision the editor read before loading its draft's rows, or
+   * `null` for a spreadsheet upload (a sheet is not built from loaded rows).
+   */
+  readonly baseRevision: string | null;
   /**
    * Whether an id-less desired row may match an existing row by NAME. `true` for
    * a spreadsheet upload (a sheet without the fidelity columns has no ids at
@@ -153,12 +172,11 @@ export interface DecodedChange {
   /** `'import'` (spreadsheet) or `'editor'` (draft-save) — the change kind (E3). */
   readonly kind: "import" | "editor";
   /**
-   * Which halves of the wedding this change is authoritative over. Defaults to
-   * `"both"` for an editor save that doesn't send its own scope, and for a
-   * two-sheet upload; a single-sheet upload is `"events"` / `"guests"`, and the
-   * events editor sends `"events"` explicitly. Persisted on the change row's
-   * summary so apply (which re-diffs against live state) and revert honour the
-   * same scope the preview was computed under.
+   * Which halves of the wedding this change is authoritative over. `"both"` for
+   * a two-sheet upload and for an editor save that sends no scope; a
+   * single-sheet upload is `"events"` / `"guests"`, and each editor sends its
+   * own half. Persisted on the change row's summary so apply (which re-diffs
+   * against live state) manages the same halves the preview was computed under.
    */
   readonly scope: ChangeScope;
 }
@@ -256,15 +274,13 @@ export function decodeChangeBody(
       // Editor front door: the draft is the whole truth (manage all shown rows).
       return {
         desiredState: body.desiredState,
-        removeManual: true,
+        removeManual: body.removeManual,
+        baseRevision: body.baseRevision,
         // The draft is id-authoritative: every existing row carries its id, so an
         // id-less row is a genuinely new one, never a same-named existing row.
         matchByName: false,
         uploadedCsv: null,
         kind: "editor",
-        // A caller whose draft covers everything shown (GuestsEditor) sends no
-        // scope and keeps the "both" default; the events editor sends "events"
-        // explicitly since its draft only ever covers the schedule.
         scope: body.scope ?? "both",
       } satisfies DecodedChange;
     }
@@ -294,6 +310,7 @@ export function decodeChangeBody(
       },
       // Provenance default unless the organiser flipped the toggle.
       removeManual: body.removeManual ?? false,
+      baseRevision: null,
       // A sheet's rows are matched by name unless they carry the fidelity ids.
       matchByName: true,
       uploadedCsv: { eventsCsv: body.eventsCsv ?? null, guestsCsv: body.guestsCsv ?? null },
@@ -306,21 +323,29 @@ export function decodeChangeBody(
 // ── Optimistic-concurrency head revision ────────────────────────────────────
 
 /**
- * Sentinel `baseRevision` for a wedding that has never had a change applied or
- * reverted — distinct from any real change id, so a preview taken at genesis
- * still detects a concurrent first apply.
+ * Sentinel revision for a wedding with no committed change — distinct from any
+ * digest, so a draft or preview taken at genesis still detects a concurrent
+ * first apply.
  */
 export const GENESIS_REVISION = "genesis";
 
 /**
- * The wedding's current head revision: the id of the most-recently
- * applied-or-reverted change, or {@link GENESIS_REVISION} if none. Preview
- * records this as `baseRevision`; apply re-reads it and 409s on a mismatch
- * (§6 "Concurrency guard"). A `preview`-status row is NOT a head — only an
- * applied or reverted change mutated the wedding — so opening a second preview
- * never trips the guard; a concurrent APPLY does. Ordered by the change's mutate
- * time (`appliedAt`/`revertedAt`), newest first, so the token tracks the real
- * last write regardless of upload order.
+ * The wedding's current head revision: a SHA-256 digest (hex) of every
+ * committed change — each `applied` or `reverted` row's id, status and
+ * `appliedAt`/`revertedAt` — or {@link GENESIS_REVISION} when there is none
+ * (§6 "Concurrency guard").
+ *
+ * A digest of the whole set rather than "the newest row", because the newest
+ * row cannot be told apart reliably: `appliedAt` and `revertedAt` are stamped
+ * before their write set commits, so a revert that started first can commit
+ * last and still carry the older time, two changes can share a millisecond, and
+ * reverting the newest change leaves its id where it was. Every committed apply
+ * adds a row to the set and every committed revert changes one, in the same
+ * final batch as its data writes, so the digest moves exactly when the wedding
+ * does — in whatever order the writes land.
+ *
+ * A `preview` row is not part of the set, so a second preview never moves the
+ * head; an apply or a revert does.
  */
 export function headRevision(weddingId: string): Effect.Effect<string, never, DbService> {
   return Effect.gen(function* () {
@@ -329,6 +354,7 @@ export function headRevision(weddingId: string): Effect.Effect<string, never, Db
       db
         .select({
           id: imports.id,
+          status: imports.status,
           appliedAt: imports.appliedAt,
           revertedAt: imports.revertedAt,
         })
@@ -342,11 +368,50 @@ export function headRevision(weddingId: string): Effect.Effect<string, never, Db
         .all(),
     );
     if (rows.length === 0) return GENESIS_REVISION;
-    // The mutate time is appliedAt for an applied row, revertedAt for a reverted
-    // one — both are set when the row last changed the wedding. Newest wins.
-    const mutateAt = (r: (typeof rows)[number]) => Math.max(r.appliedAt ?? 0, r.revertedAt ?? 0);
-    let head = rows[0]!;
-    for (const r of rows) if (mutateAt(r) > mutateAt(head)) head = r;
-    return head.id;
+    const canonical = JSON.stringify(
+      rows
+        .map((r) => [r.id, r.status, r.appliedAt, r.revertedAt] as const)
+        .toSorted((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+    );
+    const digest = yield* Effect.promise(() =>
+      crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)),
+    );
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
   }).pipe(Effect.withSpan("cire.changes.headRevision"));
+}
+
+// ── Emptied halves ──────────────────────────────────────────────────────────
+
+/**
+ * How many rows an editor save removes from each half of the wedding it leaves
+ * EMPTY. Both counts are 0 for a half the save still populates, does not
+ * manage, or that was already empty.
+ */
+export interface ClearedHalves {
+  readonly events: number;
+  readonly households: number;
+}
+
+/**
+ * Whether a change empties a managed half of the wedding — every event, or
+ * every household — and by how many rows. `null` when it empties neither.
+ *
+ * An empty half of a draft is a legitimate "remove them all", but it is also
+ * exactly what an editor bug that seeds a slice from nothing produces, so
+ * apply refuses it unless the request echoes these counts back from the
+ * preview that showed them.
+ */
+export function clearedHalves(
+  desired: DesiredState,
+  plan: Pick<ImportPlan, "eventRemoves" | "familyRemoves">,
+  scope: ChangeScope,
+): ClearedHalves | null {
+  // Not `events`: that name is the table this module imports.
+  const eventsRemoved =
+    scope !== "guests" && desired.events.length === 0 ? plan.eventRemoves.length : 0;
+  const householdsRemoved =
+    scope !== "events" && desired.families.length === 0 ? plan.familyRemoves.length : 0;
+  return eventsRemoved > 0 || householdsRemoved > 0
+    ? { events: eventsRemoved, households: householdsRemoved }
+    : null;
 }

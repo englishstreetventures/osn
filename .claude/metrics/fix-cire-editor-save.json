@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1190,
+    "branch": "fix/cire-editor-save",
+    "base_sha": "b7999dea3cf80664a2ea4e621cc004d7c29a9902",
+    "head_sha": "89c3ae318dce742c42a5a7aed06ca767d5945acf",
+    "generated_at": "2026-09-24T20:01:04.191Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 7,
+    "first_ts": "2026-09-24T16:07:38.086Z",
+    "last_ts": "2026-09-24T20:01:00.045Z",
+    "span_seconds": 14002,
+    "active_seconds": 5056,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 56.12082029999997,
+    "tokens": {
+      "input": 887,
+      "output": 27595,
+      "thinking": 493,
+      "cache_write_5m": 3042560,
+      "cache_write_1h": 0,
+      "cache_read": 99673634
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 71,
+          "output": 18267,
+          "thinking": 0,
+          "cache_write_5m": 190944,
+          "cache_write_1h": 0,
+          "cache_read": 1530327
+        },
+        "usd_equivalent": 2.4155934999999995,
+        "messages": 41
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 816,
+          "output": 9328,
+          "thinking": 493,
+          "cache_write_5m": 2851616,
+          "cache_write_1h": 0,
+          "cache_read": 98143307
+        },
+        "usd_equivalent": 53.70522679999997,
+        "messages": 403
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 71,
+          "output": 18267,
+          "thinking": 0,
+          "cache_write_5m": 190944,
+          "cache_write_1h": 0,
+          "cache_read": 1530327
+        },
+        "usd_equivalent": 2.4155934999999995,
+        "messages": 41
+      },
+      "subagent": {
+        "tokens": {
+          "input": 816,
+          "output": 9328,
+          "thinking": 493,
+          "cache_write_5m": 2851616,
+          "cache_write_1h": 0,
+          "cache_read": 98143307
+        },
+        "usd_equivalent": 53.70522679999997,
+        "messages": 404
+      }
+    },
+    "effort": {
+      "xhigh": 336,
+      "high": 67
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 10,
+      "docs": 2,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 17,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1768,
+        "deleted": 65
+      },
+      "docs": {
+        "added": 20,
+        "deleted": 12
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 488,
+        "deleted": 128
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 360,
+      "Read": 60,
+      "Edit": 21,
+      "Write": 8,
+      "Skill": 7,
+      "StructuredOutput": 5,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "ToolSearch": 3,
+      "Monitor": 2,
+      "Grep": 2,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 9
+    },
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

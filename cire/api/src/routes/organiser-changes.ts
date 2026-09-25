@@ -12,6 +12,7 @@ import { runCire } from "../observability";
 import { ApplyBody, ChangeScope, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import {
+  clearedHalves,
   currentEventsAsParsed,
   decodeChangeBody,
   GENESIS_REVISION,
@@ -141,10 +142,24 @@ function catchParseErrors(set: { status?: number | string }) {
 const manualParse = { parse: () => ({}) };
 
 /**
+ * The 409 for an editor draft built against state that has since changed —
+ * one body for every way that is detected (the draft's base revision is no
+ * longer the head, or a row it names is gone), because the remedy is the same:
+ * reload the editor and redo the edit. Refusing beats applying: with no name
+ * fallback, a row the draft never saw reads as a removal and a row it names
+ * that is gone reads as remove+create, dropping RSVPs and claim codes the
+ * organiser never asked to touch.
+ */
+function staleDraft(set: { status?: number | string }) {
+  set.status = 409;
+  return { error: "State changed — reload the editor", reason: "stale_draft" as const };
+}
+
+/**
  * The change persisted-state summary carries the optimistic-concurrency token +
  * provenance toggle captured at PREVIEW, alongside the diff counts. Read back at
  * apply so the re-diff uses the same `removeManual` and the 409 guard compares
- * against the `baseRevision` the previewer saw.
+ * against the `baseRevision` the preview was computed at.
  */
 interface ChangeSummary {
   baseRevision: string;
@@ -225,19 +240,23 @@ function desiredStateFromRow(
  * `read_only_role` viewer), deriving `weddingId`. Every operation is
  * wedding-scoped through the path.
  *
- * The four verbs:
+ * The verbs:
+ *  - `head` — the wedding's current head revision. The editor reads it BEFORE
+ *    loading the rows it seeds a draft from, and sends it back with the preview.
  *  - `preview` — accepts EITHER a DesiredState JSON (editor draft-save) OR a
  *    spreadsheet upload carrying `eventsCsv`, `guestsCsv`, or BOTH (either sheet
  *    may be omitted — an organiser re-working only the guest list uploads only
  *    that sheet, and the schedule is left alone). Both funnel through
  *    `decodeChangeBody` → the one reconcile: DesiredState → `diffAgainstDb` →
- *    plan. Persists a `preview` change row (input in R2, `baseRevision` +
- *    `removeManual` + `scope` in the summary). Returns `{changeId, plan,
- *    warnings, baseRevision, scope}`.
- *  - `apply` — `{changeId}`. Re-reads the head revision and 409s if it moved
- *    since preview (optimistic concurrency — a co-host applied in between).
- *    Re-diffs against live state (TOCTOU), checkpoints the before-image (E3),
- *    applies, prunes.
+ *    plan. An editor draft whose `baseRevision` is no longer the head is refused
+ *    (409 `stale_draft`) before anything is stored. Persists a `preview` change
+ *    row (input in R2, `baseRevision` + `removeManual` + `scope` in the
+ *    summary). Returns `{changeId, plan, warnings, baseRevision, scope, clears}`.
+ *  - `apply` — `{changeId, confirmClears?}`. Re-reads the head revision and 409s
+ *    if it moved since preview (optimistic concurrency — a co-host applied in
+ *    between). Re-diffs against live state (TOCTOU); an editor save that empties
+ *    a half of the wedding needs `confirmClears` to match. Checkpoints the
+ *    before-image (E3), applies, prunes.
  *  - `revert` — `{changeId}`. Before-image restore (E3).
  *  - `list` — paginated change history (imports + editor saves).
  */
@@ -251,6 +270,21 @@ export const createOrganiserChangeRoutes = (
     .group("/weddings/:weddingId/changes", (group) =>
       group
         .use(weddingEditor(db))
+        .get("/head", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          // A cached copy would pin an editor to a revision that is no longer
+          // the head, and every save it then made would be refused as stale.
+          set.headers["cache-control"] = "no-store";
+          return runCire(
+            headRevision(weddingId).pipe(
+              Effect.map((revision) => ({ revision })),
+              Effect.provideService(DbService, db),
+            ),
+          );
+        })
         .post(
           "/preview",
           async ({ request, weddingId, set }) => {
@@ -281,6 +315,19 @@ export const createOrganiserChangeRoutes = (
                 const baseRevision = yield* headRevision(weddingId);
 
                 const decoded = yield* decodeChangeBody(raw, weddingId);
+
+                // An editor draft is only as current as the load it was seeded
+                // from. A change committed since then — a household a co-host
+                // added, a revert that brought rows back — is absent from the
+                // draft without the organiser having removed it, and the editor
+                // door reads absence as removal. So the draft must have been
+                // loaded at the current head.
+                if (decoded.baseRevision !== null && decoded.baseRevision !== baseRevision) {
+                  yield* Effect.logWarning("change refused: draft older than the latest change", {
+                    changeKind: "editor",
+                  });
+                  return staleDraft(set);
+                }
 
                 // Persist the change's input for the apply-time re-diff. Import:
                 // the uploaded CSVs, with `""` in the slot of a sheet the
@@ -362,6 +409,12 @@ export const createOrganiserChangeRoutes = (
                   // touches ("guests only — your schedule is untouched") rather
                   // than leaving an organiser to infer it from empty counts.
                   scope: decoded.scope,
+                  // Non-null when an editor save empties every event or every
+                  // household. The preview shows it; apply wants it echoed back.
+                  clears:
+                    decoded.kind === "editor"
+                      ? clearedHalves(decoded.desiredState, plan, decoded.scope)
+                      : null,
                   plan: {
                     ...plan,
                     eventCreates: [...plan.eventCreates],
@@ -391,23 +444,13 @@ export const createOrganiserChangeRoutes = (
                 Effect.catchTags(catchParseErrors(set)),
                 Effect.catchTag("StaleDesiredState", (e) =>
                   Effect.gen(function* () {
-                    // The draft named rows that no longer exist, so it was built
-                    // against state someone else has since changed. Same 409 the
-                    // baseRevision guard returns, for the same reason and with the
-                    // same remedy — reload and redo the edit — except this race
-                    // opened between LOAD and preview, which baseRevision (captured
-                    // at preview) cannot see. Refusing beats applying: with no name
-                    // fallback those rows reconcile as remove+create, dropping RSVPs
-                    // and re-minting a claim code the organiser never asked to touch.
+                    // The draft names rows or events that no longer resolve, so it
+                    // was built against state someone else has since changed.
                     yield* Effect.logWarning("change refused: stale desired state", {
                       changeKind: "editor",
                       unresolved: e.unresolved,
                     });
-                    set.status = 409;
-                    return {
-                      error: "State changed — reload the editor",
-                      reason: "stale_draft",
-                    };
+                    return staleDraft(set);
                   }),
                 ),
                 Effect.catchTag("R2Error", () =>
@@ -433,7 +476,8 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { changeId } = yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
+                const { changeId, confirmClears } =
+                  yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
                 const [row] = yield* dbQuery(() =>
@@ -526,6 +570,41 @@ export const createOrganiserChangeRoutes = (
                   },
                 );
 
+                // An editor save that empties every event or every household is
+                // applied only when the request echoes the counts the preview
+                // showed. The organiser's protection is the preview naming the
+                // loss; this stops a caller that never showed it. Counts that no
+                // longer match mean the preview itself is out of date.
+                if (row.kind === "editor") {
+                  const clears = clearedHalves(desired, plan, scope);
+                  if (clears !== null) {
+                    const attributes = {
+                      clearsEvents: clears.events > 0,
+                      clearsHouseholds: clears.households > 0,
+                    };
+                    if (confirmClears === undefined) {
+                      yield* Effect.logWarning("change refused: clear not confirmed", attributes);
+                      set.status = 400;
+                      return {
+                        error:
+                          "This save removes every event or household — confirm it from the preview",
+                        reason: "unconfirmed_clear",
+                      };
+                    }
+                    if (
+                      confirmClears.events !== clears.events ||
+                      confirmClears.households !== clears.households
+                    ) {
+                      yield* Effect.logWarning(
+                        "change refused: clear changed since preview",
+                        attributes,
+                      );
+                      set.status = 409;
+                      return { error: "State changed — re-preview" };
+                    }
+                  }
+                }
+
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
                 // as this change's before-image, then apply, then prune. The
                 // status flip rides in applyImport's FINAL batch (its
@@ -562,23 +641,13 @@ export const createOrganiserChangeRoutes = (
                 Effect.catchTags(catchParseErrors(set)),
                 Effect.catchTag("StaleDesiredState", (e) =>
                   Effect.gen(function* () {
-                    // The draft named rows that no longer exist, so it was built
-                    // against state someone else has since changed. Same 409 the
-                    // baseRevision guard returns, for the same reason and with the
-                    // same remedy — reload and redo the edit — except this race
-                    // opened between LOAD and preview, which baseRevision (captured
-                    // at preview) cannot see. Refusing beats applying: with no name
-                    // fallback those rows reconcile as remove+create, dropping RSVPs
-                    // and re-minting a claim code the organiser never asked to touch.
+                    // The draft names rows or events that no longer resolve, so it
+                    // was built against state someone else has since changed.
                     yield* Effect.logWarning("change refused: stale desired state", {
                       changeKind: "editor",
                       unresolved: e.unresolved,
                     });
-                    set.status = 409;
-                    return {
-                      error: "State changed — reload the editor",
-                      reason: "stale_draft",
-                    };
+                    return staleDraft(set);
                   }),
                 ),
                 Effect.catchTag("R2Error", () =>
@@ -638,6 +707,12 @@ export const createOrganiserChangeRoutes = (
                   Effect.sync(() => {
                     set.status = 409;
                     return { error: "No prior applied change to revert to" };
+                  }),
+                ),
+                Effect.catchTag("ChangeNotApplied", () =>
+                  Effect.sync(() => {
+                    set.status = 409;
+                    return { error: "Change is not applied" };
                   }),
                 ),
                 Effect.catchTag("R2Error", () =>

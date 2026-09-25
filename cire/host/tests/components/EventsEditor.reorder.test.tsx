@@ -54,6 +54,14 @@ function json(body: unknown) {
   });
 }
 
+/** The change head each editor reads before it loads its rows. */
+const HEAD = "rev_head";
+
+/** What an unrouted request gets: the change head for `/changes/head`, else `{}`. */
+function fallback(url: unknown) {
+  return String(url).endsWith("/changes/head") ? json({ revision: HEAD }) : json({});
+}
+
 const baseEvent = {
   slug: "",
   endAt: "",
@@ -145,7 +153,7 @@ beforeEach(() => {
     if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
     if (String(url).endsWith("/guests")) return Promise.resolve(json([]));
     if (String(url).endsWith("/households")) return Promise.resolve(json([]));
-    return Promise.resolve(json({}));
+    return Promise.resolve(fallback(url));
   });
 });
 
@@ -477,7 +485,7 @@ describe("EventsEditor — a re-order reaches the wire", () => {
           }),
         );
       }
-      return Promise.resolve(json({}));
+      return Promise.resolve(fallback(url));
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));

@@ -3,19 +3,15 @@
 // Loads the wedding's current server state into a mutable, id-stable SolidJS
 // store, tracks dirtiness against the loaded baseline, and (on Save) serialises
 // the draft into a DesiredState JSON the `changes/preview` front door consumes.
-// The editor front door diffs with `removeManual` implicit-true, so an omitted
-// row reads as a delete for whichever half the save's `scope` covers —
-// GuestsEditor sends NO scope, which the front door reads as the `"both"`
-// default, and it loads every event/household to keep the draft the whole
-// truth; EventsEditor saves `scope: "events"` and only carries events, so
-// leaving guests/households empty is safe (the scope tells the diff to leave
-// that half alone regardless of what's in the DesiredState).
+// The editor front door diffs with `removeManual: true`, so an omitted row reads
+// as a delete for whichever half the save's `scope` covers. GuestsEditor saves
+// `scope: "guests"` and carries the events only for its attendance columns;
+// EventsEditor saves `scope: "events"` and leaves guests/households empty, which
+// is safe because the scope tells the diff to leave that half alone.
 //
-// E5 wires up GUESTS only (households, guests, per-guest attendance). Events are
-// loaded and carried through UNCHANGED so a guests-only save preserves the
-// schedule (id-matched ⇒ update with identical values ⇒ no data loss). E6 added
-// event editing on top of the same store — `events` is a first-class editable
-// slice there, driven by its own `scope: "events"` save.
+// The draft also holds the change head it was loaded at (`baseRevision`): the
+// save sends it, and the API refuses a draft once the head has moved, because a
+// row committed since the load would otherwise read as a removal.
 //
 // In-session UNDO + "discard draft" are pure client state: every mutation pushes
 // the prior snapshot onto an undo stack, so undo/discard are local — no server
@@ -460,12 +456,20 @@ export interface GuestEventDraft {
   readonly canUndo: () => boolean;
 
   /** Replace the draft + baseline from freshly-loaded server rows. `households`
-   *  carries the guest-less households the guest rows can't describe. */
+   *  carries the guest-less households the guest rows can't describe;
+   *  `baseRevision` is the change head read BEFORE those rows were loaded. */
   load: (
     events: EventRow[],
     guests: OrganiserGuestRow[],
-    households?: OrganiserHouseholdRow[],
+    households: OrganiserHouseholdRow[],
+    baseRevision: string,
   ) => void;
+  /** The change head the draft was loaded at (`null` before a load / after a
+   *  reset). The save sends it so a draft older than the head is refused. */
+  readonly baseRevision: () => string | null;
+  /** Drop the draft entirely — nothing loaded, nothing dirty, nothing to save.
+   *  For when the draft can no longer be trusted and must be re-seeded. */
+  reset: () => void;
 
   // Events-tab mutations (each records an undo checkpoint first). A new event's
   // `sortOrder` lands at the end; reorder rewrites every event's `sortOrder` to
@@ -513,6 +517,7 @@ function snapshot(draft: DraftState): DraftState {
 export function createGuestEventDraft(): GuestEventDraft {
   const [draft, setDraft] = createStore<DraftState>({ events: [], families: [] });
   const [loaded, setLoaded] = createSignal(false);
+  const [baseRevision, setBaseRevision] = createSignal<string | null>(null);
   const [baseline, setBaseline] = createSignal<string>("");
   // The loaded state itself, kept alongside its fingerprint so "discard" can
   // restore it directly. The undo stack can NOT stand in for it: it is bounded,
@@ -543,14 +548,28 @@ export function createGuestEventDraft(): GuestEventDraft {
   function load(
     events: EventRow[],
     guests: OrganiserGuestRow[],
-    households: OrganiserHouseholdRow[] = [],
+    households: OrganiserHouseholdRow[],
+    revision: string,
   ) {
     const built = buildDraft(events, guests, households);
     setDraft(reconcile(built, { key: "key" }));
     setBaseline(fingerprint(built));
     setBaselineDraft(structuredClone(built));
     setUndoStack([]);
+    setBaseRevision(revision);
     setLoaded(true);
+  }
+
+  function reset() {
+    const empty: DraftState = { events: [], families: [] };
+    // `loaded` first: every memo reading the draft is gated on it, so nothing
+    // recomputes against a half-cleared store.
+    setLoaded(false);
+    setDraft(reconcile(empty, { key: "key" }));
+    setBaseline("");
+    setBaselineDraft(structuredClone(empty));
+    setUndoStack([]);
+    setBaseRevision(null);
   }
 
   function eventIndex(key: string) {
@@ -758,6 +777,8 @@ export function createGuestEventDraft(): GuestEventDraft {
     warnings,
     canUndo,
     load,
+    baseRevision,
+    reset,
     addEvent,
     updateEvent,
     removeEvent,
