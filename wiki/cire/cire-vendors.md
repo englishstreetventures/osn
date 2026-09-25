@@ -121,11 +121,14 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). cire-api also attempts a **fail-soft email**: the `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), cire-api logs the error and the HTTP response is unaffected.
 
-3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claim` with the raw token + their org id. cire-api:
+3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claims/:token/consume` with the raw token in the path and `{ orgId }` in the body. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented).
    - Validates: `status = 'pending'`, `expires_at > now`.
    - Sets `directory_vendors.org_id = <their org>` (atomically in a D1 batch with the claim status update to `consumed`).
    - The directory listing is now **bound to the vendor's OSN org** — the vendor principal model applies from this point.
+   - Returns the listing, which the portal carries to its editor so the editor need not fetch it again.
+
+4. **The portal hands the listing to the editor.** The claim page writes the listing, with its contact details, to `sessionStorage` (`cire.vendor.claimed-listing`) and redirects to the dashboard at `/#/orgs/<id>`. The dashboard takes it off storage as the page loads, before anything renders and whether or not the vendor is signed in, and holds it in page memory for the first editor that opens; an editor opened for a different org drops it and fetches. The storage copy therefore lives for that one redirect. Code: `drainClaimedListing` and `takeSeededListing` in [`vendor-store.ts`](../../cire/vendor/src/lib/vendor-store.ts).
 
 ### Fail-soft email
 

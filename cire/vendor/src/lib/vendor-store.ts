@@ -141,14 +141,34 @@ export async function consumeClaim(
 // `consumeClaim` already returns the listing, but the claim page redirects
 // with a full document navigation (`window.location.href`), which drops
 // everything in memory. sessionStorage crosses that gap the same way
-// CLAIM_TOKEN_KEY crosses the sign-in redirect in ClaimApp. The key is read
-// once: `takeSeededListing` deletes it on the way out, whether or not the
-// value turns out usable, so it can never leak into a later, unrelated load.
+// CLAIM_TOKEN_KEY crosses the sign-in redirect in ClaimApp.
+//
+// The listing carries the vendor's contact details, so the storage copy lives
+// for that one redirect and no longer. `drainClaimedListing` runs as the
+// dashboard page loads, before anything renders: it removes the key whether or
+// not the value is usable, and whether or not the vendor ever opens an editor,
+// and keeps a valid seed in page memory only. `takeSeededListing` hands that
+// on once, to the first editor that asks. If sessionStorage itself throws,
+// nothing is held and the key may stay; a browser that follows the HTML
+// standard cannot throw from `removeItem` once `getItem` has succeeded.
 const CLAIMED_LISTING_KEY = "cire.vendor.claimed-listing";
 
 interface ClaimedListingSeed {
   orgId: string;
   listing: Listing;
+}
+
+/** The seed the last {@link drainClaimedListing} took off storage, if valid. */
+let heldSeed: ClaimedListingSeed | undefined;
+
+/** A parsed seed, each field still `unknown`, as with {@link ListingCandidate}. */
+interface SeedCandidate {
+  orgId?: unknown;
+  listing?: unknown;
+}
+
+function isSeedCandidate(value: unknown): value is SeedCandidate {
+  return typeof value === "object" && value !== null;
 }
 
 /**
@@ -205,32 +225,45 @@ export function seedClaimedListing(orgId: string, listing: Listing): void {
 }
 
 /**
- * Take the listing seeded by a just-completed claim, if any, for `orgId`.
- * Returns `undefined` on every failure mode — key absent, unparseable JSON,
- * a mismatched org, a shape that doesn't look like `Listing`, or
- * sessionStorage throwing on read — so the caller always has a clean
- * fall-through to fetchListing.
+ * Move the seed a just-completed claim left in sessionStorage into page
+ * memory, removing the storage key. Call once as the dashboard page loads.
+ * Whatever was held before is dropped first, so afterwards the held seed is
+ * exactly what storage held: nothing when the key is absent, the JSON is
+ * unparseable, the shape is wrong, or sessionStorage throws.
  */
-export function takeSeededListing(orgId: string): Listing | undefined {
+export function drainClaimedListing(): void {
+  heldSeed = undefined;
   let raw: string | null;
   try {
     raw = sessionStorage.getItem(CLAIMED_LISTING_KEY);
-  } catch {
-    return undefined;
-  }
-  if (raw === null) return undefined;
-  try {
+    if (raw === null) return;
     sessionStorage.removeItem(CLAIMED_LISTING_KEY);
   } catch {
-    // Read succeeded but removal failed — proceed anyway; a stale key left
-    // behind gets rejected below on org mismatch or bad shape at worst.
+    return;
   }
+  let seed: unknown;
   try {
-    const seed = JSON.parse(raw) as ClaimedListingSeed;
-    if (seed.orgId !== orgId) return undefined;
-    if (!isValidListing(seed.listing)) return undefined;
-    return seed.listing;
+    seed = JSON.parse(raw);
   } catch {
-    return undefined;
+    return;
   }
+  if (!isSeedCandidate(seed)) return;
+  const { orgId, listing } = seed;
+  if (typeof orgId !== "string" || !isValidListing(listing)) return;
+  heldSeed = { orgId, listing };
+}
+
+/**
+ * Take the listing seeded by a just-completed claim, if any, for `orgId`.
+ * Reads page memory only, never sessionStorage, so it sees a seed only after
+ * {@link drainClaimedListing} has run. The held seed is dropped on every call,
+ * matched or not, so it cannot wait for the org it names to be opened later.
+ * Returns `undefined` when nothing is held or the org differs, so the caller
+ * always has a clean fall-through to fetchListing.
+ */
+export function takeSeededListing(orgId: string): Listing | undefined {
+  const seed = heldSeed;
+  heldSeed = undefined;
+  if (seed === undefined || seed.orgId !== orgId) return undefined;
+  return seed.listing;
 }

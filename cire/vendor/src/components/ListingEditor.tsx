@@ -46,9 +46,9 @@ export default function ListingEditor(props: ListingEditorProps) {
   const { authFetch } = useAuth();
 
   // Load the listing (may be null for a brand-new org). A claim that just
-  // redirected here may have left the listing seeded in sessionStorage —
-  // use it once instead of re-fetching what consumeClaim already
-  // returned.
+  // redirected here leaves the listing held in memory (VendorApp drains it
+  // off sessionStorage as the page loads) — use it once instead of
+  // re-fetching what consumeClaim already returned.
   const [listing] = createResource(async () => {
     const seeded = takeSeededListing(props.orgId);
     if (seeded !== undefined) return seeded;

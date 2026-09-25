@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 let mockSession: { profileId: string } | null = { profileId: "usr_1" };
 let mockFetchClaimPreview: () => Promise<{ directoryVendorId: string; name: string } | null> = () =>
   Promise.resolve({ directoryVendorId: "d1", name: "Preview Co" });
-let mockConsumeClaim: () => Promise<void> = () => Promise.resolve();
+let mockConsumeClaim: () => Promise<unknown> = () => Promise.resolve();
 const signInMock = vi.fn();
 
 // ─── Module mocks ──────────────────────────────────────────────────────────
@@ -25,7 +25,10 @@ vi.mock("@shared/rp-auth/solid", () => ({
   }),
 }));
 
-vi.mock("../../src/lib/vendor-store", () => ({
+// Partial: the network calls are mocked, but `seedClaimedListing` is the real
+// one, so a test can read back what the claim page leaves for the dashboard.
+vi.mock("../../src/lib/vendor-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/vendor-store")>()),
   fetchClaimPreview: (...args: any[]) => mockFetchClaimPreview(...(args as [])),
   consumeClaim: (...args: any[]) => mockConsumeClaim(...(args as [])),
   listMyOrgs: vi.fn().mockResolvedValue([]),
@@ -181,5 +184,41 @@ describe("ClaimApp", () => {
     screen.getByTestId("mock-org-picker").click();
 
     await waitFor(() => expect(sessionStorage.getItem("cire.vendor.claim-token")).toBeNull());
+  });
+
+  it("leaves the claimed listing for the dashboard and sends the vendor to that org", async () => {
+    const claimed = {
+      id: "dv1",
+      ownerOrgId: "org1",
+      name: "Preview Co",
+      description: null,
+      email: "hello@preview.example",
+      phone: null,
+      website: null,
+      instagram: null,
+      locationText: null,
+      priceBand: null,
+      priceMinMinor: null,
+      priceMaxMinor: null,
+      listed: "live",
+      categories: ["venue"],
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    mockConsumeClaim = () => Promise.resolve(claimed);
+    renderClaim("good-token");
+    await waitFor(() => expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument());
+
+    screen.getByTestId("mock-org-picker").click();
+
+    // The key and org id the dashboard's drain and hash route read.
+    await waitFor(() =>
+      expect(JSON.parse(sessionStorage.getItem("cire.vendor.claimed-listing") ?? "null")).toEqual({
+        orgId: "org1",
+        listing: claimed,
+      }),
+    );
+    expect(window.location.href).toMatch(/\/#\/orgs\/org1$/);
+    expect(sessionStorage.getItem("cire.vendor.claim-token")).toBeNull();
   });
 });

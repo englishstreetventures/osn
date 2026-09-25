@@ -8,7 +8,7 @@ import { redirectToLogin } from "../lib/api";
 import { createAutoSize } from "../lib/auto-size";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
-import type { OrgSummary } from "../lib/vendor-store";
+import { drainClaimedListing, type OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
 import TopBar from "./TopBar";
@@ -244,6 +244,13 @@ function Dashboard() {
  * knows which view is open — so the bar and the panel cannot disagree.
  */
 export default function VendorApp() {
+  // A claim that just redirected here left its listing in sessionStorage. Take
+  // it off storage now, in the body rather than an `onMount`: `ListingEditor`
+  // reads the held seed while it renders, which comes before any `onMount`,
+  // and this runs before anything renders, signed in or not. The island is
+  // `client:only`, so this never runs on the server.
+  drainClaimedListing();
+
   // Keep following the OS after the boot script's one-shot resolution: a vendor
   // on "system" whose machine flips at sunset sees the portal flip with it.
   onMount(() => onCleanup(initTheme()));
