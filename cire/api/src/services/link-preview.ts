@@ -34,23 +34,23 @@
  *      fetch those URLs — the organiser's browser does — but a `javascript:` or
  *      `data:` src must never reach a picker that will put it in an `<img>`.
  *
- * **The DoH check is TOCTOU-imperfect and cannot be made otherwise here.** We
- * resolve the name, decide, and then hand the NAME to `fetch`, which resolves it
- * again; an attacker controlling the zone can answer differently the second time
- * (DNS rebinding). Closing that needs a connect-time hook — resolve once, then
- * connect to the address we vetted — and workerd exposes none: there is no
- * socket API under `fetch`, no `lookup` callback, no "pin this address" option.
- * So this is the strongest guard available on this runtime, not the strongest
- * guard that exists. It stops every static private-IP target, every redirect
- * into one, and every host that simply resolves inward; it does not stop a
- * rebinding attacker. Recorded as **S-M1** in `wiki/todo/security.md`.
+ * **Passing layer 2 does not make a host trusted, so no other layer may be
+ * loosened because a host passed it.** Every hop and every emitted candidate is
+ * checked again; the time budget, the byte cap and the route's rate limit bound
+ * every request whatever the address check decided; the route hands back a
+ * title, a site name and candidate image URLs, never the upstream status,
+ * headers or body; and a refusal carries no reason. `registry-image.ts` calls
+ * this guard rather than a copy of it, and any new outbound fetch to a host the
+ * caller chooses does the same; a fetch whose hosts are a fixed allowlist, like
+ * `pinterest-resolve.ts`, keeps its allowlist.
  *
  * Parsing is a regex scan over the capped body string, deliberately: workerd has
  * `HTMLRewriter`, but these tests run under Bun where it does not exist, and a
  * parser that only runs in production is a parser nothing tests. The scan reads
- * `<meta>`, `<link>` and `<img>` tags only, never executes anything, and its
- * output is treated as untrusted text — so a hostile page can at worst make us
- * emit a URL, which layer 5 then re-checks. No new dependency.
+ * `<meta>`, `<link rel="image_src">`, `<img>` and `<title>` only, never
+ * executes anything, and its output is treated as untrusted text — so a hostile
+ * page can at worst make us emit a URL, which layer 5 then re-checks. No new
+ * dependency.
  */
 
 import { Data, Effect } from "effect";

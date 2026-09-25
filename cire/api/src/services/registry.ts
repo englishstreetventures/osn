@@ -2739,7 +2739,7 @@ export interface HouseholdClaimDto {
 }
 
 /**
- * What a signed-in household may see beyond the public list.
+ * What a signed-in household may see beyond the guest list read.
  *
  * `shippingAddress` is OPTIONAL rather than nullable: absent means "you may not
  * see it", and there is no second field saying why. A household that has claimed

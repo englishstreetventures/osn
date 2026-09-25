@@ -24,11 +24,13 @@ const CLAIMED_HINT = "cire_claimed";
 const CLAIMED_HINT_MAX_AGE = 30 * 24 * 60 * 60;
 
 /**
- * Whether this browser has ever claimed. Exported because the gift-registry
- * section needs the same gate for the same reason the restore does: its
- * household read (`GET …/registry/mine`) is credentialed, so on a first-time
- * visitor it is a guaranteed 401 — and unlike the restore it would fire on a
- * PUBLIC section every visitor scrolls past, i.e. once per page view.
+ * Whether this browser has ever claimed. Exported because the gift list's two
+ * surfaces need the same gate for the same reason the restore does. The band on
+ * the invite skips its list read (`GET …/registry`) without it, and the gift
+ * page skips its household read (`GET …/registry/mine`). Both reads are
+ * credentialed, so on a first-time visitor each is a guaranteed 401, and both
+ * surfaces are pages anyone can open (the public invite, and a gift-list link
+ * people share), so an ungated read would fire once per page view.
  */
 export function hasClaimedHint(): boolean {
   return document.cookie.split(";").some((c) => c.trim().startsWith(`${CLAIMED_HINT}=`));
@@ -39,16 +41,14 @@ export function hasClaimedHint(): boolean {
  * landing ({@link noteClaimed}) or an explicit sign-out ({@link signOut}).
  *
  * The guest page is several ISLANDS, not one app. `InvitePage` owns the code
- * form and therefore the claim; the gift registry is its own island beside it,
- * because the public registry read is unauthenticated and must render for a
- * visitor who has not claimed — which `InvitePage`, gated on a claim, cannot do.
- * They share no Solid root, and a claim navigates nowhere: the reveal is an
- * in-page animation. So nothing but this event can tell the second island that
- * the first one just signed in.
+ * form and therefore the claim; the gift-list band is a separate island that
+ * each design pack's `Document.astro` mounts after it. They share no Solid
+ * root, and a claim navigates nowhere: the reveal is an in-page animation. So
+ * nothing but this event can tell the band that the code form just signed in,
+ * or that the guest just signed out.
  *
- * Without it the registry keeps the signed-out surface for the rest of the
- * visit, and its advice — "enter your invite code at the top of this page" —
- * points at a form the unlock sequence has already faded away.
+ * Without it the band stays absent after a claim, and stays up after a
+ * sign-out, until the guest reloads.
  *
  * A bare `CustomEvent` with no payload, deliberately: the receiver re-reads the
  * server rather than trusting anything carried across, so this says only "ask
@@ -104,7 +104,7 @@ export async function signOut(apiUrl: string): Promise<boolean> {
   clearClaimedHint();
   // Announced BEFORE the revoke round trip, and whatever it answers — the same
   // rule the boolean below exists for: a guest on a borrowed phone who taps
-  // "Sign out" must not be left looking at controls that still say "Reserve".
+  // "Sign out" must not be left looking at the household's gift-list band.
   announceClaimSession();
   try {
     const res = await fetch(`${apiUrl}/api/claim/signout`, {
@@ -157,7 +157,7 @@ export interface SessionRestoreOptions {
  * events list arrived only after they did. This turns the second visit into a
  * single GET that resolves while the hero is still painting.
  *
- * It cannot widen the S-H1 gate: the server keys the read on the family id it
+ * It cannot widen the claim gate: the server keys the read on the family id it
  * derived from the cookie, so this asks "what is MY invite", never "whose
  * invite is this". A guest with no session gets a 401 and the code form, which
  * is exactly today's behaviour.

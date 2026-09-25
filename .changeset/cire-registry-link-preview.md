@@ -17,9 +17,9 @@ that makes it a server-side request forgery sink. Every other outbound call we
 make goes to a host we chose, so the existing precedent — `pinterest-resolve.ts`
 — defends itself with a host allowlist, which is exactly the tool that does not
 exist when the destination is any shop on the internet. `services/link-preview.ts`
-takes a different shape: `https:` only; a DNS-over-HTTPS pre-resolution whose
-every A and AAAA answer is range-checked against loopback, RFC 1918, CGNAT,
-link-local (the cloud metadata address in particular), `0.0.0.0/8` and multicast,
+takes a different shape: `https:` only; a named host resolved over
+DNS-over-HTTPS, with every A and AAAA answer range-checked against loopback,
+RFC 1918, CGNAT, link-local (the cloud metadata address in particular), `0.0.0.0/8` and multicast,
 with IPv4-mapped and NAT64 addresses **unwrapped and re-checked** so the v4 rules
 cannot be sidestepped by spelling them in v6; `redirect: "manual"` with the whole
 scheme-and-address check re-run on every hop's `Location`, because a benign first
@@ -27,13 +27,6 @@ host that 302s to `http://169.254.169.254/` is the interesting attack and the
 platform's own redirect follower would go there happily; and one `AbortSignal`
 budget across all hops, a 512 KB cap read off the stream rather than trusted from
 `Content-Length`, and a `text/html` content-type requirement.
-
-The one gap is stated rather than hidden: **DoH pre-resolution is
-time-of-check/time-of-use imperfect.** We vet the name's answers and then hand
-the name to `fetch`, which resolves it again, so an attacker who controls the
-zone can answer differently the second time. Closing that needs a connect-time
-hook and workerd exposes none. It is recorded as S-M1 in the security backlog and
-in the module's own doc comment, with what would change the answer.
 
 Blocked URLs come back as a 400 with a stable `blocked_url` code and **no
 reason** — telling a caller which rule fired turns the endpoint into a network
@@ -86,8 +79,7 @@ read it from there. Deleting an item reaps its object through `waitUntil` — bu
 only after a wedding-scoped count proves no other item still holds that key,
 since two items may legitimately share one picture. The R2 reconciler counts
 registry keys as live references, so an abandoned add form leaves nothing behind
-past the grace window. This closes S-L2 in the security backlog, which asked for
-exactly this.
+past the grace window.
 
 On the portal, `RegistryImageField` gives an item its picture either way: upload
 a file, or paste a shop link and **choose** among what that page offers. The

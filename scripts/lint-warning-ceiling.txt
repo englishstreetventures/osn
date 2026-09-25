@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1031   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-invites-hygiene @ 2026-09-25 — -3 after rebasing onto main at 1034: finding tags removed from comments in the cire/invites consent store and its test (house/no-tracker-ref-in-comment). No rule was disabled and nothing was suppressed.
+1029   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), docs/cire-registry-wiki @ 2026-09-25 — after merging main at 1031: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.

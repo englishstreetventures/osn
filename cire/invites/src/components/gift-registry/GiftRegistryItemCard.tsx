@@ -49,7 +49,7 @@ export interface GiftRegistryItemCardProps {
  * THE PRIVACY PROPERTY THIS COMPONENT EXISTS TO KEEP: a guest sees what they
  * themselves can do with this gift, and nothing about anybody else. Who reserved
  * it, what anyone spent, and any running total are the couple's alone. That is
- * enforced at the API — the public read never selects a claimant identity — and
+ * enforced at the API — the guest list read never selects a claimant identity — and
  * this card must never become the place it leaks back in. The ONLY name this
  * component may ever render is the household's OWN `displayName`, echoed back
  * inside its own claim, and only because that household typed it.

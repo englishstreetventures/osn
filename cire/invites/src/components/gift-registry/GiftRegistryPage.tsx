@@ -64,7 +64,7 @@ const GiftMoneyPanel = lazy(() =>
  * WHAT A GUEST MAY SEE. What they themselves have reserved, and nothing about
  * anybody else. Who reserved what, what anyone spent, and any running total —
  * including how much of the list is still free — belong to the couple. The API keeps
- * that (its public read never selects a claimant identity); this component's job
+ * that (its list read never selects a claimant identity); this component's job
  * is not to undo it. The one exception is this household's OWN claim, which it
  * reads from the separate credentialed `…/registry/mine` route — their own name,
  * which they typed, echoed back to them.
@@ -209,11 +209,11 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
     void loadList();
     void loadHousehold();
 
-    // A claim happens on the INVITE, in another document, so this page usually
-    // learns about one by being loaded fresh. The event still matters for a
-    // session that changes in THIS tab — a session restored, or one ended by
-    // signing out — and it re-reads BOTH: the list is gated on the same cookie,
-    // so a locked page becomes an open one (or the reverse) without a reload.
+    // A claim happens on the INVITE, in another document, so this page learns
+    // about one by being loaded fresh: nothing this document mounts dispatches
+    // the event. If a session does change in THIS tab, the listener re-reads
+    // BOTH: the list is gated on the same cookie, so a locked page becomes an
+    // open one (or the reverse) without a reload.
     // Re-reading the server, rather than trusting the event, keeps the rule that
     // the state a guest reads is always one the server just sent.
     const onSessionChange = () => {
@@ -298,7 +298,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
       case "fully-claimed":
       case "item-gone":
         // The counts moved (or proved to have moved under us). Re-read BOTH:
-        // the public list for the true counts, the household read for what is
+        // the list for the true counts, the household read for what is
         // now actually reserved by us.
         await Promise.all([loadList(), loadHousehold()]);
         break;

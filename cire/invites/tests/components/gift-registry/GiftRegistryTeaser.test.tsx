@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { noteClaimed } from "../../../src/components/claim-session";
+import { noteClaimed, signOut } from "../../../src/components/claim-session";
 import { GiftRegistryTeaser } from "../../../src/components/gift-registry/GiftRegistryTeaser";
 import {
   DEFAULT_GIFT_REGISTRY_EYEBROW,
@@ -18,7 +18,8 @@ import {
  *   - it renders NOTHING for a visitor who has not entered their code, and
  *     nothing for a wedding with no published list — while still shipping an
  *     element child so `client:visible` can hydrate it at all;
- *   - it appears the moment a claim lands in the other island, with no reload;
+ *   - it appears the moment a claim lands in the other island, and goes the
+ *     moment the guest signs out there, with no reload;
  *   - it links to the list's own page, at the encoded slug;
  *   - the peek shows real gifts (never empty frames), and the fourth tile is
  *     laid out only where a fourth fits;
@@ -141,6 +142,20 @@ describe("what renders at all", () => {
     noteClaimed();
 
     await screen.findByRole("link", { name: "See the gift list" });
+  });
+
+  it("goes the moment the guest signs out in the other island, whatever the revoke answers", async () => {
+    // Exactly what `InvitePage` does on "Sign out". `signOut` clears the hint
+    // and dispatches BEFORE its revoke round trip, so the band goes even when
+    // the server fails — a guest on a borrowed phone must not be left looking
+    // at the household's gift list.
+    stubFetch(json(registry()), json({}, 500));
+    const { container } = renderTeaser();
+    await screen.findByRole("link", { name: "See the gift list" });
+
+    void signOut(API);
+
+    await waitFor(() => expect(container.querySelector("[data-gift-teaser]")).toBeNull());
   });
 
   it("renders nothing for a wedding whose list is unpublished, unentitled or absent", async () => {

@@ -42,7 +42,7 @@ Six opaque capability flags. The table stores keys as plain strings. How the app
 | `ai` | AI-assisted content generation features |
 | `capacity_500` | Guest import ceiling raised to 500 |
 | `capacity_1000` | Guest import ceiling raised to 1000 |
-| `registry` | Gift registry module — the organiser routes and, transitively, the guest-facing registry section |
+| `registry` | Gift registry module — the organiser routes and, transitively, the guest gift page and the band on the invite |
 
 Boolean capability flags (`premium_templates`, `vendors`, `ai`, `registry`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
 
@@ -72,7 +72,7 @@ All methods are Effect programs returning `Effect.Effect<A, E, DbService>`. Impl
 | `setsForWeddings` | `(weddingIds[]) → Effect<Map<weddingId, EntitlementKey[]>, never, DbService>` | Batch-fetches all entitlement rows for a list of wedding IDs; used to annotate wedding-list responses |
 | `deriveCap` | `(keys: string[]) → number` | Pure — derives the effective guest ceiling from an entitlement key array |
 | `grant` | `(weddingId, key, { source, grantedBy, providerRef? }) → Effect<void, never, DbService>` | Inserts a row; idempotent on conflict |
-| `assertGuestCapacity` | `(weddingId, incomingNewGuests, precomputedCap?) → Effect<void, CapacityExceeded, DbService>` | Derives the cap (from `precomputedCap` if given, else its own — now narrowed, see below — entitlement query), counts current (non-host) guests, fails with `CapacityExceeded { limit, current }` if the import would breach the ceiling. `precomputedCap` only ever skips the RE-DERIVATION, never the check itself |
+| `assertGuestCapacity` | `(weddingId, incomingNewGuests, precomputedCap?) → Effect<void, CapacityExceeded, DbService>` | Derives the cap (from `precomputedCap` if given, else its own narrowed entitlement query — see below), counts current (non-host) guests, fails with `CapacityExceeded { limit, current }` if the import would breach the ceiling. `precomputedCap` only ever skips the RE-DERIVATION, never the check itself |
 
 `CapacityExceeded` is a tagged error (`Data.TaggedError`); handlers map it to a **402** response with body `{ error: "payment_required", entitlement: "capacity", limit, current }`.
 
@@ -119,11 +119,11 @@ A missing `weddingId` in `params` (should not occur after the role gate validate
 
 The check counts real guests only — a `ne(families.kind, 'host')` filter excludes the synthetic `host`-kind family row used for invite previews.
 
-**The capacity query only ever reads the two rows that can matter (P-I3, fixed).** `assertGuestCapacity`'s own fallback query, and `diffAgainstDb`'s preview-warning query below, both filter `WHERE entitlement IN ('capacity_500', 'capacity_1000')` (the `CAPACITY_ENTITLEMENT_KEYS` constant in `entitlements.ts`) instead of fetching every entitlement row on the wedding — `deriveCap` only ever inspects those two keys, so the wider fetch was pure waste. **`setsForWeddings` is NOT narrowed** — it feeds `deriveCap` in `organiser-weddings.ts` and also drives feature display (`premium_templates`/`vendors`/`ai`/`registry`), so it keeps returning the full set.
+**The capacity query only ever reads the two rows that can matter.** `assertGuestCapacity`'s own fallback query, and `diffAgainstDb`'s preview-warning query below, both filter `WHERE entitlement IN ('capacity_500', 'capacity_1000')` (the `CAPACITY_ENTITLEMENT_KEYS` constant in `entitlements.ts`) instead of fetching every entitlement row on the wedding — `deriveCap` only ever inspects those two keys, so a wider fetch would be pure waste. **`setsForWeddings` is NOT narrowed** — it feeds `deriveCap` in `organiser-weddings.ts` and also drives feature display (`premium_templates`/`vendors`/`ai`/`registry`), so it keeps returning the full set.
 
-**`diffAgainstDb`'s preview warning skips its own query below a floor threshold (P-I2, fixed).** The resulting guest count after any plan is `existing − removes + creates`, which can never exceed `existing + creates` (removes only ever help). Since the cap can never fall below `BASE_GUEST_CAP` (100, exported from `entitlements.ts`, the same fallback `deriveCap` returns), `diffAgainstDb` skips the entitlement query — and the warning check — entirely once `existingGuests.length + guestCreates.length <= BASE_GUEST_CAP`: no entitlement row on any wedding could make that import breach the cap. Above the threshold it runs the (now narrowed) query as before.
+**`diffAgainstDb`'s preview warning skips its own query below a floor threshold.** The resulting guest count after any plan is `existing − removes + creates`, which can never exceed `existing + creates` (removes only ever help). Since the cap can never fall below `BASE_GUEST_CAP` (100, exported from `entitlements.ts`, the same fallback `deriveCap` returns), `diffAgainstDb` skips the entitlement query — and the warning check — entirely once `existingGuests.length + guestCreates.length <= BASE_GUEST_CAP`: no entitlement row on any wedding could make that import breach the cap. Above the threshold it runs the narrowed query.
 
-**`applyImport` reuses `diffAgainstDb`'s already-derived cap instead of re-scanning (P-W2, fixed).** `ImportPlan` carries an optional `derivedCap: number`, set by `diffAgainstDb` ONLY when its own preview-warning block actually ran the entitlement query (i.e. above the P-I2 threshold, with `guestCreates.length > 0`). `applyImport` passes it straight to `assertGuestCapacity`'s `precomputedCap` parameter, which then skips its own query. `derivedCap` is absent whenever the preview never needed the real cap (below the P-I2 threshold, or no guests were being created) — `assertGuestCapacity` MUST keep enforcing in that case by running its own (narrowed) query; a missing cap is never treated as "no cap". This composes with P-I2 cleanly: a small import pays one query total (`applyImport`'s own, since the preview skipped its), a large one also pays one query total (the preview's, reused by `applyImport`) — never the two separate scans of the same rows either fix alone would still leave on the table. Both call sites that feed `applyImport` a plan (`organiser-changes.ts` and `revert.ts`) run `diffAgainstDb` then `applyImport` in the SAME request — plan objects never cross the client boundary, so there is no TOCTOU window between the two.
+**`applyImport` reuses `diffAgainstDb`'s already-derived cap instead of re-scanning.** `ImportPlan` carries an optional `derivedCap: number`, set by `diffAgainstDb` ONLY when its own preview-warning block actually ran the entitlement query (i.e. above the floor threshold, with `guestCreates.length > 0`). `applyImport` passes it straight to `assertGuestCapacity`'s `precomputedCap` parameter, which then skips its own query. `derivedCap` is absent whenever the preview never needed the real cap (below the floor threshold, or no guests were being created) — `assertGuestCapacity` MUST keep enforcing in that case by running its own (narrowed) query; a missing cap is never treated as "no cap". This composes with the floor threshold cleanly: a small import pays one query total (`applyImport`'s own, since the preview skipped its), a large one also pays one query total (the preview's, reused by `applyImport`) — never two separate scans of the same rows. Both call sites that feed `applyImport` a plan (`organiser-changes.ts` and `revert.ts`) run `diffAgainstDb` then `applyImport` in the SAME request — plan objects never cross the client boundary, so there is no TOCTOU window between the two.
 
 ---
 
@@ -168,6 +168,6 @@ Two paths, and only two.
 ## Related
 
 - [[cire-vendors]] — Vendor CRM, Directory and enquiries; all three route groups gate on the `vendors` entitlement
-- [[cire-registry]] — Gift registry; purchasable self-serve, and comp-grantable as before
+- [[cire-registry]] — Gift registry; purchasable self-serve, and comp-grantable
 - [[cire-upgrades]] — the self-serve purchase flow: catalogue, checkout, the platform webhook that grants
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates
