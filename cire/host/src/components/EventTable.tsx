@@ -253,9 +253,13 @@ export default function EventTable(props: EventTableProps) {
                           class="border-border bg-bg font-body text-text-muted text-ui-xs tracking-ui-wide inline-flex items-center gap-2 rounded-sm border px-2 py-1 uppercase"
                           title={swatch.color}
                         >
+                          {/* `background-color`, never the `background` shorthand:
+                              the stored colour is not checked server-side, and
+                              the shorthand would load a `url(…)` from any https
+                              host the portal's `img-src` admits. */}
                           <span
                             class="border-border inline-block h-3 w-3 rounded-sm border"
-                            style={{ background: swatch.color }}
+                            style={{ "background-color": swatch.color }}
                           />
                           {swatch.name}
                         </span>

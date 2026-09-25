@@ -274,31 +274,82 @@ than as a blocked API on a deployed tier:
 So write only the production origin in `public/_headers`, never a dev or
 loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
 
-**Both policies are still report-only.** Each file has two CSP headers: an
-enforced one with the three directives that cannot break a page
-(`frame-ancestors`, `object-src`, `base-uri`), and the full policy as
-`Content-Security-Policy-Report-Only`. Enforcing the full policy is a rename of
-that header plus deleting the three-directive line. Two things come first:
+**Both portals enforce their policy.** Each file's `/*` rule sends one
+`Content-Security-Policy`. The browser blocks whatever it does not allow and
+reports each block to cire-api's collector (`POST /api/csp-report`). The two
+policies match except for `img-src`:
 
-- **A real-browser pass on the dev tier that files no report.** For
-  `@cire/host`: sign-in, the invite builder, image cropping, the registry's shop
-  link picker and the CSV export. For `@cire/vendor`: sign-in, the claim link
-  and the enquiry list. Reports from the dev tier go to the dev API's collector
-  (`POST /api/csp-report`, logged by the dev Worker), never production's.
-- **The organiser portal's `img-src`.** The registry's shop link picker shows
-  candidate images straight from each shop's own host (see [[cire-registry]],
-  "Link preview"), which the policy does not allow. Enforcing it as written
-  blanks the picker.
+| Portal | Enforced `img-src` | `Content-Security-Policy-Report-Only` |
+|---|---|---|
+| `@cire/host` | `'self' data: blob:`, cire-api, `https:` | `img-src` without `https:`, plus `report-uri` and `report-to` |
+| `@cire/vendor` | `'self' data:`, cire-api | none |
 
-A profile avatar can come from any host, and neither policy allows one. Both
-avatar components fall back to the account's initial when the image fails to
-load, a CSP block included.
+The organiser portal admits any `https:` image because the registry's shop
+link picker shows candidate images straight from each shop's own host (see
+[[cire-registry]], "Link preview"). That gives up `img-src` as a guard against
+injected markup loading an off-site image, so the report-only header keeps the
+tight list: every image that loads only because of `https:` files a report.
+It lists no other fetch directive, since those are enforced and already
+report. `tests/lib/headers.test.ts` pins its `img-src` to the enforced one
+minus `https:`. Taking `https:` out of the enforced line means serving the
+candidates through cire-api first.
+
+A profile avatar can come from any https host. The organiser portal loads it
+and the report-only header reports it; the vendor portal blocks it. Both
+avatar components show the account's initial when the image fails to load.
 
 The guest site (`cire/invites`) solves the same problem another way. It is an
 SSR Worker, so its CSP is built by middleware from constants in
 `src/lib/security-headers.ts`, and it keeps loopback origins in its production
 policy so local runs work. It does not yet derive the API origin per build, so
 its dev tier's policy still names the production API.
+
+### Checking a policy change
+
+`astro dev` applies no `_headers`, so check a policy change in two places:
+
+1. **Locally, before the pull request.** Build the portal, serve `dist/` with
+   `wrangler pages dev dist`, which applies `_headers`, and load the pages with
+   DevTools open. The console names every blocked load. Without a local
+   cire-api only the signed-out pages render.
+2. **On the dev tier, after the merge deploys it.** Sign in through Cloudflare
+   Access, then walk:
+   - `@cire/host`: sign-in, the invite builder, image cropping, the registry's
+     shop link picker and a saved registry thumbnail, the CSV import and
+     export, the invite preview window, and the Stripe Connect and upgrade
+     buttons as far as their redirect.
+   - `@cire/vendor`: sign-in, the claim link, the enquiry list, the listing
+     editor and the organisation picker.
+
+   Watch the dev collector while you walk: `bunx wrangler tail --env dev
+   --search "csp violation report"` from `cire/api/`, or Workers Logs for
+   `cire-api-dev`. Each line carries the directive, the blocked origin, the
+   document path and the disposition.
+
+The walk passes when no line has `disposition: "enforce"` and the only
+`report` lines are organiser-portal `img-src` lines naming a shop or avatar
+origin. The log is harder to read than it looks:
+
+- It holds the document's path, not its origin, and both portals serve `/` and
+  `/login`. Walk one portal at a time and note the clock.
+- Chrome queues `report-to` reports and sends them in batches, so a report
+  arrives some time after the load. Wait a minute or two before calling a
+  step clean.
+- The collector drops reports past 60 a minute from one IP address and still
+  answers 204. Walk at a normal pace.
+- The `cire.csp.report` counter is keyed by directive only, so it cannot tell
+  a block from a report-only line. Read the logs.
+
+Two kinds of report come from the dev tier only, and neither is a policy gap: a
+Cloudflare Web Analytics beacon (`script-src`, `static.cloudflareinsights.com`)
+if the dev Pages project injects one, and `script-src-elem` reports for
+same-origin chunks once the Access session expires.
+
+Hold production until the walk passes. A merge deploys the dev tier at once,
+and each portal's production job waits for approval in one concurrency group,
+where a later run replaces a pending one. So hold every production run that
+deploys the portal, whatever pull request it names, and revert on a failed
+walk.
 
 ## Guest-site SSR bundle size
 

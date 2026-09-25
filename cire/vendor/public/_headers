@@ -3,9 +3,8 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 /claim*
   Referrer-Policy: no-referrer
@@ -17,12 +16,14 @@
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
-# The same shape as the organiser portal's policy (`cire/host/public/_headers`):
-# an ENFORCED line carrying only directives that cannot break a working page,
-# plus a REPORT-ONLY line carrying the real lock-down, reporting to cire-api's
-# first-party collector until a real-browser pass over the dev tier — sign-in,
-# the claim link and the enquiry list — comes back with no reports. Then rename
-# the header to `Content-Security-Policy` and drop the three-directive line.
+# One ENFORCED policy: the browser blocks whatever it does not allow and
+# reports each block to cire-api's first-party collector (`POST /api/csp-report`
+# — public, creds-less, 204-always). The organiser portal's policy
+# (`cire/host/public/_headers`) is the same bar `img-src`, which there admits
+# any `https:` image for the registry's shop link picker; this portal has no
+# such picker, so it enforces the tight list and needs no report-only twin.
+# Before changing the policy, walk the dev tier with its collector's logs open
+# (`wiki/cire/cire-development.md`, "Portal security headers").
 #
 # THIS FILE IS THE PRODUCTION POLICY. The build rewrites the copy in `dist/`
 # (`src/lib/tier-headers.ts`): every `https://api.cireweddings.com` above
@@ -39,10 +40,11 @@
 # from an emailed invite: a Google stylesheet there would tell Google about
 # every vendor who followed the link, before rendering a word.
 #
-# `script-src 'unsafe-inline'` is load-bearing: the theme-boot script
-# (`THEME_BOOT_SCRIPT`) is `is:inline` on all three shells so it can run before
-# first paint, and an inline script cannot be an external hashed file. Astro's
-# island bootstrap is external `/_astro/*` and covered by 'self'.
+# `script-src 'unsafe-inline'` is load-bearing: every built page carries three
+# inline scripts — the theme-boot script (`THEME_BOOT_SCRIPT`, `is:inline` on
+# all three shells so it can run before first paint), and Astro's own island
+# loader and `astro-island` definition. The island chunks they load are
+# `/_astro/*`, covered by 'self'.
 #
 # Other differences from `cire/host/public/_headers`, audited from source:
 #   - No `blob:` in `img-src`: no cropper, no object URLs (`data:` is kept for
@@ -54,13 +56,11 @@
 # On avatars: `AccountAvatar` renders the OIDC `picture` claim, which can point
 # at ANY https host — it is unvalidated at every hop between osn-api and here,
 # so the sink (`httpsAvatarUrl`) is what enforces the scheme. `img-src` allows
-# no avatar host, and while this policy is report-only it does not restrain the
-# request either: a set avatar would load and file a violation report. OSN hosts
-# no avatars yet (osn-api writes `avatarUrl` null on registration and on
-# erasure, and has no update path), so nothing populates the claim. Once
-# enforced, an avatar from a host not listed here is blocked and
-# `AccountAvatar` shows the initial instead. Add OSN's avatar host here when it
+# no avatar host, so the browser blocks the request and files a report, and
+# `AccountAvatar` shows the initial instead. OSN hosts no avatars yet (osn-api
+# writes `avatarUrl` null on registration and on erasure, and has no update
+# path), so nothing populates the claim. Add OSN's avatar host here when it
 # exists: englishstventures/osn#1207.
 #
 # The `/claim*` rule above only overrides `Referrer-Policy` (a claim token rides
-# in the URL); Cloudflare merges the rules, so that path keeps both CSP headers.
+# in the URL); Cloudflare merges the rules, so that path keeps the CSP header.

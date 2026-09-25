@@ -3,9 +3,9 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com https:; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy-Report-Only: img-src 'self' data: blob: https://api.cireweddings.com; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
 # files (Schibsted Grotesk, Cormorant Garamond) included. Every path under
@@ -31,27 +31,35 @@
 #
 # TWO POLICIES ON PURPOSE:
 #
-# 1. The ENFORCED line carries only directives that cannot break a working page:
-#    the portal has no `<object>`/`<embed>` and no `<base>`, and must never be
-#    framed (it holds a session cookie for the whole account and full guest
-#    lists). `X-Frame-Options` above is the legacy twin of `frame-ancestors`.
+# 1. `Content-Security-Policy` is ENFORCED: the browser blocks whatever it does
+#    not allow, and reports each block to the first-party collector
+#    (`POST /api/csp-report` on cire-api — public, creds-less, 204-always). The
+#    portal holds a session for the whole account and full guest lists, so it
+#    must never be framed; `X-Frame-Options` above is the legacy twin of
+#    `frame-ancestors`. Its `img-src` admits any `https:` image, for the shop
+#    link picker (below).
 #
-# 2. The REPORT-ONLY line is the real lock-down. It reports to the first-party
-#    collector (`POST /api/csp-report` on cire-api — public, creds-less,
-#    204-always) so a directive that is subtly too tight shows up as a violation
-#    report instead of a broken portal. Two things stand between it and
-#    enforcement: the `img-src` question below, and a real-browser pass over the
-#    dev tier — sign-in, the invite builder, image cropping, the registry's shop
-#    link picker and the CSV export — that produces no reports. Then rename the
-#    header to `Content-Security-Policy` and drop the three-directive line.
+# 2. `Content-Security-Policy-Report-Only` carries `img-src` WITHOUT `https:`,
+#    plus the two reporting directives. It blocks nothing; it files a report
+#    for every image the enforced policy loads only because of `https:` — the
+#    picker's candidates, an avatar, or an image some injected markup points
+#    off-site. Its `img-src` stays exactly the enforced one minus `https:`, and
+#    it lists no other fetch directive: those are enforced and already report,
+#    so repeating one here would file each violation twice. Dropping `https:`
+#    from the enforced line means serving the picker's candidates through
+#    cire-api first.
+#
+# Before changing either policy, walk the dev tier with its collector's logs
+# open (`wiki/cire/cire-development.md`, "Portal security headers").
 #
 # WHY EACH SOURCE IS THERE (audited against the portal's source, not guessed):
 #
-#   script-src 'unsafe-inline'  The theme-boot script (`THEME_BOOT_SCRIPT`, both
-#                               page shells) is `is:inline` so it runs before
-#                               first paint and can't be a hashed external file.
-#                               Astro's island bootstrap is external `/_astro/*`
-#                               and covered by 'self'.
+#   script-src 'unsafe-inline'  Every built page carries three inline scripts:
+#                               the theme-boot script (`THEME_BOOT_SCRIPT`, both
+#                               page shells, `is:inline` so it runs before first
+#                               paint), and Astro's own island loader and
+#                               `astro-island` definition. The island chunks
+#                               they load are `/_astro/*`, covered by 'self'.
 #   style-src 'unsafe-inline'   Astro inlines small critical CSS; Solid writes
 #                               `style={{…}}` attributes (hence style-src-attr).
 #   font-src 'self'             Schibsted Grotesk + Cormorant Garamond are
@@ -65,20 +73,20 @@
 #                               reads through `authFetch`.
 #   img-src api.cireweddings…   Every uploaded image (invite art, event photos)
 #                               is served by cire-api.
-#   img-src: not yet enough     The registry's shop link picker
+#   img-src https:              The registry's shop link picker
 #                               (`RegistryImageField.tsx`) shows the candidate
 #                               images `POST /registry/link-preview` returns
 #                               straight from the shop's own host, which can be
-#                               any https origin. This list blocks them, so
-#                               enforcing it as written would blank the picker.
-#                               Settle that before the flip.
+#                               any https origin (cire-api emits `https:`
+#                               candidates only). Enforced line only; the
+#                               report-only line leaves it out on purpose.
 #   img-src: avatars            The profile avatar comes from the OIDC `picture`
-#                               claim and can name ANY https host. OSN hosts no
-#                               avatars yet, so nothing populates it and no host
-#                               is allowlisted; `ProfileMenu` falls back to the
-#                               initial when the image fails to load, a CSP
-#                               block included. Adding the host:
-#                               englishstventures/osn#1207.
+#                               claim and can name ANY https host, which
+#                               `https:` admits; `ProfileMenu` renders only an
+#                               https URL. OSN hosts no avatars yet, so nothing
+#                               populates it. A set avatar loads and files a
+#                               report-only report until its host is listed
+#                               there: englishstventures/osn#1207.
 #   connect-src                 cire-api only. Sign-in is a TOP-LEVEL redirect
 #                               to musubi, not a fetch, and a navigation is not
 #                               a connect-src subject — so the OSN origin is

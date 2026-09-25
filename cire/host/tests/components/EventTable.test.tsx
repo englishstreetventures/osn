@@ -131,6 +131,44 @@ describe("EventTable per-event image", () => {
   });
 });
 
+describe("EventTable dress-code swatches", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    resetOrganiserMocks();
+  });
+
+  it("paints a swatch's colour and never loads an image from it", async () => {
+    // A stored colour reaches this sink unchecked from the spreadsheet import
+    // and the changes API. As `background` it could name `url(…)`, and the
+    // portal's `img-src` admits any https image; as `background-color` it
+    // cannot load anything.
+    authFetchMock.mockResolvedValueOnce(
+      json([
+        {
+          ...EVENT,
+          dressCodePalette: [
+            { name: "Sage", color: "#9caf88" },
+            { name: "Beacon", color: "url(https://attacker.example/p.gif)" },
+          ],
+        },
+      ]),
+    );
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("Beacon"));
+
+    const dot = (name: string) =>
+      screen.getByText(name).closest("span")!.querySelector("span") as HTMLElement;
+    expect(dot("Sage").style.backgroundColor).toBe("#9caf88");
+    // Not a colour, so the declaration is dropped rather than kept in any form.
+    expect(dot("Beacon").style.backgroundColor).toBe("");
+    for (const name of ["Sage", "Beacon"]) {
+      expect(dot(name).style.backgroundImage).not.toContain("url(");
+      expect(dot(name).getAttribute("style") ?? "").not.toContain("url(");
+    }
+  });
+});
+
 /**
  * Events are cached per wedding (`../../src/lib/events-store`) so the dashboard tabs
  * unmounting/remounting EventTable on a Guests ↔ Events switch don't re-issue

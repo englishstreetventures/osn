@@ -51,9 +51,8 @@ describe("ProfileMenu", () => {
   });
 
   it("falls back to the initial when the avatar image fails to load", () => {
-    // A host the CSP's `img-src` does not allow is blocked, and a blocked image
-    // fires `error` like a dead link does — either way the circle shows the
-    // initial rather than nothing.
+    // A dead link, or a response that is not an image, fires `error` — the
+    // circle shows the initial rather than nothing.
     render(() => (
       <ProfileMenu
         session={{ ...SESSION, avatarUrl: "https://avatars.test/alex.png" }}
