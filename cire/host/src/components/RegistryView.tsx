@@ -25,6 +25,7 @@ import { formatMinor, formatMinorPair, minorToInput, parseMinor } from "../lib/m
 import {
   ensureRegistryLoaded,
   type GiftLogEntry,
+  type GiftLogPage,
   invalidateRegistry,
   peekCachedRegistry,
   registryAccessor,
@@ -163,12 +164,10 @@ export default function RegistryView(props: RegistryViewProps) {
   // changes from turning a path segment into a new path or a query string
   // (S-L1).
   const wedding = () => encodeURIComponent(props.weddingId);
-  const registryUrl = (giftsOffset?: number) =>
-    apiUrl(
-      `/api/organiser/weddings/${wedding()}/registry${
-        giftsOffset ? `?giftsOffset=${giftsOffset}` : ""
-      }`,
-    );
+  const registryUrl = () => apiUrl(`/api/organiser/weddings/${wedding()}/registry`);
+  /** A further page of the gift log, and nothing else — see `loadMoreGifts`. */
+  const giftsUrl = (offset: number) =>
+    apiUrl(`/api/organiser/weddings/${wedding()}/registry/gifts?offset=${offset}`);
   const itemsUrl = () => apiUrl(`/api/organiser/weddings/${wedding()}/registry/items`);
   const itemUrl = (itemId: string) => `${itemsUrl()}/${encodeURIComponent(itemId)}`;
 
@@ -210,9 +209,11 @@ export default function RegistryView(props: RegistryViewProps) {
 
   // Declared below the accessors it reads: `createMemo` computes eagerly, so a
   // memo above its dependencies throws at component-init rather than on read.
-  const items = createMemo(() =>
-    (snapshot()?.items ?? []).toSorted((a, b) => a.sortOrder - b.sortOrder),
-  );
+  // Two memos, so a write that leaves the item array alone — a page of the gift
+  // log, a thank-you — stops at the first one: the snapshot object is new, the
+  // array inside it is not, and nothing re-sorts up to 500 rows for it.
+  const unsortedItems = createMemo(() => snapshot()?.items ?? []);
+  const items = createMemo(() => unsortedItems().toSorted((a, b) => a.sortOrder - b.sortOrder));
 
   // The gift log, already ordered by the server. A memo rather than two
   // `snapshot()?.gifts ?? []` reads, so the empty-state `<Show>` and the `<For>`
@@ -530,16 +531,19 @@ export default function RegistryView(props: RegistryViewProps) {
 
   /** Fetch the next page of the gift log and append it. The offset is the number
    *  of rows already held, so a page that arrives while a gift is being added
-   *  can repeat a row rather than skip one — the lesser of the two errors. */
+   *  can repeat a row rather than skip one — the lesser of the two errors. The
+   *  page comes from the gifts-only route: the snapshot's settings, items and
+   *  totals are already here, and re-reading them for every page is five D1
+   *  reads and the whole item list thrown away. */
   const loadMoreGifts = async () => {
     const cur = peekCachedRegistry(props.weddingId);
     if (!cur || loadingMore()) return;
     setLoadingMore(true);
     try {
-      const res = await authFetch(registryUrl(cur.gifts.length));
+      const res = await authFetch(giftsUrl(cur.gifts.length));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`gifts ${res.status}`);
-      const next = (await res.json()) as RegistrySnapshot;
+      const next = (await res.json()) as GiftLogPage;
       patchSnap((s) => ({
         ...s,
         gifts: [...s.gifts, ...next.gifts],

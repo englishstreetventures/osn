@@ -268,6 +268,24 @@ describe("RsvpView", () => {
     expect(screen.queryByRole("button", { name: /^Record reply for/i })).toBeNull();
   });
 
+  it("gives each replies table a fixed layout with one sized column per heading", async () => {
+    // The class contract only: `RsvpView.layout.browser.test.tsx` measures what
+    // it does. A table with a `<col>` short of its headings, or one more, sizes
+    // the odd column from nothing.
+    for (const canEdit of [true, false]) {
+      authFetchMock.mockResolvedValueOnce(json(VIEW));
+      render(() => <RsvpView weddingId="wed_a" canEdit={canEdit} />);
+      await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+      const table = screen.getByText("Bo Jones").closest("table")!;
+      expect(table.parentElement!.className).toContain("[&>table]:table-fixed");
+      expect(table.querySelectorAll("colgroup > col")).toHaveLength(
+        table.querySelectorAll("thead th").length,
+      );
+      expect(table.querySelectorAll("thead th")).toHaveLength(canEdit ? 5 : 4);
+      cleanup();
+    }
+  });
+
   it("names each row's control after the guest it acts on", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit />);

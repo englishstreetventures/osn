@@ -284,6 +284,7 @@ nothing.
 | `@cire/invites`  | `tests/components/MapPreview.browser.test.tsx`          | The venue address in the details sheet is unclipped in **both** axes at 320 / 768 / 1440 — for an ordinary address and for a full one down to its country, which is what pins the line cap at three — `white-space` is not `nowrap` in the computed cascade, and the Open-in-Maps action shares the address's row inside the footer in a box clearing WCAG 2.2's target size, its words `sr-only`-clipped rather than `display: none`. Two more pin that the address genuinely wraps at 320px, so the rest cannot pass by happening to fit, and that the cap fires on an address of unlimited length |
 | `@cire/invites`  | `tests/components/EventCard.actions.browser.test.tsx`   | Which of the card's two actions a guest reads first, at one line and wrapped; and at the 320px Reflow floor, inside the events section's real padding, that the answer button shows the whole of "Respond" and of the longer "RSVPs closed" rather than a half-word, while still clipping the confirmation fill to its rounded box                                                                                                                                                                                                                                                                   |
 | `@cire/invites`  | `tests/components/InviteClosing.browser.test.tsx`       | Both `background-image` declarations survive parsing, with `image-set()` naming the 800w `card` at DPR 1; and the closing band's width cap — 640px in `classic`, 960px in `gala`, centred in both at 2560px and at 1536px, unchanged from the uncapped component at 1535px, applied to the cropped and uncropped paths alike, easing on `max-width` and clamped to 0.01ms under emulated reduced motion                                                                                                                                                                                              |
+| `@cire/host`     | `tests/components/RsvpView.layout.browser.test.tsx`     | The organiser RSVP tables compute `table-layout: fixed` (reached through `[&>table]`, because `Table`'s `class` lands on its scrolling `<section>`); a column's share of the table does not move while a search narrows the list; every heading, status and Host-entered badge, row button and word fits inside its column at 1280, 768 and 414px for an editor (five columns) and a viewer (four), against a 900-row list carrying a 35-letter unbroken surname; and a phone scrolls the region sideways at the 45rem / 37rem floor. An opt-in timing bench sits at the bottom of the file — see below |
 
 Four of these were verified against the bug rather than merely written green.
 The #203 test fails when the popover is put back at `z-90`. The
@@ -315,6 +316,23 @@ measured that. Note also what the browser tier does NOT relieve you of: the
 hit-tests as transparent even when painted perfectly. Assert the mechanism
 (containing block, stacking context, computed `z-index`) in that case, not the
 hit test.
+
+The RSVP layout file carries the tier's one **timing measurement**, opt-in
+because layout time varies by machine and a timing assertion in CI is a flaky
+test by construction. It asserts nothing about the numbers; the verbose reporter
+prints them. Each arm is an injected stylesheet rule, not an inline style,
+because a search that empties an event unmounts its table and remounts a fresh
+element the inline style never reached. The figures are for the component alone
+on Solid's development build — a ratio between two layouts, not what a keystroke
+costs in the portal. On a 900-row list the forced layout after a narrowing
+keystroke falls from **about 0.9ms to 0.2ms** with fixed layout, and after
+clearing the search from **about 28.8ms to 27.1ms**.
+
+_Measured 2026-09-25 — `VITE_RSVP_LAYOUT_BENCH=1 bun run --cwd cire/host
+test:browser --reporter=verbose
+tests/components/RsvpView.layout.browser.test.tsx`, three runs each on the
+component before and after the change, medians, headless Chromium on an
+Apple-silicon Mac_
 
 **Two timing rules this tier learned the hard way**, both from the same branch:
 

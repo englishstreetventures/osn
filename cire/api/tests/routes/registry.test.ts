@@ -2,19 +2,28 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
+  families,
+  registryContributions,
   registrySettings,
   weddingEntitlements,
   weddingHosts,
   weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createAssetsStub, MAX_IMAGE_BYTES } from "../../src/services/invite-assets";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
-import type { RegistryItemDto, RegistrySnapshot } from "../../src/services/registry";
-import { appRequest, jsonBody } from "../test-helpers";
+import type {
+  GiftLogEntryDto,
+  RegistryItemDto,
+  RegistrySnapshot,
+} from "../../src/services/registry";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import type { RecordedStatement } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -129,6 +138,36 @@ async function req(
 const base = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/registry`;
 const ITEM = { title: "Copper pan", priceMinor: 12_000, quantityWanted: 2 };
 
+/**
+ * `n` received gifts on the bootstrap wedding, one second apart and newest
+ * last, so page one of the log is the last `GIFT_LOG_PAGE` of them. Written
+ * straight to the table: the route under test only reads the log.
+ */
+function seedGifts(db: ReturnType<typeof createDb>, n: number): void {
+  const family = db
+    .select({ id: families.id })
+    .from(families)
+    .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+    .get();
+  expect(family).toBeDefined();
+  const start = Date.now() - n * 1_000;
+  for (let i = 0; i < n; i += 1) {
+    const at = new Date(start + i * 1_000);
+    db.insert(registryContributions)
+      .values({
+        id: `rct_${String(i).padStart(4, "0")}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: family!.id,
+        status: "succeeded",
+        amountMinor: 1_000,
+        currency: "AUD",
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+  }
+}
+
 /** Create one item on an entitled app and return it. */
 async function seedItem(app: App): Promise<RegistryItemDto> {
   const res = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
@@ -142,6 +181,7 @@ describe("registry ships locked", () => {
   // green as 200, the feature has silently launched.
   const routes: Array<[string, string, unknown?]> = [
     ["GET", base],
+    ["GET", `${base}/gifts`],
     ["PUT", `${base}/settings`, { published: true }],
     ["POST", `${base}/items`, ITEM],
     ["PATCH", `${base}/items/reorder`, { orderedIds: ["reg_x"] }],
@@ -545,20 +585,15 @@ describe("registry routes (entitled)", () => {
     expect(patched.status).toBe(400);
   });
 
-  it("reports whether the gift log has another page, and ignores a junk offset", async () => {
-    const app = buildApp({ grantRegistry: true });
-    const first = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
-    expect(first.giftsHasMore).toBe(false);
+  it("carries page one of the gift log and says whether another page exists", async () => {
+    const empty = buildApp({ grantRegistry: true });
+    const none = (await (await req(empty, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    expect(none.giftsHasMore).toBe(false);
 
-    // `giftsOffset` is caller-supplied, so every unparseable value has to read as
-    // page one rather than 500 or NaN reaching the query.
-    for (const raw of ["abc", "-3", "1e9", ""]) {
-      const res = await req(app, "GET", `${base}?giftsOffset=${raw}`, OWNER);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as RegistrySnapshot;
-      expect(body.gifts).toEqual([]);
-      expect(body.giftsHasMore).toBe(false);
-    }
+    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const first = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    expect(first.gifts).toHaveLength(50);
+    expect(first.giftsHasMore).toBe(true);
   });
 
   it("400s an unknown gift kind in the path rather than guessing a table", async () => {
@@ -576,6 +611,134 @@ describe("registry routes (entitled)", () => {
     });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe("registry_gift_not_found");
+  });
+});
+
+describe("GET /registry/gifts", () => {
+  type GiftPage = { gifts: GiftLogEntryDto[]; giftsHasMore: boolean };
+
+  it("answers a further page with the gift log alone, from the gift-log reads alone", async () => {
+    let statements: RecordedStatement[] = [];
+    const app = buildApp({
+      grantRegistry: true,
+      seed: (db) => {
+        seedGifts(db, 52);
+        statements = recordStatements(db);
+      },
+    });
+    const res = await req(app, "GET", `${base}/gifts?offset=50`, VIEWER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as GiftPage;
+    // No items, settings, currency or totals: the portal already holds those,
+    // and keeps only these two fields from a further page.
+    expect(Object.keys(body).toSorted()).toEqual(["gifts", "giftsHasMore"]);
+    expect(body.gifts.map((g) => g.id)).toEqual(["rct_0001", "rct_0000"]);
+    expect(body.giftsHasMore).toBe(false);
+
+    // Every registry table this request read is one of the gift log's two —
+    // not the settings row, the item list, the claim counts or the totals.
+    const registryReads = statements
+      .map((s) => s.sql)
+      .filter((sql) => /"registry_[a-z_]+"/.test(sql));
+    expect(registryReads).toHaveLength(2);
+    expect(registryReads.filter((sql) => /from "registry_claims"/.test(sql))).toHaveLength(1);
+    expect(registryReads.filter((sql) => /from "registry_contributions"/.test(sql))).toHaveLength(
+      1,
+    );
+    expect(registryReads.some((sql) => sql.includes('"registry_settings"'))).toBe(false);
+  });
+
+  it("walks the log page by page and says when it has run out", async () => {
+    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const first = (await (await req(app, "GET", `${base}/gifts`, OWNER)).json()) as GiftPage;
+    expect(first.gifts).toHaveLength(50);
+    expect(first.giftsHasMore).toBe(true);
+    const next = (await (
+      await req(app, "GET", `${base}/gifts?offset=${first.gifts.length}`, OWNER)
+    ).json()) as GiftPage;
+    expect(next.gifts).toHaveLength(2);
+    expect(next.giftsHasMore).toBe(false);
+    const ids = new Set([...first.gifts, ...next.gifts].map((g) => g.id));
+    expect(ids.size).toBe(52);
+  });
+
+  it("reads a junk offset as page one, not as whatever digits it starts with", async () => {
+    // The offset is caller-supplied. `parseInt("1e9")` is 1, which would quietly
+    // skip the newest gift; anything but plain digits has to mean page one.
+    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const pageOne = (await (await req(app, "GET", `${base}/gifts`, OWNER)).json()) as GiftPage;
+    for (const raw of ["abc", "-3", "1e9", "", "2.5", "0x10"]) {
+      const res = await req(app, "GET", `${base}/gifts?offset=${raw}`, OWNER);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as GiftPage).gifts[0]!.id).toBe(pageOne.gifts[0]!.id);
+    }
+  });
+
+  it("answers an offset past the end with an empty last page", async () => {
+    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 3) });
+    const body = (await (
+      await req(app, "GET", `${base}/gifts?offset=999999`, OWNER)
+    ).json()) as GiftPage;
+    expect(body).toEqual({ gifts: [], giftsHasMore: false });
+  });
+
+  it("is a member read: a stranger gets 403", async () => {
+    const app = buildApp({ grantRegistry: true });
+    expect((await req(app, "GET", `${base}/gifts`, STRANGER)).status).toBe(403);
+    expect((await req(app, "GET", `${base}/gifts`, undefined)).status).toBe(401);
+  });
+
+  // The portal reaches this route with the organiser session cookie, not a
+  // bearer token, so the cookie path is the one that has to hold.
+  it("serves a page to an organiser session cookie and refuses a dead one", async () => {
+    let token: Promise<string> = Promise.resolve("");
+    const app = buildApp({
+      grantRegistry: true,
+      seed: (db) => {
+        seedGifts(db, 1);
+        token = seedOrganiserSession(db, OWNER);
+      },
+    });
+    const live = await appRequest(app, `${base}/gifts`, {
+      headers: { cookie: `cire_org_session=${await token}` },
+    });
+    expect(live.status).toBe(200);
+    expect(((await live.json()) as GiftPage).gifts).toHaveLength(1);
+
+    const dead = await appRequest(app, `${base}/gifts`, {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    const forged = await appRequest(app, `${base}/gifts`, {
+      headers: { authorization: "Bearer not-a-jwt" },
+    });
+    expect(forged.status).toBe(401);
+  });
+
+  it("answers a failed read with a plain 500, never a partial page", async () => {
+    const app = buildApp({
+      grantRegistry: true,
+      seed: (db) => {
+        seedGifts(db, 3);
+        // Every D1 error reaches the handler as a defect; breaking one of the
+        // two tables the page reads is the cheapest way to raise one here.
+        db.$client.exec("DROP TABLE registry_contributions");
+      },
+    });
+    const res = await req(app, "GET", `${base}/gifts?offset=1`, OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
+  it("marks the gift log uncacheable on both reads that carry it", async () => {
+    // Guest-written notes and amounts against named households: the same class
+    // of payload `gifts.csv` already refuses to let anything on the path keep.
+    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 1) });
+    for (const path of [base, `${base}/gifts`, `${base}/gifts?offset=1`]) {
+      const res = await req(app, "GET", path, OWNER);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    }
   });
 });
 

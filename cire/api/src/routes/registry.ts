@@ -127,31 +127,41 @@ function reapAfterResponse(
 }
 
 /**
- * The one query knob the registry read route takes. Elysia hands the handler an
+ * The one query knob the gift-log page route takes. Elysia hands the handler an
  * untyped query bag on this factory (no query schema), so the shape is named
- * here — `giftsOffset` stays `unknown` because a repeated `?giftsOffset=` gives
- * an array, and {@link parseGiftsOffset} is what turns any of it into a number.
+ * here — `offset` stays `unknown` because a repeated `?offset=` gives an array,
+ * and {@link parseOffset} is what turns any of it into a number.
  */
-interface RegistryReadQuery {
-  giftsOffset?: unknown;
+interface GiftPageQuery {
+  offset?: unknown;
 }
 
 /** Says only "an object" — the parse below does the checking. */
-function isRegistryReadQuery(value: unknown): value is RegistryReadQuery {
+function isGiftPageQuery(value: unknown): value is GiftPageQuery {
   return typeof value === "object" && value !== null;
 }
 
-/** `?giftsOffset=` → a non-negative integer. Anything unparseable reads as 0. */
-function parseGiftsOffset(raw: unknown): number {
-  if (typeof raw !== "string") return 0;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+/**
+ * `?offset=` → a non-negative number. Plain digits only: anything else reads as
+ * 0, page one. `parseInt` would read `1e9` as 1 and `0x10` as 0 by accident of
+ * where the digits stop, and a page that silently skips the newest gift is worse
+ * than page one. The service bounds how far the offset may reach — past its cap,
+ * `Infinity` included, the answer is an empty last page.
+ */
+function parseOffset(raw: unknown): number {
+  return typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : 0;
 }
 
 /**
  * Gift registry — READ surface (platform Phase 4, [[registry]]):
  *
- *   GET /api/organiser/weddings/:weddingId/registry   (weddingMember + entitlement)
+ *   GET /api/organiser/weddings/:weddingId/registry         (weddingMember + entitlement)
+ *   GET /api/organiser/weddings/:weddingId/registry/gifts   (weddingMember + entitlement)
+ *
+ * `/registry` is the whole snapshot with page one of the gift log.
+ * `/registry/gifts?offset=` is every further page, and nothing else: the portal
+ * already holds the settings, items and totals, so a further page reads the gift
+ * log's own tables and no others.
  *
  * Split from the write factory so the read gate (weddingMember) never
  * cross-contaminates the write gates — mirrors createBudgetReadRoutes.
@@ -161,6 +171,11 @@ function parseGiftsOffset(raw: unknown): number {
  * here. That is the whole mechanism by which the feature ships built but
  * unreachable — in the portal the module's nav row fades and offers the upgrade
  * rather than opening.
+ *
+ * Both reads carry guest-written notes and gift amounts against named
+ * households, so both say `no-store` themselves — the same rule `gifts.csv` and
+ * the roster reads follow — rather than depending on a header another route
+ * factory happens to leave set.
  */
 export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
@@ -169,15 +184,26 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
       group
         .use(weddingMember(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
-        .get("/registry", async ({ weddingId, query, set }) => {
+        .get("/registry", async ({ weddingId, set }) => {
           if (!weddingId) return internalSync(set);
-          // The gift log is paged; the offset is the only knob the client gets.
-          // The service clamps it — this only has to turn a string into a number.
-          const giftsOffset = parseGiftsOffset(
-            isRegistryReadQuery(query) ? query.giftsOffset : undefined,
-          );
+          set.headers["cache-control"] = "no-store";
           return runCire(
-            registryService.get(weddingId, { giftsOffset }).pipe(
+            registryService.get(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.tapDefect(logDefect(weddingId)),
+              Effect.catchDefect(() => internal(set)),
+            ),
+          );
+        })
+        .get("/registry/gifts", async ({ weddingId, query, set }) => {
+          if (!weddingId) return internalSync(set);
+          set.headers["cache-control"] = "no-store";
+          const offset = parseOffset(isGiftPageQuery(query) ? query.offset : undefined);
+          return runCire(
+            registryService.giftLog(weddingId, { offset }).pipe(
+              // The snapshot's own field names, so the portal appends a page
+              // without renaming anything.
+              Effect.map(({ entries, hasMore }) => ({ gifts: entries, giftsHasMore: hasMore })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
               Effect.catchDefect(() => internal(set)),

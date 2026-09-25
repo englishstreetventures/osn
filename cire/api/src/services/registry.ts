@@ -874,11 +874,12 @@ const clamp = (n: number, min: number, max: number): number =>
   Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : min;
 
 export const registryService = {
-  /** The organiser-facing snapshot: settings, items with claim counts, gift log. */
-  get(
-    weddingId: string,
-    options?: { giftsOffset?: number },
-  ): Effect.Effect<RegistrySnapshot, never, DbService> {
+  /**
+   * The organiser-facing snapshot: settings, items with claim counts, and page
+   * one of the gift log. Further pages come from {@link registryService.giftLog}
+   * alone — the portal already holds everything else this reads.
+   */
+  get(weddingId: string): Effect.Effect<RegistrySnapshot, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Five independent reads (P-W1). Each is a separate D1 round trip and none
@@ -905,7 +906,7 @@ export const registryService = {
                 .all(),
             ),
             claimed: claimedByItem(weddingId),
-            gifts: registryService.giftLog(weddingId, { offset: options?.giftsOffset }),
+            gifts: registryService.giftLog(weddingId),
             currency: primaryCurrency(weddingId),
             contributionTotals: contributionsByCurrency(weddingId),
           },
@@ -959,11 +960,15 @@ export const registryService = {
    * `created_at < :last` silently DROPS every row tied with the page boundary,
    * and the usual fix — an id tie-break — has nothing to break on here, because
    * the two id spaces come from different tables and have no shared order. The
-   * offset ceiling (`MAX_GIFT_LOG_OFFSET`) is what keeps the read bounded.
+   * offset ceiling (`MAX_GIFT_LOG_OFFSET`) is what keeps the read bounded: an
+   * offset past it gets an empty page, and the page whose successor would pass
+   * it reports `hasMore: false`. Clamping instead would serve the last page
+   * again, still marked `hasMore`, to a caller that pages by rows held.
    *
    * Each side reads `offset + limit + 1` rows: enough that the merge can serve
    * the requested window whichever table the newest rows came from, plus one to
-   * decide `hasMore` without a count.
+   * decide `hasMore` without a count. The two reads run together, since neither
+   * needs the other and on a further page they are the request's whole cost.
    */
   giftLog(
     weddingId: string,
@@ -971,10 +976,12 @@ export const registryService = {
   ): Effect.Effect<{ entries: GiftLogEntryDto[]; hasMore: boolean }, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const requested = options?.offset ?? 0;
+      if (requested > MAX_GIFT_LOG_OFFSET) return { entries: [], hasMore: false };
       const limit = clamp(options?.limit ?? GIFT_LOG_PAGE, 1, GIFT_LOG_PAGE);
-      const offset = clamp(options?.offset ?? 0, 0, MAX_GIFT_LOG_OFFSET);
+      const offset = clamp(requested, 0, MAX_GIFT_LOG_OFFSET);
       const readAhead = offset + limit + 1;
-      const claimRows = yield* dbQuery(() =>
+      const claimQuery = dbQuery(() =>
         db
           .select({
             id: registryClaims.id,
@@ -997,7 +1004,7 @@ export const registryService = {
           .limit(readAhead)
           .all(),
       );
-      const contributionRows = yield* dbQuery(() =>
+      const contributionQuery = dbQuery(() =>
         db
           .select({
             id: registryContributions.id,
@@ -1038,6 +1045,9 @@ export const registryService = {
           .limit(readAhead)
           .all(),
       );
+      const [claimRows, contributionRows] = yield* Effect.all([claimQuery, contributionQuery], {
+        concurrency: "unbounded",
+      });
 
       const claims: GiftLogEntryDto[] = (
         claimRows as Array<{
@@ -1117,9 +1127,10 @@ export const registryService = {
       const merged: GiftLogEntryDto[] = [...claims, ...contributions];
       merged.sort((a, b) => b.createdAt - a.createdAt);
 
+      const next = offset + limit;
       return {
-        entries: merged.slice(offset, offset + limit),
-        hasMore: merged.length > offset + limit,
+        entries: merged.slice(offset, next),
+        hasMore: merged.length > next && next <= MAX_GIFT_LOG_OFFSET,
       };
     }).pipe(Effect.withSpan("cire.registry.giftLog"));
   },

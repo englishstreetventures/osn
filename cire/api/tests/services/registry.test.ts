@@ -1023,14 +1023,31 @@ describe("gift log paging", () => {
     expect(snap.contributionsPrimaryMinor).toBe(60_000);
   });
 
-  it("pages the snapshot's gift log through giftsOffset", async () => {
+  it("stops at the offset cap instead of serving the last page again", async () => {
+    // The portal asks for `offset = rows already held`. Past the cap, clamping
+    // the offset back to it handed out the page the portal already had, still
+    // marked `hasMore`, so every "load more" appended the same fifty rows.
     const db = db0();
-    seedRun(db, 52);
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, { giftsOffset: 50 }));
-    expect(snap.gifts).toHaveLength(2);
-    expect(snap.giftsHasMore).toBe(false);
-    // Items and totals are unaffected by where the gift log is paged to.
-    expect(snap.contributionsPrimaryMinor).toBeGreaterThan(0);
+    seedRun(db, 560);
+    // The page before the last still leads on to it: the cap is the deepest
+    // offset that may be asked for, not the last row that may be shown.
+    const penultimate = await ok(
+      db,
+      registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 450 }),
+    );
+    expect(penultimate.entries).toHaveLength(50);
+    expect(penultimate.hasMore).toBe(true);
+
+    const last = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 500 }));
+    expect(last.entries).toHaveLength(50);
+    // More rows exist, but no page after this one can be asked for.
+    expect(last.hasMore).toBe(false);
+
+    for (const offset of [501, 550]) {
+      const past = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset }));
+      expect(past.entries).toEqual([]);
+      expect(past.hasMore).toBe(false);
+    }
   });
 });
 

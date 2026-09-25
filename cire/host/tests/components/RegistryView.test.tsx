@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import RegistryView from "../../src/components/RegistryView";
+import { apiUrl } from "../../src/lib/api";
 import {
   __resetRegistryCache,
   type GiftLogEntry,
@@ -587,16 +588,20 @@ describe("RegistryView — gifts received", () => {
     expect(screen.queryByRole("button", { name: /thanked/i })).not.toBeInTheDocument();
   });
 
-  it("pages the gift log by offset and appends the next page", async () => {
+  it("pages the gift log by offset from the gifts-only route and appends the next page", async () => {
     setCachedRegistry(
       "wed_1",
       snapshot({ gifts: [gift({ id: "a", familyName: "The Nguyens" })], giftsHasMore: true }),
     );
+    const before = peekCachedRegistry("wed_1")!;
+    // A further page is the gift log alone — no settings, items or totals ride
+    // along, because the view already holds them.
     authFetch.mockResolvedValueOnce(
       new Response(
-        JSON.stringify(
-          snapshot({ gifts: [gift({ id: "b", familyName: "The Okonkwos" })], giftsHasMore: false }),
-        ),
+        JSON.stringify({
+          gifts: [gift({ id: "b", familyName: "The Okonkwos" })],
+          giftsHasMore: false,
+        }),
         { status: 200 },
       ),
     );
@@ -606,13 +611,53 @@ describe("RegistryView — gifts received", () => {
     fireEvent.click(await screen.findByRole("button", { name: /load more gifts/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     // Offset is how many rows are already held, so the next page starts after them.
-    expect(String(authFetch.mock.calls[0]![0])).toMatch(/[?&]giftsOffset=1$/);
+    expect(String(authFetch.mock.calls[0]![0])).toBe(
+      apiUrl("/api/organiser/weddings/wed_1/registry/gifts?offset=1"),
+    );
     expect(await screen.findByText("The Okonkwos")).toBeInTheDocument();
+    // Everything but the log is the snapshot the view already held.
+    const after = peekCachedRegistry("wed_1")!;
+    expect(after.items).toBe(before.items);
+    expect(after.settings).toBe(before.settings);
     expect(screen.getByText("The Nguyens")).toBeInTheDocument();
     // Last page — the button goes away rather than fetching an empty one.
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /load more gifts/i })).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps what it has and says so when a further page fails", async () => {
+    // A refused page — a 404 from an API older than this portal included —
+    // must leave the rows already shown, and the button, where they were.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ gifts: [gift({ id: "a", familyName: "The Nguyens" })], giftsHasMore: true }),
+    );
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /load more gifts/i }));
+    expect(await screen.findByText("Couldn't load more gifts.")).toBeInTheDocument();
+    expect(screen.getByText("The Nguyens")).toBeInTheDocument();
+    expect(peekCachedRegistry("wed_1")!.gifts).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /load more gifts/i })).toBeEnabled();
+  });
+
+  it("sends an expired session to sign in rather than appending anything", async () => {
+    redirectToLoginMock.mockReset();
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ gifts: [gift({ id: "a", familyName: "The Nguyens" })], giftsHasMore: true }),
+    );
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 401 }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /load more gifts/i }));
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalledTimes(1));
+    expect(peekCachedRegistry("wed_1")!.gifts).toHaveLength(1);
+    expect(screen.queryByText("Couldn't load more gifts.")).not.toBeInTheDocument();
   });
 
   it("says what a status means rather than printing the enum value", async () => {

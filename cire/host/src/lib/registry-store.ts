@@ -129,6 +129,11 @@ export interface RegistrySnapshot {
   contributionsOtherCurrencyCount: number;
 }
 
+/** A further page of the gift log, as `GET /registry/gifts?offset=` returns it —
+ *  the snapshot's own two gift-log fields and nothing else, so a page appends
+ *  onto the cached snapshot without renaming. */
+export type GiftLogPage = Pick<RegistrySnapshot, "gifts" | "giftsHasMore">;
+
 interface CacheEntry {
   snapshot: Accessor<RegistrySnapshot | null>;
   setSnapshot: Setter<RegistrySnapshot | null>;

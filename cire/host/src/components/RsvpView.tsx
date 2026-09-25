@@ -406,8 +406,33 @@ export default function RsvpView(props: RsvpViewProps) {
                       </p>
                     }
                   >
-                    <Table label={`Replies for ${section.event.name}`}>
+                    {/* Fixed layout, so a search that removes rows never makes
+                        the browser measure every remaining cell to size the
+                        columns again — auto layout does exactly that on each
+                        keystroke. The widths below are what it reads instead:
+                        room for the widest badge, button and heading in each
+                        column, with Dietary taking what is left. The table's
+                        floor is their sum, so a phone scrolls the region
+                        sideways rather than crushing the columns. `class` lands
+                        on the scrolling <section>, hence the `[&>table]` reach. */}
+                    <Table
+                      label={`Replies for ${section.event.name}`}
+                      class={
+                        props.canEdit
+                          ? "[&>table]:w-[max(100%,45rem)] [&>table]:table-fixed"
+                          : "[&>table]:w-[max(100%,37rem)] [&>table]:table-fixed"
+                      }
+                    >
                       <caption class="sr-only">RSVPs for {section.event.name}</caption>
+                      <colgroup>
+                        <col class="w-48" />
+                        <col class="w-36" />
+                        <col class="w-36" />
+                        <col />
+                        <Show when={props.canEdit}>
+                          <col class="w-32" />
+                        </Show>
+                      </colgroup>
                       <thead>
                         <tr>
                           <Th>Guest</Th>
@@ -426,7 +451,11 @@ export default function RsvpView(props: RsvpViewProps) {
                           {(row) => (
                             <>
                               <tr class="hover:[&>td]:bg-surface">
-                                <Td valign="middle">
+                                {/* The text columns break a word that will not
+                                    fit: under fixed layout a long name no
+                                    longer widens its column, it spills into the
+                                    next one. */}
+                                <Td valign="middle" class="wrap-break-word">
                                   {row.firstName} {row.lastName}
                                   <Show when={row.consentSource === "organiser_attested"}>
                                     {" "}
@@ -438,7 +467,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                     </span>
                                   </Show>
                                 </Td>
-                                <Td tone="muted" valign="middle">
+                                <Td tone="muted" valign="middle" class="wrap-break-word">
                                   {row.familyName}
                                 </Td>
                                 <Td valign="middle">
@@ -448,7 +477,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                     {STATUS_META[row.status].label}
                                   </span>
                                 </Td>
-                                <Td tone="muted" valign="middle">
+                                <Td tone="muted" valign="middle" class="wrap-break-word">
                                   {/* The whole answer, presets and free text,
                                       rendered the way the caterer's sheet
                                       renders it. Showing `dietary` alone left a
@@ -459,7 +488,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                     when={formatDietaryCell(row.dietaryPresets, row.dietary)}
                                     fallback={<span class="text-text-muted">--</span>}
                                   >
-                                    {formatDietaryCell(row.dietaryPresets, row.dietary)}
+                                    {(cell) => cell()}
                                   </Show>
                                 </Td>
                                 <Show when={props.canEdit}>
