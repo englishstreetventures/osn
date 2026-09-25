@@ -49,6 +49,6 @@ jobs:
           # (Type Check / Build & Test) is the real gate; this is a bot commit
           # of generated package.json/CHANGELOG bumps only.
           git diff --quiet && git diff --staged --quiet || \
-            (git add '**/package.json' '**/CHANGELOG.md' .changeset/ \
+            (git add '**/package.json' '**/CHANGELOG.md' .changeset/ bun.lock \
               && git commit --no-verify -m "chore: version packages" \
               && git push --no-verify)
