@@ -7,7 +7,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
-    "check": "bunx --bun astro check",
+    "check": "bunx --bun astro check && bunx --bun tsc --noEmit -p tests/tsconfig.json",
     "test": "vitest run --project unit --project ssr",
     "test:browser": "vitest run --project browser"
   },

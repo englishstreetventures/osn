@@ -6,7 +6,10 @@
   // across an edit to it, including an edit that put executable code in a file
   // whose whole contract is to hold none. Listed here, a change to it
   // invalidates every task in the repo, which is the blunt version of correct.
-  "globalDependencies": ["shared/test-config/no-jest-dom.ts"],
+  // `.browserslistrc` is the same case for builds: Babel core reads it on every
+  // Solid transform (it resolves `targets` from it), and it too sits in no
+  // package.
+  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc"],
   "tasks": {
     "build": {
       "dependsOn": [

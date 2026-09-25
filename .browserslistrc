@@ -1,0 +1,13 @@
+# The oldest browsers the web apps support. It is the build target Vite 8
+# compiles the plain-Vite apps to by default ("baseline-widely-available":
+# Chrome/Edge 111, Firefox 114, Safari 16.4), written out so a change to the
+# floor is an edit someone reviews rather than a side effect of a caniuse-lite
+# refresh. musubi/social/tests/browser-floor.test.ts fails when the two differ.
+#
+# Astro builds its client bundle at `esnext`, so nothing lowers the syntax of
+# the Astro apps to this floor; see wiki/shared/frontend-patterns.md.
+chrome >= 111
+edge >= 111
+firefox >= 114
+safari >= 16.4
+ios_saf >= 16.4

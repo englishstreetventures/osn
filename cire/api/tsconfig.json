@@ -1,8 +1,12 @@
 {
-  "extends": "@shared/typescript-config/node.json",
+  // The deployed Worker: Workers types only, so a `Bun.*` call or a `bun:*`
+  // import in Worker source fails `check`. The two Bun-only files are left out
+  // here and checked, with the tests, by `tests/tsconfig.json`.
+  "extends": "@shared/typescript-config/base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
-    "types": ["@cloudflare/workers-types", "bun-types"]
+    "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src/**/*", "tests/**/*", "worker-configuration.d.ts"]
+  "include": ["src/**/*", "worker-configuration.d.ts"],
+  "exclude": ["src/local.ts", "src/db/setup.ts"]
 }

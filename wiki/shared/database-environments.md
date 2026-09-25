@@ -16,7 +16,8 @@ related:
   - "[[monorepo-structure]]"
   - "[[dev-environment]]"
   - "[[d1-read-replication]]"
-last-reviewed: 2026-09-01
+  - "[[cire-development]]"
+last-reviewed: 2026-09-25
 ---
 
 # Database Environments
@@ -162,12 +163,24 @@ config block.
 import that reaches a Worker entry breaks `wrangler deploy`. Both the Bun host
 and the Worker import the service → `@shared/db-utils` chain, so
 `db-utils` must not statically import `bun:sqlite` (or `drizzle-orm/bun-sqlite`,
-which pulls it transitively). `createDrizzleClient` therefore imports both
-**dynamically via indirect specifiers** (`const m = "bun:sqlite"; await
-import(m)`) so esbuild leaves them as runtime imports and bundles neither — the
-code runs only on Bun (`local` + tests) and never executes on Workers.
-So `makeDbLive` builds its layer asynchronously. Guard this with the
-Worker build: `bun run --cwd <pkg> build` (= `wrangler deploy --dry-run`).
+which pulls it transitively). `createDrizzleClient` therefore imports
+`drizzle-orm/bun-sqlite` **dynamically via an indirect specifier**
+(`const m = "drizzle-orm/bun-sqlite"; await import(m)`), so esbuild leaves it as
+a runtime import and bundles neither module, and drizzle opens the database from
+the path itself. The code runs only on Bun (the dev servers and seeds, through
+`makeDbLive`) and never executes on Workers, so `makeDbLive` builds its layer
+asynchronously. Guard this with the Worker build: `bun run --cwd <pkg> build`
+(= `wrangler deploy --dry-run`).
+
+The same file must not name `bun:sqlite` in a **type** either, for a second
+reason: `cire/api` type-checks its Worker source with Workers types only (see
+[[cire-development]]), and that program includes `@shared/db-utils/src/index.ts`
+because the Worker imports `rowsChanged` from it. A `typeof import("bun:sqlite")`
+there fails the cire Worker check, and `@shared/db-utils`' own `check` fails
+first: its `tsconfig.json` carries Workers types only, and its tests get
+`bun-types` from `tests/tsconfig.json`. The `drizzle-orm/bun-sqlite` type import
+at the top of the file is fine only because `skipLibCheck` skips that package's
+`.d.ts`.
 
 ## Testing
 
@@ -182,4 +195,6 @@ bun run --cwd zap/api test:d1     # bun test tests/d1/d1-integration.test.ts
 ```
 
 `@shared/db-utils` has direct unit tests for the `commitBatch` driver split
-(empty no-op / D1 `batch` / sequential bun:sqlite fallback).
+(empty no-op / D1 `batch` / sequential bun:sqlite fallback), and for
+`createDrizzleClient` and `makeDbLive` (foreign keys on, writes land in the file
+at the given path) — no test layer goes through those two.

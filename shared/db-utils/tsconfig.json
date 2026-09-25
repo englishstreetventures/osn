@@ -1,5 +1,13 @@
 {
-  "extends": "@shared/typescript-config/node.json",
+  // Workers types only: this package's main entry is imported by Worker
+  // source, so a `bun:*` reference here — even a type — fails `check` before
+  // it fails a Worker's. The tests, which run on Bun, get `bun-types` in
+  // `tests/tsconfig.json`.
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"]
+  },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
 }

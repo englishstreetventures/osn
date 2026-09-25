@@ -129,6 +129,37 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 - **Cire does not yet use the platform `it.effect` + `createTestLayer()` idiom.**
   Aligning it is an open issue in `englishstventures/osn`.
 
+## Type-check configs
+
+Two cire packages check their shipped source under a narrower config than their
+tests, so the compiler rejects what the runtime lacks. Each package's `check`
+script runs both configs, and the test config sits at `tests/tsconfig.json` so
+the editor finds it for test files (see [[testing-patterns#Rules]]).
+
+| Package | `tsconfig.json` (shipped source) | `tests/tsconfig.json` |
+|---|---|---|
+| `@cire/api` | The Worker: Workers types only, `lib` ES2023. Leaves out `src/local.ts` and `src/db/setup.ts`, the two files that only run under Bun | Adds `bun-types`; includes the tests and those two files |
+| `@cire/invites` | `lib` ES2022 + DOM, set in the file rather than inherited, which the browser floor in the root `.browserslistrc` implements (see [[frontend-patterns#Supported browsers]]) | `lib` ES2023, for `toSorted` and `toReversed` in tests |
+
+What this does and does not catch:
+
+- A `Bun.*` call or a `bun:*` import in `cire/api` Worker source fails `check`.
+  `process` and the Node globals do not: `@cloudflare/workers-types` declares
+  `process` as `any`, and `@elysiajs/cors` pulls in `@types/node` through
+  `undici-types`. So a `process.env` read at module load — empty on workerd at
+  deploy-time evaluation, see [[backend-patterns]] — is still a review rule, not a
+  compiler one.
+- An ES2023 method such as `toSorted` in `cire/invites/src` (a `.ts`, `.tsx` or
+  `.astro` file) fails `check`. The same call in a workspace package the guest site
+  imports (`@cire/theme`, `@cire/invite-designs`, `@cire/dietary`, `@shared/legal`,
+  `@shared/design-tokens`) does not: those packages check at ES2023 because the
+  Worker uses them too, and `astro check` reports only the files in its own
+  project. Astro also builds the client bundle at `esnext`, so nothing lowers
+  newer syntax for old browsers either.
+- In the editor, `cire/api/src/local.ts` and `src/db/setup.ts` belong to neither
+  package config and fall back to the repo-root `tsconfig.json`. `check` is still
+  right for them.
+
 ## Commands
 
 Run from the OSN repo root. General commands are in [[commands]]; dev servers

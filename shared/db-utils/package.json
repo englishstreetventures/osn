@@ -8,7 +8,7 @@
     "./search": "./src/search.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

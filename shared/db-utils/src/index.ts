@@ -37,31 +37,39 @@ export type Db<S extends DrizzleSchema> = BaseSQLiteDatabase<"sync" | "async", u
 
 /**
  * Construct a bun:sqlite-backed Drizzle client. Used by the `local` environment
- * only (dev servers + tests). The concrete {@link BunSQLiteDatabase} is
+ * only (dev servers and seeds, through `makeDbLive`). The concrete {@link BunSQLiteDatabase} is
  * assignable to the broadened {@link Db}, so call sites stay portable to D1.
  *
- * `bun:sqlite` and `drizzle-orm/bun-sqlite` are imported **dynamically** so they
- * never enter a Cloudflare Workers bundle. The Workers entry only touches
- * `createD1Db` / `makeD1DbLive` (which use `drizzle-orm/d1`); `DbLive` is
- * evaluated at module load but `makeDbLive` returns a lazy Layer that doesn't
- * reach this function until the `local` layer is actually built — which never
- * happens on Workers. wrangler/esbuild cannot resolve `bun:sqlite`, so a static
- * import here would break every Worker build.
+ * `drizzle-orm/bun-sqlite` is imported **dynamically** so neither it nor the
+ * `bun:sqlite` module it loads enters a Cloudflare Workers bundle. The Workers
+ * entry only touches `createD1Db` / `makeD1DbLive` (which use
+ * `drizzle-orm/d1`); `DbLive` is evaluated at module load but `makeDbLive`
+ * returns a lazy Layer that doesn't reach this function until the `local`
+ * layer is actually built — which never happens on Workers. wrangler/esbuild
+ * cannot resolve `bun:sqlite`, so a static import here would break every
+ * Worker build.
+ *
+ * No code in this file refers to the `bun:sqlite` module, not even as a type:
+ * Worker type-checks that have no Bun types import this file for its D1
+ * helpers (`cire/api`'s `tsconfig.json` is one, and this package's own is
+ * another), so drizzle opens the database from the path itself. The `drizzle-orm/bun-sqlite` type import at the top is
+ * safe there only because `skipLibCheck` skips that package's `.d.ts`.
  */
 export async function createDrizzleClient<S extends DrizzleSchema>(
   dbPath: string,
   schema: S,
 ): Promise<BunSQLiteDatabase<S>> {
-  // Indirect (non-literal) specifiers so esbuild/wrangler cannot statically
-  // resolve them — it leaves both as runtime imports instead of pulling
+  // An indirect (non-literal) specifier so esbuild/wrangler cannot statically
+  // resolve it and leaves it as a runtime import instead of pulling
   // `bun:sqlite` (Bun-only, unresolvable in workerd) into the Worker bundle.
   // This code runs only on Bun (`local` dev + tests); it is never executed on
   // Workers, so the runtime import never fires there.
-  const bunSqlite = "bun:sqlite";
   const bunSqliteDriver = "drizzle-orm/bun-sqlite";
-  const { Database } = (await import(bunSqlite)) as typeof import("bun:sqlite");
   const { drizzle } = (await import(bunSqliteDriver)) as typeof import("drizzle-orm/bun-sqlite");
-  const sqlite = new Database(dbPath);
+  // `<S>` pins the client type to drizzle's default. Under Worker types the
+  // `bun:sqlite` declaration is absent, and without it the client type would
+  // be inferred from the path argument as `string`.
+  const db = drizzle<S>(dbPath, { schema });
   // SQLite defaults `foreign_keys` to OFF, so every reference declared in the
   // schema is unenforced on Bun while D1 enforces them. That makes the cheap,
   // fast environment the permissive one: a statement that orphans a row, or
@@ -69,8 +77,8 @@ export async function createDrizzleClient<S extends DrizzleSchema>(
   // deploy with `FOREIGN KEY constraint failed`. Turning it on here is what
   // makes local runs and tests agree with production about what is a legal
   // write.
-  sqlite.run("PRAGMA foreign_keys = ON");
-  return drizzle(sqlite, { schema });
+  db.$client.run("PRAGMA foreign_keys = ON");
+  return db;
 }
 
 export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<S> }>(

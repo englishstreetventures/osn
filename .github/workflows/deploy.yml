@@ -120,7 +120,7 @@ jobs:
           # lockfile, the root build config, and this workflow itself. Rather
           # than map each shared package to its consumers (a mapping that rots
           # the first time an import is added), treat any of them as "all".
-          if [ "$all" != "true" ] && echo "$changed" | grep -qE '^(shared/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.github/workflows/deploy\.yml$)'; then
+          if [ "$all" != "true" ] && echo "$changed" | grep -qE '^(shared/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$|\.github/workflows/deploy\.yml$)'; then
             echo "a shared package or root build file changed — deploying every surface."
             all=true
           fi

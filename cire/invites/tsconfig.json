@@ -1,9 +1,15 @@
 {
+  // Shipped source for the guest site, at the `lib` the repo's browser floor
+  // (`.browserslistrc`) implements: an ES2023 method such as `toSorted` fails
+  // `check` here. The tests run under Node and a current Chromium, so they get
+  // ES2023 in `tests/tsconfig.json`.
   "extends": "@shared/typescript-config/solid.json",
   "compilerOptions": {
-    "lib": ["ES2023", "DOM"],
+    // Stated here rather than inherited from `solid.json`, so a change to the
+    // shared config cannot quietly raise it.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
   },
-  "include": ["src/**/*", "tests/**/*", "env.d.ts"]
+  "include": ["src/**/*", "env.d.ts"]
 }

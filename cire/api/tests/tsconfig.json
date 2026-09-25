@@ -1,0 +1,12 @@
+{
+  // The tests, and the two source files that only ever run under Bun (the local
+  // dev server and its bun:sqlite setup). Bun types are allowed here and nowhere
+  // in `../tsconfig.json`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "bun-types"]
+  },
+  "include": ["./**/*", "../src/local.ts", "../src/db/setup.ts"],
+  // Clears the parent's `exclude`, which names exactly the two files above.
+  "exclude": []
+}

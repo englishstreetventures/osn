@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  // Replaces the parent's `include`, so `env.d.ts` (the `astro/client` types,
+  // which declare `*.astro` modules for the tests that render pages) is listed
+  // again.
+  "include": ["./**/*", "../env.d.ts"]
+}
