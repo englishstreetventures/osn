@@ -15,6 +15,7 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createDirectoryService, ClaimInvalid } from "../../src/services/directory";
 import { VendorNotInWedding } from "../../src/services/vendors";
+import { recordStatements } from "../test-helpers";
 
 const OTHER_WEDDING = "wed_other";
 const TEST_ORIGIN = "https://vendor.test.example.com";
@@ -805,6 +806,72 @@ describe("directoryService.browse + getLiveListingById", () => {
     ]);
     expect(await run(svc.getLiveListingById("LD"))).toBeNull(); // draft
     expect(await run(svc.getLiveListingById("nope"))).toBeNull();
+  });
+
+  it("getLiveListingById reads the listing and its categories in one statement, hit or miss", async () => {
+    // A fresh database per id so each count covers that one call and nothing
+    // the seed did. Missing and draft are the misses; LA is the hit.
+    for (const id of ["LA", "nope", "LD"]) {
+      const db = makeDb();
+      const statements = recordStatements(db);
+      await Effect.runPromise(
+        svc.getLiveListingById(id).pipe(Effect.provideService(DbService, db)),
+      );
+      expect({ id, statements: statements.length }).toEqual({ id, statements: 1 });
+    }
+  });
+
+  it("getLiveListingById returns a live listing with no categories, with an empty list", async () => {
+    const db = makeDb();
+    const now = new Date();
+    db.insert(directoryVendors)
+      .values({
+        id: "LE",
+        ownerOrgId: "org_le",
+        name: "Empty Categories Co",
+        description: "Listed before choosing a category",
+        email: "hi@empty.example.com",
+        phone: "0400 000 000",
+        website: null,
+        instagram: null,
+        locationText: "Perth",
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const listing = await Effect.runPromise(
+      svc.getLiveListingById("LE").pipe(Effect.provideService(DbService, db)),
+    );
+
+    // An inner join would drop the listing entirely and return null here.
+    expect(listing).not.toBeNull();
+    expect(listing!.id).toBe("LE");
+    expect(listing!.name).toBe("Empty Categories Co");
+    expect(listing!.email).toBe("hi@empty.example.com");
+    expect(listing!.phone).toBe("0400 000 000");
+    expect(listing!.listed).toBe("live");
+    expect(listing!.categories).toEqual([]);
+  });
+
+  it("getLiveListingById returns every category once, with the listing fields intact", async () => {
+    const db = makeDb();
+    const listing = await Effect.runPromise(
+      svc.getLiveListingById("LA").pipe(Effect.provideService(DbService, db)),
+    );
+
+    // One result row per category comes back from the join; the DTO must
+    // still be one listing, not one per category.
+    expect(listing!.id).toBe("LA");
+    expect(listing!.name).toBe("Acorn Estate");
+    expect(listing!.description).toBe("Beautiful garden venue for weddings");
+    expect(listing!.locationText).toBe("Sydney");
+    expect(typeof listing!.createdAt).toBe("number");
+    expect(listing!.categories.toSorted()).toEqual(["catering", "venue"]);
   });
 
   it("keyword filter treats % literally (escapeLike fires)", async () => {

@@ -804,24 +804,27 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     getLiveListingById(id: string): Effect.Effect<ListingDto | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        // The row fetch and the category fetch are both keyed on `id` — no
-        // dependency between them — so run them together.
-        const [[row], categories] = yield* Effect.all(
-          [
-            dbQuery(() =>
-              db
-                .select()
-                .from(directoryVendors)
-                .where(and(eq(directoryVendors.id, id), eq(directoryVendors.listed, "live")))
-                .all(),
-            ),
-            fetchCategories(id),
-          ],
-          { concurrency: "unbounded" },
+        // One statement, hit or miss: the listing LEFT JOINed to its
+        // categories. An id that is missing or not live returns no rows, so a
+        // miss never reads `directory_vendor_categories`, and a hit pays no
+        // second query. A hit comes back as one row per category (a listing
+        // with none still gives one row, its `category` null); the listing
+        // columns repeat on each, and the category set is small.
+        const rows = yield* dbQuery(() =>
+          db
+            .select({ listing: directoryVendors, category: directoryVendorCategories.category })
+            .from(directoryVendors)
+            .leftJoin(
+              directoryVendorCategories,
+              eq(directoryVendorCategories.directoryVendorId, directoryVendors.id),
+            )
+            .where(and(eq(directoryVendors.id, id), eq(directoryVendors.listed, "live")))
+            .all(),
         );
-        if (!row) return null;
-        const dvRow = row as DvRow;
-        return toDto(dvRow, categories);
+        const [first] = rows;
+        if (!first) return null;
+        const categories = rows.flatMap((r) => (r.category === null ? [] : [r.category]));
+        return toDto(first.listing, categories);
       }).pipe(Effect.withSpan("cire.directory.getLiveListingById"));
     },
   };

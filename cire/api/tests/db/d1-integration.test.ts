@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
 import {
+  directoryVendorCategories,
+  directoryVendors,
   events,
   families,
   guestEvents,
@@ -24,9 +26,11 @@ import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { claimService } from "../../src/services/claim";
+import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { registryService, SettingsChanged } from "../../src/services/registry";
+import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
 import { tasksService } from "../../src/services/tasks";
 
@@ -176,6 +180,8 @@ afterAll(async () => {
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
   for (const table of [
+    directoryVendorCategories,
+    directoryVendors,
     rsvps,
     guestEvents,
     guests,
@@ -616,6 +622,102 @@ describe("cire/api over real D1 (Miniflare)", () => {
         }),
       );
       expect(saved.shippingAddress).toBe("2 Example St");
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "getLiveListingById maps the listing and its categories from one joined read",
+    async () => {
+      const now = new Date();
+      const listing = {
+        ownerOrgId: null,
+        description: null,
+        email: "hello@example.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: null,
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.insert(directoryVendors).values([
+        { ...listing, id: "dv_two", name: "Two Categories", listed: "live" },
+        { ...listing, id: "dv_none", name: "No Categories", listed: "live" },
+        { ...listing, id: "dv_draft", name: "Draft", listed: "draft" },
+      ]);
+      await db.insert(directoryVendorCategories).values([
+        { directoryVendorId: "dv_two", category: "venue" },
+        { directoryVendorId: "dv_two", category: "catering" },
+        { directoryVendorId: "dv_draft", category: "venue" },
+      ]);
+      const directory = createDirectoryService();
+
+      const two = await run(directory.getLiveListingById("dv_two"));
+      expect(two?.name).toBe("Two Categories");
+      expect(two?.createdAt).toBe(Math.floor(now.getTime() / 1000) * 1000);
+      expect(two?.categories.toSorted()).toEqual(["catering", "venue"]);
+
+      const none = await run(directory.getLiveListingById("dv_none"));
+      expect(none?.categories).toEqual([]);
+
+      expect(await run(directory.getLiveListingById("dv_draft"))).toBeNull();
+      expect(await run(directory.getLiveListingById("dv_missing"))).toBeNull();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep dates each gift summary notice from its cohort read",
+    async () => {
+      // Give the seeded wedding real dates: the final event is open-ended, so
+      // its start is its effective end.
+      await db
+        .update(events)
+        .set({ startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" })
+        .where(eq(events.id, EVENT_A));
+      await db
+        .update(events)
+        .set({ startAt: "2025-04-20T10:00:00+11:00", endAt: "" })
+        .where(eq(events.id, EVENT_B));
+      const stamp = new Date("2025-04-21T00:00:00.000Z");
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      await db.insert(registryContributions).values({
+        id: "rct_d1_sweep",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: null,
+        familyId: FAMILY_ID,
+        status: "succeeded",
+        amountMinor: 5_000,
+        currency: "AUD",
+        stripeCheckoutSessionId: "cs_d1_sweep",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+
+      const seen: GiftSummaryNotice[] = [];
+      const deleted = await run(
+        retentionService.sweepExpiredGuestData(
+          new Date("2026-06-17T04:00:00.000Z"),
+          {},
+          (notices) =>
+            Effect.sync(() => {
+              seen.push(...notices);
+            }),
+        ),
+      );
+
+      expect(deleted).toBe(2);
+      expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
+        [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
+      ]);
     },
     MF_TIMEOUT_MS,
   );

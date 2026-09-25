@@ -148,20 +148,29 @@ export const retentionService = {
       // sentinel, since "" sorts lexically before any ISO date). Without it a
       // wedding whose events are all open-ended would aggregate to max("") = ""
       // < cutoff and be swept immediately.
+      //
+      // Plain `sql`, never `.as(…)`: an aliased expression renders as its bare
+      // alias inside HAVING and ORDER BY, which would move the cutoff rule onto
+      // a result-column alias.
+      const finalEventAt = sql<string>`max(max(${events.endAt}, ${events.startAt}))`;
       const expired = yield* dbQuery(() =>
         db
-          .select({ weddingId: events.weddingId })
+          // Selected as well as filtered on: the gift summary email dates the
+          // retained year from it, and this is the only read of `events` the
+          // sweep makes.
+          .select({ weddingId: events.weddingId, finalEventAt })
           .from(events)
           .groupBy(events.weddingId)
-          .having(lt(sql`max(max(${events.endAt}, ${events.startAt}))`, cutoff))
+          .having(lt(finalEventAt, cutoff))
           // Bounded — see MAX_WEDDINGS_PER_SWEEP. Ordered so the cap takes the
           // longest-overdue weddings first and a backlog drains oldest-first
           // instead of leaving the same tail behind on every run.
-          .orderBy(sql`max(max(${events.endAt}, ${events.startAt})) asc`)
+          .orderBy(sql`${finalEventAt} asc`)
           .limit(MAX_WEDDINGS_PER_SWEEP)
           .all(),
       );
       const weddingIds = expired.map((r) => r.weddingId);
+      const finalEventAtById = new Map(expired.map((r) => [r.weddingId, r.finalEventAt]));
 
       if (weddingIds.length === MAX_WEDDINGS_PER_SWEEP) {
         // Not an error: the next scheduled run takes the remainder. Logged so a
@@ -218,7 +227,7 @@ export const retentionService = {
       // which this sweep keeps. `wiki/compliance/retention.md` §Contributions.
       // The notices come back so the couple can be TOLD, below — writing the
       // record where only a portal visit would find it is not telling anyone.
-      const notices = yield* writeGiftSummaries(weddingIds, now);
+      const notices = yield* writeGiftSummaries(weddingIds, finalEventAtById, now);
 
       const result = yield* Effect.tryPromise({
         try: () => {
@@ -441,6 +450,8 @@ export type GiftSummaryNotifier = (
  */
 function writeGiftSummaries(
   weddingIds: readonly string[],
+  /** Each wedding's final-event effective end, from the sweep's cohort query. */
+  finalEventAtById: ReadonlyMap<string, string>,
   now: Date,
 ): Effect.Effect<readonly GiftSummaryNotice[], never, DbService> {
   return Effect.gen(function* () {
@@ -594,9 +605,10 @@ function writeGiftSummaries(
     if (rendered.size === 0) return [];
 
     // Everything below is for the EMAIL, not the stored summary: an address to
-    // reach the couple at, a name to call the wedding, a currency to print the
-    // total in, and the date the retained year is counted from. Read after the
-    // summaries are written so a cohort with no gifts pays for none of it.
+    // reach the couple at, a name to call the wedding, and a currency to print
+    // the total in. Read after the summaries are written so a cohort with no
+    // gifts pays for none of it. The date the retained year is counted from
+    // came in with the cohort and costs no read here.
     const summarised = [...rendered.keys()];
     const weddingRows = yield* dbQuery(() =>
       db
@@ -610,26 +622,6 @@ function writeGiftSummaries(
         .where(inArray(weddings.id, summarised))
         .all(),
     );
-    // Same scalar-max-inside-aggregate-max as the sweep's own cutoff query, and
-    // for the same reason: an open-ended event stores "" as its end.
-    const finalEventRows = yield* dbQuery(() =>
-      db
-        .select({
-          weddingId: events.weddingId,
-          finalEventOn: sql<string>`max(max(${events.endAt}, ${events.startAt}))`,
-        })
-        .from(events)
-        .where(inArray(events.weddingId, summarised))
-        .groupBy(events.weddingId)
-        .all(),
-    );
-
-    const finalEventById = new Map(
-      (finalEventRows as Array<{ weddingId: string; finalEventOn: string }>).map((r) => [
-        r.weddingId,
-        r.finalEventOn,
-      ]),
-    );
 
     // `flatMap` over the wedding rows, not the summaries: a wedding whose row
     // has somehow gone has no owner to mail, and drops out silently.
@@ -642,7 +634,7 @@ function writeGiftSummaries(
           weddingName: w.displayName,
           ownerOsnProfileId: w.ownerOsnProfileId,
           currency: w.currency,
-          finalEventOn: (finalEventById.get(w.id) ?? "").slice(0, 10),
+          finalEventOn: (finalEventAtById.get(w.id) ?? "").slice(0, 10),
           summary,
         },
       ];
