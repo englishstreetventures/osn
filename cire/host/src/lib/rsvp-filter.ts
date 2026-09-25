@@ -28,7 +28,7 @@
  * `filterRows` only reads it.
  */
 
-import { presetLabels, type DietaryPreset } from "@cire/dietary";
+import { presetLabels } from "@cire/dietary";
 
 export type RsvpStatus = "attending" | "declined" | "maybe";
 /** A row's status, including the guests who have not replied at all. */
@@ -45,7 +45,12 @@ export interface RsvpFilterGuest {
   familyCode: string;
   status: RsvpStatus;
   dietary: string;
-  dietaryPresets: readonly DietaryPreset[];
+  /**
+   * Strings rather than `DietaryPreset`: the vocabulary grows on the server
+   * first, so a portal build older than the API can receive a key it does not
+   * know. `presetLabels` labels such a key from its own words.
+   */
+  dietaryPresets: readonly string[];
   consentSource: ConsentSource;
 }
 
@@ -70,8 +75,9 @@ export interface RsvpRow {
   familyCode: string;
   status: RsvpRowStatus;
   dietary: string;
-  /** Empty on a row nobody has answered for, same as `dietary`. */
-  dietaryPresets: readonly DietaryPreset[];
+  /** Empty on a row nobody has answered for, same as `dietary`. May hold a
+   *  key this build does not know; see `RsvpFilterGuest`. */
+  dietaryPresets: readonly string[];
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
   responded: boolean;
@@ -93,7 +99,8 @@ export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
  * Preset LABELS, not keys: a host searching for a nut allergy types "nut", not
  * "nuts" and certainly not `no_pork`. The labels are also what the row renders
  * and what the caterer's sheet says, so the three agree on the words a search
- * can find.
+ * can find. A key this build does not know is labelled from its own words, so
+ * it is found by the same words the row shows.
  */
 function haystack(guest: {
   firstName: string;
@@ -101,7 +108,7 @@ function haystack(guest: {
   familyName: string;
   familyCode: string;
   dietary?: string;
-  dietaryPresets?: readonly DietaryPreset[];
+  dietaryPresets?: readonly string[];
 }): string {
   const presets = presetLabels(guest.dietaryPresets ?? []).join(" ");
   return `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${presets} ${guest.dietary ?? ""}`.toLowerCase();

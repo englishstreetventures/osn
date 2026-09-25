@@ -128,6 +128,30 @@ export function isDietaryPreset(key: string): key is DietaryPreset {
 }
 
 /**
+ * What a guest or organiser reads for one key, including a key this build does
+ * not know.
+ *
+ * The vocabulary grows on the server first, and an open page keeps the build it
+ * loaded with, so a saved answer can carry a key missing from
+ * {@link DIETARY_PRESET_LABEL}. It is still the guest's answer — possibly an
+ * allergy — so it reads as its own words rather than vanishing: underscores
+ * become spaces and the first letter is capitalised, so `no_pork` reads "No
+ * pork". That is right for most keys and close for the rest (`gluten` would read
+ * "Gluten", not "Gluten / coeliac") until the page reloads onto a build that
+ * knows the key.
+ *
+ * Keys are `[a-z_]+` by construction (see {@link serialisePresets}). A key that
+ * is only underscores comes back as itself; a key that is empty or only
+ * whitespace comes back as `""`, which every caller skips.
+ */
+export function presetLabel(key: string): string {
+  if (isDietaryPreset(key)) return DIETARY_PRESET_LABEL[key];
+  const words = key.replaceAll("_", " ").replace(/\s+/g, " ").trim();
+  if (words === "") return key.trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
  * Pack a selection into the single `rsvps.dietary_presets` column.
  *
  * Comma-separated keys rather than JSON. Every key matches `[a-z_]+` and comes
@@ -172,15 +196,22 @@ export function parsePresets(stored: string): DietaryPreset[] {
 /**
  * The presets a guest picked, as a caterer should read them.
  *
- * Shared by the CSV export and the host dashboard so the sheet and the screen
- * never disagree about what a row says.
+ * Shared by the CSV export, the organiser's table and search, and the picker's
+ * collapsed summary, so the sheet and the screen never disagree about what a
+ * row says or the order it says it in.
  *
  * Same canonicalisation {@link serialisePresets} performs — one `Set`, one pass
  * in declaration order, duplicates collapsed — rather than calling it and
  * splitting the string back apart. This runs once per guest × event while the
  * CSV is built, on a Worker with a 10 ms CPU budget per invocation.
+ *
+ * Keys this build does not know trail the canonical ones, once each, in the
+ * order they arrived, labelled by {@link presetLabel}; a key with an empty label
+ * is skipped.
+ * The server parses with {@link parsePresets} first, so the CSV never has one and
+ * never pays for the second pass.
  */
-export function presetLabels(keys: readonly DietaryPreset[]): string[] {
+export function presetLabels(keys: readonly string[]): string[] {
   // The empty case first, and it is the common one: a guest with prose and no
   // presets, and every non-responder row on the organiser's dashboard. Without
   // the guard an empty selection still walks all sixteen keys.
@@ -188,6 +219,15 @@ export function presetLabels(keys: readonly DietaryPreset[]): string[] {
   const chosen = new Set(keys);
   const labels: string[] = [];
   for (const key of DIETARY_PRESETS) if (chosen.has(key)) labels.push(DIETARY_PRESET_LABEL[key]);
+  // Every known key pushed one label, so fewer labels than distinct keys means
+  // at least one key is outside the vocabulary.
+  if (labels.length < chosen.size) {
+    for (const key of chosen) {
+      if (isDietaryPreset(key)) continue;
+      const label = presetLabel(key);
+      if (label !== "") labels.push(label);
+    }
+  }
   return labels;
 }
 
@@ -203,6 +243,6 @@ export function presetLabels(keys: readonly DietaryPreset[]): string[] {
  * gain a leading `"; "`. Both would break existing assertions about rows this
  * feature never touched.
  */
-export function formatDietaryCell(keys: readonly DietaryPreset[], freeText: string): string {
+export function formatDietaryCell(keys: readonly string[], freeText: string): string {
   return [...presetLabels(keys), freeText.trim()].filter(Boolean).join("; ");
 }

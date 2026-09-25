@@ -1,4 +1,4 @@
-import { DIETARY_PRESET_LABEL, type DietaryPreset } from "@cire/dietary";
+import { presetLabels, type DietaryPreset } from "@cire/dietary";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { createSignal, onCleanup, Show, type JSX } from "solid-js";
 
@@ -70,15 +70,22 @@ function createIsWide() {
  * The selection itself, never a static "Dietary requirements" — a closed control
  * that does not say what it holds makes a guest open it to check, every time.
  * Truncated at two so a long selection cannot outgrow the button.
+ *
+ * Built from `presetLabels`, the same labels in the same order as the
+ * organiser's table cell, so a key this build does not know reads as words
+ * rather than a blank, and one row never reads in two orders on one screen.
  */
-function summarise(value: readonly DietaryPreset[]): string {
-  if (value.length === 0) return "Add dietary requirements";
-  const shown = value.slice(0, 2).map((k) => DIETARY_PRESET_LABEL[k]);
-  const rest = value.length - shown.length;
+function summarise(value: readonly string[]): string {
+  const labels = presetLabels(value);
+  if (labels.length === 0) return "Add dietary requirements";
+  const shown = labels.slice(0, 2);
+  const rest = labels.length - shown.length;
   return rest > 0 ? `${shown.join(", ")} +${rest}` : shown.join(", ");
 }
 
-export default function DietaryPresetsPopover(props: DietaryPresetsProps): JSX.Element {
+export default function DietaryPresetsPopover<K extends string = DietaryPreset>(
+  props: DietaryPresetsProps<K>,
+): JSX.Element {
   const wide = createIsWide();
 
   return (

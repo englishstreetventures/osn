@@ -211,6 +211,69 @@ describe("ticking a pill after scrolling the track", () => {
   }
 });
 
+describe("a stored key this build does not know", () => {
+  // Its pill trails every known one, so on a phone it starts past the right
+  // edge of the track — the one pill most likely to be cut off or unreachable.
+  // Only a real layout can say it is inside the track once the guest scrolls
+  // there, that unticking it keeps focus on it, and that the sheet stays put.
+  for (const [name, size] of [
+    ["desktop", WIDE],
+    ["phone", NARROW],
+  ] as const) {
+    it(`is reachable at the end of the track and unticks in place, on ${name}`, async () => {
+      await page.viewport(...size);
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya]}
+          existingRsvps={[
+            {
+              guestId: "guest-priya",
+              eventId: "event-1",
+              status: "attending",
+              dietary: "",
+              dietaryPresets: ["vegan", "a_future_key"],
+              dietaryConsentCurrent: true,
+            },
+          ]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+        />
+      ));
+      const fieldset = screen.getByRole("group", { name: /priya sharma/i }) as HTMLElement;
+      await settle();
+      const track = await scrollTrackToEnd(fieldset);
+
+      const box = within(fieldset).getByRole("checkbox", {
+        name: "A future key",
+      }) as HTMLInputElement;
+      expect(box.checked).toBe(true);
+      const label = box.closest("label") as HTMLElement;
+      const pill = label.getBoundingClientRect();
+      const bounds = track.getBoundingClientRect();
+      expect(pill.left).toBeGreaterThanOrEqual(bounds.left);
+      expect(pill.right).toBeLessThanOrEqual(bounds.right + 0.5);
+      expect(box.offsetParent).toBe(label);
+
+      box.focus();
+      label.click();
+      await new Promise(requestAnimationFrame);
+
+      // Unticked, the key leaves the answer but its pill stays, so focus stays
+      // on it rather than falling to the page, and the guest can tick it back.
+      expect(box.isConnected).toBe(true);
+      expect(box.checked).toBe(false);
+      expect(document.activeElement).toBe(box);
+      expect(
+        (within(fieldset).getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement).checked,
+      ).toBe(true);
+      const dialog = document.querySelector("dialog") as HTMLElement;
+      expect(dialog.scrollLeft).toBe(0);
+      expect((document.querySelector("dialog [tabindex='0']") as HTMLElement).scrollLeft).toBe(0);
+    });
+  }
+});
+
 describe("the close chip", () => {
   for (const [name, size] of [
     ["desktop", WIDE],

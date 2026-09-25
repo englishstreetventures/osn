@@ -1,4 +1,3 @@
-import { type DietaryPreset } from "@cire/dietary";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -42,8 +41,8 @@ function mockViewport(wide: boolean) {
   };
 }
 
-function Harness(props: { initial?: readonly DietaryPreset[] }) {
-  const [value, setValue] = createSignal<readonly DietaryPreset[]>(props.initial ?? []);
+function Harness(props: { initial?: readonly string[] }) {
+  const [value, setValue] = createSignal<readonly string[]>(props.initial ?? []);
   return <DietaryPresetsPopover value={value()} onChange={setValue} label="Dietary requirements" />;
 }
 
@@ -75,6 +74,26 @@ describe("DietaryPresetsPopover", () => {
   it("truncates a long selection so the trigger cannot outgrow its row", () => {
     render(() => <Harness initial={["vegetarian", "nuts", "gluten", "egg"]} />);
     expect(screen.getByRole("button", { name: /vegetarian, nuts \+2/i })).toBeTruthy();
+  });
+
+  it("names a key this build does not know rather than leaving a blank", () => {
+    // The organiser's portal can be a build older than the API, and the stored
+    // answer can then carry a key missing from this build's vocabulary.
+    render(() => <Harness initial={["future_key"]} />);
+    expect(screen.getByRole("button", { name: /^future key/i })).toBeTruthy();
+  });
+
+  it("reads known keys first, the same order as the organiser's table cell", () => {
+    // The server stores keys in its own canonical order, where a new key can sit
+    // among the known ones. The summary follows `presetLabels`, as the cell does,
+    // so one row never reads in two orders on the same screen.
+    render(() => <Harness initial={["future_key", "vegan"]} />);
+    expect(screen.getByRole("button", { name: /^vegan, future key/i })).toBeTruthy();
+  });
+
+  it("counts an unknown key in the overflow", () => {
+    render(() => <Harness initial={["vegetarian", "nuts", "future_key"]} />);
+    expect(screen.getByRole("button", { name: /vegetarian, nuts \+1/i })).toBeTruthy();
   });
 
   it("disables the trigger when the form is locked", () => {

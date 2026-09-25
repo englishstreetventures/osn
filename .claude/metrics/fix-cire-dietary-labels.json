@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1218,
+    "branch": "fix/cire-dietary-labels",
+    "base_sha": "13a69b6e8d5945dd6f314787013516301b44a961",
+    "head_sha": "bb4f59553d6e1ce36cfed8cc2c188679333b0314",
+    "generated_at": "2026-09-25T11:14:06.101Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "manual"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-09-25T09:30:16.347Z",
+    "last_ts": "2026-09-25T11:14:03.503Z",
+    "span_seconds": 6227,
+    "active_seconds": 2685,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 19.980950299999996,
+    "tokens": {
+      "input": 523,
+      "output": 8714,
+      "thinking": 13,
+      "cache_write_5m": 1373791,
+      "cache_write_1h": 0,
+      "cache_read": 32043815
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 15,
+          "output": 3343,
+          "thinking": 0,
+          "cache_write_5m": 44470,
+          "cache_write_1h": 0,
+          "cache_read": 457798
+        },
+        "usd_equivalent": 0.5904864999999999,
+        "messages": 10
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 508,
+          "output": 5371,
+          "thinking": 13,
+          "cache_write_5m": 1329321,
+          "cache_write_1h": 0,
+          "cache_read": 31586017
+        },
+        "usd_equivalent": 19.3904638,
+        "messages": 250
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 15,
+          "output": 3343,
+          "thinking": 0,
+          "cache_write_5m": 44470,
+          "cache_write_1h": 0,
+          "cache_read": 457798
+        },
+        "usd_equivalent": 0.5904864999999999,
+        "messages": 10
+      },
+      "subagent": {
+        "tokens": {
+          "input": 508,
+          "output": 5371,
+          "thinking": 13,
+          "cache_write_5m": 1329321,
+          "cache_write_1h": 0,
+          "cache_read": 31586017
+        },
+        "usd_equivalent": 19.3904638,
+        "messages": 252
+      }
+    },
+    "effort": {
+      "xhigh": 164,
+      "high": 86
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 8,
+      "docs": 2,
+      "config": 0,
+      "source": 8
+    },
+    "loc": {
+      "generated": {
+        "added": 10,
+        "deleted": 0
+      },
+      "test": {
+        "added": 358,
+        "deleted": 20
+      },
+      "docs": {
+        "added": 18,
+        "deleted": 7
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 139,
+        "deleted": 37
+      }
+    },
+    "packages": [
+      "cire/dietary",
+      "cire/host",
+      "cire/invites",
+      "cire/ui"
+    ],
+    "touches_migration": false,
+    "commits": 7
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 231,
+      "Edit": 21,
+      "Read": 13,
+      "Skill": 10,
+      "Agent": 4,
+      "Write": 3,
+      "SubagentHandback": 3,
+      "ToolSearch": 1,
+      "Grep": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "rate-complexity": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "general-purpose": 2
+    }
+  }
+}

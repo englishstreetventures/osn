@@ -1,4 +1,4 @@
-import { formatDietaryCell, type DietaryPreset } from "@cire/dietary";
+import { formatDietaryCell } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -73,7 +73,8 @@ interface EditTarget {
   guestName: string;
   status: RsvpStatus;
   dietary: string;
-  dietaryPresets: readonly DietaryPreset[];
+  /** May hold a key this build does not know; see `RsvpFilterGuest`. */
+  dietaryPresets: readonly string[];
 }
 
 /**
@@ -102,7 +103,7 @@ export default function RsvpView(props: RsvpViewProps) {
   const [edit, setEdit] = createSignal<EditTarget | null>(null);
   const [formStatus, setFormStatus] = createSignal<RsvpStatus>("attending");
   const [formDietary, setFormDietary] = createSignal("");
-  const [formPresets, setFormPresets] = createSignal<readonly DietaryPreset[]>([]);
+  const [formPresets, setFormPresets] = createSignal<readonly string[]>([]);
   const [formConsent, setFormConsent] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [formError, setFormError] = createSignal<string | null>(null);
@@ -154,7 +155,7 @@ export default function RsvpView(props: RsvpViewProps) {
   const openEditor = (
     eventId: string,
     guest: { guestId: string; firstName: string; lastName: string },
-    existing?: { status: RsvpStatus; dietary: string; dietaryPresets: readonly DietaryPreset[] },
+    existing?: { status: RsvpStatus; dietary: string; dietaryPresets: readonly string[] },
   ) => {
     setFormError(null);
     setFormStatus(existing?.status ?? "attending");

@@ -7,6 +7,7 @@ import {
   formatDietaryCell,
   isDietaryPreset,
   parsePresets,
+  presetLabel,
   presetLabels,
   serialisePresets,
   type DietaryPreset,
@@ -105,6 +106,36 @@ describe("parsePresets", () => {
   });
 });
 
+describe("presetLabel", () => {
+  it("gives every key in the vocabulary its own label", () => {
+    for (const key of DIETARY_PRESETS) expect(presetLabel(key)).toBe(DIETARY_PRESET_LABEL[key]);
+  });
+
+  it("humanises a key this build does not know", () => {
+    // The vocabulary grows on the server first, and an open page keeps the build
+    // it loaded. The key is still the guest's answer, so it has to read as words
+    // rather than vanish.
+    expect(presetLabel("lupin")).toBe("Lupin");
+    expect(presetLabel("a_future_key")).toBe("A future key");
+    expect(presetLabel("tree__nuts_")).toBe("Tree nuts");
+  });
+
+  it("humanises inherited Object.prototype names instead of reading the prototype", () => {
+    expect(presetLabel("constructor")).toBe("Constructor");
+    expect(presetLabel("__proto__")).toBe("Proto");
+    expect(presetLabel("toString")).toBe("ToString");
+  });
+
+  it("returns a key of only underscores as itself", () => {
+    expect(presetLabel("___")).toBe("___");
+  });
+
+  it("returns an empty label for a key that is empty or only whitespace", () => {
+    expect(presetLabel("")).toBe("");
+    expect(presetLabel("   ")).toBe("");
+  });
+});
+
 describe("presetLabels", () => {
   it("returns labels in canonical order", () => {
     expect(presetLabels(["nuts", "vegetarian"])).toEqual(["Vegetarian", "Nuts"]);
@@ -112,6 +143,28 @@ describe("presetLabels", () => {
 
   it("returns nothing for an empty selection", () => {
     expect(presetLabels([])).toEqual([]);
+  });
+
+  it("appends a key this build does not know after the ones it does", () => {
+    expect(presetLabels(["lupin", "nuts", "vegetarian"])).toEqual(["Vegetarian", "Nuts", "Lupin"]);
+  });
+
+  it("keeps unknown keys in the order they arrived, once each", () => {
+    expect(presetLabels(["future_b", "vegan", "future_a", "future_b"])).toEqual([
+      "Vegan",
+      "Future b",
+      "Future a",
+    ]);
+  });
+
+  it("labels a selection made only of unknown keys", () => {
+    expect(presetLabels(["no_mustard"])).toEqual(["No mustard"]);
+  });
+
+  it("skips an empty or blank key rather than emitting a blank label", () => {
+    expect(presetLabels(["", "vegan"])).toEqual(["Vegan"]);
+    expect(presetLabels(["  ", "vegan"])).toEqual(["Vegan"]);
+    expect(formatDietaryCell(["  "], "")).toBe("");
   });
 });
 
@@ -138,5 +191,12 @@ describe("formatDietaryCell", () => {
 
   it("is empty when the guest answered nothing", () => {
     expect(formatDietaryCell([], "")).toBe("");
+  });
+
+  it("shows a key this build does not know rather than an empty cell", () => {
+    // An empty cell reads as "no requirement" on the organiser's table, which is
+    // where a couple checks allergies before the caterer's sheet goes out.
+    expect(formatDietaryCell(["lupin"], "")).toBe("Lupin");
+    expect(formatDietaryCell(["lupin", "vegan"], "no garlic")).toBe("Vegan; Lupin; no garlic");
   });
 });

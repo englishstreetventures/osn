@@ -161,6 +161,29 @@ describe("filterRows", () => {
     expect(ids(filterRows(rows, "gluten", "all"))).toEqual(["g1"]);
   });
 
+  it("matches a preset key this build does not know, by the words in it", () => {
+    // The portal can be a build older than the API, so a stored answer can carry
+    // a key missing from this build's vocabulary. It is labelled from the key
+    // ("lupin_flour" reads "Lupin flour"), and that label is what a search lands on.
+    const withUnknown = mergeRows({
+      guests: [
+        {
+          guestId: "g9",
+          firstName: "Eli",
+          lastName: "Park",
+          familyName: "Park",
+          familyCode: "PARK-OWL-12CD",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["lupin_flour"],
+          consentSource: "guest",
+        },
+      ],
+      unresponded: [],
+    });
+    expect(ids(filterRows(withUnknown, "lupin flour", "all"))).toEqual(["g9"]);
+  });
+
   it("matches a preset and its Other note on the same row", () => {
     // g4 is `nuts` + `other`, with the note narrowing it. Both halves are one
     // haystack, so either word finds the row and neither shadows the other.

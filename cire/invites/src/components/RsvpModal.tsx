@@ -103,7 +103,7 @@ interface MemberState {
   attending: Attending;
   /** What this member typed under "Other". Everything nameable is a preset. */
   dietary: string;
-  /** May hold a key this build has no pill for; see `RsvpSummary`. */
+  /** May hold a key this build does not know; see `RsvpSummary`. */
   dietaryPresets: readonly string[];
   /**
    * Whether this member's dietary data is already covered by a stored

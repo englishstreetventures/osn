@@ -40,9 +40,10 @@ function isRsvpSummary(r: unknown): r is RsvpSummary {
   // The keys are checked as strings rather than against the vocabulary on
   // purpose. A key added server-side is a normal, additive change; measured
   // against a closed list here it would make the whole claim response invalid
-  // on a site that had not redeployed yet. The picker renders no pill for
-  // such a key and hands it back with every change, so an edit never
-  // shortens the stored answer.
+  // on a site that had not redeployed yet. The picker renders such a key as a
+  // checked pill labelled from the key, so the guest can see and untick it,
+  // and hands it back with every other change, so an edit never shortens the
+  // stored answer.
   if ("dietaryPresets" in r) {
     if (!Array.isArray(r.dietaryPresets)) return false;
     if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;

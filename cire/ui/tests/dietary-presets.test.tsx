@@ -2,7 +2,7 @@ import { DIETARY_PRESETS, type DietaryPreset } from "@cire/dietary";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import DietaryPresets from "../src/dietary-presets";
@@ -115,10 +115,12 @@ describe("DietaryPresets", () => {
  * A key the server knows and this build does not.
  *
  * The vocabulary grows server-first, and a page already open in a guest's tab
- * keeps the build it loaded with. The saved reply then carries a key with no
- * pill here, and it is still the guest's answer — possibly an allergy. Ticking
- * or unticking a pill must hand it back, or the next save stores the answer
- * without it and stamps fresh consent over the shortened version.
+ * keeps the build it loaded with. The saved reply then carries a key missing
+ * from this build's vocabulary, and it is still the guest's answer — possibly an
+ * allergy. It shows as a checked pill labelled from the key, so the guest can
+ * see what they are consenting to and untick it; ticking or unticking any other
+ * pill must hand it back, or the next save stores the answer without it and
+ * stamps fresh consent over the shortened version.
  */
 function OpenHarness(props: { initial: readonly string[] }) {
   const [value, setValue] = createSignal<readonly string[]>(props.initial);
@@ -155,11 +157,76 @@ describe("a key this build does not know", () => {
     expect(valueOf()).toBe("egg,a_future_key");
   });
 
-  it("renders no pill of its own", () => {
+  it("renders a checked pill labelled from the key", () => {
     render(() => <OpenHarness initial={["a_future_key"]} />);
     const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    expect(boxes).toHaveLength(DIETARY_PRESETS.length);
-    for (const box of boxes) expect(box.checked).toBe(false);
+    expect(boxes).toHaveLength(DIETARY_PRESETS.length + 1);
+    const pill = screen.getByRole("checkbox", { name: "A future key" }) as HTMLInputElement;
+    expect(pill.checked).toBe(true);
+    // Only its own pill lights: nothing in the vocabulary was picked.
+    expect(boxes.filter((box) => box.checked)).toEqual([pill]);
+  });
+
+  it("renders the pill after every known one, which is the order the value is handed back in", () => {
+    render(() => <OpenHarness initial={["a_future_key", "vegan"]} />);
+    const names = (screen.getAllByRole("checkbox") as HTMLInputElement[]).map(
+      (box) => box.closest("label")?.textContent,
+    );
+    expect(names.at(-1)).toContain("A future key");
+    expect(names.at(-2)).toContain("Other");
+  });
+
+  it("renders one pill for a key that arrived twice", () => {
+    render(() => <OpenHarness initial={["a_future_key", "a_future_key"]} />);
+    expect(screen.getAllByRole("checkbox", { name: "A future key" })).toHaveLength(1);
+  });
+
+  it("lets the guest untick it, which drops it from the answer", () => {
+    render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
+    const pill = screen.getByRole("checkbox", { name: "A future key" }) as HTMLInputElement;
+    fireEvent.click(pill);
+    expect(valueOf()).toBe("vegan");
+    // The pill stays, unticked — the same element, so a keyboard user's focus
+    // stays where they put it rather than falling to the page.
+    expect(screen.getByRole("checkbox", { name: "A future key" })).toBe(pill);
+    expect(pill.checked).toBe(false);
+  });
+
+  it("lets the guest tick it again while the picker is open", () => {
+    render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
+    const pill = screen.getByRole("checkbox", { name: "A future key" });
+    fireEvent.click(pill);
+    fireEvent.click(pill);
+    expect(valueOf()).toBe("vegan,a_future_key");
+    expect((pill as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("forgets an unticked key once the picker unmounts", () => {
+    // The popover unmounts this component when it closes, and the guest sheet
+    // when a member stops attending. A remounted picker knows only the value.
+    const [value, setValue] = createSignal<readonly string[]>(["a_future_key"]);
+    const [open, setOpen] = createSignal(true);
+    render(() => (
+      <Show when={open()}>
+        <DietaryPresets value={value()} onChange={setValue} />
+      </Show>
+    ));
+    fireEvent.click(screen.getByRole("checkbox", { name: "A future key" }));
+    setOpen(false);
+    setOpen(true);
+    expect(screen.queryByRole("checkbox", { name: "A future key" })).toBeNull();
+  });
+
+  it("disables the pill with the rest when the form is locked", () => {
+    render(() => <DietaryPresets value={["a_future_key"]} onChange={() => {}} disabled />);
+    expect(
+      (screen.getByRole("checkbox", { name: "A future key" }) as HTMLInputElement).disabled,
+    ).toBe(true);
+  });
+
+  it("renders no pill for an empty or blank key, which has no words to show", () => {
+    render(() => <OpenHarness initial={["", "   "]} />);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(DIETARY_PRESETS.length);
   });
 });
 

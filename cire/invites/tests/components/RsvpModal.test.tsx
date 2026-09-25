@@ -952,10 +952,11 @@ describe("RsvpModal", () => {
     expect(parsed.rsvps[0].dietaryConsent).toBe(true);
   });
 
-  it("asks for consent over a stored key this build has no pill for", async () => {
-    // No pill lights for the key, but it is still special-category data on its
-    // way back to the server, so the consent gate has to count it. A predicate
-    // that counted only visible pills would send it without consent.
+  it("shows a stored key this build does not know, and asks for consent over it", async () => {
+    // The key is missing from this build's vocabulary, but it is still
+    // special-category data on its way back to the server. It shows as a checked
+    // pill labelled from the key, so "the dietary requirements above" names
+    // something the guest can see, and the consent gate has to count it.
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ rsvps: [] }), {
         status: 200,
@@ -983,6 +984,11 @@ describe("RsvpModal", () => {
       />
     ));
 
+    const pill = within(fieldsetFor("Priya")).getByRole("checkbox", {
+      name: "A future key",
+    }) as HTMLInputElement;
+    expect(pill.checked).toBe(true);
+
     expect((consentBox() as HTMLInputElement).checked).toBe(false);
     fireEvent.click(getByText("Save"));
     await waitFor(() => expect(getByText(/tick the box/i)).toBeTruthy());
@@ -994,6 +1000,46 @@ describe("RsvpModal", () => {
     const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
     expect(parsed.rsvps[0].dietaryPresets).toEqual(["a_future_key"]);
     expect(parsed.rsvps[0].dietaryConsent).toBe(true);
+  });
+
+  it("lets the guest untick a stored key this build does not know", async () => {
+    // Seeing the key is half of it; the guest must also be able to take it back
+    // out. With it gone Priya has no dietary data left, so no consent is asked
+    // for and none is stamped.
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ rsvps: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["a_future_key"],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    pickPreset(fieldsetFor("Priya"), /^a future key$/i);
+    expect(queryConsentBox()).toBeNull();
+    fireEvent.click(getByText("Save"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
+    expect(parsed.rsvps[0].dietaryPresets).toEqual([]);
+    expect(parsed.rsvps[0].dietaryConsent).toBe(false);
   });
 
   it("blocks submit when a newly-covered member has no prior consent (C-H2)", async () => {

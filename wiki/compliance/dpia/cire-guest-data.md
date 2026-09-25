@@ -209,11 +209,20 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   sentence meant would be the kind of guess this control exists to remove.
 - **Accuracy across a vocabulary change (Art. 5(1)(d)).** The vocabulary
   grows on the server first, and a guest's open page keeps the build it
-  loaded with, so a saved reply can carry a key that page has no pill for.
+  loaded with, so a saved reply can carry a key that page does not know.
   The guest invite and the organiser portal keep such a key through an edit
   and send it back with the reply, so changing one answer never erases
-  another. The page does not display that key, so the guest cannot see or
-  untick it there until the page reloads onto a newer build.
+  another. They also show it, labelled from the key itself (`presetLabel` in
+  `@cire/dietary`: `no_pork` reads "No pork"). On the guest sheet it is a
+  checked pill after every known one — at the end of the scrolling track on
+  a phone — which the guest can untick, so the consent box's "the dietary
+  requirements above" names something the guest can find. On the organiser
+  portal it appears in the table cell, the search and the picker's
+  summary, so a row whose only answer is such a key no longer reads as "no
+  requirement". The label made from the key can be vaguer than the one a
+  newer build carries (`gluten` would read "Gluten", not "Gluten /
+  coeliac") until the page reloads. The CSV export is built by the server,
+  which knows every key, so it always carries the full label.
 
 ### C-M1 (2026-08-02) — the household session now auto-discloses, and cannot be ended
 

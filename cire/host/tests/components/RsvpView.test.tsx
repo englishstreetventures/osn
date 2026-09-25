@@ -374,6 +374,26 @@ describe("RsvpView", () => {
     expect(screen.queryByText(/Showing \d+ of/i)).toBeNull();
   });
 
+  it("shows and finds a stored preset key this build does not know", async () => {
+    // The portal can be a build older than the API. A row whose only answer is
+    // such a key must not read "--", which tells the couple the guest has no
+    // requirement, and searching for it must find the row.
+    const withUnknown = structuredClone(VIEW);
+    const bo = withUnknown.events[0]!.guests.find((g) => g.guestId === "g2")!;
+    bo.dietaryPresets = ["lupin"];
+    authFetchMock.mockResolvedValueOnce(json(withUnknown));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    const row = screen.getByText("Bo Jones").closest("tr")!;
+    expect(within(row).getByText("Lupin")).toBeTruthy();
+    expect(within(row).queryByText("--")).toBeNull();
+
+    fireEvent.input(searchBox(), { target: { value: "lupin" } });
+    expect(screen.getByText("Bo Jones")).toBeTruthy();
+    expect(screen.queryAllByText("Ada Sharma")).toHaveLength(0);
+  });
+
   it("applies the search and the chip together", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
@@ -556,8 +576,9 @@ describe("RsvpView", () => {
 
   it("editor keeps a stored preset key this build does not know when another is ticked", async () => {
     // The vocabulary grows on the server first, and an open portal keeps the
-    // build it loaded. Ada's stored answer carries a key this build has no pill
-    // for; an organiser ticking another preset must not erase it from the row.
+    // build it loaded. Ada's stored answer carries a key missing from this
+    // build's vocabulary; an organiser ticking another preset must not erase it
+    // from the row.
     restoreViewport = mockViewport(false);
     const withUnknown = structuredClone(VIEW);
     const ada = withUnknown.events[0]!.guests.find((g) => g.guestId === ADA.guestId)!;
@@ -582,6 +603,45 @@ describe("RsvpView", () => {
       dietaryPresets: readonly string[];
     };
     expect(body.dietaryPresets).toEqual(["gluten", "dairy", "a_future_key"]);
+  });
+
+  it("editor shows a stored preset key this build does not know, and unticking it drops the attestation", async () => {
+    // The organiser's side of the rule the guest sheet follows: a key missing
+    // from this build's vocabulary is still a dietary requirement, so it shows as
+    // a checked pill. Unticked, the row has no dietary data left, so there is
+    // nothing to attest to and the save must not claim consent.
+    restoreViewport = mockViewport(false);
+    const withUnknown = structuredClone(VIEW);
+    const ada = withUnknown.events[0]!.guests.find((g) => g.guestId === ADA.guestId)!;
+    ada.dietaryPresets = ["a_future_key"];
+    authFetchMock
+      .mockResolvedValueOnce(json(withUnknown))
+      .mockResolvedValueOnce(
+        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
+      )
+      .mockResolvedValueOnce(json(withUnknown));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    await screen.findByLabelText(/Anything else/i);
+
+    const pill = screen.getByRole("checkbox", { name: "A future key" }) as HTMLInputElement;
+    expect(pill.checked).toBe(true);
+    expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
+
+    fireEvent.click(pill);
+    expect(pill.checked).toBe(false);
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    const body = JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string) as {
+      dietaryPresets: readonly string[];
+      dietaryConsent: boolean;
+    };
+    expect(body.dietaryPresets).toEqual([]);
+    expect(body.dietaryConsent).toBe(false);
   });
 
   it("editor shows no attestation when the existing reply carries no dietary data", async () => {
