@@ -44,8 +44,9 @@ What one query costs against the OC-primary `cire-db`:
 | **Cost of one query** | **35.7 ms** (p10 33.0, p90 39.3, n=25) |
 
 *Measured 2026-08-31 — a hand-run latency probe from a Sydney client, timing a
-route with one extra `SELECT` against one with none, n=25. No script was kept,
-so re-running it means writing the probe again.*
+route with one extra `SELECT` against one with none, n=25. No script was kept;
+[[#The cost from outside Oceania]] runs the same comparison from a committed
+script.*
 
 That is the *near* case. The same query from Europe or North America pays the
 transoceanic round trip on top, and a request that reads four tables pays it
@@ -181,7 +182,83 @@ A second thing that measurement cannot show from here: the client and the
 primary are both in Oceania, so even with sessions live, a Sydney reader has
 almost no distance to save. The win this page is about is for readers in Europe
 and North America, and confirming it needs a probe run from one of those
-regions.
+regions: [[#The cost from outside Oceania]].
+
+## The cost from outside Oceania
+
+`first-primary` sends the first query of every request to the Oceania primary,
+however far from it the Worker runs. What that costs a Worker in North America
+or Europe is the number [[d1-session-first-primary]] is traded against.
+[`cire/api/scripts/d1-latency-probe.ts`](../../cire/api/scripts/d1-latency-probe.ts)
+measures it on the dev tier, by timing `GET /api/claim/session` two ways, in
+alternating pairs:
+
+| Arm | Request | What the Worker does |
+|---|---|---|
+| Control | No cookie | Finds no session token and answers 401 without touching D1 |
+| One `SELECT` | An unknown `cire_session` cookie | Hashes the token, runs one `SELECT` on `sessions`, finds nothing, and answers the same 401 |
+
+Both arms open a `first-primary` session, so the `SELECT` is the request's first
+query and goes to the primary. `cire/api/tests/index.test.ts` sends the probe's
+own two requests through the Worker and asserts zero queries and exactly one.
+
+**Cost of one query** is the median of the `SELECT` arm minus the median of the
+control, the same arithmetic as §The cost being paid. The last column gives the
+p10/p50/p90 of the per-pair differences instead: each carries the network jitter
+of two requests, so that spread is wider than the D1 cost's own.
+
+| Client | Cloudflare colo | Control p50 | One `SELECT` p50 | Cost of one query | Per-pair difference p10 / p50 / p90 | n |
+|---|---|---|---|---|---|---|
+| Sydney (local run) | SYD | 16.0 ms | 47.5 ms | **31.5 ms** | 26.4 / 31.8 / 39.0 ms | 50 |
+| GitHub-hosted runner | not yet run | — | — | — | — | — |
+
+*Sydney row: measured 2026-09-25 — `bun --no-install cire/api/scripts/d1-latency-probe.ts` from a local client, colo SYD, n=50*
+
+The GitHub-hosted runner row is empty because the workflow has not been run. It
+fills from the report the run prints, which ends with a row and a measured
+marker for this table.
+
+The two rows use the same route pair, the same database and the same arithmetic,
+so they compare directly. The difference between them is the extra distance to
+the primary. What a replica near the Worker would answer in cannot be measured
+here, since nothing in cire opens a session any other way; the Sydney row, a
+Worker next to its database, stands in for it. `cire-db-dev` has its primary in
+Oceania, like `cire-db`, and read replication off, so the dev tier serves every
+query from the primary.
+
+*Measured 2026-09-25 — `bunx --bun wrangler d1 info cire-db-dev --json` from `cire/api`: `running_in_region: "OC"`, `read_replication.mode: "disabled"`*
+
+### Running the probe
+
+From a GitHub-hosted runner, with Actions → **Probe cire dev D1 first-query
+latency** → Run workflow, or:
+
+```bash
+gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn              # default sample count
+gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn -f samples=100
+```
+
+From any other machine, at the repository root:
+`bun --no-install cire/api/scripts/d1-latency-probe.ts`, with `SAMPLES` from 25
+to 100 to change the pair count.
+
+- **Where it ran.** GitHub picks the runner's region, so a run cannot ask for
+  Europe. The report records the Cloudflare colo from each response's `cf-ray`,
+  which is where the Worker and its D1 client ran, and the region the runner
+  reports about itself.
+- **When.** Not while a dev deploy or the nightly dev D1 rebuild
+  (`cire-dev-db-rebuild.yml`, 14:00 UTC) is running: migrations and freshly
+  deployed isolates both inflate the timings. The job has its own concurrency
+  group rather than the deploy's, because joining `deploy-dev-cire-api` would
+  let a probe cancel a queued dev deploy. So nothing stops an overlap; the
+  report prints the run's window, and a run that overlapped either job is
+  discarded and repeated.
+- **Pacing.** Requests are spaced from the dev `CLAIM_SESSION_RATE_LIMITER`
+  budget in `cire/api/wrangler.toml`, at two thirds of it. Any answer but 401
+  stops the run with nothing recorded.
+- **A result too small to be real.** The run fails, after printing its report,
+  when the cost comes out under 5 ms. No D1 round trip has ever measured that
+  low, so it means the `SELECT` arm never reached D1.
 
 ## Rules
 

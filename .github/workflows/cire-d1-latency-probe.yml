@@ -1,0 +1,53 @@
+# Measure what the first D1 query of a request costs on the cire DEV tier, from
+# a GitHub-hosted runner — a client far from the Oceania primary. Manual only.
+#
+# cire-api opens every request's D1 session `first-primary`, so a request's
+# first query always goes to the primary. The script times one route with and
+# without one extra SELECT and prints p10/p50/p90, the Cloudflare colo that
+# served it and the runner's region, plus a row and a measured marker to paste
+# into wiki/shared/d1-read-replication.md. The method is in the script's header:
+# cire/api/scripts/d1-latency-probe.ts.
+#
+# It sends only requests any browser can send, to a public, rate-limited GET on
+# the dev tier, and costs one D1 read per timed SELECT. The target comes from
+# the `[env.dev]` block of cire/api/wrangler.toml and nothing here can change it.
+name: Probe cire dev D1 first-query latency
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Pairs to time, 25 to 100. Blank uses the script's default."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Time the first D1 query on dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Its own group, never `deploy-dev-cire-api`: GitHub cancels the pending job
+    # in a group when another joins it, so a probe there could cancel a queued
+    # dev deploy, and with it that merge's production promotion. A dev deploy
+    # or the nightly rebuild (14:00 UTC) can therefore overlap a run; the report
+    # prints its window so an overlapping run can be spotted and repeated.
+    concurrency:
+      group: cire-d1-latency-probe
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # `--no-install`: the script imports only Bun and web built-ins, so there
+      # is nothing to install, and a stray package import must fail here rather
+      # than be fetched from the public registry.
+      - name: Time the route pair
+        run: bun --no-install cire/api/scripts/d1-latency-probe.ts
+        env:
+          SAMPLES: ${{ inputs.samples }}

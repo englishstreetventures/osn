@@ -67,4 +67,6 @@ marker.
   `first-unconstrained` would stop meaning "may be stale".
 - A probe run from Europe or North America puts a real number on what the first
   query's trip to the primary costs, which is the number this trade is being
-  made against and is not yet measured.
+  made against. The probe and its results are in
+  [[d1-read-replication#The cost from outside Oceania]]; it has not yet been
+  run from outside Oceania.

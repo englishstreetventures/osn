@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { Miniflare } from "miniflare";
 
+import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
@@ -21,8 +22,8 @@ import { jsonBody } from "./test-helpers";
 // `process.env` is unpopulated during module evaluation and only fills lazily,
 // so `index.ts` reads `env.OSN_ENV`. These tests therefore set the tier in the
 // env object passed to `handler.fetch`, and clear `process.env.OSN_ENV` in
-// `beforeAll` so the two can never disagree (a disagreement is what
-// `loadConfig`'s S-L3 guard exists to catch, and it throws).
+// `beforeAll` so the two can never disagree (`loadConfig` throws when
+// `process.env` says production and the tier it is handed does not).
 
 let mf: Miniflare;
 let DB: D1Database;
@@ -97,7 +98,7 @@ const ctx: ExecutionContext = {
 beforeAll(async () => {
   // Clear the ambient tier so every case is driven purely by its `env` binding.
   // Leaving `process.env.OSN_ENV = "production"` here would trip `loadConfig`'s
-  // S-L3 mismatch guard the moment a case asks for a non-production tier — the
+  // tier-mismatch guard the moment a case asks for a non-production tier — the
   // guard is right to throw, since on a real Worker both values come from the
   // same wrangler [vars] and can never disagree.
   savedOsnEnv = process.env.OSN_ENV;
@@ -361,6 +362,54 @@ describe("D1 session routing at the entry points", () => {
       false,
     );
     expect(probe.bindingQueries).toEqual([]);
+  });
+
+  // `scripts/d1-latency-probe.ts` times these two requests against the dev tier
+  // and reports the difference as the cost of one D1 query. That only holds if
+  // they differ by exactly one query, so this drives the probe's own requests
+  // through the Worker and counts. A renamed cookie or a reshaped auth plugin
+  // fails here rather than turning the query arm into a second control.
+  it("costs the latency probe's control no query and its query arm exactly one", async () => {
+    const send = async (request: ProbeRequest) => {
+      const probe = probeD1();
+      const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+        NonNullable<typeof handler.fetch>
+      >[1];
+      const res = await handler.fetch!(
+        new Request(request.url, {
+          // Cloudflare adds this to every deployed request, and the limiter in
+          // front of the route refuses a request without one.
+          headers: { ...request.headers, "cf-connecting-ip": "203.0.113.7" },
+        }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+      return { res, probe };
+    };
+    // Drizzle records the bound values beside each statement; count statements.
+    const statements = (queries: string[] | undefined) =>
+      (queries ?? []).filter((entry) => !entry.startsWith("bind:"));
+    const { control, query } = probeRequests("https://api.example.com", "no-such-session");
+
+    const withoutCookie = await send(control);
+    const withCookie = await send(query);
+
+    // Same status and body from both, so nothing but the query tells them apart.
+    expect(withoutCookie.res.status).toBe(401);
+    expect(withCookie.res.status).toBe(401);
+    expect(await jsonBody(withoutCookie.res)).toEqual({ error: "Unauthorized" });
+    expect(await jsonBody(withCookie.res)).toEqual({ error: "Unauthorized" });
+
+    expect(withoutCookie.probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
+    expect(statements(withoutCookie.probe.sessionQueries[0])).toEqual([]);
+
+    expect(withCookie.probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
+    const [only, ...rest] = statements(withCookie.probe.sessionQueries[0]);
+    expect(rest).toEqual([]);
+    expect(only).toMatch(/^select .* from "sessions" where/i);
+
+    expect(withoutCookie.probe.bindingQueries).toEqual([]);
+    expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
   it("gives each scheduled sweep its own session", async () => {

@@ -26,7 +26,7 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # `d1 migrations apply` still uses this block's DB binding and is unaffected.
 workers_dev = false
 
-# Scheduled expired-session sweep (C-M2/C-M15). Daily 04:00 UTC — off-peak for
+# Scheduled expired-session sweep. Daily 04:00 UTC — off-peak for
 # the AU/EU guest audience, low contention with normal traffic. Sessions carry
 # a 30-day TTL so once-a-day pruning bounds the dead-row backlog to <1 day.
 [triggers]
@@ -139,7 +139,7 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY = "sdk-xxxxxxxx"   # set after creating the GrowthBook SDK connection
 
 # Native Cloudflare Workers Rate Limiting binding for the pre-auth claim
-# endpoint (C1/C4). Enforced globally + atomically at the edge — unlike the
+# endpoint. Enforced globally + atomically at the edge — unlike the
 # per-isolate in-memory limiter it replaces. `simple.limit`/`simple.period`
 # mirror the in-memory default (5 attempts / 60s); `period` must be 10 or 60.
 # `namespace_id` is an arbitrary stable integer scoping this limiter; bump it
@@ -242,8 +242,9 @@ binding = "IMAGES"
 # ahead of the approval-gated production jobs. Fully isolated from production:
 # its own D1, its own R2 buckets, its own rate-limit namespaces, and its own OSN
 # identity origin (id.dev.musubi.social) — nothing here reads or writes a byte of
-# live-wedding data. Its D1 is wiped and re-seeded on every deploy, so treat any
-# data in it as disposable. See [[wiki/shared/dev-environment]].
+# live-wedding data. Its D1 is wiped and re-seeded every night by
+# .github/workflows/cire-dev-db-rebuild.yml, so treat any data in it as
+# disposable. See [[wiki/shared/dev-environment]].
 #
 # Named environments inherit NOTHING from the top level, so every section below
 # is a deliberate redeclaration: vars, routes, unsafe.bindings, d1_databases,
@@ -342,8 +343,9 @@ namespace_id = "1105"
 simple = { limit = 20, period = 60 }
 
 # Created 2026-08-13 (`wrangler d1 create cire-db-dev`, primary location OC to
-# match prod). Reset + re-migrated + re-seeded on every dev deploy, so each
-# deploy also replays the migration chain from zero — a free migration test.
+# match prod). Each dev deploy applies new migrations to it, as production
+# does; .github/workflows/cire-dev-db-rebuild.yml resets it, replays the whole
+# migration chain from zero and re-seeds it every night.
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "cire-db-dev"
@@ -423,9 +425,9 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
 
 # Mirror of the top-level [triggers] block — named environments do NOT inherit
-# it, so until this was added the daily expired-session sweep (C-M2/C-M15) was
-# registered only on the never-deployed top-level config and had never actually
-# run in production. Keep the schedule in sync with the top-level block.
+# it, so without this the daily expired-session sweep would be registered only on
+# the never-deployed top-level config and never run in production. Keep the
+# schedule in sync with the top-level block.
 [env.production.triggers]
 crons = ["0 4 * * *"]
 

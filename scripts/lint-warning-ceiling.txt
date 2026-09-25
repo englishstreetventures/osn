@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1013   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-scoped-revert @ 2026-09-25 — parser comments rewritten on this branch no longer carry finding tags, and the change routes now use their CapacityExceeded import. No rule was disabled and nothing was suppressed.
+1011   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/cire-d1-latency-probe @ 2026-09-25 — after rebasing on main at 1013: two finding tags reworded out of cire/api/tests/index.test.ts comments. No rule was disabled; the new sequential probe loop carries one justified no-await-in-loop suppression.
