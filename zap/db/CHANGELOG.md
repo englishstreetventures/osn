@@ -1,5 +1,12 @@
 # @zap/db
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [0a37a96]
+  - @shared/db-utils@0.7.2
+
 ## 0.6.1
 
 ### Patch Changes

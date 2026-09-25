@@ -1,5 +1,12 @@
 # @osn/db
 
+## 0.24.3
+
+### Patch Changes
+
+- Updated dependencies [0a37a96]
+  - @shared/db-utils@0.7.2
+
 ## 0.24.2
 
 ### Patch Changes
