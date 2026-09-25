@@ -193,6 +193,114 @@ describe("stateExportService.guestsCsv", () => {
   );
 });
 
+/**
+ * The checkpoint writes the guests sheet at `snapshot` fidelity: `full`, plus one
+ * row per household that has no guests. A guest-shaped sheet cannot otherwise
+ * describe such a household, and a revert that cannot see it removes it — claim
+ * code and all.
+ */
+describe("stateExportService.guestsCsv — snapshot fidelity", () => {
+  const seedGuestless = Effect.gen(function* () {
+    const db = yield* DbService;
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_guestless",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "EMPTY-0001",
+        familyName: "Emptyhouse",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    // A guest-less host family must stay out, as host families always do.
+    db.insert(families)
+      .values({
+        id: "fam_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "HOST-AAAA",
+        familyName: "Wedding Host",
+        kind: "host",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
+
+  it(
+    "writes a household-only row for a guest-less household, and only at snapshot fidelity",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedGuestless;
+        const snapshot = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        const header = lines(snapshot)[0]!;
+        // Same header as full fidelity.
+        expect(header).toBe(
+          lines(yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full"))[0],
+        );
+        const row = lines(snapshot).find((l) => l.includes("Emptyhouse"))!;
+        const cells = row.split(",");
+        const eventColumns = header.split(",").length - 7;
+        expect(cells).toEqual([
+          "fam_guestless",
+          "Emptyhouse",
+          "",
+          "",
+          "",
+          ...Array.from({ length: eventColumns }, () => ""),
+          "EMPTY-0001",
+          "",
+        ]);
+        expect(snapshot).not.toContain("HOST-AAAA");
+
+        for (const fidelity of ["import", "full"] as const) {
+          const csv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
+          expect(csv).not.toContain("Emptyhouse");
+        }
+      }),
+    ),
+  );
+
+  it(
+    "writes the events sheet exactly as full fidelity does",
+    withDb(
+      Effect.gen(function* () {
+        expect(yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot")).toBe(
+          yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full"),
+        );
+      }),
+    ),
+  );
+
+  it(
+    "round-trips through the snapshot reader to a plan that changes nothing, guest-less household included",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedGuestless;
+        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        const parsedEvents = yield* parseEventsCsv(eventsCsv);
+        const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents, { snapshot: true });
+        expect(parsedFamilies.find((f) => f.id === "fam_guestless")!.guests).toHaveLength(0);
+
+        const plan = yield* diffAgainstDb(
+          parsedEvents,
+          parsedFamilies as ParsedFamily[],
+          BOOTSTRAP_WEDDING_ID,
+        );
+        expect(plan.familyCreates).toHaveLength(0);
+        expect(plan.familyUpdates).toHaveLength(0);
+        expect(plan.familyRemoves).toHaveLength(0);
+        expect(plan.guestCreates).toHaveLength(0);
+        expect(plan.guestUpdates).toHaveLength(0);
+        expect(plan.guestRemoves).toHaveLength(0);
+        expect(plan.eventLinkCreates).toHaveLength(0);
+        expect(plan.eventLinkRemoves).toHaveLength(0);
+      }),
+    ),
+  );
+});
+
 describe("round trip: export → parse → diff is a fixpoint", () => {
   const assertFixpoint = (fidelity: "import" | "full") =>
     withDb(

@@ -24,7 +24,7 @@ import { applyImport, diffAgainstDb } from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
-import { revertImport } from "../services/revert";
+import { revertImport, revertScopeOf } from "../services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../services/spreadsheet";
 import type {
   MalformedSpreadsheetReason,
@@ -141,6 +141,17 @@ function catchParseErrors(set: { status?: number | string }) {
 // of Elysia's parser error.
 const manualParse = { parse: () => ({}) };
 
+/** The 402 a change answers when it would take the wedding past its guest cap. */
+function paymentRequired(set: { status?: number | string }, e: CapacityExceeded) {
+  set.status = 402;
+  return {
+    error: "payment_required",
+    entitlement: "capacity",
+    limit: e.limit,
+    current: e.current,
+  } as const;
+}
+
 /**
  * The 409 for an editor draft built against state that has since changed —
  * one body for every way that is detected (the draft's base revision is no
@@ -173,9 +184,11 @@ interface ChangeSummary {
   matchByName?: boolean;
   /**
    * Which halves of the wedding the change is authoritative over — `"both"`
-   * unless the organiser uploaded a single sheet. Read back at apply so the
-   * re-diff manages exactly the halves the preview did; a legacy row written
-   * before partial uploads existed has no `scope` and defaults to `"both"`.
+   * for a two-sheet upload, one half for a single sheet or an editor save. Read
+   * back at apply so the re-diff manages exactly the halves the preview did, and
+   * at revert (`storedRevertScope`) so a revert restores only those halves. A
+   * row written before scopes existed has none: apply then refuses an editor
+   * row and treats a sheet as `"both"`; revert restores both.
    */
   scope?: ChangeScope;
   eventCreates: number;
@@ -664,15 +677,7 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTag("CapacityExceeded", (e) =>
-                  Effect.sync(() => {
-                    set.status = 402;
-                    return {
-                      error: "payment_required",
-                      entitlement: "capacity",
-                      limit: e.limit,
-                      current: e.current,
-                    };
-                  }),
+                  Effect.sync(() => paymentRequired(set, e)),
                 ),
               ),
             );
@@ -734,6 +739,11 @@ export const createOrganiserChangeRoutes = (
                     return { error: "Revert failed" };
                   }),
                 ),
+                // A guests revert re-creates the guests the change removed, so it
+                // can take a wedding past a cap that has shrunk since.
+                Effect.catchTag("CapacityExceeded", (e) =>
+                  Effect.sync(() => paymentRequired(set, e)),
+                ),
               ),
             );
           },
@@ -772,23 +782,30 @@ export const createOrganiserChangeRoutes = (
           return {
             // The page is returned under `imports` — the table name — and is
             // keyset-paginated on `uploadedAt`.
-            imports: page.map((r) => ({
-              id: r.id,
-              uploadedAt: r.uploadedAt,
-              format: r.format,
-              status: r.status,
-              kind: r.kind,
-              appliedAt: r.appliedAt,
-              revertedAt: r.revertedAt,
-              revertable: Boolean(r.beforeEventsR2Key && r.beforeGuestsR2Key),
-              summary: (() => {
+            imports: page.map((r) => {
+              const summary: unknown = (() => {
                 try {
                   return JSON.parse(r.summary);
                 } catch {
                   return {};
                 }
-              })(),
-            })),
+              })();
+              return {
+                id: r.id,
+                uploadedAt: r.uploadedAt,
+                format: r.format,
+                status: r.status,
+                kind: r.kind,
+                appliedAt: r.appliedAt,
+                revertedAt: r.revertedAt,
+                revertable: Boolean(r.beforeEventsR2Key && r.beforeGuestsR2Key),
+                // The halves a revert of this change restores, decoded by the
+                // rule the revert itself uses — the portal names them in its
+                // confirm.
+                scope: revertScopeOf(summary),
+                summary,
+              };
+            }),
             nextCursor,
           };
         }),

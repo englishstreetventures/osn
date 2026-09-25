@@ -152,7 +152,7 @@ function withSheet(sheet: SheetKind) {
 /** Hard cap on imported sheet row count. Exported for observability: the state
  *  export emits a structured warning when its row count exceeds this limit so the
  *  "export exceeds what import re-accepts" case is visible before an organiser
- *  hits it (RT-P-I2). */
+ *  hits it. */
 export const MAX_ROWS = 5000;
 const MAX_CELL_LENGTH = 10_000;
 
@@ -485,7 +485,7 @@ export function parseEventsCsv(
       // `isKnownTimeZone` also rejects the fixed-offset spellings `Intl`
       // accepts ("+10:00", "UTC+10"), which never apply DST — the exact bug the
       // wall-clock model exists to end. It's the memoized twin of
-      // `rsvp-deadline.ts`'s `isValidTimeZone` (P-C1): this loop re-resolves
+      // `rsvp-deadline.ts`'s `isValidTimeZone`: this loop re-resolves
       // the SAME zone up to 3x per row (here, then twice more inside
       // `stampEventOffset` below), and an uncached `Intl.DateTimeFormat`
       // construction per lookup is real CPU across a large sheet.
@@ -578,12 +578,38 @@ export function parseEventsCsv(
 
 const REQUIRED_GUEST_COLUMNS = GUEST_SHEET_FIXED_HEADERS;
 
+export interface ParseGuestsOptions {
+  /**
+   * The sheet is a checkpoint before-image (`stateExportService.guestsCsv(_,
+   * "snapshot")`) that a revert is reading back — never an upload. Only
+   * `services/revert.ts` passes it; the upload and apply paths never do.
+   *
+   * A snapshot is the app's own output, so it reads what the app stores rather
+   * than what an upload may carry:
+   *  - no row or cell cap (`parseCsv`, not `parseCsvBounded`) — the caps exist to
+   *    bound an untrusted file, and a revert must not fail on a long value the
+   *    editor accepted;
+   *  - a household-only row (Family Name set, every guest cell and the Guest ID
+   *    blank) is a household with no guests, which a guest-shaped sheet cannot
+   *    otherwise describe;
+   *  - a row carrying a `Guest ID` is a guest even when its first name is blank;
+   *  - households are grouped by `Family ID` rather than by name, so two
+   *    households with the same name stay two households.
+   */
+  readonly snapshot?: boolean;
+}
+
 export function parseGuestsCsv(
   content: string,
-  events: readonly ParsedEvent[],
+  // Only the names are read: they are what the attendance columns must match.
+  events: readonly Pick<ParsedEvent, "name">[],
+  options: ParseGuestsOptions = {},
 ): Effect.Effect<ParsedFamily[], SpreadsheetParseError> {
+  const snapshot = options.snapshot === true;
   return Effect.gen(function* () {
-    const result = parseCsvBounded(content);
+    const result: CsvParseResult = snapshot
+      ? { ok: true, rows: parseCsv(content) }
+      : parseCsvBounded(content);
     if (!result.ok) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: result.reason }));
     }
@@ -619,11 +645,10 @@ export function parseGuestsCsv(
     // unmatched event column surfaces as `UnmatchedEventColumn`.
     const eventByNorm = new Map(events.map((e) => [normaliseName(e.name), e.name]));
 
-    // Full-fidelity export/snapshot columns (Guest ID / Family Code). E1 parsed
-    // these accepted-and-IGNORED; E2 HONOURS them (feeds the ID-aware diff) while
-    // preserving E1's collision contract EXACTLY.
+    // Full-fidelity export/snapshot columns (Guest ID / Family Code), honoured
+    // (they feed the ID-aware diff) under the collision contract below.
     //
-    // COLLISION CONTRACT (T-S1 — must not change): an event may legitimately be
+    // COLLISION CONTRACT (must not change): an event may legitimately be
     // named after one of these reserved labels, making its attendance column
     // ambiguous. Resolve deterministically, biased against silently dropping
     // invitations: when the label is ALSO a known event name, only the LAST
@@ -685,10 +710,11 @@ export function parseGuestsCsv(
       eventColumns.push({ idx: c, eventName: matched });
     }
 
-    // Group sequential rows by (case+whitespace-normalised) family name. The
-    // first row's spelling wins; subsequent rows just append guests.
+    // Group rows into households by (case+whitespace-normalised) family name —
+    // or, in a snapshot, by Family ID. The first row's spelling wins; subsequent
+    // rows just append guests.
     const families: ParsedFamily[] = [];
-    const familyByNorm = new Map<string, ParsedFamily>();
+    const familyByKey = new Map<string, ParsedFamily>();
 
     for (let r = 1; r < rows.length; r += 1) {
       const row = rows[r]!;
@@ -705,15 +731,6 @@ export function parseGuestsCsv(
             reason: "Family Name is required",
             atRow: r + 1,
             atColumn: idxFamilyName + 1,
-          }),
-        );
-      }
-      if (firstName.length === 0) {
-        return yield* Effect.fail(
-          new MalformedSpreadsheet({
-            reason: "Guest First Name is required",
-            atRow: r + 1,
-            atColumn: idxFirst + 1,
           }),
         );
       }
@@ -737,6 +754,41 @@ export function parseGuestsCsv(
       const publicId =
         idxFamilyCode === -1 ? undefined : (nullableString(row[idxFamilyCode] ?? "") ?? undefined);
 
+      // Snapshot only (see ParseGuestsOptions): a row whose every guest cell is
+      // blank describes a household with no guests.
+      const householdOnly =
+        snapshot &&
+        guestId === undefined &&
+        firstName.length === 0 &&
+        lastName.length === 0 &&
+        nickname === null &&
+        eventNames.length === 0;
+      if (firstName.length === 0 && !householdOnly && !(snapshot && guestId !== undefined)) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "Guest First Name is required",
+            atRow: r + 1,
+            atColumn: idxFirst + 1,
+          }),
+        );
+      }
+
+      const key =
+        snapshot && familyId !== undefined ? `id:${familyId}` : `name:${normaliseName(familyName)}`;
+      let family = familyByKey.get(key);
+      if (!family) {
+        const created: Types.Mutable<ParsedFamily> = {
+          familyName,
+          guests: [],
+        };
+        if (familyId !== undefined) created.id = familyId;
+        if (publicId !== undefined) created.publicId = publicId;
+        family = created;
+        familyByKey.set(key, family);
+        families.push(family);
+      }
+      if (householdOnly) continue;
+
       const guest: Types.Mutable<ParsedGuest> = {
         firstName,
         lastName,
@@ -744,24 +796,10 @@ export function parseGuestsCsv(
         eventNames,
       };
       if (guestId !== undefined) guest.id = guestId;
-      const norm = normaliseName(familyName);
-      let family = familyByNorm.get(norm);
-      if (!family) {
-        const created: Types.Mutable<ParsedFamily> = {
-          familyName,
-          guests: [guest],
-        };
-        if (familyId !== undefined) created.id = familyId;
-        if (publicId !== undefined) created.publicId = publicId;
-        family = created;
-        familyByNorm.set(norm, family);
-        families.push(family);
-      } else {
-        // Mutate in place — the array reference is the same one in `families`.
-        // The family's id/publicId come from its FIRST row; subsequent rows only
-        // append guests, matching how the exporter writes one code per family.
-        (family.guests as ParsedGuest[]).push(guest);
-      }
+      // Mutate in place — the array reference is the same one in `families`.
+      // The family's id/publicId come from its FIRST row; subsequent rows only
+      // append guests, matching how the exporter writes one code per family.
+      (family.guests as ParsedGuest[]).push(guest);
     }
 
     return families;

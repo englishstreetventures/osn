@@ -607,6 +607,95 @@ describe("fidelity columns (E2 — honoured, not just ignored)", () => {
 });
 
 /**
+ * A checkpoint before-image is read back with `{ snapshot: true }`. It is our own
+ * output, never an upload, so it may hold what an upload may not: a household
+ * with no guests (a row with every guest cell blank), a guest whose first name is
+ * blank, and two households with the same name told apart by their `Family ID`.
+ */
+describe("parseGuestsCsv — { snapshot: true } (checkpoint before-image)", () => {
+  const events = [{ name: "Mehndi" }, { name: "Wedding Ceremony" }];
+  const HEADER =
+    "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Wedding Ceremony,Family Code,Guest ID";
+
+  it("reads a household-only row as a household with no guests", async () => {
+    const csv = [
+      HEADER,
+      "fam_empty,Emptyhouse,,,,,,EMPTY-0001,",
+      "fam_ada,Testfamily,Ada,Testfamily,,x,,SUNSET-4210,gst_ada",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events, { snapshot: true }));
+    expect(families).toHaveLength(2);
+    expect(families[0]).toEqual({
+      id: "fam_empty",
+      publicId: "EMPTY-0001",
+      familyName: "Emptyhouse",
+      guests: [],
+    });
+    expect(families[1]!.guests.map((g) => g.id)).toEqual(["gst_ada"]);
+  });
+
+  it("keeps two same-named households apart by Family ID, in either row order", async () => {
+    const empty = "fam_empty,Smith,,,,,,EMPTY-0001,";
+    const full = "fam_full,smith,Ada,Smith,,x,x,FULL-0002,gst_ada";
+    for (const rows of [
+      [empty, full],
+      [full, empty],
+    ]) {
+      const families = await Effect.runPromise(
+        parseGuestsCsv([HEADER, ...rows].join("\n"), events, { snapshot: true }),
+      );
+      const byId = new Map(families.map((f) => [f.id, f]));
+      expect(families).toHaveLength(2);
+      expect(byId.get("fam_empty")!.guests).toHaveLength(0);
+      expect(byId.get("fam_empty")!.publicId).toBe("EMPTY-0001");
+      expect(byId.get("fam_full")!.guests.map((g) => g.id)).toEqual(["gst_ada"]);
+      expect(byId.get("fam_full")!.publicId).toBe("FULL-0002");
+    }
+  });
+
+  it("keeps a guest whose stored first name is blank, because the row carries a Guest ID", async () => {
+    const csv = [HEADER, "fam_a,Testfamily,,Testfamily,,x,,SUNSET-4210,gst_blank"].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, events, { snapshot: true }));
+    expect(family!.guests).toEqual([
+      {
+        id: "gst_blank",
+        firstName: "",
+        lastName: "Testfamily",
+        nickname: null,
+        eventNames: ["Mehndi"],
+      },
+    ]);
+  });
+
+  it("still refuses a row with guest cells but no first name and no Guest ID", async () => {
+    const csv = [HEADER, "fam_a,Testfamily,,Testfamily,,x,,SUNSET-4210,"].join("\n");
+    const error = await Effect.runPromise(
+      Effect.flip(parseGuestsCsv(csv, events, { snapshot: true })),
+    );
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Guest First Name is required");
+  });
+
+  it("does not apply the upload size cap to our own cells", async () => {
+    const long = "a".repeat(10_050);
+    const csv = [HEADER, `fam_a,${long},Ada,Testfamily,,x,,SUNSET-4210,gst_ada`].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, events, { snapshot: true }));
+    expect(family!.familyName).toBe(long);
+  });
+
+  it("an upload (no option) still refuses a household-only row and the size cap", async () => {
+    const householdOnly = [HEADER, "fam_empty,Emptyhouse,,,,,,EMPTY-0001,"].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(householdOnly, events)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Guest First Name is required");
+
+    const tooLong = [HEADER, `fam_a,${"a".repeat(10_050)},Ada,T,,x,,S-1,gst_ada`].join("\n");
+    const capped = await Effect.runPromise(Effect.flip(parseGuestsCsv(tooLong, events)));
+    expect((capped as MalformedSpreadsheet).reason).toBe("cell too large");
+  });
+});
+
+/**
  * Excel, Numbers and Google Sheets all write CSVs with a leading UTF-8 BOM. Left
  * in the stream it becomes part of the FIRST header cell, which then matches
  * nothing — and the organiser sees "Missing required column: Event Name" while

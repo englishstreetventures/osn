@@ -30,6 +30,8 @@ interface ChangeSummaryCounts {
 
 type ChangeStatus = "preview" | "applied" | "reverted";
 type ChangeKind = "import" | "editor";
+/** The halves of the wedding a change saved, and so the halves its revert restores. */
+type ChangeScope = "both" | "events" | "guests";
 
 interface ChangeEntry {
   id: string;
@@ -44,6 +46,9 @@ interface ChangeEntry {
    *  before-image aged out (prune-beyond-10) comes back false and is shown as
    *  non-revertable with a note. Legacy `undefined` ⇒ treated as false. */
   revertable?: boolean;
+  /** The halves a revert restores, decoded server-side. A row from an older
+   *  API without the field is treated as `both`, the server's own default. */
+  scope?: ChangeScope;
   summary: ChangeSummaryCounts;
 }
 
@@ -64,6 +69,18 @@ const KIND_LABEL = {
   import: "Spreadsheet import",
   editor: "In-app edit",
 } satisfies Record<ChangeKind, string>;
+
+/**
+ * The revert confirm, naming only the halves the revert restores (the server
+ * decides them from the change's scope: `revertImport` in cire-api).
+ */
+const REVERT_CONFIRM = {
+  both: "Revert this change? Guests, households and events are restored to exactly the state before it was applied. RSVPs discarded by the change are not restored.",
+  events:
+    "Revert this change? Events are restored to exactly the state before it was applied: events added since are removed, with their invitations and RSVPs, and guests who were invited to an event it brings back are invited again. No household or guest is added, removed or changed. RSVPs discarded by the change are not restored.",
+  guests:
+    "Revert this change? Households, guests and their invitations are restored to exactly the state before it was applied. Events are not changed: invitations to an event deleted since are not restored, and invitations to an event added since are kept. RSVPs discarded by the change are not restored.",
+} satisfies Record<ChangeScope, string>;
 
 function formatDate(ms: number): string {
   try {
@@ -159,9 +176,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
   async function handleRevert(entry: ChangeEntry) {
     if (entry.status !== "applied" || !entry.revertable) return;
-    const ok = window.confirm(
-      "Revert this change? Guests, households and events are restored to exactly the state before it was applied. RSVPs discarded by the change are not restored.",
-    );
+    const ok = window.confirm(REVERT_CONFIRM[entry.scope ?? "both"] ?? REVERT_CONFIRM.both);
     if (!ok) return;
 
     setRevertingId(entry.id);

@@ -176,7 +176,8 @@ export interface DecodedChange {
    * a two-sheet upload and for an editor save that sends no scope; a
    * single-sheet upload is `"events"` / `"guests"`, and each editor sends its
    * own half. Persisted on the change row's summary so apply (which re-diffs
-   * against live state) manages the same halves the preview was computed under.
+   * against live state) manages the same halves the preview was computed under,
+   * and a revert restores only those halves.
    */
   readonly scope: ChangeScope;
 }

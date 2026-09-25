@@ -383,6 +383,22 @@ describe("POST /changes/preview + /apply — single-sheet uploads", () => {
     expect((await res.json()) as { scope: string }).toMatchObject({ scope: "guests" });
   });
 
+  it("refuses a household-only row in an upload — only a revert reads those", async () => {
+    const { app } = buildApp();
+    await seedBothSheets(app);
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      guestsCsv: [
+        "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Reception,Family Code,Guest ID",
+        "fam_empty,Emptyhouse,,,,,,EMPTY-0001,",
+      ].join("\n"),
+    });
+    expect(res.status).toBe(422);
+    expect(await jsonBody(res)).toMatchObject({
+      reason: "Guest First Name is required",
+      sheet: "guests",
+    });
+  });
+
   it("reverts a single-sheet change from its (always full) before-image", async () => {
     const { app, db } = buildApp();
     await seedBothSheets(app);
@@ -1799,6 +1815,177 @@ describe("POST /changes/revert", () => {
   });
 });
 
+describe("POST /changes/revert — restores only the half the change saved", () => {
+  it("reverting an events-editor save leaves a later guests-editor save standing", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const ada = db.select().from(guests).where(eq(guests.firstName, "Ada")).all()[0]!;
+    const bo = db.select().from(guests).where(eq(guests.firstName, "Bo")).all()[0]!;
+
+    // The events editor deletes the reception.
+    const eventsDraft = draftFromDb(db);
+    const eventsSave = await editorPreview(app, {
+      desiredState: {
+        events: eventsDraft.events.filter((e) => e.name !== "Reception"),
+        families: [],
+      },
+      scope: "events",
+    });
+    const eventsSaveId = ((await eventsSave.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, eventsSave);
+
+    // Later, the guests editor adds Cy to Ada's household.
+    const guestsDraft = draftFromDb(db);
+    const testfamily = guestsDraft.families.find((f) => f.familyName === "Testfamily")!;
+    const cy = { firstName: "Cy", lastName: "", nickname: null, eventNames: ["Mehndi"] };
+    await applyChange(
+      app,
+      await editorPreview(app, {
+        desiredState: {
+          ...guestsDraft,
+          families: [
+            ...guestsDraft.families.filter((f) => f !== testfamily),
+            { ...testfamily, guests: [...testfamily.guests, cy] },
+          ],
+        },
+        scope: "guests",
+      }),
+    );
+
+    const revert = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: eventsSaveId });
+    expect(revert.status).toBe(200);
+
+    // The reception is back, with the guests who were invited to it…
+    const reception = db.select().from(events).where(eq(events.name, "Reception")).all()[0]!;
+    const invited = db
+      .select({ guestId: guestEvents.guestId })
+      .from(guestEvents)
+      .where(eq(guestEvents.eventId, reception.id))
+      .all()
+      .map((l) => l.guestId)
+      .toSorted();
+    expect(invited).toEqual([ada.id, bo.id].toSorted());
+    // …and the later guest edit stands.
+    expect(db.select().from(guests).where(eq(guests.firstName, "Cy")).all()).toHaveLength(1);
+  });
+
+  describe("who may revert", () => {
+    /** An applied two-sheet change, and a check that it is still applied. */
+    async function appliedChange(
+      app: ReturnType<typeof buildApp>["app"],
+      db: ReturnType<typeof buildApp>["db"],
+    ) {
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      });
+      const changeId = ((await preview.clone().json()) as { changeId: string }).changeId;
+      await applyChange(app, preview);
+      const stillApplied = () => {
+        const [row] = db
+          .select({ status: imports.status })
+          .from(imports)
+          .where(eq(imports.id, changeId))
+          .all();
+        expect(row!.status).toBe("applied");
+        expect(db.select().from(families).all()).toHaveLength(2);
+      };
+      return { changeId, stillApplied };
+    }
+
+    it("401s a request with no credential", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillApplied } = await appliedChange(app, db);
+      const res = await appRequest(app, `${CHANGES_BASE}/revert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(401);
+      stillApplied();
+    });
+
+    it("401s a cookie that names no session", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillApplied } = await appliedChange(app, db);
+      await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+      const res = await cookiePost(app, `${CHANGES_BASE}/revert`, "nosuchtoken", { changeId });
+      expect(res.status).toBe(401);
+      stillApplied();
+    });
+
+    it("403s a viewer co-host", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillApplied } = await appliedChange(app, db);
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_revert_viewer",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_revert_viewer",
+          addedByOsnProfileId: "usr_dev_bootstrap_owner",
+          role: "viewer",
+          createdAt: new Date(),
+        })
+        .run();
+      const res = await appRequest(app, `${CHANGES_BASE}/revert`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await auth.sign("usr_revert_viewer")}`,
+        },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+      stillApplied();
+    });
+  });
+
+  it("answers 402 and changes nothing when a guests revert would pass a cap that shrank since", async () => {
+    const { app, db } = buildApp();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "capacity_500",
+        source: "comp",
+        grantedBy: "test",
+        grantedAt: new Date(),
+      })
+      .run();
+    const guestRows = (n: number) =>
+      Array.from({ length: n }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`);
+    const header = "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception";
+    await applyChange(
+      app,
+      await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: [header, ...guestRows(101)].join("\n"),
+      }),
+    );
+    // A guests change trims the list to the base cap…
+    const trim = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      guestsCsv: [header, ...guestRows(100)].join("\n"),
+    });
+    const trimId = ((await trim.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, trim);
+    // …and then the upgrade goes.
+    db.delete(weddingEntitlements)
+      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: trimId });
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toMatchObject({ error: "payment_required", limit: 100 });
+    expect(db.select().from(guests).all()).toHaveLength(100);
+    const [row] = db
+      .select({ status: imports.status })
+      .from(imports)
+      .where(eq(imports.id, trimId))
+      .all();
+    expect(row!.status).toBe("applied");
+  });
+});
+
 // ── Provenance default at the route (CSV toggle) ────────────────────────────
 
 describe("POST /changes/preview — provenance default + removeManual toggle", () => {
@@ -2368,6 +2555,32 @@ describe("GET /changes/list — history paging", () => {
     const body = (await res.json()) as { imports: { id: string }[]; nextCursor: number | null };
     expect(body.imports.find((i) => i.id === id)).toBeDefined();
     expect(body.nextCursor).toBeNull();
+  });
+
+  it("names the halves a revert of each change restores", async () => {
+    const { app, db } = buildApp();
+    const both = await seedChange(app);
+    const eventsOnly = (
+      (await (
+        await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: EVENTS_CSV })
+      ).json()) as { changeId: string }
+    ).changeId;
+    const guestsOnly = (
+      (await (
+        await ownerPost(app, `${CHANGES_BASE}/preview`, {
+          guestsCsv: "Family ID,Family Name,Guest First Name,Guest Last Name\n1,Testfamily,Ada,T",
+        })
+      ).json()) as { changeId: string }
+    ).changeId;
+    // A row whose summary lost its scope restores both halves.
+    db.update(imports).set({ summary: "{}" }).where(eq(imports.id, both)).run();
+
+    const res = await ownerGet(app, `${CHANGES_BASE}/list`);
+    const body = (await res.json()) as { imports: { id: string; scope: string }[] };
+    const scopeOf = new Map(body.imports.map((i) => [i.id, i.scope]));
+    expect(scopeOf.get(both)).toBe("both");
+    expect(scopeOf.get(eventsOnly)).toBe("events");
+    expect(scopeOf.get(guestsOnly)).toBe("guests");
   });
 
   it("pages on `?limit` and `?cursor`", async () => {

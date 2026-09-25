@@ -201,4 +201,42 @@ describe("ChangeHistory", () => {
     expect(authFetchMock.mock.calls.length).toBe(1);
     expect(reloadMock).not.toHaveBeenCalled();
   });
+
+  /** Open the confirm for one entry and return the text it asked. */
+  async function confirmTextFor(entry: object): Promise<string> {
+    confirmMock.mockReturnValue(false);
+    authFetchMock.mockResolvedValueOnce(jsonResponse({ imports: [entry], nextCursor: null }));
+    render(() => <ChangeHistory weddingId="wed_a" />);
+    openHistory();
+    await waitFor(() => expect(screen.getByRole("button", { name: /revert/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /revert/i }));
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    return String(confirmMock.mock.calls[0]![0]);
+  }
+
+  it("names only the schedule when the change saved events", async () => {
+    const text = await confirmTextFor({ ...EDITOR_APPLIED, scope: "events" });
+    expect(text).toMatch(/events are restored/i);
+    // Events added since go, and they take their invitations with them.
+    expect(text).toMatch(/added since are removed/i);
+    expect(text).toMatch(/invited again/i);
+    expect(text).toMatch(/no household or guest is added, removed or changed/i);
+    expect(text).not.toMatch(/guests, households and events are restored/i);
+  });
+
+  it("names only the guest list when the change saved guests", async () => {
+    const text = await confirmTextFor({ ...EDITOR_APPLIED, scope: "guests" });
+    expect(text).toMatch(/households, guests and their invitations are restored/i);
+    expect(text).toMatch(/events are not changed/i);
+    expect(text).not.toMatch(/guests, households and events are restored/i);
+  });
+
+  it("names both halves for a two-sheet change, and for a row with no scope", async () => {
+    const both = await confirmTextFor({ ...IMPORT_APPLIED, scope: "both" });
+    expect(both).toMatch(/guests, households and events are restored/i);
+    cleanup();
+    confirmMock.mockClear();
+    const legacy = await confirmTextFor(IMPORT_APPLIED);
+    expect(legacy).toBe(both);
+  });
 });

@@ -60,7 +60,7 @@ function beforeGuestsKey(importId: string): string {
 
 /**
  * Store a change's before-image — the wedding's current-state snapshot CSVs,
- * serialised at full fidelity by `state-export.ts` — under the `before/` prefix
+ * serialised at `"snapshot"` fidelity by `state-export.ts` — under the `before/` prefix
  * for `importId`. Returns the two keys to record on the change row
  * (`beforeEventsR2Key` / `beforeGuestsR2Key`). See [[guest-event-editor]] §4.
  */

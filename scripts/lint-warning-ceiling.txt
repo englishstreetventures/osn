@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1017   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-link-preview-cap @ 2026-09-25 — after merging main at 1026: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.
+1013   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-scoped-revert @ 2026-09-25 — parser comments rewritten on this branch no longer carry finding tags, and the change routes now use their CapacityExceeded import. No rule was disabled and nothing was suppressed.

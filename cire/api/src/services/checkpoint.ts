@@ -3,10 +3,12 @@
  * §4). Two operations run at apply time, BEFORE the change mutates the DB:
  *
  *  1. {@link captureBeforeImage} — serialise the wedding's CURRENT state to the
- *     canonical snapshot CSVs at FULL fidelity (`state-export.ts`, so the CSVs
- *     carry `Family Code`/`Family ID`/`Guest ID`/`Event ID` and provenance), and
- *     store them in R2 as this change's before-image. Revert restores exactly
- *     these CSVs, so codes + ids survive (rename-proof, no re-mint).
+ *     snapshot CSVs (`state-export.ts` at `"snapshot"` fidelity, so the CSVs
+ *     carry `Family Code`/`Family ID`/`Guest ID`/`Event ID` and a row for every
+ *     guest-less household), and store them in R2 as this change's
+ *     before-image. Revert reconciles the halves the change saved back to these
+ *     CSVs: rows that still exist are matched by id and keep it, and a row that
+ *     has to be re-created gets a new id but keeps its claim code.
  *
  *  2. {@link pruneBeforeImages} — cap retained before-images at the most recent
  *     10 changes per wedding. Older changes keep their history ROW (the list
@@ -31,21 +33,21 @@ import { stateExportService } from "./state-export";
 export const BEFORE_IMAGE_RETENTION = 10;
 
 /**
- * Serialise the wedding's current state at FULL fidelity and store it as the
- * before-image for `importId`, returning the two R2 keys to record on the change
- * row. Runs at apply time BEFORE the write set commits — the snapshot must
- * capture the pre-change state.
+ * Serialise the wedding's current state at `"snapshot"` fidelity and store it as
+ * the before-image for `importId`, returning the two R2 keys to record on the
+ * change row. Runs at apply time BEFORE the write set commits — the snapshot
+ * must capture the pre-change state.
  */
 export function captureBeforeImage(
   importId: string,
   weddingId: string,
 ): Effect.Effect<{ eventsKey: string; guestsKey: string }, R2Error, DbService | R2Service> {
   return Effect.gen(function* () {
-    // Full fidelity: `Family Code` (publicId → codes restored, not re-minted),
-    // `Family ID`/`Guest ID`/`Event ID` (id-exact, rename-proof restore), and
-    // `Source` provenance survive the round trip.
-    const eventsCsv = yield* stateExportService.eventsCsv(weddingId, "full");
-    const guestsCsv = yield* stateExportService.guestsCsv(weddingId, "full");
+    // `Family Code` (codes restored, not re-minted), `Family ID`/`Guest ID`/
+    // `Event ID` (rows still present match by id, so a rename since is undone in
+    // place), and household-only rows so a guest-less household survives.
+    const eventsCsv = yield* stateExportService.eventsCsv(weddingId, "snapshot");
+    const guestsCsv = yield* stateExportService.guestsCsv(weddingId, "snapshot");
     return yield* storeBeforeImage(eventsCsv, guestsCsv, importId);
   }).pipe(Effect.withSpan("cire.checkpoint.captureBeforeImage"));
 }
