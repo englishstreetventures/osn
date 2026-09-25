@@ -130,20 +130,29 @@ const Quantity = Schema.Number.check(
   Schema.isBetween({ minimum: 1, maximum: MAX_QUANTITY }),
 );
 
-/**
- * Settings patch. Every field optional; an absent field is unchanged.
- *
- * `cashGiftsEnabled` is accepted here but the service is not the last word on it
- * — the route refuses to turn it on without a Stripe account that can actually
- * take charges, so the flag can never claim a capability the wedding lacks.
- */
-export const UpdateRegistrySettingsBody = Schema.Struct({
+const SettingsFields = {
   published: Schema.optional(Schema.Boolean),
   headline: Schema.optional(Schema.NullOr(Headline)),
   message: Schema.optional(Schema.NullOr(Message)),
   cashGiftsEnabled: Schema.optional(Schema.Boolean),
   shippingAddress: Schema.optional(Schema.NullOr(ShippingAddress)),
   shippingVisibleFrom: Schema.optional(Schema.NullOr(IsoDate)),
+};
+
+/**
+ * Settings patch. Every field optional; an absent field is unchanged.
+ *
+ * `cashGiftsEnabled` is accepted here but the service is not the last word on it
+ * — the route refuses to turn it on without a Stripe account that can actually
+ * take charges, so the flag can never claim a capability the wedding lacks.
+ *
+ * `expected` carries, for each field the caller is changing, the value it saw
+ * before it changed it. The service refuses the write if another organiser has
+ * saved a different value since — see `registryService.updateSettings`.
+ */
+export const UpdateRegistrySettingsBody = Schema.Struct({
+  ...SettingsFields,
+  expected: Schema.optional(Schema.Struct(SettingsFields)),
 });
 export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistrySettingsBody>;
 

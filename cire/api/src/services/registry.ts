@@ -65,6 +65,14 @@ export class StripeNotReady extends Data.TaggedError("StripeNotReady") {}
  * 409-class.
  */
 export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch") {}
+/**
+ * A settings write whose `expected` values no longer match the row: someone
+ * else saved one of the same fields since this caller read it. 409-class.
+ * Carries the row as it stands, so the caller can show what changed.
+ */
+export class SettingsChanged extends Data.TaggedError("SettingsChanged")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /** A guest asked to give money to a couple who are not taking it. 409-class. */
 export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
 /** The wedding is at its item ceiling. 409-class. */
@@ -150,7 +158,12 @@ export type RegistryContributionStatus =
 /** Which table a gift-log row came from — the discriminator the portal reads. */
 export type GiftKind = "claim" | "contribution";
 
-export interface RegistrySettingsDto {
+/**
+ * The settings row as the server reads it, Stripe account id and payouts flag
+ * included. Server-side only: the Stripe routes and the guest gates read it.
+ * Never a response body — the organiser surfaces send `RegistrySettingsDto`.
+ */
+export interface RegistrySettingsRecord {
   weddingId: string;
   published: boolean;
   headline: string | null;
@@ -161,6 +174,25 @@ export interface RegistrySettingsDto {
   stripeAccountId: string | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
+  updatedAt: number | null;
+}
+
+/**
+ * The settings as the organiser API sends them — the registry snapshot and the
+ * settings PUT. Every co-host with read access receives this, so it carries only
+ * what the settings view shows: whether an account is connected, not its id, and
+ * whether it can charge, not whether it pays out.
+ */
+export interface RegistrySettingsDto {
+  weddingId: string;
+  published: boolean;
+  headline: string | null;
+  message: string | null;
+  cashGiftsEnabled: boolean;
+  shippingAddress: string | null;
+  shippingVisibleFrom: string | null;
+  stripeConnected: boolean;
+  stripeChargesEnabled: boolean;
   updatedAt: number | null;
 }
 
@@ -252,13 +284,34 @@ export interface RegistrySnapshot {
   contributionsOtherCurrencyCount: number;
 }
 
-export interface UpdateRegistrySettingsPatch {
-  published?: boolean;
-  headline?: string | null;
-  message?: string | null;
-  cashGiftsEnabled?: boolean;
-  shippingAddress?: string | null;
-  shippingVisibleFrom?: string | null;
+/** The six fields the settings view edits. */
+export interface RegistrySettingsFields {
+  published: boolean;
+  headline: string | null;
+  message: string | null;
+  cashGiftsEnabled: boolean;
+  shippingAddress: string | null;
+  shippingVisibleFrom: string | null;
+}
+
+/** Every key of `RegistrySettingsFields`, each also a `registry_settings` column. */
+const SETTINGS_FIELDS = [
+  "published",
+  "headline",
+  "message",
+  "cashGiftsEnabled",
+  "shippingAddress",
+  "shippingVisibleFrom",
+] as const satisfies readonly (keyof RegistrySettingsFields)[];
+
+export interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFields> {
+  /**
+   * What the caller last saw for a field it is changing. A field named here is
+   * written only if the row still holds that value, or already holds the new
+   * one; otherwise the write fails `SettingsChanged` and changes nothing.
+   * Optional: a caller that leaves it out gets last-writer-wins.
+   */
+  expected?: Partial<RegistrySettingsFields>;
 }
 
 export interface CreateRegistryItemInput {
@@ -332,7 +385,7 @@ interface ItemRow {
 export const toEpochSeconds = (d: Date): number => Math.floor(d.getTime() / 1000);
 
 /** What an absent `registry_settings` row means — never opened reads as "off". */
-const defaultSettings = (weddingId: string): RegistrySettingsDto => ({
+const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   weddingId,
   published: false,
   headline: null,
@@ -346,7 +399,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsDto => ({
   updatedAt: null,
 });
 
-const toSettingsDto = (r: SettingsRow): RegistrySettingsDto => ({
+const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
   weddingId: r.weddingId,
   published: r.published,
   headline: r.headline,
@@ -358,6 +411,20 @@ const toSettingsDto = (r: SettingsRow): RegistrySettingsDto => ({
   stripeChargesEnabled: r.stripeChargesEnabled,
   stripePayoutsEnabled: r.stripePayoutsEnabled,
   updatedAt: r.updatedAt.getTime(),
+});
+
+/** The organiser-facing view of a settings record — see `RegistrySettingsDto`. */
+const toSettingsDto = (s: RegistrySettingsRecord): RegistrySettingsDto => ({
+  weddingId: s.weddingId,
+  published: s.published,
+  headline: s.headline,
+  message: s.message,
+  cashGiftsEnabled: s.cashGiftsEnabled,
+  shippingAddress: s.shippingAddress,
+  shippingVisibleFrom: s.shippingVisibleFrom,
+  stripeConnected: s.stripeAccountId !== null,
+  stripeChargesEnabled: s.stripeChargesEnabled,
+  updatedAt: s.updatedAt,
 });
 
 /** One per-currency line of a stored summary, checked rather than trusted. */
@@ -858,7 +925,9 @@ export const registryService = {
       );
 
       return {
-        settings: settingsRow ? toSettingsDto(settingsRow) : defaultSettings(weddingId),
+        settings: toSettingsDto(
+          settingsRow ? toSettingsRecord(settingsRow) : defaultSettings(weddingId),
+        ),
         items: (itemRows as ItemRow[]).map((r) => toItemDto(r, claimed.get(r.id) ?? 0)),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
@@ -1069,11 +1138,28 @@ export const registryService = {
    * session priced in anything else is converted on Stripe's terms or refused
    * outright. Turning cash gifts on while the two disagree would look fine in
    * the portal and then fail at Checkout, in front of a guest.
+   *
+   * Two organisers can have the settings open at once. `patch.expected` is how
+   * a write says what it was looking at: each field named there must still hold
+   * that value — or already hold the new one, so two people making the same
+   * change, or a retried save whose first answer was lost, both go through —
+   * or the whole write fails `SettingsChanged` and touches nothing. The check
+   * sits in the upsert's own `WHERE`, so it is one statement and cannot race.
+   * It keys on the fields' values rather than on `updated_at`, because the
+   * Stripe writers and the retention sweep also bump `updated_at` and would
+   * otherwise refuse a couple's save for a change they never made. A row that
+   * does not exist yet takes the insert arm and is not checked: an absent row
+   * reads as the defaults, and settings rows are never deleted short of the
+   * wedding itself. A caller that sends no `expected` gets last-writer-wins.
    */
   updateSettings(
     weddingId: string,
     patch: UpdateRegistrySettingsPatch,
-  ): Effect.Effect<RegistrySettingsDto, StripeNotReady | CurrencyMismatch, DbService> {
+  ): Effect.Effect<
+    RegistrySettingsDto,
+    StripeNotReady | CurrencyMismatch | SettingsChanged,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
@@ -1121,6 +1207,32 @@ export const registryService = {
         set.shippingVisibleFrom = patch.shippingVisibleFrom;
       }
 
+      // A save that changes nothing and expects nothing reads the row instead
+      // of writing it. The answer is the same, and an absent row already reads
+      // as the defaults.
+      const expectsSomething = SETTINGS_FIELDS.some(
+        (field) => patch.expected?.[field] !== undefined,
+      );
+      if (Object.keys(set).length === 1 && !expectsSomething) {
+        return toSettingsDto(yield* registryService.settingsOnly(weddingId));
+      }
+
+      // `IS` is SQLite's null-safe equality, so a field the caller saw as empty
+      // matches a NULL column. Each value is bound through its column, which is
+      // what turns a boolean into the 0/1 the column stores.
+      const unchanged: SQL[] = [];
+      for (const field of SETTINGS_FIELDS) {
+        const seen = patch.expected?.[field];
+        if (seen === undefined) continue;
+        const column = registrySettings[field];
+        const next = patch[field];
+        unchanged.push(
+          next === undefined
+            ? sql`${column} is ${sql.param(seen, column)}`
+            : sql`(${column} is ${sql.param(seen, column)} or ${column} is ${sql.param(next, column)})`,
+        );
+      }
+
       const [row] = yield* dbQuery(() =>
         db
           .insert(registrySettings)
@@ -1135,11 +1247,23 @@ export const registryService = {
             createdAt: now,
             updatedAt: now,
           })
-          .onConflictDoUpdate({ target: registrySettings.weddingId, set })
+          // `and()` of nothing is undefined, which drizzle writes as no WHERE.
+          .onConflictDoUpdate({
+            target: registrySettings.weddingId,
+            set,
+            setWhere: and(...unchanged),
+          })
           .returning()
           .all(),
       );
-      return toSettingsDto(row as SettingsRow);
+      // No row back means the conflict arm's `WHERE` refused it: the row
+      // exists and a field moved under the caller. The insert arm always
+      // returns its row.
+      if (!row) {
+        const current = yield* registryService.settingsOnly(weddingId);
+        return yield* Effect.fail(new SettingsChanged({ current: toSettingsDto(current) }));
+      }
+      return toSettingsDto(toSettingsRecord(row as SettingsRow));
     }).pipe(Effect.withSpan("cire.registry.updateSettings"));
   },
 
@@ -1151,13 +1275,13 @@ export const registryService = {
    * currency. Reading all of that to look at two Stripe booleans is the waste
    * this avoids — a caller that only needs the settings asks for the settings.
    */
-  settingsOnly(weddingId: string): Effect.Effect<RegistrySettingsDto, never, DbService> {
+  settingsOnly(weddingId: string): Effect.Effect<RegistrySettingsRecord, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
       );
-      return row ? toSettingsDto(row as SettingsRow) : defaultSettings(weddingId);
+      return row ? toSettingsRecord(row as SettingsRow) : defaultSettings(weddingId);
     }).pipe(Effect.withSpan("cire.registry.settingsOnly"));
   },
 
@@ -1181,7 +1305,7 @@ export const registryService = {
       /** Upper-case ISO, or null when Stripe has not settled on one yet. */
       defaultCurrency?: string | null;
     },
-  ): Effect.Effect<RegistrySettingsDto, never, DbService> {
+  ): Effect.Effect<RegistrySettingsRecord, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
@@ -1221,7 +1345,7 @@ export const registryService = {
           .returning()
           .all(),
       );
-      return toSettingsDto(row as SettingsRow);
+      return toSettingsRecord(row as SettingsRow);
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
   },
 
@@ -2673,7 +2797,7 @@ const toPublicItemDto = (
 function resolveVisibleRegistry(
   slug: string,
 ): Effect.Effect<
-  { weddingId: string; settings: RegistrySettingsDto; currency: string },
+  { weddingId: string; settings: RegistrySettingsRecord; currency: string },
   RegistryNotVisible,
   DbService
 > {
@@ -2707,7 +2831,7 @@ function resolveVisibleRegistry(
       { concurrency: "unbounded" },
     );
     const settings = settingsRows[0]
-      ? toSettingsDto(settingsRows[0] as SettingsRow)
+      ? toSettingsRecord(settingsRows[0] as SettingsRow)
       : defaultSettings(weddingId);
     if (!entitled || !settings.published) return yield* Effect.fail(new RegistryNotVisible());
     // Same fallback `primaryCurrency` has always used.

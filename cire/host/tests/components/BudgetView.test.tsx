@@ -57,6 +57,48 @@ describe("BudgetView", () => {
     expect(screen.getByRole("heading", { name: "Venue" })).toBeInTheDocument();
   });
 
+  it("totals each category on its own, and shows no section for an empty one", async () => {
+    const item = (id: string, category: "venue" | "catering", estimateMinor: number) => ({
+      id,
+      weddingId: "wed_1",
+      category,
+      name: `Item ${id}`,
+      estimateMinor,
+      quotedMinor: null,
+      actualMinor: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    setCachedBudget(
+      "wed_1",
+      snap({ items: [item("a", "venue", 120_000), item("b", "catering", 30_000)] }),
+    );
+    authFetch.mockReturnValue(new Promise(() => {}));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Item a");
+
+    const venue = screen.getByRole("heading", { name: "Venue" }).closest("section")!;
+    const catering = screen.getByRole("heading", { name: "Catering" }).closest("section")!;
+    expect(venue).toHaveTextContent(/est \S*1,200\.00 · spent \S*0\.00/);
+    expect(catering).toHaveTextContent(/est \S*300\.00 · spent \S*0\.00/);
+    expect(screen.queryByRole("heading", { name: "Photography" })).not.toBeInTheDocument();
+
+    // Removing a category's last item removes its section, not just its rows.
+    fireEvent.click(within(catering as HTMLElement).getByRole("button", { name: "Delete item" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Catering" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("heading", { name: "Venue" })).toBeInTheDocument();
+  });
+
+  it("says there are no items when the budget is empty", async () => {
+    setCachedBudget("wed_1", snap({ items: [] }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    expect(await screen.findByText("No budget items yet.")).toBeInTheDocument();
+  });
+
   it("hides the add-item form for a viewer (read-only)", async () => {
     setCachedBudget(
       "wed_1",
@@ -87,7 +129,7 @@ describe("BudgetView", () => {
   // reorder arrows resolving indices against the flattened item list rather than
   // their own category — would be invisible to a single-category test. DOM
   // containment, so it holds with or without the grid applied.
-  it("keeps each category's rows and reorder arrows inside their own section", async () => {
+  it("keeps each category's rows and reorder controls inside their own section", async () => {
     const item = (
       id: string,
       category: BudgetSnapshot["items"][number]["category"],
@@ -132,9 +174,9 @@ describe("BudgetView", () => {
     expect(catering.queryByText("Reception venue")).not.toBeInTheDocument();
 
     // Per-category edges, and a reorder that names only that category's ids.
-    expect(venue.getAllByRole("button", { name: "Move up" })[0]).toBeDisabled();
-    expect(catering.getAllByRole("button", { name: "Move down" })[1]).toBeDisabled();
-    fireEvent.click(catering.getAllByRole("button", { name: "Move up" })[1]!);
+    expect(venue.getByRole("button", { name: "Move Reception venue up" })).toBeDisabled();
+    expect(catering.getByRole("button", { name: "Move Cake down" })).toBeDisabled();
+    fireEvent.click(catering.getByRole("button", { name: "Move Cake up" }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/budget\/items\/reorder$/);

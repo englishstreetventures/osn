@@ -5,13 +5,14 @@ import {
   families,
   guestEvents,
   guests,
+  registrySettings,
   rsvps,
   tasks,
   weddings,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
 import { asc, eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { Miniflare } from "miniflare";
 
 import { createSessionRoutedClient, runInD1Session } from "../../src/db/d1-session";
@@ -21,6 +22,7 @@ import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { claimService } from "../../src/services/claim";
 import { applyImport } from "../../src/services/import";
+import { registryService, SettingsChanged } from "../../src/services/registry";
 import { rsvpService } from "../../src/services/rsvp";
 import { tasksService } from "../../src/services/tasks";
 
@@ -169,7 +171,16 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
-  for (const table of [rsvps, guestEvents, guests, families, events, tasks, weddings]) {
+  for (const table of [
+    rsvps,
+    guestEvents,
+    guests,
+    families,
+    events,
+    tasks,
+    registrySettings,
+    weddings,
+  ]) {
     await db.delete(table);
   }
   await seed();
@@ -500,6 +511,51 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
         .orderBy(asc(tasks.sortOrder));
       expect(rows.map((r) => r.id)).toEqual(reversed);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "registry settings: a stale expected value is refused on D1 and changes nothing",
+    async () => {
+      // The refusal rests on the upsert's `DO UPDATE ... WHERE` returning no row
+      // when the WHERE fails — a property of the engine, so it is pinned on D1
+      // as well as on bun:sqlite.
+      await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+          published: true,
+          shippingAddress: "1 Example St",
+        }),
+      );
+      await run(registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }));
+
+      const exit = await Effect.runPromiseExit(
+        registryService
+          .updateSettings(BOOTSTRAP_WEDDING_ID, {
+            shippingAddress: "2 Example St",
+            expected: { shippingAddress: "1 Example St" },
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      const error = Exit.isFailure(exit)
+        ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+        : undefined;
+      expect(error).toBeInstanceOf(SettingsChanged);
+
+      const [row] = await db
+        .select({ shippingAddress: registrySettings.shippingAddress })
+        .from(registrySettings)
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      expect(row?.shippingAddress).toBeNull();
+
+      // A matching expectation writes.
+      const saved = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+          shippingAddress: "2 Example St",
+          expected: { shippingAddress: null },
+        }),
+      );
+      expect(saved.shippingAddress).toBe("2 Example St");
     },
     MF_TIMEOUT_MS,
   );

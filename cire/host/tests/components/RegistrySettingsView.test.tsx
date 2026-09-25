@@ -68,9 +68,8 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot =>
       cashGiftsEnabled: false,
       shippingAddress: null,
       shippingVisibleFrom: null,
-      stripeAccountId: null,
+      stripeConnected: false,
       stripeChargesEnabled: false,
-      stripePayoutsEnabled: false,
       updatedAt: null,
       ...over.settings,
     },
@@ -164,12 +163,27 @@ describe("publishing", () => {
 });
 
 describe("what gets saved", () => {
-  it("sends empty copy as null, not as an empty string", async () => {
-    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+  it("sends cleared copy as null, not as an empty string", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          headline: "Our list",
+          message: "No boxes",
+          shippingAddress: "1 Example St",
+          shippingVisibleFrom: "2026-12-01",
+        } as never,
+      }),
+    );
     authFetch.mockResolvedValue(json({ settings: snapshot().settings }));
     const { container } = renderPanel();
 
     await screen.findByTestId("registry-publish");
+    for (const label of [/Heading/i, /A note above the list/i, /^Address/i]) {
+      fireEvent.input(screen.getByLabelText(label), { target: { value: "   " } });
+    }
+    fireEvent.input(screen.getByLabelText(/Hide the address until/i), { target: { value: "" } });
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
     await waitFor(() => expect(authFetch).toHaveBeenCalled());
@@ -180,6 +194,70 @@ describe("what gets saved", () => {
     expect(body.message).toBeNull();
     expect(body.shippingAddress).toBeNull();
     expect(body.shippingVisibleFrom).toBeNull();
+  });
+
+  it("sends only what was changed, with what it was before", async () => {
+    // A co-host's tab: published, with an address. They change the heading
+    // and nothing else — so publishing and the address must not be re-sent,
+    // or a tab opened an hour ago could put back what someone else withdrew.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: { published: true, shippingAddress: "1 Example St" } as never,
+      }),
+    );
+    authFetch.mockResolvedValue(json({ settings: snapshot().settings }));
+    const { container } = renderPanel();
+
+    await screen.findByTestId("registry-publish");
+    fireEvent.input(screen.getByLabelText(/Heading/i), { target: { value: "Gifts" } });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalled());
+    expect(lastBody()).toEqual({ headline: "Gifts", expected: { headline: null } });
+  });
+
+  it("compares the next save with the row the last one returned", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    authFetch.mockResolvedValueOnce(
+      json({ settings: { ...snapshot().settings, headline: "Gifts" } }),
+    );
+    const { container } = renderPanel();
+
+    await screen.findByTestId("registry-publish");
+    fireEvent.input(screen.getByLabelText(/Heading/i), { target: { value: "Gifts" } });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+
+    authFetch.mockResolvedValueOnce(
+      json({ settings: { ...snapshot().settings, headline: "Gifts", message: "No boxes" } }),
+    );
+    fireEvent.input(screen.getByLabelText(/A note above the list/i), {
+      target: { value: "No boxes" },
+    });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(2));
+    // The heading was saved already: it is not sent again with a stale guess.
+    expect(lastBody()).toEqual({ message: "No boxes", expected: { message: null } });
+  });
+
+  it("counts typing a field back to what it was as no change", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ items: [item()], settings: { headline: "Ours" } as never }),
+    );
+    authFetch.mockResolvedValue(json({ settings: snapshot().settings }));
+    const { container } = renderPanel();
+
+    await screen.findByTestId("registry-publish");
+    const heading = screen.getByLabelText(/Heading/i);
+    fireEvent.input(heading, { target: { value: "Something else" } });
+    fireEvent.input(heading, { target: { value: " Ours " } });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalled());
+    expect(lastBody()).toEqual({});
   });
 
   it("sends what the couple typed, trimmed", async () => {
@@ -213,13 +291,59 @@ describe("what gets saved", () => {
   });
 });
 
+describe("when a co-host saved first", () => {
+  it("says so, shows their change, keeps what was typed, and saves against the new row", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: { published: true, shippingAddress: "1 Example St" } as never,
+      }),
+    );
+    // Meanwhile a co-host unpublished and cleared the address.
+    const theirs = {
+      ...snapshot().settings,
+      published: false,
+      shippingAddress: null,
+    };
+    authFetch.mockResolvedValueOnce(json({ error: "settings_changed", settings: theirs }, 409));
+    const { container } = renderPanel();
+
+    await screen.findByTestId("registry-publish");
+    fireEvent.input(screen.getByLabelText(/^Address/i), { target: { value: "2 Example St" } });
+    fireEvent.input(screen.getByLabelText(/Heading/i), { target: { value: "Gifts" } });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls[0]?.[0])).toMatch(/Someone else saved these settings/);
+    // Their unpublish now shows, because this tab never touched it…
+    expect((screen.getByTestId("registry-publish") as HTMLInputElement).checked).toBe(false);
+    expect(peekCachedRegistry("wed_1")?.settings.published).toBe(false);
+    // …and what this tab typed is still there, not wiped.
+    expect((screen.getByLabelText(/^Address/i) as HTMLTextAreaElement).value).toBe("2 Example St");
+    expect((screen.getByLabelText(/Heading/i) as HTMLInputElement).value).toBe("Gifts");
+
+    // Saving again is made against the row as it now stands.
+    authFetch.mockResolvedValueOnce(
+      json({ settings: { ...theirs, shippingAddress: "2 Example St", headline: "Gifts" } }),
+    );
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(lastBody()).toEqual({
+      headline: "Gifts",
+      shippingAddress: "2 Example St",
+      expected: { headline: null, shippingAddress: null },
+    });
+  });
+});
+
 describe("money gifts", () => {
   it("cannot be switched on until Stripe can take a charge", async () => {
     setCachedRegistry(
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: false } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: false } as never,
       }),
     );
     authFetch.mockResolvedValue(
@@ -237,7 +361,7 @@ describe("money gifts", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     renderPanel();
@@ -251,7 +375,7 @@ describe("money gifts", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     authFetch.mockResolvedValue(json({ error: "stripe_not_ready" }, 409));
@@ -332,7 +456,7 @@ describe("the live Stripe read", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: false } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: false } as never,
       }),
     );
     authFetch.mockResolvedValue(
@@ -364,7 +488,7 @@ describe("the live Stripe read", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     renderPanel();
@@ -391,11 +515,13 @@ describe("what the panel says about the account", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: false } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: false } as never,
       }),
     );
     // The mount read finds nothing has changed, so the panel stays where it was.
-    authFetch.mockResolvedValue(json({ chargesEnabled: false, payoutsEnabled: false }));
+    authFetch.mockResolvedValue(
+      json({ connected: true, chargesEnabled: false, payoutsEnabled: false }),
+    );
     renderPanel();
 
     expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
@@ -414,7 +540,7 @@ describe("what the panel says about the account", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     renderPanel();
@@ -432,7 +558,7 @@ describe("checking on Stripe by hand", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     authFetch.mockResolvedValue(json({ error: "stripe_unavailable" }, 502));
@@ -451,18 +577,40 @@ describe("checking on Stripe by hand", () => {
     expect(toastSuccess).not.toHaveBeenCalled();
   });
 
+  it("asks a couple whose account Stripe no longer knows to connect one again", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+      }),
+    );
+    authFetch.mockResolvedValue(
+      json({ connected: false, chargesEnabled: false, payoutsEnabled: false }),
+    );
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
+
+    // Not "Stripe still wants something" — there is no account to finish.
+    await waitFor(() =>
+      expect(screen.getByTestId("stripe-status").textContent).toMatch(/connect a Stripe account/i),
+    );
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+  });
+
   it("re-reads Stripe after a save it refused, without a second complaint", async () => {
     setCachedRegistry(
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: true } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
     authFetch.mockImplementation((url: string) =>
       Promise.resolve(
         String(url).includes("/registry/stripe/refresh")
-          ? json({ chargesEnabled: false, payoutsEnabled: false })
+          ? json({ connected: true, chargesEnabled: false, payoutsEnabled: false })
           : json({ error: "stripe_not_ready" }, 409),
       ),
     );
@@ -494,12 +642,14 @@ describe("the one-shot live read", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeAccountId: "acct_1", stripeChargesEnabled: false } as never,
+        settings: { stripeConnected: true, stripeChargesEnabled: false } as never,
       }),
     );
     // Still not ready, so nothing about the wedding has changed between the two
     // mounts: only the spent token stops the second read.
-    authFetch.mockResolvedValue(json({ chargesEnabled: false, payoutsEnabled: false }));
+    authFetch.mockResolvedValue(
+      json({ connected: true, chargesEnabled: false, payoutsEnabled: false }),
+    );
 
     renderPanel();
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));

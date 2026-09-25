@@ -89,9 +89,8 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     cashGiftsEnabled: false,
     shippingAddress: null,
     shippingVisibleFrom: null,
-    stripeAccountId: null,
+    stripeConnected: false,
     stripeChargesEnabled: false,
-    stripePayoutsEnabled: false,
     updatedAt: null,
   },
   items: [],
@@ -694,6 +693,33 @@ describe("RegistryView — gifts received", () => {
     // "nobody gave you anything".
     expect(screen.getByText(/we deleted your guests' details/)).toBeInTheDocument();
     expect(screen.getByText(/18 gifts from your list/)).toBeInTheDocument();
+    expect(screen.getByText(/14 marked bought/)).toBeInTheDocument();
+    // The day of the sweep, not either end of the gift range.
+    expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("2026");
+    expect(screen.getByText(/we deleted your guests' details/)).toHaveTextContent("17");
+  });
+
+  it("puts the first gift's date first and the last gift's date last", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ giftSummary: summary({ firstGiftOn: "2024-12-30", lastGiftOn: "2025-01-02" }) }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(await screen.findByText(/Gifts arrived between .*2024.* and .*2025/)).toBeTruthy();
+  });
+
+  it("leaves out the list line when no gift from the list was counted", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ giftSummary: summary({ claims: { reserved: 0, purchased: 0 } }) }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    await screen.findByText("Your record of gifts");
+    expect(screen.queryByText(/from your list/)).not.toBeInTheDocument();
   });
 
   it("gives the range the gifts arrived over", async () => {

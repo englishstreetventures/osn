@@ -10,7 +10,7 @@ import {
   weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -24,6 +24,7 @@ import {
   registryService,
   RegistryItemLimitReached,
   RegistryItemNotInWedding,
+  SettingsChanged,
   StripeNotReady,
   toEpochSeconds,
 } from "../../src/services/registry";
@@ -215,6 +216,7 @@ describe("registry settings", () => {
     expect(snap.settings.published).toBe(false);
     expect(snap.settings.cashGiftsEnabled).toBe(false);
     expect(snap.settings.updatedAt).toBeNull();
+    expect(snap.settings.stripeConnected).toBe(false);
     expect(snap.items).toEqual([]);
     expect(snap.gifts).toEqual([]);
   });
@@ -240,6 +242,215 @@ describe("registry settings", () => {
     expect(second.published).toBe(true);
     expect(second.headline).toBe("Our registry");
     expect(second.message).toBe("No boxed gifts please");
+  });
+});
+
+describe("registry settings from two organisers at once", () => {
+  /** The typed error an Exit failed with, or undefined for a success or a defect. */
+  const failureOf = <A, E>(exit: Exit.Exit<A, E>): E | undefined =>
+    Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined;
+
+  /** A saved row, as both organisers loaded it. */
+  async function opened(db: Db0) {
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        published: false,
+        headline: "Our list",
+        shippingAddress: "1 Example St",
+      }),
+    );
+  }
+
+  it("writes a change whose field still holds what the caller saw", async () => {
+    const db = db0();
+    await opened(db);
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        headline: "Gifts",
+        expected: { headline: "Our list" },
+      }),
+    );
+    expect(saved.headline).toBe("Gifts");
+  });
+
+  it("refuses a change to a field someone else has saved since, and writes nothing", async () => {
+    const db = db0();
+    await opened(db);
+    // The other organiser clears the address.
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }));
+
+    // This one still sees the old address, edits it, and changes the heading too.
+    const exit = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        headline: "Gifts",
+        shippingAddress: "2 Example St",
+        expected: { headline: "Our list", shippingAddress: "1 Example St" },
+      }),
+    );
+    const error = failureOf(exit);
+    expect(error).toBeInstanceOf(SettingsChanged);
+    // The refusal carries the row as it now is, so the caller can show it.
+    if (error instanceof SettingsChanged) {
+      expect(error.current.shippingAddress).toBeNull();
+      expect(error.current.headline).toBe("Our list");
+    }
+    // Neither field moved: the refusal is the whole write, not half of it.
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.settings.shippingAddress).toBeNull();
+    expect(snap.settings.headline).toBe("Our list");
+  });
+
+  it("matches a field the caller saw as empty against a NULL column", async () => {
+    const db = db0();
+    await opened(db);
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        message: "No boxed gifts",
+        expected: { message: null },
+      }),
+    );
+    expect(saved.message).toBe("No boxed gifts");
+  });
+
+  it("compares a boolean as the 0/1 the column stores", async () => {
+    const db = db0();
+    await opened(db);
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        published: true,
+        expected: { published: false },
+      }),
+    );
+    expect(saved.published).toBe(true);
+    // A caller that still sees it unpublished, and wants it unpublished, is
+    // asking to undo a change it never saw — refused.
+    const stale = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        published: false,
+        expected: { published: false },
+      }),
+    );
+    expect(failureOf(stale)).toBeInstanceOf(SettingsChanged);
+  });
+
+  it("lets two organisers make the same change, and a retried save go through", async () => {
+    const db = db0();
+    await opened(db);
+    // One organiser publishes.
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        published: true,
+        expected: { published: false },
+      }),
+    );
+    // The other, still seeing it unpublished, publishes too — or the first
+    // retries after losing the answer. The row already holds what they want.
+    const again = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        published: true,
+        expected: { published: false },
+      }),
+    );
+    expect(again.published).toBe(true);
+  });
+
+  it("checks a field the caller only names in `expected`, without writing it", async () => {
+    const db = db0();
+    await opened(db);
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+
+    // The caller changes the heading on condition the list is still a draft.
+    const refused = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        headline: "Gifts",
+        expected: { published: false },
+      }),
+    );
+    expect(failureOf(refused)).toBeInstanceOf(SettingsChanged);
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.settings.headline).toBe("Our list");
+
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        headline: "Gifts",
+        expected: { published: true },
+      }),
+    );
+    expect(saved.headline).toBe("Gifts");
+    expect(saved.published).toBe(true);
+  });
+
+  it("answers an empty patch with the row as it stands, without writing it", async () => {
+    const db = db0();
+    await opened(db);
+    const before = db.select().from(registrySettings).all()[0]!.updatedAt;
+    const saved = await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}));
+    expect(saved.headline).toBe("Our list");
+    expect(saved.shippingAddress).toBe("1 Example St");
+    expect(db.select().from(registrySettings).all()[0]!.updatedAt).toEqual(before);
+
+    // And a wedding with no row yet gets the defaults, and still no row.
+    const fresh = db0();
+    const defaults = await ok(fresh, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}));
+    expect(defaults.published).toBe(false);
+    expect(fresh.select().from(registrySettings).all()).toHaveLength(0);
+  });
+
+  it("does not check a row that does not exist yet", async () => {
+    const db = db0();
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        headline: "Gifts",
+        expected: { headline: null },
+      }),
+    );
+    expect(saved.headline).toBe("Gifts");
+  });
+
+  it("sends the organiser a connected flag, never the account id or the payouts flag", async () => {
+    const db = db0();
+    await opened(db);
+    // No account on the row yet: not connected, on the read and on a save.
+    expect((await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID))).settings.stripeConnected).toBe(
+      false,
+    );
+    expect(
+      (await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { message: "Hi" })))
+        .stripeConnected,
+    ).toBe(false);
+
+    db.update(registrySettings)
+      .set({ stripeAccountId: "acct_live", stripeChargesEnabled: true, stripePayoutsEnabled: true })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.settings.stripeConnected).toBe(true);
+    expect(snap.settings.stripeChargesEnabled).toBe(true);
+    expect(Object.keys(snap.settings)).not.toContain("stripeAccountId");
+    expect(Object.keys(snap.settings)).not.toContain("stripePayoutsEnabled");
+
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Gifts" }),
+    );
+    expect(Object.keys(saved)).not.toContain("stripeAccountId");
+    expect(Object.keys(saved)).not.toContain("stripePayoutsEnabled");
+
+    // The server-side readers still get the whole row.
+    const record = await ok(db, registryService.settingsOnly(BOOTSTRAP_WEDDING_ID));
+    expect(record.stripeAccountId).toBe("acct_live");
   });
 });
 

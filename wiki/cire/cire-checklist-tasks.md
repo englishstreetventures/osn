@@ -5,7 +5,8 @@ related:
   - "[[index]]"
   - "[[cire-platform-plan]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-09-06
+  - "[[drag-and-drop]]"
+last-reviewed: 2026-09-25
 ---
 # Checklist / Tasks
 
@@ -87,6 +88,13 @@ layer.
 
 Viewers (403 `read_only_role`) can read tasks but cannot create, update, or
 delete them.
+
+In the portal each bucket is its own sortable list (`ChecklistView.tsx`): a
+grip to drag or to move with the arrow keys, plus move-up and move-down buttons
+for screen readers, from `@shared/sortable` through `ReorderControls.tsx`. The
+move is announced in that bucket's live region and focus stays on the moved
+task. A task never moves between buckets by dragging — that would change when
+it is due, not its order. See [[drag-and-drop]].
 
 ## Tasks store (organiser client)
 

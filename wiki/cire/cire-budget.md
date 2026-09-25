@@ -4,6 +4,7 @@ tags: [system, budget, phase-1, cire]
 related:
   - "[[cire-platform-plan]]"
   - "[[cire-checklist-tasks]]"
+  - "[[drag-and-drop]]"
   - "[[decisions/deferred-decisions]]"
 last-reviewed: 2026-09-25
 ---
@@ -64,15 +65,15 @@ All four consumers read the same enum key strings — no duplication, no drift.
 
 ### Editor writes (owner or `editor` role)
 - `POST .../budget/items` — create item (auto-increment sortOrder)
-- `PUT .../budget/items/:itemId` — update description/estimate/quoted/actual
+- `PATCH .../budget/items/:itemId` — update description/estimate/quoted/actual
 - `DELETE .../budget/items/:itemId` — remove item (deletes cascade to payments)
-- `POST .../budget/items/:itemId/reorder` — move item within category (rewrite sortOrder array)
+- `PATCH .../budget/items/reorder` — `{ category, orderedIds }`: the category's new order, written as `sortOrder` = array index. Registered before `.../items/:itemId` so the literal path wins
 - `POST .../budget/items/:itemId/payments` — add payment row
-- `PUT .../budget/items/:itemId/payments/:paymentId` — update payment label/amount/due/paid dates
+- `PATCH .../budget/items/:itemId/payments/:paymentId` — update payment label/amount/due/paid dates
 - `DELETE .../budget/items/:itemId/payments/:paymentId` — remove payment row
 
 ### Owner cap gate (owner role only)
-- `PUT /api/organiser/weddings/:weddingId/budget/cap` — update `weddings.budget_total_minor` (moved from Settings module)
+- `PUT /api/organiser/weddings/:weddingId/budget/total` — update `weddings.budget_total_minor` (moved from Settings module)
 
 **Tenancy:** `BudgetItemNotInWedding` + `PaymentNotInItem` error tags prevent cross-wedding/cross-item access.
 
@@ -100,6 +101,10 @@ Both sides use the **same precedence** — no disagreement on what "spent" means
 - **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
 - **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
 
+## Reordering items
+
+Within a category only. Each row has a grip to drag or to move with the arrow keys, plus move-up and move-down buttons for screen readers, all from `@shared/sortable` through `cire/host/src/components/ReorderControls.tsx`; the move is announced in the category's own live region and focus stays on the moved row. A move rewrites only the items whose position changed, so an open payments panel on any other row keeps what was typed in it. See [[drag-and-drop]].
+
 ## Cap Moved Out of Settings
 
 Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settings tab.
@@ -117,4 +122,4 @@ The following are **intentionally NOT implemented** in v1; tracked in `[[decisio
 - **Multi-currency** — v1 accepts `wedding.currency` only; Phase 3 optional v2 adds display-only `original_currency` + `original_amount_minor` for reference (weddings span countries, but the couple budgets in one currency they think in)
 - **Recurring payments** — v1 supports due/paid snapshots; automated recurring series deferred (Phase 4 candidate)
 - **Payment reminders** — no outbound email/SMS alerts on due dates (Phase 4: comms automation)
-- **Cross-category drag-reorder** — v1 sorts within category only; full cross-category reorder (UX: drag item to other section) deferred
+- **Cross-category drag-reorder** — items reorder within their category only; dragging an item to another category (a change of category, not of order) is deferred

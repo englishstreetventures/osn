@@ -36,6 +36,7 @@ import { linkPreviewService } from "../services/link-preview";
 import type { LinkPreviewOptions } from "../services/link-preview";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService } from "../services/registry";
+import type { RegistrySettingsDto } from "../services/registry";
 import { registryImageService } from "../services/registry-image";
 import type { RegistryImageError } from "../services/registry-image";
 
@@ -65,6 +66,14 @@ const conflict = (set: { status?: number | string }, error: string) =>
   Effect.sync(() => {
     set.status = 409;
     return { error };
+  });
+
+/** 409 `settings_changed`, with the row as it now stands so the caller can
+ *  show what the other organiser saved. */
+const settingsChanged = (set: { status?: number | string }, settings: RegistrySettingsDto) =>
+  Effect.sync(() => {
+    set.status = 409;
+    return { error: "settings_changed", settings };
   });
 
 const badRequestCode = (set: { status?: number | string }, error: string) =>
@@ -236,6 +245,7 @@ export const createRegistryWriteRoutes = (
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("StripeNotReady", () => conflict(set, "stripe_not_ready")),
                 Effect.catchTag("CurrencyMismatch", () => conflict(set, "currency_mismatch")),
+                Effect.catchTag("SettingsChanged", (e) => settingsChanged(set, e.current)),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),
               ),

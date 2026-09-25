@@ -4,10 +4,13 @@ tags: [architecture, organiser, frontend, accessibility]
 related:
   - "[[index]]"
   - "[[cire-guest-event-editor]]"
+  - "[[cire-registry]]"
+  - "[[cire-budget]]"
+  - "[[cire-checklist-tasks]]"
   - "[[monorepo-structure]]"
   - "[[toast]]"
   - "[[component-lab]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-25
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -265,16 +268,33 @@ size), and three tests pin it. A bench would have caught it in a second.
 
 ## Scope + open follow-ups
 
-Current adopters:
+Current adopters, all in `@cire/host`:
 
 - **Schedule → Edit** (`EventsEditor`) — see `[[cire-guest-event-editor]]` E7.
+- **Gift list** (`RegistryView`) — one flat list of up to 500 rows, via `registry/items/reorder`.
+- **Checklist** (`ChecklistView`) — one list per lead-time bucket, via `tasks/reorder`.
+- **Budget** (`BudgetView`) — one list per category, via `budget/items/reorder`.
 
-Still on arrow buttons, and now cheap to convert — the keyboard path comes free,
-so each is a UX decision rather than an accessibility project:
+The last three draw their grip and screen-reader move buttons through
+`cire/host/src/components/ReorderControls.tsx`; `ReorderControls.browser.test.tsx`
+mounts it in a narrow flex row beside a greedy sibling and measures the 24 px
+floor.
 
-- `ChecklistView` — tasks within a lead-time bucket, persisted via `tasks/reorder`.
-- `BudgetView` — items within a category, via `budget/items/reorder`.
-- `RegistryView` — a single flat list of up to 500 rows, via `registry/items/reorder`.
-  Note REG-P-W1: it rewrites only the rows whose position actually changed, because
-  a blanket `{ ...it }` tears down every row and loses an open inline editor's caret.
-  Any drag adoption must preserve that.
+Two rules every consumer follows, both found converting those three:
+
+- **The `createSortableList` must outlive its rows.** It holds the grips focus
+  returns to and the announcement signal the live region reads. Create it once per
+  list — per bucket inside a `<For>` over the fixed bucket array, never inside a
+  `<For>` over a memo that rebuilds its group objects on every write, which
+  re-creates the section, the list and the live region on every move.
+- **A move rewrites only the rows whose stored `sortOrder` changes.** `<For>`
+  keys by object identity, so a blanket `{ ...row }` rebuilds every row and loses
+  whatever is open in them — an inline editor's caret, a half-typed payment. A
+  delete leaves a gap in the stored order (nothing renumbers on delete), so the
+  first move after one rewrites every row past the gap; the reorder then stores a
+  dense order again. The moved rows themselves are rebuilt, which is fine: `move` calls `onMove` (a synchronous cache
+  write, so a synchronous render) before it focuses the grip, and the new grip has
+  registered itself by then.
+
+A failed save calls `clearAnnouncement()` before reloading the old order, so the
+live region does not go on asserting a move that was undone.

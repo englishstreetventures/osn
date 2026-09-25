@@ -9,7 +9,7 @@ related:
   - "[[cire-consent]]"
   - "[[stripe-webhooks]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-25
 ---
 
 # Gift registry
@@ -388,7 +388,7 @@ The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the 
 
 **`lib/registry-store.ts`** is the vendors snapshot cache in the same shape: one `GET /registry` per wedding, an inflight map so two mounts share a request, and `invalidateRegistry` on any write. Writes mutate the cached snapshot rather than refetching, which is what makes the reorder and the thank-you toggle feel instant.
 
-**Reorder is buttons, not drag.** ↑/↓ per row, optimistic splice, then `PATCH .../items/reorder` with the full `orderedIds`. A gift list only a mouse can reorder is not one everyone can reorder — which used to make drag expensive here, because the old library supplied no keyboard path. `@shared/sortable`'s `createSortableList` now does (see [[drag-and-drop]]), so adopting drag is a UX decision rather than an accessibility project. Note REG-P-W1 if you take it on: reordering must rewrite only the rows whose position changed, or all up-to-500 rows tear down and an open inline editor loses its caret.
+**Reorder is drag and keyboard.** Each row has a grip to drag or to move with the arrow keys, and move-up and move-down buttons for screen readers, from `@shared/sortable` through `ReorderControls.tsx` (see [[drag-and-drop]]). A move is optimistic, then `PATCH .../items/reorder` with the full `orderedIds`; focus stays on the moved row's grip, the new position is announced, and a failed save withdraws the announcement before reloading. A move rewrites only the rows whose stored `sortOrder` changes: `<For>` keys by object identity, so rewriting all up-to-500 rows would tear down an open inline editor on a row that did not move.
 
 **Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds to the currency's own exponent; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A foreign-currency gift renders **as given** as the headline with the snapshotted primary equivalent underneath, and `contributionsPrimaryMinor` is labelled approximate on screen, because it is a sum of per-day rates and reading it as an exact balance is the mistake worth pre-empting.
 
@@ -407,6 +407,10 @@ Candidates are filtered to `https:` **again in the browser** before any of them 
 `RegistrySettingsView` is the registry module's third sub-tab, beside the gift list and the gifts received. It holds the four decisions the guest surface had been reading with nowhere to make them — publish, copy, shipping address (and its embargo date), money gifts — plus Stripe onboarding.
 
 **One snapshot, shared with the list.** It reads the same cached `RegistrySnapshot`, so moving between sub-tabs costs no fetch, and a save patches the settings row in place rather than invalidating the whole thing.
+
+**What the snapshot says about Stripe.** Every co-host with read access receives the settings, so they carry `stripeConnected` and `stripeChargesEnabled` and nothing else from Stripe — not the account id, not the payouts flag. The server keeps the full row (`RegistrySettingsRecord` in `services/registry.ts`) for the Stripe routes and the guest gates; only the owner-only `/stripe/*` routes also report the payouts flag.
+
+**Two organisers, one row.** A save sends only the fields the couple changed since the form was filled, each with `expected` — the value they saw before changing it. The service writes a field only if the row still holds that value or already holds the new one, in the upsert's own `WHERE`, so a tab left open for an hour cannot re-publish a list or restore an address a co-host withdrew, and a change to a field someone else has since saved is refused with 409 `settings_changed` carrying the row as it stands. The panel then shows the other organiser's values for every field this tab did not touch, keeps what was typed, and makes the current row the base, so saving again is a choice made with the other change in view. The check keys on field values rather than `updated_at`, because the Stripe writers and the retention sweep also move `updated_at`. `expected` is optional on the wire: a caller that leaves it out still gets last-writer-wins.
 
 **Two roles, one visible line.** The tab is `edit`-gated, so a read-only viewer never reaches it; everything on it is `weddingEditor` at the API **except** connecting the Stripe account, which is `weddingOwner`. An editor still sees that panel, with the reason — a co-host who wonders why money gifts are off gets an answer rather than a missing section. The Connect button is `aria-disabled`, not `disabled`, and that is the point: a `disabled` button leaves the tab order and a screen reader in forms mode skips it, taking the explanation out of reach of exactly the person asking for it. It stays focusable, `connectStripe()` refuses on `canManage`, and the owner-only route refuses behind that (C-L2).
 

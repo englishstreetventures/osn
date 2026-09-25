@@ -24,9 +24,10 @@ export interface RegistrySettings {
   cashGiftsEnabled: boolean;
   shippingAddress: string | null;
   shippingVisibleFrom: string | null;
-  stripeAccountId: string | null;
+  /** Whether the wedding has a Stripe account. The account id itself never
+   *  reaches the portal. */
+  stripeConnected: boolean;
   stripeChargesEnabled: boolean;
-  stripePayoutsEnabled: boolean;
   updatedAt: number | null;
 }
 

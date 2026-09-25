@@ -54,7 +54,7 @@ describe("ChecklistView", () => {
   // </section> or a <For> closed inside the wrong element would put one bucket's
   // rows inside another's. Everything here asserts DOM containment, which holds
   // whether or not the environment applies the grid.
-  it("keeps each bucket's rows and reorder arrows inside their own section", async () => {
+  it("keeps each bucket's rows and reorder controls inside their own section", async () => {
     setCachedTasks("wed_1", [
       row({ id: "a", title: "Book venue", timeframeBucket: "12m", sortOrder: 0 }),
       row({ id: "b", title: "Draft guest list", timeframeBucket: "12m", sortOrder: 1 }),
@@ -77,10 +77,10 @@ describe("ChecklistView", () => {
 
     // The disabled edges are per bucket, not across the flattened list: each
     // bucket's first row can't move up and its last can't move down.
-    expect(twelve.getAllByRole("button", { name: "Move up" })[0]).toBeDisabled();
-    expect(twelve.getAllByRole("button", { name: "Move down" })[1]).toBeDisabled();
-    expect(six.getAllByRole("button", { name: "Move up" })[0]).toBeDisabled();
-    expect(six.getAllByRole("button", { name: "Move down" })[1]).toBeDisabled();
+    expect(twelve.getByRole("button", { name: "Move Book venue up" })).toBeDisabled();
+    expect(twelve.getByRole("button", { name: "Move Draft guest list down" })).toBeDisabled();
+    expect(six.getByRole("button", { name: "Move Send save-the-dates up" })).toBeDisabled();
+    expect(six.getByRole("button", { name: "Move Book the band down" })).toBeDisabled();
   });
 
   it("reorders within the clicked bucket only", async () => {
@@ -96,7 +96,7 @@ describe("ChecklistView", () => {
 
     const six = within(screen.getByRole("heading", { name: "6 months out" }).closest("section")!);
     // Move the SECOND row of the 6-month bucket up.
-    fireEvent.click(six.getAllByRole("button", { name: "Move up" })[1]!);
+    fireEvent.click(six.getByRole("button", { name: "Move Book the band up" }));
 
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [, init] = authFetch.mock.calls[0]!;

@@ -1,11 +1,22 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import {
+  closestCenter,
+  createSortable,
+  createSortableList,
+  DragDropProvider,
+  DragDropSensors,
+  type Id,
+  maybeTransformStyle,
+  SortableProvider,
+  useDragDropContext,
+} from "@shared/sortable";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
@@ -23,6 +34,7 @@ import {
   stillWanted,
 } from "../lib/registry-store";
 import RegistryImageField from "./RegistryImageField";
+import ReorderControls from "./ReorderControls";
 interface RegistryViewProps {
   weddingId: string;
   /** Which sub-view this instance is: the gift list the couple authors, or the
@@ -208,6 +220,15 @@ export default function RegistryView(props: RegistryViewProps) {
   // replaced by an unrelated write (REG-P-I2).
   const gifts = createMemo(() => snapshot()?.gifts ?? []);
 
+  /** The list's ids in display order — what the sortable list and a drop resolve against. */
+  const itemIds = createMemo(() => items().map((it) => it.id));
+  /** Title by id, for the grip labels and move announcements. A map rather than
+   *  a `find` per label: the list runs to 500 rows. */
+  const titleById = createMemo(() => new Map(items().map((it) => [it.id, it.title])));
+  /** Its own memo so a row's move controls re-run when the length changes, not
+   *  on every write to the list. */
+  const itemCount = createMemo(() => items().length);
+
   // ── Add item ──────────────────────────────────────────────────────────────
   const addItem = async (e: Event) => {
     e.preventDefault();
@@ -359,27 +380,24 @@ export default function RegistryView(props: RegistryViewProps) {
   };
 
   // ── Reorder ───────────────────────────────────────────────────────────────
-  // Arrow buttons, not drag: the same pattern `ChecklistView`/`BudgetView` use,
-  // and the one that already works from a keyboard. Adopting drag here is now
-  // cheap — `@shared/sortable`'s `createSortableList` supplies the whole keyboard
-  // and screen-reader path — but it is a UX change, so it is its own issue.
-  // sensor and no announcements, so adopting it here would mean re-supplying the
-  // whole keyboard path by hand — see `wiki/shared/drag-and-drop.md`.
-  const move = async (index: number, delta: -1 | 1) => {
+  // Drag the grip, or use the keyboard: `createSortableList` owns the arrow
+  // keys, the screen-reader move buttons, putting focus back on the moved row
+  // and announcing where it landed. `from`/`to` can be several rows apart after
+  // a drag.
+  const move = async (from: number, to: number) => {
     const ordered = items();
-    const target = index + delta;
-    if (target < 0 || target >= ordered.length) return;
+    if (from === to || to < 0 || to >= ordered.length) return;
 
     const reordered = [...ordered];
-    const [moved] = reordered.splice(index, 1);
-    reordered.splice(target, 0, moved!);
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved!);
     const orderedIds = reordered.map((it) => it.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
-    // Rewrite ONLY the rows whose position actually changed, and hand every
+    // Rewrite ONLY the rows whose stored `sortOrder` changes, and hand every
     // other row back by reference. `<For>` reconciles by item identity, so a
     // blanket `{ ...it }` would tear down and rebuild all up-to-500 rows on
-    // every arrow press — losing the inputs and the caret of an inline editor
-    // left open below the moved row (REG-P-W1). `items()` re-sorts regardless.
+    // every move — losing the inputs and the caret of an inline editor left
+    // open on a row that did not move. `items()` re-sorts regardless.
     patchSnap((s) => ({
       ...s,
       items: s.items.map((it) => {
@@ -387,7 +405,6 @@ export default function RegistryView(props: RegistryViewProps) {
         return next === it.sortOrder ? it : { ...it, sortOrder: next };
       }),
     }));
-    haptic("commit");
     try {
       const res = await authFetch(`${itemsUrl()}/reorder`, {
         method: "PATCH",
@@ -399,9 +416,22 @@ export default function RegistryView(props: RegistryViewProps) {
     } catch {
       haptic("reject");
       setError("Couldn't save the new order.");
+      // The reload puts the old order back, so the announcement of the move
+      // would now be false.
+      reorder.clearAnnouncement();
       void reload();
     }
   };
+
+  const reorder = createSortableList({
+    ids: itemIds,
+    // Untracked: an edit replaces the item object, which rebuilds its row, so a
+    // row's title never changes under it and its label need not follow the map.
+    labelFor: (id: Id) => untrack(() => titleById().get(String(id))) ?? "gift",
+    noun: "gift",
+    onMove: (from, to) => void move(from, to),
+    onPhase: (phase) => haptic(phase),
+  });
 
   // ── Gift log ──────────────────────────────────────────────────────────────
   /** Who a gift is from. The guest's own `displayName` when they gave one, the
@@ -437,6 +467,23 @@ export default function RegistryView(props: RegistryViewProps) {
       day: "numeric",
       timeZone: "UTC",
     });
+
+  /**
+   * Everything the summary band derives, worked out once per summary. Below
+   * `giftSummary` and `summaryDate` because `createMemo` runs at once, and a
+   * memo above a `const` it reads would throw at start-up.
+   */
+  const summaryBand = createMemo(() => {
+    const summary = giftSummary();
+    if (!summary) return null;
+    return {
+      summary,
+      sweptOn: summaryDate(summary.sweptOn),
+      firstGiftOn: summaryDate(summary.firstGiftOn),
+      lastGiftOn: summaryDate(summary.lastGiftOn),
+      claimsTotal: summary.claims.reserved + summary.claims.purchased,
+    };
+  });
 
   /** The two money lines a gift renders as. Foreign-currency gifts show the
    *  as-given amount as the headline with the primary equivalent underneath;
@@ -618,31 +665,54 @@ export default function RegistryView(props: RegistryViewProps) {
           when={items().length > 0}
           fallback={<p class="text-text-muted text-ui-sm italic">No gifts on the list yet.</p>}
         >
-          <ul class="flex flex-col gap-1">
-            <For each={items()}>
-              {(item, i) => (
-                <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
-                  <div class="flex flex-wrap items-center gap-3">
-                    <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
-                      {item.title}
-                    </span>
-                    <Show when={item.category}>
-                      <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                        {item.category}
-                      </span>
-                    </Show>
-                    <Show when={item.priceMinor != null}>
-                      <span class="text-text text-ui-sm">
-                        {formatMinor(item.priceMinor!, currency())}
-                      </span>
-                    </Show>
-                    {/* Claimed-vs-wanted, so the couple can see what is still
+          <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
+            <DragDropSensors />
+            <ul class="flex flex-col gap-1" data-testid="registry-items">
+              <SortableProvider ids={itemIds()}>
+                <For each={items()}>
+                  {(item, i) => {
+                    const sortable = createSortable(item.id);
+                    // Non-null: the row only renders inside the DragDropProvider above.
+                    const [dndState] = useDragDropContext()!;
+                    const sortableItem = reorder.item(item.id, i, itemCount);
+                    return (
+                      <li
+                        ref={sortable.ref}
+                        // `ref` registers the row without moving it, so the row paints
+                        // its own drag offset. `transform` is an accessor — call it.
+                        style={maybeTransformStyle(sortable.transform())}
+                        class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                        classList={{
+                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                            sortable.isActiveDraggable(),
+                          "transition-transform":
+                            !!dndState.active().draggable && !sortable.isActiveDraggable(),
+                        }}
+                      >
+                        <div class="flex flex-wrap items-center gap-3">
+                          <Show when={props.canEdit}>
+                            <ReorderControls sortable={sortable} item={sortableItem} />
+                          </Show>
+                          <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
+                            {item.title}
+                          </span>
+                          <Show when={item.category}>
+                            <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
+                              {item.category}
+                            </span>
+                          </Show>
+                          <Show when={item.priceMinor != null}>
+                            <span class="text-text text-ui-sm">
+                              {formatMinor(item.priceMinor!, currency())}
+                            </span>
+                          </Show>
+                          {/* Claimed-vs-wanted, so the couple can see what is still
                         open without reading the gift log. */}
-                    <span class="text-text-muted text-ui-sm">
-                      {item.quantityClaimed} of {item.quantityWanted} claimed
-                      {stillWanted(item) === 0 ? " · all taken" : ""}
-                    </span>
-                    {/* Scheme-checked at the render site, not merely at write
+                          <span class="text-text-muted text-ui-sm">
+                            {item.quantityClaimed} of {item.quantityWanted} claimed
+                            {stillWanted(item) === 0 ? " · all taken" : ""}
+                          </span>
+                          {/* Scheme-checked at the render site, not merely at write
                         time (precedent CON-S-L2: `vendor.privacyUrl` reached an
                         `href` with no check). The API schema already refuses
                         anything but `https:`, but a row can also arrive from a
@@ -652,161 +722,154 @@ export default function RegistryView(props: RegistryViewProps) {
                         The `aria-label` names the item, because a screen-reader
                         user listing the page's links otherwise hears "Link,
                         link, link" with nothing to tell them apart (C-L2). */}
-                    <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
-                      <a
-                        href={item.externalUrl!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Open the shop page for ${item.title}`}
-                        class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                      >
-                        Link
-                      </a>
-                    </Show>
+                          <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
+                            <a
+                              href={item.externalUrl!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`Open the shop page for ${item.title}`}
+                              class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
+                            >
+                              Link
+                            </a>
+                          </Show>
 
-                    <Show when={props.canEdit}>
-                      <div class="flex items-center gap-2">
-                        <Button
-                          variant="bare"
-                          type="button"
-                          aria-label={`Move ${item.title} up`}
-                          disabled={i() === 0}
-                          onClick={() => move(i(), -1)}
-                        >
-                          ↑
-                        </Button>
-                        <Button
-                          variant="bare"
-                          type="button"
-                          aria-label={`Move ${item.title} down`}
-                          disabled={i() === items().length - 1}
-                          onClick={() => move(i(), 1)}
-                        >
-                          ↓
-                        </Button>
-                        <Button
-                          variant="link"
-                          type="button"
-                          aria-label={`Edit ${item.title}`}
-                          onClick={() => (editingId() === item.id ? closeEdit() : openEdit(item))}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="bareDanger"
-                          type="button"
-                          aria-label={`Remove ${item.title}`}
-                          onClick={() => deleteItem(item)}
-                        >
-                          ✕
-                        </Button>
-                      </div>
-                    </Show>
-                  </div>
+                          <Show when={props.canEdit}>
+                            <div class="flex items-center gap-2">
+                              <Button
+                                variant="link"
+                                type="button"
+                                aria-label={`Edit ${item.title}`}
+                                onClick={() =>
+                                  editingId() === item.id ? closeEdit() : openEdit(item)
+                                }
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="bareDanger"
+                                type="button"
+                                aria-label={`Remove ${item.title}`}
+                                onClick={() => deleteItem(item)}
+                              >
+                                ✕
+                              </Button>
+                            </div>
+                          </Show>
+                        </div>
 
-                  <Show when={item.description}>
-                    <p class="text-text-muted text-ui-sm">{item.description}</p>
-                  </Show>
+                        <Show when={item.description}>
+                          <p class="text-text-muted text-ui-sm">{item.description}</p>
+                        </Show>
 
-                  {/* Inline editor */}
-                  <Show when={editingId() === item.id}>
-                    <form
-                      onSubmit={(e) => saveEdit(e, item)}
-                      class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
-                    >
-                      <Field label="Gift" class="min-w-48 flex-1">
-                        {(field) => (
-                          <Input
-                            {...field}
-                            size="sm"
-                            value={editTitle()}
-                            onInput={(e) => setEditTitle(e.currentTarget.value)}
-                          />
-                        )}
-                      </Field>
-                      <Field label="Price" class="w-28">
-                        {(field) => (
-                          <Input
-                            {...field}
-                            size="sm"
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={editPrice()}
-                            onInput={(e) => setEditPrice(e.currentTarget.value)}
-                          />
-                        )}
-                      </Field>
-                      <Field label="How many" class="w-20">
-                        {(field) => (
-                          <Input
-                            {...field}
-                            size="sm"
-                            type="number"
-                            min={MIN_QUANTITY}
-                            max={MAX_QUANTITY}
-                            step="1"
-                            value={editQuantity()}
-                            onInput={(e) => setEditQuantity(e.currentTarget.value)}
-                          />
-                        )}
-                      </Field>
-                      <Field label="Category" class="w-32">
-                        {(field) => (
-                          <Input
-                            {...field}
-                            size="sm"
-                            value={editCategory()}
-                            onInput={(e) => setEditCategory(e.currentTarget.value)}
-                            placeholder="Kitchen"
-                          />
-                        )}
-                      </Field>
-                      <Field label="Link" class="w-56">
-                        {(field) => (
-                          <Input
-                            {...field}
-                            size="sm"
-                            type="url"
-                            value={editUrl()}
-                            onInput={(e) => setEditUrl(e.currentTarget.value)}
-                            placeholder="https://…"
-                          />
-                        )}
-                      </Field>
-                      <Field label="Description" class="min-w-56 flex-1">
-                        {(field) => (
-                          <Textarea
-                            {...field}
-                            size="sm"
-                            rows={2}
-                            value={editDescription()}
-                            onInput={(e) => setEditDescription(e.currentTarget.value)}
-                          />
-                        )}
-                      </Field>
-                      <div class="w-full">
-                        <RegistryImageField
-                          weddingId={props.weddingId}
-                          imageKey={editImageKey()}
-                          onChange={setEditImageKey}
-                          idPrefix={`registry-edit-${item.id}`}
-                        />
-                      </div>
-                      <div class="flex items-end gap-2">
-                        <Button type="submit" variant="primary" size="sm">
-                          Save
-                        </Button>
-                        <Button variant="quiet" size="sm" onClick={closeEdit}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
+                        {/* Inline editor */}
+                        <Show when={editingId() === item.id}>
+                          <form
+                            onSubmit={(e) => saveEdit(e, item)}
+                            class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
+                          >
+                            <Field label="Gift" class="min-w-48 flex-1">
+                              {(field) => (
+                                <Input
+                                  {...field}
+                                  size="sm"
+                                  value={editTitle()}
+                                  onInput={(e) => setEditTitle(e.currentTarget.value)}
+                                />
+                              )}
+                            </Field>
+                            <Field label="Price" class="w-28">
+                              {(field) => (
+                                <Input
+                                  {...field}
+                                  size="sm"
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={editPrice()}
+                                  onInput={(e) => setEditPrice(e.currentTarget.value)}
+                                />
+                              )}
+                            </Field>
+                            <Field label="How many" class="w-20">
+                              {(field) => (
+                                <Input
+                                  {...field}
+                                  size="sm"
+                                  type="number"
+                                  min={MIN_QUANTITY}
+                                  max={MAX_QUANTITY}
+                                  step="1"
+                                  value={editQuantity()}
+                                  onInput={(e) => setEditQuantity(e.currentTarget.value)}
+                                />
+                              )}
+                            </Field>
+                            <Field label="Category" class="w-32">
+                              {(field) => (
+                                <Input
+                                  {...field}
+                                  size="sm"
+                                  value={editCategory()}
+                                  onInput={(e) => setEditCategory(e.currentTarget.value)}
+                                  placeholder="Kitchen"
+                                />
+                              )}
+                            </Field>
+                            <Field label="Link" class="w-56">
+                              {(field) => (
+                                <Input
+                                  {...field}
+                                  size="sm"
+                                  type="url"
+                                  value={editUrl()}
+                                  onInput={(e) => setEditUrl(e.currentTarget.value)}
+                                  placeholder="https://…"
+                                />
+                              )}
+                            </Field>
+                            <Field label="Description" class="min-w-56 flex-1">
+                              {(field) => (
+                                <Textarea
+                                  {...field}
+                                  size="sm"
+                                  rows={2}
+                                  value={editDescription()}
+                                  onInput={(e) => setEditDescription(e.currentTarget.value)}
+                                />
+                              )}
+                            </Field>
+                            <div class="w-full">
+                              <RegistryImageField
+                                weddingId={props.weddingId}
+                                imageKey={editImageKey()}
+                                onChange={setEditImageKey}
+                                idPrefix={`registry-edit-${item.id}`}
+                              />
+                            </div>
+                            <div class="flex items-end gap-2">
+                              <Button type="submit" variant="primary" size="sm">
+                                Save
+                              </Button>
+                              <Button variant="quiet" size="sm" onClick={closeEdit}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </form>
+                        </Show>
+                      </li>
+                    );
+                  }}
+                </For>
+              </SortableProvider>
+            </ul>
+          </DragDropProvider>
+          <Show when={props.canEdit}>
+            {/* The instructions every grip points at, and where a move is
+                announced. Ids are generated per list. */}
+            <p {...reorder.hintProps()}>{reorder.hintText}</p>
+            <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+          </Show>
         </Show>
       </Show>
 
@@ -818,46 +881,45 @@ export default function RegistryView(props: RegistryViewProps) {
             below, it is what stands INSTEAD of it. The copy has to say that
             outright, or a couple reads an empty log as an empty guest list.
             Rendered ONLY when a summary exists, i.e. only after the sweep. */}
-        <Show when={giftSummary()}>
-          {(summary) => (
+        <Show when={summaryBand()}>
+          {(band) => (
             <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
               <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                 Your record of gifts
               </span>
               <p class="text-text-muted text-ui-sm">
-                On {summaryDate(summary().sweptOn)}, a year after your wedding, we deleted your
-                guests' details — and the gifts went with them. Who gave what, and the notes they
-                wrote, are gone. These totals are what we kept.
+                On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
+                and the gifts went with them. Who gave what, and the notes they wrote, are gone.
+                These totals are what we kept.
               </p>
-              <Show when={summary().claims.reserved + summary().claims.purchased > 0}>
+              <Show when={band().claimsTotal > 0}>
                 <span class="text-text text-ui-md">
-                  {plural(summary().claims.reserved + summary().claims.purchased, "gift", "gifts")}{" "}
-                  from your list
+                  {plural(band().claimsTotal, "gift", "gifts")} from your list
                   <span class="text-text-muted text-ui-sm">
                     {" "}
-                    · {summary().claims.purchased} marked bought
+                    · {band().summary.claims.purchased} marked bought
                   </span>
                 </span>
               </Show>
-              <Show when={summary().contributions.count > 0}>
+              <Show when={band().summary.contributions.count > 0}>
                 {/* Per currency, side by side, never added together: a total
                     that re-values itself is not a record of anything, and
                     there is nothing left here to re-derive a rate from. */}
                 <span class="text-text text-ui-md">
-                  {summary()
-                    .contributions.totals.map((total) =>
+                  {band()
+                    .summary.contributions.totals.map((total) =>
                       formatMinor(total.amountMinor, total.currency),
                     )
                     .join(" · ")}
                   <span class="text-text-muted text-ui-sm">
                     {" "}
-                    · {plural(summary().contributions.count, "cash gift", "cash gifts")}
+                    · {plural(band().summary.contributions.count, "cash gift", "cash gifts")}
                   </span>
                 </span>
               </Show>
               <span class="text-text-muted text-ui-sm">
-                Gifts arrived between {summaryDate(summary().firstGiftOn)} and{" "}
-                {summaryDate(summary().lastGiftOn)}. Each currency is totalled as it was given.
+                Gifts arrived between {band().firstGiftOn} and {band().lastGiftOn}. Each currency is
+                totalled as it was given.
               </span>
             </div>
           )}

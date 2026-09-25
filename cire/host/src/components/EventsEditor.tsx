@@ -102,13 +102,9 @@ export default function EventsEditor(props: { weddingId: string }) {
 
   /**
    * The whole keyboard / screen-reader / announcement layer, owned by
-   * `@shared/sortable`.
-   *
-   * It used to live here — about 120 lines of it — because the drag library
-   * supplied none of it: no keyboard sensor, no announcements. Every list that
-   * wanted dragging had to re-derive the same five obligations, which is why
-   * `ChecklistView`, `BudgetView` and `RegistryView` are still on arrow buttons.
-   * `createSortableList` documents and tests all five; see its docblock.
+   * `@shared/sortable`, as it is for every sortable list in the portal.
+   * `createSortableList` documents and tests the five obligations it carries;
+   * see its docblock.
    *
    * Haptics stay here. They are the portal's vocabulary, not the package's, so
    * the package reports phases and this decides what they feel like.

@@ -55,6 +55,31 @@ interface RegistrySettingsViewProps {
 /** What the money panel says about the connected account, in one word. */
 type StripeState = "none" | "incomplete" | "ready";
 
+/** The six fields this form edits, in the shape the server stores them. */
+type FormFields = Pick<
+  RegistrySettings,
+  | "published"
+  | "headline"
+  | "message"
+  | "cashGiftsEnabled"
+  | "shippingAddress"
+  | "shippingVisibleFrom"
+>;
+
+const FORM_FIELDS = [
+  "published",
+  "headline",
+  "message",
+  "cashGiftsEnabled",
+  "shippingAddress",
+  "shippingVisibleFrom",
+] as const satisfies readonly (keyof FormFields)[];
+
+/** Empty means "I wrote nothing", which is null on the wire, not "" — the
+ *  guest surface reads null as "use the built-in default", and an empty string
+ *  would beat it. */
+const textOrNull = (value: string): string | null => (value.trim() === "" ? null : value.trim());
+
 /**
  * Stripe's own hosted onboarding, and nowhere else.
  *
@@ -83,6 +108,12 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const [checking, setChecking] = createSignal(false);
   /** `null` until the first snapshot lands; the form seeds from it once. */
   const [seeded, setSeeded] = createSignal(false);
+  /**
+   * The settings the form was last seeded from. A save sends only the fields
+   * that differ from these, and names what it saw for each, so a tab left open
+   * while a co-host saves cannot put back what they changed.
+   */
+  const [base, setBase] = createSignal<RegistrySettings | null>(null);
 
   const [published, setPublished] = createSignal(false);
   const [headline, setHeadline] = createSignal("");
@@ -105,26 +136,51 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
   const stripeState = createMemo<StripeState>(() => {
     const s = settings();
-    if (!s?.stripeAccountId) return "none";
+    if (!s?.stripeConnected) return "none";
     return s.stripeChargesEnabled ? "ready" : "incomplete";
   });
 
   /**
-   * Seven signals, one update. Both callers reach this past an `await`, which
-   * is outside Solid's automatic batching, so without `batch` the seven setters
-   * are seven separate renders of the whole form — once on load and again after
-   * every save.
+   * Fill the form from a settings row and make that row the new base, in one
+   * update. Every caller reaches this past an `await`, which is outside Solid's
+   * automatic batching, so without `batch` the setters are that many separate
+   * renders of the whole form.
+   *
+   * `keep` names fields the couple has typed into and that must stay as typed:
+   * after a refused save the form takes the other organiser's values for
+   * everything else, and the couple's own edits survive to be saved again.
    */
-  function seed(s: RegistrySettings): void {
+  function seed(s: RegistrySettings, keep: ReadonlySet<keyof FormFields> = new Set()): void {
     batch(() => {
-      setPublished(s.published);
-      setHeadline(s.headline ?? "");
-      setMessage(s.message ?? "");
-      setShippingAddress(s.shippingAddress ?? "");
-      setShippingVisibleFrom(s.shippingVisibleFrom ?? "");
-      setCashGifts(s.cashGiftsEnabled);
+      if (!keep.has("published")) setPublished(s.published);
+      if (!keep.has("headline")) setHeadline(s.headline ?? "");
+      if (!keep.has("message")) setMessage(s.message ?? "");
+      if (!keep.has("shippingAddress")) setShippingAddress(s.shippingAddress ?? "");
+      if (!keep.has("shippingVisibleFrom")) setShippingVisibleFrom(s.shippingVisibleFrom ?? "");
+      if (!keep.has("cashGiftsEnabled")) setCashGifts(s.cashGiftsEnabled);
+      setBase(s);
       setSeeded(true);
     });
+  }
+
+  /** What the form holds now, in the shape the server stores. */
+  function formValues(): FormFields {
+    return {
+      published: published(),
+      headline: textOrNull(headline()),
+      message: textOrNull(message()),
+      cashGiftsEnabled: cashGifts(),
+      shippingAddress: textOrNull(shippingAddress()),
+      shippingVisibleFrom: shippingVisibleFrom() === "" ? null : shippingVisibleFrom(),
+    };
+  }
+
+  /** The fields that differ from the base — typed and then typed back is no change. */
+  function changedFields(): (keyof FormFields)[] {
+    const from = base();
+    if (!from) return [];
+    const now = formValues();
+    return FORM_FIELDS.filter((field) => now[field] !== (from[field] ?? null));
   }
 
   /**
@@ -188,7 +244,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         // page load on a request that never happens.
         if (
           props.canManage &&
-          s?.stripeAccountId &&
+          s?.stripeConnected &&
           !s.stripeChargesEnabled &&
           claimStripeCheck(props.weddingId)
         ) {
@@ -207,23 +263,52 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     event.preventDefault();
     if (saving() || !props.canEdit) return;
     setSaving(true);
+    // Only what the couple changed goes on the wire, with what they saw before
+    // they changed it. A field left alone is never sent, so a tab opened an hour
+    // ago cannot re-publish a list or restore an address a co-host has since
+    // withdrawn; a field someone else HAS changed since is refused by the API
+    // rather than overwritten. Nothing changed sends `{}`, which still answers
+    // with the row as it stands.
+    const now = formValues();
+    const from = base();
+    const patch: Partial<FormFields> = {};
+    const expected: Partial<FormFields> = {};
+    for (const field of changedFields()) {
+      Object.assign(patch, { [field]: now[field] });
+      Object.assign(expected, { [field]: from?.[field] ?? null });
+    }
+    const payload = Object.keys(patch).length > 0 ? { ...patch, expected } : {};
     try {
       const res = await authFetch(settingsUrl(), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          published: published(),
-          // Empty means "I wrote nothing", which is null on the wire, not "" —
-          // the guest surface reads null as "use the built-in default", and an
-          // empty string would beat it.
-          headline: headline().trim() === "" ? null : headline().trim(),
-          message: message().trim() === "" ? null : message().trim(),
-          shippingAddress: shippingAddress().trim() === "" ? null : shippingAddress().trim(),
-          shippingVisibleFrom: shippingVisibleFrom() === "" ? null : shippingVisibleFrom(),
-          cashGiftsEnabled: cashGifts(),
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.status === 401) return redirectToLogin();
+      const refusal =
+        res.status === 409
+          ? ((await res.json().catch(() => null)) as {
+              error?: string;
+              settings?: RegistrySettings;
+            } | null)
+          : null;
+      if (refusal?.error === "settings_changed" && refusal.settings) {
+        // A co-host saved one of the same fields since this form was seeded.
+        // Show their values for everything the couple did not touch, keep what
+        // the couple typed, and make the row as it stands the new base — so
+        // saving again is a choice made with the other change in view.
+        haptic("reject");
+        const current = refusal.settings;
+        const typed = new Set(changedFields());
+        batch(() => {
+          patchCache(current);
+          seed(current, typed);
+        });
+        toast.error(
+          "Someone else saved these settings while you had them open, so yours weren’t saved. Their changes are showing now — check yours and save again.",
+        );
+        return;
+      }
       if (res.status === 409) {
         // The API's own `stripe_not_ready`. The switch below is disabled until
         // Stripe can charge, so reaching this means the account's state changed
@@ -327,16 +412,18 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         }
         return;
       }
-      const status = (await res.json()) as { chargesEnabled: boolean; payoutsEnabled: boolean };
+      const status = (await res.json()) as { connected: boolean; chargesEnabled: boolean };
       const current = settings();
       if (current) {
-        // `patchCache`, never `patchSettings`: this read changes two Stripe
-        // columns the form does not own, and re-seeding would discard whatever
-        // the couple has typed since the page loaded.
+        // `patchCache`, never `patchSettings`: this read changes Stripe state
+        // the form does not own, and re-seeding would discard whatever the
+        // couple has typed since the page loaded. `connected` as well as the
+        // charge flag, so an account Stripe has since revoked reads as "connect
+        // one" rather than as unfinished onboarding.
         patchCache({
           ...current,
+          stripeConnected: status.connected,
           stripeChargesEnabled: status.chargesEnabled,
-          stripePayoutsEnabled: status.payoutsEnabled,
         });
       }
       if (!quiet) {

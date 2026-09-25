@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1044   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-organiser-caches @ 2026-09-25 — -2, and not a fix: the two oxc(no-map-spread) reports in cire/host/src/components/ChecklistView.tsx stopped matching when its optimistic patches moved inside `patchTasks((rows) => rows.map(...))` callbacks. The object spreads themselves are unchanged. No rule was disabled and nothing was suppressed.
+1039   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-registry-host @ 2026-09-25 — -5: four unicorn(no-array-sort) reports left ChecklistView.tsx and BudgetView.tsx when their grouping moved from `.filter().sort()` chains to per-bucket arrays the memo builds and sorts itself, and one house(no-tracker-ref-in-comment) left RegistryView.tsx with the rewritten reorder comment. No rule was disabled and nothing was suppressed.

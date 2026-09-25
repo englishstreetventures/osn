@@ -1,10 +1,20 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import {
+  closestCenter,
+  createSortable,
+  createSortableList,
+  DragDropProvider,
+  DragDropSensors,
+  maybeTransformStyle,
+  SortableProvider,
+  useDragDropContext,
+} from "@shared/sortable";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import {
@@ -21,6 +31,7 @@ import {
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import ReorderControls from "./ReorderControls";
 interface BudgetViewProps {
   weddingId: string;
   /** Owner/editor may add/edit items + payments and reorder. */
@@ -35,6 +46,15 @@ interface BudgetViewProps {
  *  currency's real minor-unit exponent, which a fixed `/ 100` gets wrong for JPY
  *  and the three-decimal currencies. */
 const fmtMinor = (minor: number, currency: string): string => formatMinor(minor, currency);
+
+/** A category with nothing in it. One shared array, so `sameRows` sees an empty
+ *  category as unchanged from one write to the next. */
+const NO_ITEMS: BudgetItemRow[] = [];
+
+/** Same rows, same order, same objects: a write elsewhere in the budget left this
+ *  category alone, so nothing that reads it needs to run again. */
+const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((row, k) => row === b[k]);
 
 export default function BudgetView(props: BudgetViewProps) {
   const { authFetch } = useAuth();
@@ -81,14 +101,22 @@ export default function BudgetView(props: BudgetViewProps) {
     if (cur) setCachedBudget(props.weddingId, fn(cur));
   };
 
-  // Items grouped by category — only categories that have items, in enum order.
-  const grouped = createMemo(() => {
-    const items = snapshot()?.items ?? [];
-    return SERVICE_CATEGORIES.map((c) => ({
-      category: c,
-      items: items.filter((it) => it.category === c.key).sort((a, b) => a.sortOrder - b.sortOrder),
-    })).filter((g) => g.items.length > 0);
+  // Each category's items in order. A map of fresh arrays holding the SAME item
+  // objects, so a category's `<For>` keeps every row whose item did not change.
+  const itemsByCategory = createMemo(() => {
+    const byCategory = new Map<string, BudgetItemRow[]>();
+    for (const item of snapshot()?.items ?? []) {
+      const category = byCategory.get(item.category);
+      if (category) category.push(item);
+      else byCategory.set(item.category, [item]);
+    }
+    for (const category of byCategory.values()) category.sort((a, b) => a.sortOrder - b.sortOrder);
+    return byCategory;
   });
+  /** Whether any item sits in a category this view shows. */
+  const hasItems = createMemo(() =>
+    SERVICE_CATEGORIES.some((c) => (itemsByCategory().get(c.key)?.length ?? 0) > 0),
+  );
 
   const paymentsFor = (itemId: string): PaymentRow[] =>
     (snapshot()?.payments ?? []).filter((p) => p.budgetItemId === itemId);
@@ -195,22 +223,32 @@ export default function BudgetView(props: BudgetViewProps) {
     }
   };
 
-  const move = async (category: ServiceCategory, index: number, delta: -1 | 1) => {
-    const items = (peekCachedBudget(props.weddingId)?.items ?? [])
-      .filter((it) => it.category === category)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    const target = index + delta;
-    if (target < 0 || target >= items.length) return;
+  /**
+   * Move an item within its category, then save the category's new order. A drag
+   * can move it several places at once. Only items whose stored `sortOrder`
+   * changes get a new object, so every other row — an open payments panel
+   * included — keeps its DOM. `onFailure` withdraws the move's announcement, since the reload that
+   * follows puts the old order back.
+   */
+  const move = async (
+    category: ServiceCategory,
+    from: number,
+    to: number,
+    onFailure: () => void,
+  ) => {
+    const items = itemsByCategory().get(category) ?? [];
+    if (from === to || to < 0 || to >= items.length) return;
     const reordered = [...items];
-    const [moved] = reordered.splice(index, 1);
-    reordered.splice(target, 0, moved!);
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved!);
     const orderedIds = reordered.map((it) => it.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
     patchSnap((s) => ({
       ...s,
-      items: s.items.map((it) =>
-        it.category === category ? { ...it, sortOrder: bySort.get(it.id) ?? it.sortOrder } : it,
-      ),
+      items: s.items.map((it) => {
+        const next = it.category === category ? bySort.get(it.id) : undefined;
+        return next === undefined || next === it.sortOrder ? it : { ...it, sortOrder: next };
+      }),
     }));
     try {
       const res = await authFetch(
@@ -226,6 +264,7 @@ export default function BudgetView(props: BudgetViewProps) {
     } catch {
       haptic("reject");
       setError("Couldn't save the new order.");
+      onFailure();
       void reload();
     }
   };
@@ -471,111 +510,148 @@ export default function BudgetView(props: BudgetViewProps) {
       </Show>
 
       <Show
-        when={grouped().length > 0}
+        when={hasItems()}
         fallback={<p class="text-text-muted text-ui-sm italic">No budget items yet.</p>}
       >
         {/* Categories pair up on a wide panel. The minimum is generous (32rem)
             because a budget row carries a name plus three money cells and the
             payments toggle — below that it wraps and stops being a table-like
-            row, so the grid keeps one column until two really fit. */}
+            row, so the grid keeps one column until two really fit.
+
+            Over the fixed category list, not over a memo of groups: each
+            category's sortable list holds its grips (focus goes back to one
+            after a move) and its live region, so it has to outlive every write
+            to the budget. An empty category renders nothing. */}
         <div class="auto-grid items-start [--auto-grid-gap:1.5rem] [--auto-grid-min:32rem]">
-          <For each={grouped()}>
-            {(group) => {
+          <For each={SERVICE_CATEGORIES}>
+            {(category) => {
+              const categoryItems = createMemo(
+                () => itemsByCategory().get(category.key) ?? NO_ITEMS,
+                NO_ITEMS,
+                { equals: sameRows },
+              );
+              const count = createMemo(() => categoryItems().length);
+              const ids = createMemo(() => categoryItems().map((it) => it.id));
+              // One list per category: an item only moves within its own
+              // category, because moving it to another changes what it is.
+              const reorder = createSortableList({
+                ids,
+                labelFor: (id) =>
+                  untrack(() => categoryItems().find((it) => it.id === id)?.name) ?? "item",
+                noun: "item",
+                onMove: (from, to) => void move(category.key, from, to, reorder.clearAnnouncement),
+                onPhase: (phase) => haptic(phase),
+              });
               const subtotalEst = () =>
-                group.items.reduce((s, it) => s + (it.estimateMinor ?? 0), 0);
-              const subtotalActual = () => group.items.reduce((s, it) => s + itemSpend(it), 0);
+                categoryItems().reduce((s, it) => s + (it.estimateMinor ?? 0), 0);
+              const subtotalActual = () => categoryItems().reduce((s, it) => s + itemSpend(it), 0);
               return (
-                <section class="flex flex-col gap-2">
-                  <div class="flex items-baseline justify-between">
-                    <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
-                      {categoryLabel(group.category.key)}
-                    </h3>
-                    <span class="text-text-muted text-ui-sm">
-                      est {fmtMinor(subtotalEst(), currency())} · spent{" "}
-                      {fmtMinor(subtotalActual(), currency())}
-                    </span>
-                  </div>
-                  <ul class="flex flex-col gap-1">
-                    <For each={group.items}>
-                      {(item, i) => (
-                        <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
-                          <div class="flex flex-wrap items-center gap-3">
-                            <span class="text-text text-ui-base min-w-32 flex-1">{item.name}</span>
-                            <MoneyCell
-                              label="Est"
-                              minor={item.estimateMinor}
-                              currency={currency()}
-                              canEdit={props.canEdit}
-                              onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
-                            />
-                            <MoneyCell
-                              label="Quote"
-                              minor={item.quotedMinor}
-                              currency={currency()}
-                              canEdit={props.canEdit}
-                              onCommit={(raw) => patchItemMoney(item, "quotedMinor", raw)}
-                            />
-                            <MoneyCell
-                              label="Actual"
-                              minor={item.actualMinor}
-                              currency={currency()}
-                              canEdit={props.canEdit}
-                              onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
-                            />
-                            <Button
-                              variant="bare"
-                              type="button"
-                              onClick={() => setExpanded(expanded() === item.id ? null : item.id)}
-                            >
-                              payments ({paymentsFor(item.id).length})
-                            </Button>
-                            <Show when={props.canEdit}>
-                              <div class="flex items-center gap-1">
-                                <Button
-                                  variant="bare"
-                                  type="button"
-                                  aria-label="Move up"
-                                  disabled={i() === 0}
-                                  onClick={() => move(group.category.key, i(), -1)}
+                <Show when={categoryItems().length > 0}>
+                  <section class="flex flex-col gap-2">
+                    <div class="flex items-baseline justify-between">
+                      <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                        {categoryLabel(category.key)}
+                      </h3>
+                      <span class="text-text-muted text-ui-sm">
+                        est {fmtMinor(subtotalEst(), currency())} · spent{" "}
+                        {fmtMinor(subtotalActual(), currency())}
+                      </span>
+                    </div>
+                    <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
+                      <DragDropSensors />
+                      <ul class="flex flex-col gap-1" data-testid={`budget-${category.key}`}>
+                        <SortableProvider ids={ids()}>
+                          <For each={categoryItems()}>
+                            {(item, i) => {
+                              const sortable = createSortable(item.id);
+                              // Non-null: rendered inside the DragDropProvider above.
+                              const [dndState] = useDragDropContext()!;
+                              const sortableItem = reorder.item(item.id, i, count);
+                              return (
+                                <li
+                                  ref={sortable.ref}
+                                  style={maybeTransformStyle(sortable.transform())}
+                                  class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                                  classList={{
+                                    "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                      sortable.isActiveDraggable(),
+                                    "transition-transform":
+                                      !!dndState.active().draggable &&
+                                      !sortable.isActiveDraggable(),
+                                  }}
                                 >
-                                  ↑
-                                </Button>
-                                <Button
-                                  variant="bare"
-                                  type="button"
-                                  aria-label="Move down"
-                                  disabled={i() === group.items.length - 1}
-                                  onClick={() => move(group.category.key, i(), 1)}
-                                >
-                                  ↓
-                                </Button>
-                                <Button
-                                  variant="bareDanger"
-                                  type="button"
-                                  aria-label="Delete item"
-                                  onClick={() => deleteItem(item)}
-                                >
-                                  ✕
-                                </Button>
-                              </div>
-                            </Show>
-                          </div>
-                          <Show when={expanded() === item.id}>
-                            <PaymentPanel
-                              item={item}
-                              payments={paymentsFor(item.id)}
-                              currency={currency()}
-                              canEdit={props.canEdit}
-                              onAdd={addPayment}
-                              onTogglePaid={togglePaid}
-                              onDelete={deletePayment}
-                            />
-                          </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </section>
+                                  <div class="flex flex-wrap items-center gap-3">
+                                    <Show when={props.canEdit}>
+                                      <ReorderControls sortable={sortable} item={sortableItem} />
+                                    </Show>
+                                    <span class="text-text text-ui-base min-w-32 flex-1">
+                                      {item.name}
+                                    </span>
+                                    <MoneyCell
+                                      label="Est"
+                                      minor={item.estimateMinor}
+                                      currency={currency()}
+                                      canEdit={props.canEdit}
+                                      onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
+                                    />
+                                    <MoneyCell
+                                      label="Quote"
+                                      minor={item.quotedMinor}
+                                      currency={currency()}
+                                      canEdit={props.canEdit}
+                                      onCommit={(raw) => patchItemMoney(item, "quotedMinor", raw)}
+                                    />
+                                    <MoneyCell
+                                      label="Actual"
+                                      minor={item.actualMinor}
+                                      currency={currency()}
+                                      canEdit={props.canEdit}
+                                      onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
+                                    />
+                                    <Button
+                                      variant="bare"
+                                      type="button"
+                                      onClick={() =>
+                                        setExpanded(expanded() === item.id ? null : item.id)
+                                      }
+                                    >
+                                      payments ({paymentsFor(item.id).length})
+                                    </Button>
+                                    <Show when={props.canEdit}>
+                                      <Button
+                                        variant="bareDanger"
+                                        type="button"
+                                        aria-label="Delete item"
+                                        onClick={() => deleteItem(item)}
+                                      >
+                                        ✕
+                                      </Button>
+                                    </Show>
+                                  </div>
+                                  <Show when={expanded() === item.id}>
+                                    <PaymentPanel
+                                      item={item}
+                                      payments={paymentsFor(item.id)}
+                                      currency={currency()}
+                                      canEdit={props.canEdit}
+                                      onAdd={addPayment}
+                                      onTogglePaid={togglePaid}
+                                      onDelete={deletePayment}
+                                    />
+                                  </Show>
+                                </li>
+                              );
+                            }}
+                          </For>
+                        </SortableProvider>
+                      </ul>
+                    </DragDropProvider>
+                    <Show when={props.canEdit}>
+                      <p {...reorder.hintProps()}>{reorder.hintText}</p>
+                      <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+                    </Show>
+                  </section>
+                </Show>
               );
             }}
           </For>
