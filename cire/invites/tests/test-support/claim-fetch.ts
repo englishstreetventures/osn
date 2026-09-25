@@ -1,9 +1,9 @@
 /**
  * Test seam for the invite islands' `fetch`.
  *
- * The packs make three different calls: the public invite revalidation
- * (`GET /api/invite/:slug`), the claim (`POST /api/claim`) and — since the
- * session-restore work — `GET /api/claim/session` on mount.
+ * The packs make three different calls: the invite retry
+ * (`GET /api/invite/:slug`, only with `inviteMissing`), the claim
+ * (`POST /api/claim`) and `GET /api/claim/session` on mount.
  *
  * Most InvitePage tests stub `fetch` with a single mock that answers every URL
  * with a claim payload. Once the restore endpoint existed, that fixture started

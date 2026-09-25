@@ -554,14 +554,13 @@ describe("gala InvitePage", () => {
     expect(queryByText("Celebrate With Us")).toBeNull();
   });
 
-  it("renders the live revalidated welcome message, overriding the stale build-time prop", async () => {
-    // The build-time prop carries the OLD greeting; the live /api/invite/:slug
-    // response carries the organiser's NEW one. With a slug present, the
-    // on-mount revalidation must win — an organiser edit made after the last
-    // build reaches guests without a static rebuild.
+  it("renders the retried welcome message when the route had no payload", async () => {
+    // The route's own fetch failed, so there is no greeting prop and
+    // `inviteMissing` is set; the browser-side retry's greeting must replace the
+    // built-in default.
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      // The invite-customisation revalidation.
+      // The browser-side retry of the invite.
       if (url.includes("/api/invite/")) {
         return Promise.resolve(
           new Response(JSON.stringify({ welcome: { message: "Fresh live greeting" } }), {
@@ -582,38 +581,43 @@ describe("gala InvitePage", () => {
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText, queryByText } = render(() => (
-      <InvitePage
-        apiUrl="https://api.test"
-        slug="cire-wedding"
-        // Stale build-time greeting — must be overridden by the live fetch.
-        welcomeMessage="Stale build-time greeting"
-      />
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" inviteMissing />
     ));
 
     await waitFor(() => expect(getByText("Fresh live greeting")).toBeTruthy(), { timeout: 2000 });
-    expect(queryByText("Stale build-time greeting")).toBeNull();
+    expect(queryByText("We are delighted to invite you to celebrate with us.")).toBeNull();
   });
 
-  it("renders the build-time welcome message when no slug means no revalidation", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ ...claim, preview: true }), {
+  it("renders the welcome message from its prop and fetches no invite", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/invite/")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ welcome: { message: "Fetched greeting" } }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
-        ),
-      ),
-    );
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", noSession(fetchMock));
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText, queryByText } = render(() => (
-      <InvitePage apiUrl="https://api.test" welcomeMessage="Our own greeting" />
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" welcomeMessage="Our own greeting" />
     ));
 
+    // The claim landing is the point by which a retry would have run too.
     await waitFor(() => expect(getByText("Our own greeting")).toBeTruthy(), { timeout: 2000 });
+    expect(queryByText("Fetched greeting")).toBeNull();
     expect(queryByText("We are delighted to invite you to celebrate with us.")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/invite/"))).toBe(false);
   });
 
   it("auto-claims from a ?code= deep-link and strips the code from the URL (S-L1)", async () => {
@@ -1013,8 +1017,7 @@ describe("gala InvitePage", () => {
       // Asserted on a bare mock, not through `withSession`: the wrapper answers
       // the restore itself, so the call never reaches the inner mock.
       // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to both the invite revalidation and the restore, and a body can only be
-      // read once.
+      // to every request the island makes, and a body can only be read once.
       const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
@@ -1096,8 +1099,7 @@ describe("gala InvitePage", () => {
     it("does not restore over a ?code= deep-link — the explicit code wins", async () => {
       window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
       // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to both the invite revalidation and the restore, and a body can only be
-      // read once.
+      // to every request the island makes, and a body can only be read once.
       const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {

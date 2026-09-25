@@ -20,9 +20,10 @@
  * Deliberately emitted WITHOUT `crossorigin`: browsers keep separate socket
  * pools for credentialed and anonymous connections, and every request the guest
  * site makes to the API is credentialed — `fetch(..., { credentials: "include" })`
- * for claim/restore/RSVP, and plain `<img>` loads for the hero and event images.
- * An anonymous preconnect (the shape an anonymous-CORS asset fetch would need)
- * would warm the wrong pool and buy nothing here.
+ * for claim/restore/RSVP and the islands' invite retry, and plain `<img>` loads
+ * for the hero and event images. An anonymous preconnect (the shape an
+ * anonymous-CORS asset fetch would need) would warm the wrong pool and buy
+ * nothing here.
  */
 export function apiPreconnectHref(apiUrl: string): string | null {
   try {

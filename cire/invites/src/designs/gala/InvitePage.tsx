@@ -18,10 +18,10 @@ import { createClaimCode } from "../../components/claim-code";
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import {
-  createInviteRevalidation,
+  createInviteRetry,
   type DetailsCopy,
   type InviteCustomisationResponse,
-} from "../../components/invite-revalidation";
+} from "../../components/invite-retry";
 import {
   applyPaletteToRoot,
   filterThemeVars,
@@ -86,18 +86,22 @@ const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate wit
 interface InvitePageProps {
   apiUrl: string;
   /**
-   * The wedding slug, used to revalidate the invite customisation at runtime so
-   * the events ("details") section reflects the organiser's latest saved theme
-   * without a site rebuild. Absent ⇒ no revalidation (the build-time `theme`
-   * prop is used as-is) — keeps no-slug callers (e.g. unit tests) deterministic.
+   * The wedding slug. Scopes the session restore and, with `inviteMissing`, the
+   * browser-side retry of the invite. Absent ⇒ neither request runs, which keeps
+   * no-slug callers (e.g. unit tests) deterministic.
    */
   slug?: string;
+  /**
+   * True when the `[slug]` route's own fetch of the invite failed, so `theme`,
+   * `details` and `welcomeMessage` are built-in defaults rather than the
+   * wedding's. Only then does the island fetch the invite, from the browser,
+   * after it mounts. Absent ⇒ the props are the wedding's and nothing is fetched.
+   */
+  inviteMissing?: boolean;
   siteUrl?: string;
   /**
-   * The per-section theme, resolved at build time in `index.astro` (same source
-   * as the hero). Used as the initial render value so the events section paints
-   * with the real theme in the SSR'd HTML; the on-mount revalidation below then
-   * overrides it with the latest saved theme.
+   * The per-section theme, from the same per-request fetch as the hero, so the
+   * events section paints with the real theme in the server-rendered HTML.
    */
   theme?: InviteTheme | null;
   /**
@@ -189,21 +193,17 @@ export default function InvitePage(props: InvitePageProps) {
   const siteUrl = () =>
     props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
 
-  // Revalidate the invite customisation on mount so the events section reflects
-  // the organiser's latest saved theme + copy. The static guest site bakes the
-  // build-time values into the props; without this re-fetch a change made after
-  // the last build would never reach guests until a rebuild (the bug this fixes).
-  // The build-time props seed the resource so first paint is immediate and the
-  // no-JS fallback still renders the SSR'd values. Only fetches when a slug is
-  // present; a non-OK / failed revalidation keeps the already-painted values.
+  // The route's payload, as props. Only when the route had none
+  // (`inviteMissing`) does the island retry the fetch from the browser, and a
+  // failed retry leaves the defaults painted.
   const propInvite = (): LiveInvite => ({
     theme: props.theme ?? null,
     details: props.details ?? null,
     welcomeMessage: props.welcomeMessage ?? null,
   });
-  const liveInvite = createInviteRevalidation<InviteCustomisationResponse, LiveInvite>({
+  const liveInvite = createInviteRetry<InviteCustomisationResponse, LiveInvite>({
     apiUrl: () => props.apiUrl,
-    slug: () => props.slug,
+    slug: () => (props.inviteMissing ? props.slug : undefined),
     fallback: propInvite,
     select: (body) => ({
       theme: body.theme ?? null,
@@ -221,18 +221,17 @@ export default function InvitePage(props: InvitePageProps) {
   const detailsVars = createMemo(() => sectionVars(liveInvite().theme, "details"));
   const welcomeVars = createMemo(() => sectionVars(liveInvite().theme, "welcome"));
 
-  // Repaint the root palette when the revalidated theme changes. Harmless
-  // duplicate of InviteHeader's effect on a full invite page (both islands see
-  // the same payload); load-bearing on a page where the hero is hidden, since
-  // then this island is the only one that revalidates.
+  // Repaint the root palette when the theme changes. Harmless duplicate of
+  // InviteHeader's effect on a full invite page (both islands see the same
+  // payload); load-bearing on a page where the hero is hidden, since then this
+  // island is the only one whose retry can bring a theme in.
   createEffect(() => applyPaletteToRoot(liveInvite().theme));
 
   // Organiser copy overrides with the built-in defaults as fallback.
   const detailsEyebrow = () => liveInvite().details?.eyebrow ?? DEFAULT_DETAILS_EYEBROW;
   const detailsHeading = () => liveInvite().details?.heading ?? DEFAULT_DETAILS_HEADING;
-  // Live value first (seeded from the build-time prop), then the built-in
-  // default — same chain as classic, so an organiser edit made after the last
-  // build reaches guests via the on-mount revalidation.
+  // The organiser's greeting (the prop, or the retry's when the route had none),
+  // then the built-in default — the same chain as classic.
   const welcomeMessage = () => liveInvite().welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
 
   // The RSVP deadline arrives with the claim (it is household-facing, like the

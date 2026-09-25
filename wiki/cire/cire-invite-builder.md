@@ -6,7 +6,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
   - "[[closing-band-width-bound-over-height-clip]]"
-last-reviewed: 2026-09-21
+last-reviewed: 2026-09-25
 ---
 # Invite Builder
 
@@ -722,34 +722,53 @@ correct single wedding to resolve, so the concept itself was wrong. Guests alway
 arrive on their own `/<slug>` link; nothing needs the bare domain to name a
 wedding.
 
-The server fetch still paints the hero with the real image/copy in the SSR'd
-HTML (fast LCP, no-JS fallback). Both guest islands then **re-request
-`/api/invite/:slug`** and let that response override the per-request snapshot.
-Neither island owns that fetch: it lives in
-`cire/invites/src/components/invite-revalidation.ts` (`createInviteRevalidation`),
-which every design pack's islands call. The primitive owns the `no-store` fetch,
-the `initialValue` wiring and both failure paths — a non-OK response and a thrown
-fetch each keep what is already painted. Each caller passes its own `fallback()`
-and its own `select()`, because the two are genuinely different: a header falls
-back to its whole `initial` prop and takes the payload unmapped, a page falls back
-to a value built from three props and maps three fields out of the payload. With
-no `slug` the primitive never fetches at all.
+The route's server fetch is the **only** request for the invite on a normal
+render. It paints the hero with the real image and copy in the SSR'd HTML (fast
+LCP, no-JS fallback), and the design pack's `Document.astro` passes the payload to
+both islands as props, so neither island fetches it again. An organiser's edit
+reaches a guest on their next load, not on a page they already have open.
 
-> [!warning] Where that fetch actually runs
-> **On the server, not on mount.** The resource carries no `ssrLoadFrom: "initial"`,
-> and Solid's server build runs the fetcher unless it does (`if (options.ssrLoadFrom
-> !== "initial") load();` in `solid-js/dist/server.js`); Astro's Solid renderer
-> defaults to `renderToStringAsync`, so the HTML waits on it and hydration reuses the
-> serialised value instead of re-calling the fetcher. A `/<slug>` render therefore
-> issues **three** requests for the same payload — one from the route
-> (`fetchInvite`) and one per island — the two island ones inside the Worker,
-> on the critical path for TTFB. The props each island already holds are that
-> same response, so nothing is fresher for the round trip.
+When the route's fetch fails (the shell rendered with built-in defaults), each
+island **retries it from the browser**, once, after it mounts. That retry lives in
+`cire/invites/src/components/invite-retry.ts` (`createInviteRetry`), which every
+design pack's islands call:
+
+- A call site passes a `slug` only when it has no payload — the header when its
+  `initial` prop is `null`, the page when `Document.astro` sets `inviteMissing`.
+  With no `slug` the primitive fetches nothing.
+- The fetch starts in `onMount`, which never runs in Solid's server build, so the
+  Worker never makes it and the HTML never waits on it.
+- The value is a signal filled from `onMount`, not a `createResource`: Astro
+  hydrates each island inside a `Suspense`, and a resource refetched there would
+  swap the island for an empty fallback while the request is in flight.
+- A non-OK response, a thrown fetch or an unparseable body writes nothing, so the
+  painted value keeps its identity and no palette effect or memo downstream
+  re-runs.
+- Each caller passes its own `fallback()` and `select()`: a header falls back to
+  its whole `initial` prop and takes the payload unmapped, a page falls back to a
+  value built from three props and maps three fields out of the payload.
+
+| Path | Worker requests for the invite | Browser requests |
+|---|---|---|
+| Route fetch succeeds | 1 | 0 |
+| Route fetch fails | 1 | 2 (header on load, page when it hydrates) |
+
+*Measured 2026-09-25 — the built Worker under `wrangler dev --config dist/server/wrangler.json`, a stub API on the baked `PUBLIC_API_URL` counting `GET /api/invite/:slug` (an `Origin` header marks a browser request), and `/<slug>` loaded in Playwright Chromium.*
+
+> [!warning] `createResource` in a server-rendered island fetches in the Worker
+> Solid's server build runs a resource's fetcher during the render unless the
+> resource sets `ssrLoadFrom: "initial"`, and Astro's Solid renderer awaits it
+> (`renderToStringAsync`). Hydration then reuses the serialised value, so the
+> browser never makes the request at all. `ssrLoadFrom: "initial"` does not move
+> the fetch to the browser either: the hydrating client takes `initialValue` and
+> skips the fetcher. The `*.ssr.test.tsx` files in `cire/invites/tests/designs/`
+> render both islands through Solid's server build and fail on any fetch made
+> during the render. General rule: [[frontend-patterns#Server-rendered islands]].
 
 - `cire/invites/src/designs/<pack>/InviteHeader.tsx` (`client:load`) — the hero +
-  "Our Story" sections. Revalidates on mount through the primitive, seeded with the
-  build-time `initial` prop, and drives the hero **image**, copy, story, and the
-  hero/story **theme** from the live response.
+  "Our Story" sections. Drives the hero **image**, copy, story, and the hero/story
+  **theme** from its `initial` prop, or from the browser-side retry when that prop
+  is `null`.
   - **Hero backdrop image**: the uploaded hero image renders as a full-bleed
     **backdrop behind the title**. The island always requests the `hero-bg`
     variant; how soft that backdrop is comes from `heroDisplay.blur` (0–40,
@@ -781,28 +800,26 @@ no `slug` the primitive never fetches at all.
        holds a `ref` and, in `onMount`, checks `img.complete && img.naturalWidth > 0`
        → marks it `loaded` immediately. `onLoad`/`onError` still cover the
        not-yet-loaded path.
-    2. **Re-arm only on a real URL change.** The re-arm effect now resets to
+    2. **Re-arm only on a real URL change.** The re-arm effect resets to
        `pending` (opacity 0) **only when the resolved backdrop `src` actually
        changes** (a re-upload, or a new `heroDisplay.blur` — the served version is
-       derived from the key *and* the blur, so changing either moves the url). The on-mount
-       no-store revalidation returns the **same** url; the old effect reset to
-       `pending` on every `data()` change, but the unchanged `<img src>` never
-       re-fired `load`, leaving a shown image stuck invisible. On a genuine change a
-       `queueMicrotask` re-runs the ref check to also catch an already-cached new
-       src.
+       derived from the key *and* the blur, so changing either moves the url). New
+       invite data can carry the **same** url (props Astro reconciles, a
+       browser-side retry); resetting on every `data()` change would leave a shown
+       image stuck invisible, because an unchanged `<img src>` never re-fires
+       `load`. On a genuine change a `queueMicrotask` re-runs the ref check to also
+       catch an already-cached new src.
 - `cire/invites/src/designs/<pack>/InvitePage.tsx` (`client:visible`) — the
-  "details"/events section. Also revalidates on mount through the same primitive,
-  seeded from the per-request `theme`/`details`/`welcomeMessage` props threaded
-  from the pack's `Document.astro`, so the events-section theme and copy reflect
-  the latest saved values. Unlike the header it **maps** the response down to the
-  three fields it renders. A non-OK / failed revalidation keeps the already-painted
-  snapshot; with no `slug` (e.g. unit tests) the props are used as-is.
+  "details"/events section. Renders the per-request `theme`/`details`/
+  `welcomeMessage` props threaded from the pack's `Document.astro`, and retries
+  through the same primitive only when `inviteMissing` is set. Unlike the header
+  it **maps** the response down to the three fields it renders. With no `slug`
+  (e.g. unit tests) nothing is fetched.
 
-Net effect: **invite customisation (hero image + theme) is reflected per request +
-revalidated on mount — no site rebuild needed, and no baked-in wedding slug.** The
-per-request SSR snapshot is the fast-first-paint / no-JS placeholder; the on-mount
-fetch is the source of truth. The `/api/claim` event/guest flow (`InvitePage`'s
-claim/RSVP logic) and its animations are untouched.
+Net effect: **invite customisation (hero image + theme) is read per request — no
+site rebuild needed, no baked-in wedding slug, and one invite request per
+render.** The `/api/claim` event/guest flow (`InvitePage`'s claim/RSVP logic) and
+its animations are untouched.
 
 ### Organiser links (path-routed)
 
@@ -824,11 +841,11 @@ resolves to):
   organiser-facing `Family Code` column.
 
 **Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
-`Cache-Control: no-store`, and both islands fetch it with `{ cache: "no-store" }`.
-The JSON hands out the version-busted hero/story image URLs, so if it were itself
-cached (heuristically by the browser, or at an edge) the on-mount revalidation
-would read a stale body and the new hero/theme would never appear — the exact
-"saved in settings but not on the invite" symptom. The image **bytes** at
+`Cache-Control: no-store`, and the route's fetch and the islands' retry both
+request it with `{ cache: "no-store" }`. The JSON hands out the version-busted
+hero/story image URLs, so if it were itself cached (heuristically by the browser,
+or at an edge) a guest's next load would read a stale body and the new hero/theme
+would never appear — the exact "saved in settings but not on the invite" symptom. The image **bytes** at
 `/api/invite/:slug/image/:slot` stay `immutable, max-age=1y`; that's safe because
 their URL carries `?v=<updatedAt>` and every upload bumps `updatedAt` + writes a
 fresh R2 key.
@@ -839,10 +856,10 @@ consumed by the section's elements via `var(--invite-*, <built-in-token>)`
 fallbacks — so an unset (or validation-rejected) field resolves to the original
 gold / surface / display token. `cire/invites/src/components/invite-theme.ts`
 (`sectionThemeVars`, `fontStack`) builds the validated variable map (re-checking
-colours + resolving the font key). The hero + story sections read the live theme
-from `InviteHeader`'s resource; the "details"/events **and** "welcome" (code
-entry + welcome banner) sections read the live theme from `InvitePage`'s own
-resource (both override the build-time snapshot above).
+colours + resolving the font key). The hero + story sections read the theme from
+`InviteHeader`'s value; the "details"/events **and** "welcome" (code entry +
+welcome banner) sections read it from `InvitePage`'s own (each is the route's
+payload, or the island's browser-side retry when the route had none).
 
 > **Scoped token bridge (`sectionTokenBridge`).** Section states (input focus
 > border, button hover fill, event-card date lines) live in Tailwind

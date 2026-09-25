@@ -396,11 +396,11 @@ describe("InvitePage", () => {
     );
   });
 
-  it("ignores a malicious welcome colour from the live refetch (never reaches the code-entry DOM)", async () => {
-    // Counterpart of the malicious-details test for the no-store revalidation
-    // path: the render-time seed validation must run on live updates too. The
-    // valid card seed proves the refetch landed; the malicious gilt seed must
-    // fall back to the default rather than reach the DOM.
+  it("ignores a malicious welcome colour from the browser-side retry (never reaches the code-entry DOM)", async () => {
+    // Counterpart of the malicious-details test for the retry path: the
+    // render-time seed validation must run on fetched data too. The valid card
+    // seed proves the retry landed; the malicious gilt seed must fall back to
+    // the default rather than reach the DOM.
     const liveInvite = {
       theme: {
         headingFont: null,
@@ -421,7 +421,7 @@ describe("InvitePage", () => {
     vi.stubGlobal("fetch", noSession(fetchMock));
 
     const { getByText } = render(() => (
-      <InvitePage apiUrl="https://api.test" slug="cire-wedding" />
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" inviteMissing />
     ));
 
     getByText("Enter Your Code");
@@ -475,12 +475,9 @@ describe("InvitePage", () => {
     );
   });
 
-  it("revalidates the details theme + copy at runtime, overriding the stale build-time props", async () => {
-    // The build-time props carry an OLD accent and copy; the live
-    // /api/invite/:slug response carries the organiser's NEW values. With a
-    // slug present, the on-mount revalidation must win — this is the
-    // live-customisation fix: a theme OR copy change reaches guests without a
-    // static rebuild.
+  it("paints the retried theme + copy when the route had no payload", async () => {
+    // The route's own fetch failed, so the props are the built-in defaults and
+    // `inviteMissing` is set; the browser-side retry's response must replace them.
     const liveInvite = {
       hero: { title: null, subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
@@ -490,7 +487,7 @@ describe("InvitePage", () => {
     };
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      // The invite-customisation revalidation.
+      // The browser-side retry of the invite.
       if (url.includes("/api/invite/")) {
         return Promise.resolve(
           new Response(JSON.stringify(liveInvite), {
@@ -511,24 +508,12 @@ describe("InvitePage", () => {
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText, queryByText } = render(() => (
-      <InvitePage
-        apiUrl="https://api.test"
-        slug="cire-wedding"
-        theme={{
-          headingFont: null,
-          bodyFont: null,
-          // Stale build-time seed — must be overridden by the live fetch.
-          palette: { gilt: "#abcdef" },
-        }}
-        // Stale build-time copy — must be overridden by the live fetch.
-        details={{ eyebrow: "Old Eyebrow", heading: "Old Heading" }}
-      />
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" inviteMissing />
     ));
 
-    // The live copy wins over both the build-time prop and the defaults.
+    // The retried copy wins over the built-in defaults.
     await waitFor(() => expect(getByText("The Festivities")).toBeTruthy(), { timeout: 2000 });
     expect(getByText("Join The Celebration")).toBeTruthy();
-    expect(queryByText("Old Heading")).toBeNull();
     expect(queryByText("Your Events")).toBeNull();
 
     await waitFor(() =>
@@ -538,9 +523,9 @@ describe("InvitePage", () => {
     );
   });
 
-  it("keeps the build-time theme when the runtime revalidation fails (non-OK)", async () => {
-    // A transient API blip must NOT wipe the already-painted SSR'd theme. With a
-    // slug present, a non-OK /api/invite/:slug response keeps the build-time prop.
+  it("keeps the built-in defaults when the retry fails (non-OK)", async () => {
+    // A retry that fails too must not blank or break the section: the defaults
+    // the shell rendered with stay.
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/api/invite/")) {
@@ -557,6 +542,43 @@ describe("InvitePage", () => {
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText } = render(() => (
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" inviteMissing />
+    ));
+
+    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/invite/")),
+    ).toHaveLength(1);
+    expect(getByText("Celebrate With Us")).toBeTruthy();
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette(PALETTE_PRESETS.evergreen)["--color-gold"],
+    );
+  });
+
+  it("fetches no invite when the route's payload came as props", async () => {
+    // The route already fetched the invite and passed it down; the island must
+    // not ask for it again.
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/invite/")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ details: { eyebrow: null, heading: "Fetched" } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", noSession(fetchMock));
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText, queryByText } = render(() => (
       <InvitePage
         apiUrl="https://api.test"
         slug="cire-wedding"
@@ -565,12 +587,13 @@ describe("InvitePage", () => {
       />
     ));
 
+    // The claim landing is the point by which a retry would have run too.
     await waitFor(() => expect(getByText("SSR Heading")).toBeTruthy(), { timeout: 2000 });
-    // The failed revalidation must leave the build-time scheme AND copy untouched.
+    expect(queryByText("Fetched")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/invite/"))).toBe(false);
     expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
       derivePalette({ gilt: "#abcdef" })["--color-gold"],
     );
-    expect(getByText("SSR Eyebrow")).toBeTruthy();
   });
 
   it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {
@@ -1264,8 +1287,7 @@ describe("InvitePage", () => {
       // Asserted on a bare mock, not through `withSession`: the wrapper answers
       // the restore itself, so the call never reaches the inner mock.
       // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to both the invite revalidation and the restore, and a body can only be
-      // read once.
+      // to every request the island makes, and a body can only be read once.
       const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
@@ -1347,8 +1369,7 @@ describe("InvitePage", () => {
     it("does not restore over a ?code= deep-link — the explicit code wins", async () => {
       window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
       // A fresh Response per call: `mockResolvedValue` would hand the same one
-      // to both the invite revalidation and the restore, and a body can only be
-      // read once.
+      // to every request the island makes, and a body can only be read once.
       const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {

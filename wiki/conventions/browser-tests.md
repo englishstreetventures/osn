@@ -10,7 +10,7 @@ packages:
   - "@cire/host"
   - "@musubi/social"
   - "@pulse/web"
-last-reviewed: 2026-09-22
+last-reviewed: 2026-09-25
 ---
 
 # Browser Tests
@@ -101,20 +101,23 @@ browser test proves the outcome. `RsvpModal.test.tsx` and
 
 ## How it is wired
 
-`cire/invites/vitest.config.ts` and `cire/host/vitest.config.ts` each define two
-projects:
+`cire/invites/vitest.config.ts` and `cire/host/vitest.config.ts` each define a
+`unit` and a `browser` project, and `cire/invites` adds a third, `ssr`:
 
-- **`unit`** — jsdom, `exclude`s `**/*.browser.test.{ts,tsx}`
+- **`unit`** — jsdom, `exclude`s `**/*.browser.test.{ts,tsx}` (and, in
+  `cire/invites`, `**/*.ssr.test.{ts,tsx}`)
 - **`browser`** — `include`s only `tests/**/*.browser.test.{ts,tsx}`, Playwright
   provider, headless Chromium
+- **`ssr`** (`cire/invites`) — `include`s only `tests/**/*.ssr.test.{ts,tsx}`,
+  Node, Solid's server build; see [[cire-development#Tests]]
 
 Naming rather than directory placement decides the project, so a file lands in
-exactly one and neither glob can swallow the other's files. Browser tests live
+exactly one and no glob can swallow another's files. Browser tests live
 in the package's `tests/` tree beside their fast-tier siblings, like every other
 test in the repo — #867 moved the whole cire suite there, and a browser test
 left next to its component matches no glob and silently never runs.
 
-Both projects share `solidPlugin()` and `tailwindcss()`, so a browser test gets
+`unit` and `browser` share `solidPlugin()` and `tailwindcss()`, so a browser test gets
 the **same Tailwind build the app ships**. Import `../styles/global.css` at the
 top of the file to have it applied.
 

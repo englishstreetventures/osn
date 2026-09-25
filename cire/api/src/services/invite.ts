@@ -866,7 +866,7 @@ export const inviteService = {
    * image slot. The rectangle has already passed the bounds validation at the
    * route boundary (`ImageCropBody`), so by the time it reaches here it is safe
    * to JSON-encode and persist. Bumping `updatedAt` is what makes the new crop
-   * surface on the guest invite's no-store revalidation (and freshens the image
+   * surface on the guest invite's next no-store read (and freshens the image
    * URL's `?v=` cache-buster, harmless under the CSS-render path).
    *
    * `screen` picks which rectangle a hero save targets (migration 0046):

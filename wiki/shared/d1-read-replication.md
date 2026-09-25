@@ -20,7 +20,7 @@ related:
   - "[[free-tier-limits]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 
 # D1 Read Replication and the Sessions API
@@ -112,8 +112,8 @@ routes. The seam is `cire/api/src/db/d1-session.ts`:
 
 cire uses `first-primary` Worker-wide — see [[d1-session-first-primary]] for the
 choice stated as a decision record. `routes/invite.ts` deliberately serves a
-`no-store`, edit-sensitive payload so an organiser's edit shows up when a guest
-revalidates the invite — `first-unconstrained` would reintroduce exactly the
+`no-store`, edit-sensitive payload so an organiser's edit shows up the next time
+a guest loads the invite — `first-unconstrained` would reintroduce exactly the
 staleness that header exists to prevent. One constraint for the whole Worker
 keeps that property from depending on which route a request happened to reach.
 

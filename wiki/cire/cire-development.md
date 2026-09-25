@@ -109,6 +109,13 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
   The full command is in `wiki/cire/cire-upgrades.md`.
 - **Integration tests run against a local D1 via `wrangler dev` — do not mock the
   database.**
+- **`*.ssr.test.tsx` renders an island through Solid's server build**, the way
+  the guest site's Worker does before hydration (`@cire/invites` only, its `ssr`
+  Vitest project: Node environment, `solidPlugin({ ssr: true })`). Use it for
+  anything the island does during the server render, above all a request: the
+  `unit` project resolves `solid-js` to the browser build and cannot see one. It
+  runs in `bun run --cwd cire/invites test` beside `unit`. Why it matters:
+  [[frontend-patterns#Server-rendered islands]].
 - **`*.browser.test.tsx` runs in real Chromium**, not jsdom, for anything needing
   computed CSS, layout, paint or stacking order, sticky behaviour, or media
   emulation. Opt-in, with its own CI step. `@cire/host` has a browser tier too

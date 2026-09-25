@@ -21,7 +21,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Frontend Patterns
@@ -291,6 +291,36 @@ focusable survives it. `1fr` resolves to the content's own height, so nothing is
 measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
+
+## Server-rendered islands
+
+An Astro island hydrated with `client:load`, `client:visible` or `client:idle` is
+rendered once in the Worker before it reaches the browser. Solid's server build
+runs that render, and some primitives behave differently there than the unit tier
+shows. A `client:only` island (the `@cire/host` and `@cire/vendor` apps) never
+renders on the server, so none of this applies to it.
+
+### `createResource` fetches in the Worker, and the browser never does
+
+Solid's server build calls a resource's fetcher during the render unless the
+resource sets `ssrLoadFrom: "initial"`, and Astro's Solid renderer awaits it
+(`renderToStringAsync`). The HTML waits on that request, and hydration reuses the
+serialised value, so the "fetch on mount" the code reads as never reaches the
+browser. `ssrLoadFrom: "initial"` does not move it there either: the hydrating
+client takes `initialValue` and skips the fetcher.
+
+For a request that belongs in the browser, start it in `onMount` (a no-op in the
+server build) and write the result to a signal. Not a resource refetched after
+hydration: Astro wraps every hydrated island in a `Suspense`, so a resource going
+back to loading swaps the whole island for an empty fallback. Better still, pass
+data the page's route already fetched down as props and fetch nothing.
+`cire/invites/src/components/invite-retry.ts` is the worked example
+([[cire-invite-builder#Guest rendering (SSR, path-routed)]]).
+
+The unit tier cannot see any of this: it resolves `solid-js` to the browser build.
+`@cire/invites` has an `ssr` Vitest project for it (`*.ssr.test.tsx`, see
+[[testing-patterns]] and [[cire-development#Tests]]), which renders an island the
+way Astro does and can assert that no fetch ran.
 
 ## Source Files
 

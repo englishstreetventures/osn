@@ -8,7 +8,7 @@
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
     "check": "bunx --bun astro check",
-    "test": "vitest run --project unit",
+    "test": "vitest run --project unit --project ssr",
     "test:browser": "vitest run --project browser"
   },
   "dependencies": {

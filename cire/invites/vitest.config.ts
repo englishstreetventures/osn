@@ -53,14 +53,27 @@ const executablePath = process.env.VITEST_BROWSER_EXECUTABLE_PATH;
  *
  * A real browser costs roughly an order of magnitude more to start than jsdom
  * and needs a downloaded Chromium. Keeping the fast tier fast is the point:
- * `bun run test` — and therefore CI's default path — runs `unit` only. The
- * browser tier is opt-in through `bun run test:browser`, with its own CI step
- * that installs the browser first, mirroring how `test:d1` is already split
- * out.
+ * `bun run test` — and therefore CI's default path — runs `unit` and `ssr`
+ * only. The browser tier is opt-in through `bun run test:browser`, with its own
+ * CI step that installs the browser first, mirroring how `test:d1` is already
+ * split out.
  *
- * Browser tests are named `*.browser.test.ts(x)` and are excluded from `unit`
- * by that name, so every file lands in exactly one project and neither glob can
- * accidentally swallow the other's files.
+ * ## Why an `ssr` project
+ *
+ * Every island here is server-rendered by the Worker before it hydrates, and
+ * the `unit` project cannot see that render: it compiles JSX for the DOM and
+ * resolves `solid-js` to the browser build, where `onMount` runs and
+ * `createResource` never reaches its server branch. So a fetch an island makes
+ * DURING the server render — a blocking Worker subrequest on the HTML's
+ * critical path — passes every unit test. The `ssr` project compiles with
+ * `solidPlugin({ ssr: true })` and runs in Node, so `solid-js` resolves to its
+ * server build, and a test renders an island the way Astro's Solid renderer
+ * does: `renderToStringAsync` around a `Suspense`.
+ *
+ * Browser tests are named `*.browser.test.ts(x)` and SSR tests
+ * `*.ssr.test.ts(x)`; `unit` excludes both by name and the other two include
+ * only their own, so every file lands in exactly one project and no glob can
+ * swallow another's files.
  */
 export default defineConfig({
   test: {
@@ -72,7 +85,22 @@ export default defineConfig({
           environment: "jsdom",
           transformMode: { web: [/\.[jt]sx?$/] },
           passWithNoTests: true,
-          exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.{ts,tsx}"],
+          exclude: [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/*.browser.test.{ts,tsx}",
+            "**/*.ssr.test.{ts,tsx}",
+          ],
+          setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
+        },
+      },
+      {
+        plugins: [solidPlugin({ ssr: true })],
+        test: {
+          name: "ssr",
+          environment: "node",
+          include: ["tests/**/*.ssr.test.{ts,tsx}"],
+          passWithNoTests: true,
           setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
         },
       },

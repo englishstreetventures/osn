@@ -35,10 +35,11 @@ export function createHeroBackdrop(src: Accessor<string | null>): HeroBackdrop {
   onMount(revealIfAlreadyLoaded);
 
   // Re-arm the lifecycle ONLY when the resolved backdrop src actually changes
-  // (a new upload or a variant flip). The on-mount no-store revalidation
-  // returns the SAME url, so without this guard it would reset a shown image
-  // back to `pending` (opacity 0) while the <img src> stays unchanged —
-  // meaning the browser never re-fires `load`, leaving it stuck invisible.
+  // (a new upload or a variant flip). New invite data can carry the SAME url —
+  // props Astro reconciles, a browser-side retry — so without this guard it
+  // would reset a shown image back to `pending` (opacity 0) while the <img src>
+  // stays unchanged — meaning the browser never re-fires `load`, leaving it
+  // stuck invisible.
   // On a genuine src change we reset to `pending`; the new src fires a fresh
   // `load`, and the ref-check also catches an already-cached new src.
   let prevSrc: string | null | undefined;

@@ -21,7 +21,8 @@ const result = slug ? await fetchInvite(slug) : ({ kind: 'not-found' } as const)
 // Unknown slug → a real 404 with a tasteful not-found page. An API error (e.g.
 // cire-api briefly unreachable) is NOT a 404 — we still render the invite shell
 // with built-in defaults so a transient blip doesn't 404 a valid wedding; the
-// islands revalidate on mount.
+// islands retry the fetch from the browser once they hydrate. This is the
+// render's only request for the invite: the islands take the payload as props.
 if (result.kind === 'not-found') {
   Astro.response.status = 404
 }

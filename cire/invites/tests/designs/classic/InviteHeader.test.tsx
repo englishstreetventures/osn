@@ -1,5 +1,6 @@
 import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import InviteHeader from "../../../src/designs/classic/InviteHeader";
@@ -29,7 +30,8 @@ describe("InviteHeader render", () => {
       heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
-    // Keep the build-time data: a failed revalidation must not wipe the hero.
+    // With the route's payload in `initial` the header fetches nothing; the
+    // failing stub keeps any stray request off the network.
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.reject(new Error("offline"))),
@@ -273,7 +275,7 @@ describe("InviteHeader render", () => {
       <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
     ));
 
-    // Give the resource a tick to settle on the (failed) revalidation.
+    // Let the render settle.
     await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
     expect(container.querySelector("section")).toBeNull();
   });
@@ -482,32 +484,22 @@ describe("InviteHeader render", () => {
     widthSpy.mockRestore();
   });
 
-  it("does NOT hide an already-shown hero when revalidation returns the same url", async () => {
-    // The on-mount no-store revalidation returns the SAME customisation. The
-    // re-arm effect must NOT reset a shown image back to pending (opacity 0):
-    // the <img src> is unchanged, so the browser would never re-fire `load` and
-    // it'd be stuck invisible. This is the second half of the live bug.
+  it("does NOT hide an already-shown hero when new data carries the same url", async () => {
+    // Astro reconciles an island's props, so the header can receive a NEW
+    // customisation object whose hero url is unchanged. The re-arm effect must
+    // NOT reset a shown image back to pending (opacity 0): the <img src> is
+    // unchanged, so the browser would never re-fire `load` and it would be stuck
+    // invisible.
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
       heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
-    // Revalidation resolves with the identical payload (a real same-url refresh).
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify(initial), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
+    const [current, setCurrent] = createSignal(initial);
 
-    const { container } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    const { container, getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={current()} />
     ));
 
     let img!: HTMLImageElement;
@@ -519,9 +511,10 @@ describe("InviteHeader render", () => {
     img.dispatchEvent(new Event("load"));
     await waitFor(() => expect(img.className).toContain("opacity-100"));
 
-    // Let the revalidation settle, then assert it's STILL visible (not reset to 0).
-    await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 0));
+    // A new object, same hero url, different title — the title proves the new
+    // data rendered, and the image must still be visible.
+    setCurrent({ ...initial, hero: { ...initial.hero, title: "C & D" } });
+    await waitFor(() => expect(getByText("C & D")).toBeTruthy());
     expect((container.querySelector("section img") as HTMLImageElement).className).toContain(
       "opacity-100",
     );
@@ -555,63 +548,74 @@ describe("InviteHeader render", () => {
     );
   });
 
-  it("paints the revalidated title over the build-time one", async () => {
-    // The whole point of the revalidation: an organiser edit made after the
-    // last build reaches the guest. Without a case where the response DIFFERS
-    // from `initial`, a header that ignored the response entirely — or fell
-    // back to `initial` on success — would keep every other test green.
-    const initial: InviteCustomisation = {
-      hero: { title: "Old Name", subtitle: null, imageUrl: null },
-      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-      heroDisplay: DEFAULT_HERO_DISPLAY,
-      theme: EMPTY_THEME,
-    };
-    const live: InviteCustomisation = {
-      ...initial,
-      hero: { ...initial.hero, title: "New Name" },
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify(live), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    const { getByText, queryByText } = render(() => (
-      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
-    ));
-
-    await waitFor(() => expect(getByText("New Name")).toBeTruthy());
-    expect(queryByText("Old Name")).toBeNull();
-  });
-
-  it("keeps the painted title when the revalidation returns a non-OK status", async () => {
+  it("fetches nothing when the route's payload is in `initial`", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
       heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
-    const fetchMock = vi.fn(() => Promise.resolve(new Response("{}", { status: 500 })));
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(initial)));
     vi.stubGlobal("fetch", fetchMock);
 
     const { getByText } = render(() => (
       <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
     ));
 
-    // The title is painted from `initial` before the fetch resolves, so the
-    // assertion only means something once the revalidation has SETTLED: the
-    // macrotask below drains the promise chain behind it. Without the non-OK
-    // guard the empty body would replace the hero and the title would be gone
-    // by this point.
+    expect(getByText("A & B")).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("retries once from the browser, no-store, and paints the result when the route had no payload", async () => {
+    const live: InviteCustomisation = {
+      hero: { title: "New Name", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(live), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="my-slug" initial={null} />
+    ));
+
+    await waitFor(() => expect(getByText("New Name")).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.test/api/invite/my-slug",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("keeps the built-in defaults when the retry returns a non-OK status", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ hero: { title: "Error Body" } }), { status: 500 }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={null} />
+    ));
+
+    // Nothing is painted before the retry settles either, so the assertion only
+    // means something once it has: the macrotask below drains the promise chain
+    // behind the fetch. The success test above is the twin that shows a body
+    // does land by this point when it should.
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(getByText("A & B")).toBeTruthy();
+    expect(queryByText("Error Body")).toBeNull();
+    expect(container.querySelector("section")).toBeNull();
   });
 
   // ── Feature 2: hero title backdrop sliders (opacity + blur) ────────────────

@@ -193,8 +193,8 @@ export function styleAttr(vars: Record<string, string>): string {
 }
 
 /**
- * Apply the palette to the document root from a client island, so a theme change
- * picked up by the on-mount revalidation repaints the whole page — not just the
+ * Apply the palette to the document root from a client island, so a theme the
+ * browser-side invite retry brings in repaints the whole page — not just the
  * island that fetched it. Idempotent, and a no-op outside the browser (the Astro
  * shell owns the server-rendered copy).
  */

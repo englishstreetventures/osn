@@ -66,7 +66,7 @@ export const createInvitePublicRoutes = (
     .get("/:slug", ({ params, set }) => {
       // Personalised, edit-sensitive payload (hero image URL + theme + copy).
       // It must never be served stale, or organiser edits won't surface on the
-      // guest invite's on-mount revalidation. The image *bytes* stay immutable
+      // guest invite's next load. The image *bytes* stay immutable
       // (their URL is version-busted via updatedAt), but this JSON that hands
       // out those URLs is no-store.
       set.headers["cache-control"] = "no-store";
@@ -591,8 +591,8 @@ export const createInviteOrganiserRoutes = (
         // image. The rectangle is validated server-side (each value 0..1, w/h > 0,
         // x+w ≤ 1, y+h ≤ 1) — an out-of-range box is a ParseError → 400, never
         // persisted (it is interpolated into a guest-facing inline style). The
-        // save bumps the row's `updatedAt`, so the guest invite's no-store
-        // revalidation picks up the new crop.
+        // save bumps the row's `updatedAt`, so the guest invite's next no-store
+        // read picks up the new crop.
         //
         // `screen` (optional, default `desktop`) targets the hero's phone
         // rectangle (migration 0046). Only the hero renders at both viewport

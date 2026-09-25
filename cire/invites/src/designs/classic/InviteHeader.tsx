@@ -10,7 +10,7 @@ import {
 } from "../../components/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
-import { createInviteRevalidation } from "../../components/invite-revalidation";
+import { createInviteRetry } from "../../components/invite-retry";
 import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
 import type { HeroDisplay, InviteCustomisation } from "../types";
 
@@ -39,30 +39,28 @@ interface InviteHeaderProps {
   apiUrl: string;
   slug: string;
   /**
-   * Customisation resolved at build time in `index.astro` and used as the
-   * initial render, so the hero paints with the real image/copy in the SSR'd
-   * HTML instead of after a client fetch waterfall. The island still
-   * revalidates on mount to pick up changes made since the build.
+   * The customisation the `[slug]` route fetched for this request, so the hero
+   * paints with the real image and copy in the server-rendered HTML. `null`
+   * when that fetch failed: the island then retries it from the browser.
    */
   initial?: InviteCustomisation | null;
 }
 
 /**
  * Renders the invite's hero + "Our Story" sections, applying the organiser's
- * per-wedding customisation (fetched client-side from the public invite
- * endpoint) on top of the built-in defaults. Anything the organiser hasn't set
+ * per-wedding customisation (the route's `initial` payload, or the browser-side
+ * retry when the route had none) on top of the built-in defaults. Anything the organiser hasn't set
  * falls back to the original hard-coded copy, so an uncustomised wedding renders
  * exactly as before. The event/guest data is unaffected — that still loads via
  * InvitePage's /api/claim flow.
  */
 export default function InviteHeader(props: InviteHeaderProps) {
-  // The on-mount no-store revalidation, shared with every design pack's islands
-  // (see invite-revalidation.ts). The hero takes the whole payload unmapped, and
-  // on a non-OK/failed revalidation keeps the build-time data rather than wiping
-  // the already-painted hero.
-  const data = createInviteRevalidation<InviteCustomisation, InviteCustomisation | null>({
+  // The route's payload, or — only when the route had none — the browser-side
+  // retry shared with every design pack's islands (see invite-retry.ts). The
+  // hero takes the whole payload unmapped; a failed retry leaves the defaults.
+  const data = createInviteRetry<InviteCustomisation, InviteCustomisation | null>({
     apiUrl: () => props.apiUrl,
-    slug: () => props.slug,
+    slug: () => (props.initial ? undefined : props.slug),
     fallback: () => props.initial ?? null,
     select: (body) => body,
   });
@@ -99,11 +97,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
   const heroVars = () => sectionVars(theme(), "hero");
   const storyVars = () => sectionVars(theme(), "story");
 
-  // Re-apply the derived palette to the document root whenever the revalidated
-  // theme changes. The Astro shell already server-rendered it for the first
-  // paint; this is what makes a colour the organiser just saved show up on the
-  // no-store refetch, and it repaints the WHOLE page (footer included) rather
-  // than only this island.
+  // Re-apply the derived palette to the document root whenever the theme
+  // changes. The Astro shell already server-rendered it for the first paint;
+  // this is what paints a theme the browser-side retry brings in, and it
+  // repaints the WHOLE page (footer included) rather than only this island.
   createEffect(() => applyPaletteToRoot(theme()));
 
   // Conditional-segment gates. A hero with no image, no title and no subtitle

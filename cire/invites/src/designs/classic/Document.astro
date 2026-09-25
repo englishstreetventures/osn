@@ -27,9 +27,9 @@ const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.i
 const pageTitle = inviteTitle(initialInvite?.hero.title)
 // The invite's colour scheme, derived once and written into the SSR'd HTML so
 // the FIRST paint is already themed. Without this a cream invite would flash
-// the built-in dark green until the island hydrated. The islands re-apply it on
-// their no-store revalidation (`applyPaletteToRoot`) so a colour the organiser
-// just saved lands without a rebuild.
+// the built-in dark green until the island hydrated. When the route had no
+// payload, the islands' browser-side retry re-applies it (`applyPaletteToRoot`)
+// once the invite arrives.
 const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
 
 const heroSep = heroBase?.includes('?') ? '&' : '?'
@@ -58,15 +58,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
         claim POST (and the session restore beside it) is the interaction the
         guest is waiting on, and the hero image is served from here too.
 
-        BOTH pools are warmed, because the page genuinely uses both and browsers
-        keep them separate. Credentialed (no `crossorigin`): the hero <img>, the
-        claim POST, the session restore, RSVP. Anonymous (`crossorigin`): the
-        islands' `GET /api/invite/:slug` revalidation, which sends no credentials
-        and is the FIRST browser->API request on the page (InviteHeader is
-        client:load). Hinting only one leaves the other paying a full
-        DNS+TCP+TLS handshake. */}
+        Credentialed pool only (no `crossorigin`): every browser request to
+        the API uses it — the hero <img>, the claim POST, the session restore,
+        RSVP, and the islands' `GET /api/invite/:slug` retry when the route's
+        own fetch failed. An anonymous preconnect would warm a pool nothing
+        uses. */}
     {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
-    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} crossorigin />}
     {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
   </head>
   <body>
@@ -84,6 +81,7 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
       theme={initialInvite?.theme ?? null}
       details={initialInvite?.details ?? null}
       welcomeMessage={initialInvite?.welcome?.message ?? null}
+      inviteMissing={initialInvite === null}
     />
     {/* The couple's gift list — a band that links to it, not the list itself:
         that lives at `/<slug>/registry` now, because it is the part of an

@@ -87,12 +87,12 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
-    {/* Both pools, for the same reasons the invite document warms both: the gift
-        pictures go to this origin without `crossorigin`, while the two
-        credentialed reads the island makes on mount are CORS requests and use
-        the other one. Both are on the critical path of this page. */}
+    {/* Credentialed pool only (no `crossorigin`): the gift pictures and the
+        two reads the island makes on mount all go to this origin with
+        credentials, and so share the one connection. Every API call here
+        passes `credentials: "include"` (`lib/gift-registry.ts`), so nothing on
+        this page would use an anonymous one. */}
     {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
-    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} crossorigin />}
     {/* No `preload` for the masthead, unlike the invite's own hero. The <img>
         is already in this document's HTML, so a preload buys almost nothing on
         discovery — while on a cold direct landing (this page is a link a couple

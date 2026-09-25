@@ -244,7 +244,7 @@ function openRestored(Pack: typeof classicInvitePage, rsvpResponses: Response[])
   let call = 0;
   const inner = ((input: Parameters<typeof fetch>[0]) => {
     const url = typeof input === "string" ? input : (input as Request).url;
-    // The theme revalidation. An empty body keeps the build-time theme.
+    // The invite retry, should one run. An empty body keeps the props' theme.
     if (url.includes("/api/invite/")) return Promise.resolve(json({}));
     if (url.includes("/api/rsvp")) {
       return Promise.resolve(rsvpResponses[call++] ?? json({ rsvps: [] }));

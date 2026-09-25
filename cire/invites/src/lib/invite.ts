@@ -61,8 +61,8 @@ export type InviteFetch =
  *  - 404            → `{ kind: "not-found" }` (unknown slug → the route 404s)
  *  - non-OK / throw → `{ kind: "error" }` (API unreachable → render with defaults)
  *
- * `cache: "no-store"` so an organiser edit surfaces immediately (matches the
- * island revalidation + the endpoint's own `cache-control: no-store`).
+ * `cache: "no-store"` so an organiser edit surfaces on the next load (matches
+ * the islands' browser-side retry + the endpoint's own `cache-control: no-store`).
  */
 export async function fetchInvite(slug: string): Promise<InviteFetch> {
   try {

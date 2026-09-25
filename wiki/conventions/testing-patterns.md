@@ -250,29 +250,39 @@ against the `setTimeout` the fake clock has replaced.
 
 ### The seed and the failure result are the same value
 
-A resource seeded with the value its failure path returns cannot be tested by
-reading it. `createInviteRevalidation`
-(`cire/invites/src/components/invite-revalidation.ts`) passes `fallback()` as
-both the `initialValue` and the result of a non-OK response and a thrown fetch,
-which is the point of it — a failed revalidation keeps what is painted. So this
-is green whether the failure paths exist, map the response instead, or were
-deleted:
+A value that starts at its fallback, and whose failure path leaves it there,
+cannot be tested by reading it. `createInviteRetry`
+(`cire/invites/src/components/invite-retry.ts`) starts at `fallback()` and
+writes nothing on a non-OK response, a thrown fetch or an unparseable body, which
+is the point of it — a failed retry keeps what is painted. So this is green
+whether the failure paths exist, rebuild the fallback instead, or map the
+response anyway:
 
 ```ts
-// The resource already equals the fallback before the fetch settles.
+// The value already equals the fallback before the fetch settles.
 expect(data()).toEqual(fallback);
 ```
 
-Three things together make it able to fail, and all three are needed:
+Four things together make it able to fail, and all four are needed:
 
-- **Wait for the resource to settle** — `await vi.waitFor(() => expect(data.loading).toBe(false))`
-  — because the read otherwise happens before the fetcher has resolved.
+- **Wait for the handler to finish.** Stub the response so its body settles in
+  microtasks (a plain object with `ok` and a `json` that returns a resolved
+  promise), then wait one macrotask. Without the wait the read happens before
+  the fetch has resolved.
+- **Pair it with a success twin** that uses the same wait and asserts the value
+  *changed*. That is what proves the wait is long enough to see a write at all.
 - **Compare identity against one sentinel** (`toBe`, on a module-level object),
-  not shape. `toEqual` cannot tell the seed from a lookalike the success path
-  built.
+  not shape. `toEqual` cannot tell the painted value from a lookalike a failure
+  path rebuilt.
 - **Assert the mapper was not called.** A spy on `select` asserted
   `not.toHaveBeenCalled()` is the only thing separating a non-OK response from a
   successful one whose mapping happened to return the same value.
+
+A sentinel cannot catch a failure path that calls `fallback()` again, because
+the sentinel fallback returns itself. A call site's fallback builds a fresh
+object on every call, so give one test a fallback that does the same and count
+the runs of an effect that reads the value: a second run means a failed retry
+handed every consumer a new object for the same data.
 
 The same shape appears one layer up, in a component seeded from a prop: a test
 whose stubbed response is `JSON.stringify(initial)` — the object it passed in —

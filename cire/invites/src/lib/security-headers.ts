@@ -133,7 +133,7 @@ export const CSP_DIRECTIVES = {
     ORIGINS.googleMapsImg,
     ORIGINS.googleMapsImg2,
   ],
-  // Runtime fetches: cire-api (invite JSON + revalidation + account-link,
+  // Runtime fetches: cire-api (claim, the invite JSON retry, account-link,
   // including the session probe behind the Pulse account-link panel) and the
   // Pinterest pidgets data endpoint the widget calls.
   "connect-src": [

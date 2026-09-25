@@ -2048,8 +2048,8 @@ describe("image crop (migration 0021)", () => {
       const { app } = buildApp();
       await uploadHero(app);
 
-      // The invite JSON is served `no-store` (asserted elsewhere), so the guest's
-      // on-mount revalidation always re-reads it — a crop edit is reflected on the
+      // The invite JSON is served `no-store` (asserted elsewhere), so every guest
+      // page load re-reads it — a crop edit is reflected on the
       // very next read with no stale cache. (Under the CSS-render path the served
       // image BYTES never change with a crop, so there is no image-bytes cache to
       // bust; the crop travels in this always-fresh JSON.)

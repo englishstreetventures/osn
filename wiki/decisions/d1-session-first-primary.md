@@ -10,7 +10,7 @@ related:
   - "[[backend-patterns]]"
   - "[[cire-development]]"
   - "[[decisions/README]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 
 # One D1 session per request, and always `first-primary`
@@ -40,7 +40,7 @@ re-reads it, could be served by a replica that has not caught up.
 
 cire has at least one route that explicitly cannot take that trade:
 `cire/api/src/routes/invite.ts` serves a `no-store`, edit-sensitive payload
-*precisely so* an organiser's edit surfaces when a guest revalidates the invite.
+*precisely so* an organiser's edit surfaces the next time a guest loads the invite.
 `first-unconstrained` would reintroduce exactly the staleness that header exists
 to prevent.
 
