@@ -1206,7 +1206,7 @@ describe("GET /registry/image/:name", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
     // Organiser-only bytes: no shared cache may keep a copy.
-    expect(res.headers.get("cache-control")).toContain("private");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
   });
 

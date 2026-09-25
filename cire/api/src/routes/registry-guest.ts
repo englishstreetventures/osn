@@ -132,6 +132,15 @@ export const createRegistryGuestListRoutes = (db: Db) =>
  * dozens. If the couple's pictures ever become sensitive on their own, this is
  * the route to move, and `visibility: "public"` below is the line to change
  * with it.
+ *
+ * So an image URL is a bearer credential while the list is published: whoever
+ * holds it can fetch the bytes, whether or not their household still has an
+ * invite. What the couple keep is withdrawal of the whole list. The publish and
+ * entitlement gate runs on every request that reaches the Worker, and browsers
+ * and proxies hold the bytes for an hour (`lifetime: "revocable"`), not a year,
+ * so unpublishing the list or losing the entitlement reaches every copy within
+ * the hour. Withdrawing ONE gift does not: the gate checks the list, not the
+ * item, and the Worker's own cache keeps a deleted gift's bytes under its name.
  */
 export const createRegistryGuestImageRoutes = (
   db: Db,
@@ -178,6 +187,10 @@ export const createRegistryGuestImageRoutes = (
             // Public, and the one part of the gift surface that still is —
             // see the route header above for why the uuid name is the gate.
             visibility: "public",
+            // An hour outside the Worker, not a year: no gate sees a browser's
+            // or proxy's copy again, so this bounds how long an unpublish takes
+            // to reach it.
+            lifetime: "revocable",
             images: deps.images,
           });
         }).pipe(

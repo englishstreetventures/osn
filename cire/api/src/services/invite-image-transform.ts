@@ -251,19 +251,55 @@ export function transformAsset(
 // ── Serve pipeline ───────────────────────────────────────────────────────────
 
 /**
- * Shared immutable-image response headers for both the transformed + streamed-
- * original serve paths (the bytes are version-busted via the cache key / URL).
+ * How long a browser or a shared proxy may reuse a served image without asking
+ * the Worker again. Once a copy is outside the Worker no gate sees it, so this
+ * is also how long withdrawing an image takes to reach every copy.
  *
- * `Vary: Accept, Origin` (CROP-S-L1): the app-level CORS plugin echoes a
- * per-request `Access-Control-Allow-Origin`, so a cached `no-cors` entry
- * served back to a `cors`-mode consumer fails the CORS check without a network
- * hit. Adding `Origin` to Vary ensures the browser caches CORS-mode and
- * no-cors-mode responses separately, preventing the mode-mixing that broke the
- * crop editor for any future cross-origin consumer.
+ * - `immutable` — a year, never revalidated. The default. A slot's URL changes
+ *   with its bytes (a re-upload mints a fresh key and so a fresh `?v=`), so a
+ *   long life never serves stale bytes; what it gives up is withdrawal.
+ * - `revocable` — {@link REVOCABLE_MAX_AGE_S}, and revalidated after it. For a
+ *   `public` slot whose route has a gate that can close — the guest gift list
+ *   can be unpublished — so that closing it reaches browser and proxy copies in
+ *   bounded time rather than in a year.
+ */
+export type ImageClientLifetime = "immutable" | "revocable";
+
+/** A year: the lifetime of every image whose URL changes with its bytes. */
+const IMMUTABLE_MAX_AGE_S = 31_536_000;
+
+/**
+ * One hour: the longest a `revocable` image outlives the gate that served it.
+ * Long enough that a guest's visit to the gift page is served from the browser
+ * cache; past it, each image costs one gated request again.
+ */
+export const REVOCABLE_MAX_AGE_S = 3_600;
+
+/** The `Cache-Control` a client receives for a slot's visibility and lifetime. */
+export function imageCacheControl(
+  visibility: "public" | "private",
+  lifetime: ImageClientLifetime,
+): string {
+  return lifetime === "revocable"
+    ? `${visibility}, max-age=${REVOCABLE_MAX_AGE_S}`
+    : `${visibility}, max-age=${IMMUTABLE_MAX_AGE_S}, immutable`;
+}
+
+/**
+ * Response headers for both the transformed and the streamed-original serve
+ * paths. The cache-hit path re-stamps `Cache-Control` through the same
+ * {@link imageCacheControl}, so the two paths cannot disagree.
+ *
+ * `Vary: Accept, Origin`: the app-level CORS plugin echoes a per-request
+ * `Access-Control-Allow-Origin`, so a cached `no-cors` entry served back to a
+ * `cors`-mode consumer fails the CORS check without a network hit. `Origin` in
+ * Vary makes the browser cache CORS-mode and no-cors-mode responses
+ * separately — the mode-mixing that broke the crop editor.
  */
 export function imageResponseHeaders(
   contentType: string,
   visibility: "public" | "private" = "public",
+  lifetime: ImageClientLifetime = "immutable",
 ) {
   return {
     "Content-Type": contentType,
@@ -275,20 +311,20 @@ export function imageResponseHeaders(
     // per-colo Workers Cache API is still used for them (see
     // `serveTransformedImage`); that lookup happens AFTER the auth check, so an
     // unauthenticated request never reaches it.
-    "Cache-Control": `${visibility}, max-age=31536000, immutable`,
+    "Cache-Control": imageCacheControl(visibility, lifetime),
     Vary: "Accept, Origin",
   };
 }
 
 /**
- * The `Cache-Control` the STORED copy carries (P-W2).
+ * The `Cache-Control` the STORED copy carries.
  *
  * Cloudflare's Cache API documents a `private` response as unstorable — `cache.put`
- * rejects with a 413 rather than storing it — so every gated slot (the registry
- * serve route among them) has been putting bytes into a cache that quietly refused
- * them, paying the Images binding on every request while believing it had a hit.
- * The copy handed to `put` therefore says `public`; the copy handed to the CLIENT
- * still says whatever {@link imageResponseHeaders} decided.
+ * rejects with a 413 rather than storing it — so a gated slot that stored its
+ * client copy would pay the Images binding on every request while believing it had
+ * a hit. The copy handed to `put` therefore says `public` and a year; the copy
+ * handed to the CLIENT says whatever {@link imageCacheControl} decides for the
+ * slot, on the miss and the hit path alike.
  *
  * That is safe because the cache key is synthetic — `buildTransformCacheKey` mints
  * a URL from the slot, variant, format and SERVER-derived version, and no inbound
@@ -302,13 +338,31 @@ export function imageResponseHeaders(
  * immutable` on the way out to the client, and zero `image cache put failed`
  * events in the tail.
  */
-const STORABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const STORABLE_CACHE_CONTROL = imageCacheControl("public", "immutable");
 
 /** Copy a response, swapping in one header. Bodies are teed by the caller. */
 function withCacheControl(response: Response, value: string): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", value);
   return new Response(response.body, { status: response.status, headers });
+}
+
+/**
+ * The client's copy of a Cache API hit: the slot's own `Cache-Control`, stamped
+ * as fresh.
+ *
+ * A hit comes back carrying the `Age` it has built up in the store, and may carry
+ * the `Date` it was stored under. Passed on, either one makes a `revocable` image
+ * stale on arrival once its stored copy is older than
+ * {@link REVOCABLE_MAX_AGE_S}, and the browser would fetch it again on every page
+ * load. The Worker is this response's origin and ran the route's gate for it just
+ * now, so it answers with no `Age` and a `Date` of now.
+ */
+function freshForClient(hit: Response, cacheControl: string): Response {
+  const response = withCacheControl(hit, cacheControl);
+  response.headers.delete("Age");
+  response.headers.set("Date", new Date().toUTCString());
+  return response;
 }
 
 /**
@@ -320,9 +374,13 @@ function withCacheControl(response: Response, value: string): Response {
  * `cacheSlot` is the slot segment of the Cache API key (e.g. `"hero"`,
  * `"event:<eventId>"`, `"registry:<weddingId>"`) — every field that changes the
  * transformed bytes is folded into the key, and the version is ALWAYS the
- * server-derived one (NEVER the client `?v=`), preserving the no-arbitrary-cache-
- * minting invariant (S-M1). `blurOverride` is only ever passed for the blurred
- * `hero-bg` variant; event and registry images render sharp (undefined).
+ * server-derived one (NEVER the client `?v=`), so no caller can mint arbitrary
+ * cache entries. `blurOverride` is only ever passed for the blurred `hero-bg`
+ * variant; event and registry images render sharp (undefined).
+ *
+ * `visibility` and `lifetime` shape only the client's `Cache-Control`, never the
+ * cache key or the stored copy — see {@link imageCacheControl} and
+ * {@link STORABLE_CACHE_CONTROL}.
  *
  * Returns a `Response`. Requires `AssetsR2Service` for the R2 read. Fails with
  * `AssetR2Error` when the key is missing from R2 (caller maps to 404).
@@ -338,6 +396,8 @@ export function serveTransformedImage(args: {
   images?: ImagesBindingLike;
   /** `private` for session- or organiser-gated slots — no shared cache copy. */
   visibility?: "public" | "private";
+  /** `revocable` for a public slot whose gate can close — see {@link ImageClientLifetime}. */
+  lifetime?: ImageClientLifetime;
 }): Effect.Effect<Response, AssetR2Error, AssetsR2Service> {
   const {
     request,
@@ -349,6 +409,7 @@ export function serveTransformedImage(args: {
     blurOverride,
     images,
     visibility = "public",
+    lifetime = "immutable",
   } = args;
   return Effect.gen(function* () {
     // Cache API short-circuit. The Images binding bills per call with no
@@ -369,10 +430,11 @@ export function serveTransformedImage(args: {
       const hit = yield* Effect.promise(() => cache.match(cacheKey));
       if (hit) {
         metricImageTransform("cache_hit", variant, format);
-        // The stored copy says `public` so the store would accept it; re-stamp the
-        // slot's real visibility on the way out, or a private image would tell the
-        // browser it was shareable purely because it had been cached once.
-        return withCacheControl(hit, `${visibility}, max-age=31536000, immutable`);
+        // The stored copy says `public` and a year so the store would accept it;
+        // re-stamp the slot's own visibility and lifetime on the way out, or a
+        // private image would tell the browser it was shareable, and a revocable
+        // one that it could keep for a year, purely because it had been cached once.
+        return freshForClient(hit, imageCacheControl(visibility, lifetime));
       }
     }
 
@@ -404,7 +466,7 @@ export function serveTransformedImage(args: {
         ),
       );
       response = new Response(served.bytes, {
-        headers: imageResponseHeaders(served.contentType, visibility),
+        headers: imageResponseHeaders(served.contentType, visibility, lifetime),
       });
     } else {
       // Original-serve path (no Images binding — local/dev/tests, or an account
@@ -415,7 +477,7 @@ export function serveTransformedImage(args: {
       const streamed = yield* fetchAssetStream(key);
       metricImageTransform("original", variant, format);
       response = new Response(streamed.body, {
-        headers: imageResponseHeaders(streamed.contentType, visibility),
+        headers: imageResponseHeaders(streamed.contentType, visibility, lifetime),
       });
     }
 

@@ -802,7 +802,7 @@ describe("invite image upload + serve + remove", () => {
     expect(res.status).toBe(200);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
     // No shared cache may keep a copy of session-gated bytes.
-    expect(res.headers.get("cache-control")).toContain("private");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
   });
 
   // The public slots must NOT have been dragged behind the gate — the hero and
@@ -817,7 +817,8 @@ describe("invite image upload + serve + remove", () => {
       });
       const res = await appRequest(app, `/api/invite/${SLUG}/image/${slot}`);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toContain("public");
+      // A year, never revalidated: every upload mints a fresh URL.
+      expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     }
   });
 
@@ -888,6 +889,7 @@ describe("event image upload + serve + remove (migration 0019)", () => {
     const img = await appRequest(app, imageUrl);
     expect(img.status).toBe(200);
     expect(img.headers.get("content-type")).toBe("image/png");
+    expect(img.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
 
     // Remove clears the event image.

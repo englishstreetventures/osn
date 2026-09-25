@@ -244,6 +244,19 @@ The order in `registryService.claim` is the security property, not a detail. Che
 
 The image route stays **unauthenticated on purpose**. A name is `registry-<uuid>`, minted per save and reachable only from the list the session gates, so the bytes are not enumerable without that read — while authenticating them would put a session lookup on every image request on the page, the one place on the guest surface where requests arrive in dozens. If the couple's pictures ever become sensitive on their own, that route moves and `visibility: "public"` moves with it.
 
+So an image URL is a **bearer credential while the list is published**: a household that loses its invite can still fetch every image it saw, and so can anyone it passed a URL to. What the couple keep is withdrawing the whole list — unpublishing it, or losing the entitlement — and each copy of the bytes has a lifetime chosen so that reaches it:
+
+| Copy                                    | Lifetime                               | After an unpublish                                                         |
+| --------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------- |
+| A browser's or a proxy's                | `public, max-age=3600`, no `immutable` | Gone within the hour; no gate sees this copy, so its lifetime is the bound |
+| The Worker's own (Cloudflare Cache API) | a year                                 | Unreachable at once: every lookup in it runs after the gate                |
+
+The route passes `lifetime: "revocable"` to `serveTransformedImage` for this. Every other cire image route keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
+
+**Withdrawing one gift is not covered.** The gate checks the list, not the item, and deleting a gift reaps its R2 object but not the Worker's cached copy, so a deleted gift's image stays fetchable by name while the list is published.
+
+A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. The store hands back the age the entry has built up; passed on, a copy stored more than an hour ago would arrive already stale, and every page load would fetch every gift image again.
+
 `/registry/items/reorder` is registered **before** `/registry/items/:itemId` so the literal wins over the param. `:kind` is decoded through the same Effect Schema a body field would be — an unknown value 400s rather than falling through to a table by coincidence.
 
 ### Bounded reads

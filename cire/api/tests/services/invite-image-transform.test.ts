@@ -9,11 +9,14 @@ import {
   buildTransformCacheKey,
   DEFAULT_VARIANT,
   IMAGE_VARIANTS,
+  imageCacheControl,
   negotiateFormat,
   resolveVariant,
+  REVOCABLE_MAX_AGE_S,
   serveTransformedImage,
   transformAsset,
   VARIANT_BLUR,
+  type ImageClientLifetime,
   type ImagesBindingLike,
   type ImageTransformHandle,
   type OutputFormat,
@@ -268,18 +271,45 @@ describe("transformAsset", () => {
   });
 });
 
+describe("imageCacheControl", () => {
+  it("gives the default lifetime a year, never revalidated", () => {
+    expect(imageCacheControl("public", "immutable")).toBe("public, max-age=31536000, immutable");
+    expect(imageCacheControl("private", "immutable")).toBe("private, max-age=31536000, immutable");
+  });
+
+  it("gives a revocable image an hour and drops `immutable`", () => {
+    expect(REVOCABLE_MAX_AGE_S).toBe(3600);
+    expect(imageCacheControl("public", "revocable")).toBe("public, max-age=3600");
+    // Visibility still comes from the slot: a gated revocable image stays `private`.
+    expect(imageCacheControl("private", "revocable")).toBe("private, max-age=3600");
+  });
+});
+
 describe("serveTransformedImage — what the cache is handed vs what the client gets", () => {
   const KEY = "assets/wed_1/registry-abc";
 
-  /** Minimal `caches.default`: one slot, and a record of what was put into it. */
-  function createCacheStub() {
+  /**
+   * Minimal `caches.default`: one slot, and a record of what was put into it.
+   *
+   * `storedFor` makes a hit look like one the platform returns for an entry
+   * stored that many seconds ago — an `Age` of that many seconds and the `Date`
+   * of the store — which is what a short client lifetime has to survive.
+   */
+  function createCacheStub(opts: { storedFor?: number } = {}) {
     const puts: Response[] = [];
     let stored: Response | null = null;
+    function aged(res: Response): Response {
+      if (opts.storedFor === undefined) return res;
+      const headers = new Headers(res.headers);
+      headers.set("Age", String(opts.storedFor));
+      headers.set("Date", new Date(Date.now() - opts.storedFor * 1000).toUTCString());
+      return new Response(res.body, { status: res.status, headers });
+    }
     return {
       puts,
       binding: {
         default: {
-          match: (_key: Request) => Promise.resolve(stored ? stored.clone() : undefined),
+          match: (_key: Request) => Promise.resolve(stored ? aged(stored.clone()) : undefined),
           put: (_key: Request, res: Response) => {
             puts.push(res.clone());
             stored = res;
@@ -294,7 +324,7 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     delete (globalThis as { caches?: unknown }).caches;
   });
 
-  async function serve(visibility: "public" | "private") {
+  async function serve(visibility: "public" | "private", lifetime?: ImageClientLifetime) {
     const assets = createAssetsStub();
     await assets.put(KEY, new Uint8Array([1, 2, 3]).buffer, {
       httpMetadata: { contentType: "image/png" },
@@ -308,6 +338,7 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
         variant: "thumb",
         format: "image/jpeg",
         visibility,
+        lifetime,
       }).pipe(Effect.provideService(AssetsR2Service, assets)),
     );
   }
@@ -332,6 +363,56 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     const res = await serve("public");
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
     expect(cache.puts[0]!.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("re-stamps a public HIT with the same year the miss carried", async () => {
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    await serve("public");
+    const hit = await serve("public");
+    expect(hit.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(cache.puts).toHaveLength(1);
+  });
+
+  it("tells the client an hour for a revocable image, and still stores a year", async () => {
+    // The stored copy is looked up only after the route's gate, so it can live
+    // as long as the bytes do. What must be short is the copy outside the
+    // Worker, which no gate ever sees again.
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    const res = await serve("public", "revocable");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(cache.puts[0]!.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("re-stamps a revocable HIT with the hour, not the stored year", async () => {
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    await serve("public", "revocable");
+    const hit = await serve("public", "revocable");
+    expect(hit.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(cache.puts).toHaveLength(1);
+  });
+
+  it("hands a hit to the client as fresh, whatever age the stored copy has", async () => {
+    // An entry stored two hours ago comes back with `Age: 7200` and a two-hour-
+    // old `Date`. Passed through, either one makes an hour-long response stale
+    // on arrival, and the browser would fetch every gift image again on every
+    // page load.
+    const cache = createCacheStub({ storedFor: 7200 });
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    await serve("public", "revocable");
+    const before = Date.now();
+    const hit = await serve("public", "revocable");
+    expect(hit.headers.get("Age")).toBeNull();
+    const date = Date.parse(hit.headers.get("Date") ?? "");
+    // `Date` has one-second resolution, so allow the second it was cut from.
+    expect(date).toBeGreaterThanOrEqual(before - 1000);
+    expect(date).toBeLessThanOrEqual(Date.now());
   });
 
   it("re-stamps a cache HIT with the slot's real visibility", async () => {

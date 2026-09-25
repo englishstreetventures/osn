@@ -752,10 +752,77 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     const res = await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    // Public bytes: a published registry's images are as public as its slug.
-    expect(res.headers.get("cache-control")).toContain("public");
+    // Public bytes, but for an hour, not a year: no gate sees a browser's or a
+    // proxy's copy again, so its lifetime is how long an unpublish takes to
+    // reach it.
+    expect(res.headers.get("cache-control")).toBe("public, max-age=3600");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
   });
+
+  it("tells a Worker-cache hit the same hour the miss carried", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const { app, assets } = buildApp({ images });
+      plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+
+      const miss = await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`);
+      expect(miss.headers.get("cache-control")).toBe("public, max-age=3600");
+      const hit = await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`);
+      expect(hit.status).toBe(200);
+      // Served from the Worker cache: the transform ran once.
+      expect(images.widths).toHaveLength(1);
+      expect(hit.headers.get("cache-control")).toBe("public, max-age=3600");
+    });
+  });
+
+  // Why the Worker's own copy may keep a year while the browser's may not: every
+  // lookup in it runs after the gate, so each way the couple can close the list
+  // takes effect at once over a warm Worker cache.
+  const closings = [
+    [
+      "the list is unpublished",
+      (db: ReturnType<typeof buildApp>["db"]) =>
+        db
+          .update(registrySettings)
+          .set({ published: false })
+          .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+          .run(),
+    ],
+    [
+      "the wedding loses the entitlement",
+      (db: ReturnType<typeof buildApp>["db"]) =>
+        db
+          .delete(weddingEntitlements)
+          .where(
+            and(
+              eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID),
+              eq(weddingEntitlements.entitlement, "registry"),
+            ),
+          )
+          .run(),
+    ],
+  ] as const;
+
+  for (const [label, close] of closings) {
+    it(`stops serving the moment ${label}, though the Worker cache holds the bytes`, async () => {
+      const cache = createCacheStub();
+      await withCaches(cache.caches, async () => {
+        const images = createImagesStub();
+        const { app, assets, db } = buildApp({ images });
+        plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+
+        expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
+        expect(cache.store.size).toBe(1);
+
+        close(db);
+        const res = await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`);
+        expect(res.status).toBe(404);
+        expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+        expect(cache.store.size).toBe(1);
+      });
+    });
+  }
 
   it("refuses every name that is not a registry key, and never leaves the prefix", async () => {
     const { app, assets } = buildApp();
