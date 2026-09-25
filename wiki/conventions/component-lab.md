@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Component Lab
@@ -256,11 +256,12 @@ worked out in `src/lab/three.tsx`:
 > [!warning] The skill is not ours to edit
 > The text lives in `.agents/skills/webgpu-threejs-tsl/`,
 > `.claude/skills/webgpu-threejs-tsl` is only a symlink to it, and the root
-> `skills-lock.json` carries a hash the `skills` CLI wrote at install time and
-> checks on `npx skills update`. Nothing here recomputes it, so fixing
-> something in place fails no gate of ours — it either stops the next update or
-> is thrown away by it. A fix goes upstream and comes back as a new pin. oxlint, oxfmt and the skill-quality loop leave the
-> tree alone for that reason — see [[agent-tooling#Third-party skills]].
+> `skills-lock.json` pins the upstream commit it came from and a hash of the
+> folder, which `scripts/check-skills-lock.ts` recomputes on every pull
+> request. Fixing something in place fails that check, and the next install
+> throws the fix away. A fix goes upstream and comes back as a new pin. oxlint,
+> oxfmt and the skill-quality loop leave the tree alone for that reason — see
+> [[agent-tooling#Third-party skills]].
 
 ## Gates
 

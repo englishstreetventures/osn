@@ -3,6 +3,7 @@
   "skills": {
     "webgpu-threejs-tsl": {
       "source": "dgreenheck/webgpu-claude-skill",
+      "ref": "af2319bd01bb7cc881267a9ef42cafdaf5e9029d",
       "sourceType": "github",
       "skillPath": "skills/webgpu-threejs-tsl/SKILL.md",
       "computedHash": "7170c3168c86fb5202fae1669701a73ee3efa1d410a5a654bf15ecf11ada71d7"

@@ -58,10 +58,11 @@ wrangler.jsonc       @chav-aniket
 #
 # `/.agents/**` is where `npx skills add` puts a third-party skill, and
 # `/.claude/skills/<name>` is only a symlink to it, so the text a review has to
-# read is under the first path and not the second. `/skills-lock.json` carries
-# the hash the `skills` CLI checks on update: a change there is either an
-# update to someone else's instructions or a tree that no longer matches what
-# was installed, and nothing of ours tells the two apart. All three get the
+# read is under the first path and not the second. `/skills-lock.json` pins the
+# upstream commit each skill came from and a hash of its folder, and
+# `scripts/check-skills-lock.ts` fails when the tree and the hash disagree —
+# so a change that passes it is a moved pin, and whether the new commit's text
+# is fit to run is for a human to read. All three get the
 # same owner as the rest of this section, for the same reason — that tree is
 # someone else's instructions running with our permissions.
 /.claude/**          @chav-aniket
