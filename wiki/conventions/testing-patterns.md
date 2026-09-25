@@ -367,7 +367,7 @@ Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no rea
 `vi.mock` is hoisted per module, so registration stays in the test file; only the factory body is shared. Use the dynamic-import form so the factory never reads an uninitialised binding:
 
 ```typescript
-vi.mock("../lib/api", async () => {
+vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
   return organiserApiMock();
 });
@@ -381,7 +381,22 @@ afterEach(() => {
 
 Because the spies are shared, a `describe` block that forgets a reset inherits call counts from the block above it. Always call `resetOrganiserMocks()` rather than hand-listing the spies you happen to remember.
 
-A suite that genuinely needs a different shape (an extra `useAuth` field, an `importOriginal` spread) keeps its own local mock. These harnesses cover the common case; they are not a mandate.
+A suite that genuinely needs a different shape (an extra `useAuth` field, its own `redirectToLogin` spy) keeps its own local mock. These harnesses cover the common case; they are not a mandate.
+
+A local mock of `lib/api` still spreads the real module and overrides only the exports it controls:
+
+```typescript
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    redirectToLogin: redirectToLoginMock, // from vi.hoisted
+  };
+});
+```
+
+Never return an object that lists a few exports. The next export added to `lib/api` is then missing from the mock, and the failure does not point at the mock: Vitest throws `No "<name>" export is defined on the mock` when the component calls it, the component's own `try`/`catch` turns that into a load-error banner, and the test fails on a missing row. An override replaces that one export only; the real module's own functions still call each other, so the real `allAuthFirst` uses the real `isAuthExpired` whatever the mock overrides. The same factory works in the browser tier ([[browser-tests#Rendering]]).
 
 ## Asserting a metric
 

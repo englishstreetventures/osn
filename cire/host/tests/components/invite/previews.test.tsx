@@ -33,7 +33,11 @@ import { captureDeclaredStyles } from "../../test-support/declared-style";
  * guest invite's `<body>`.
  */
 
-vi.mock("../../../src/lib/api", () => ({ apiUrl: (path: string) => `https://api.test${path}` }));
+vi.mock("../../../src/lib/api", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../../src/lib/api")>("../../../src/lib/api");
+  return { ...actual, apiUrl: (path: string) => `https://api.test${path}` };
+});
 
 describe("SectionSample", () => {
   afterEach(() => {

@@ -25,11 +25,15 @@ import "../../src/styles/global.css";
  */
 
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch: vi.fn() }) }));
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: () => false,
-  redirectToLogin: () => {},
-}));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    isAuthExpired: () => false,
+    redirectToLogin: () => {},
+  };
+});
 
 import PreviewInviteButton from "../../src/components/PreviewInviteButton";
 

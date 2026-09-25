@@ -159,6 +159,17 @@ the file, and its text blames top-level variables — which is not the cause:
 Error: [vitest] There was an error when mocking a module. If you are using "vi.mock" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file.
 ```
 
+The same error appears whenever a factory throws, so it says only that some
+factory failed.
+
+`vi.importActual` of the module being mocked does work in this tier. A literal
+factory spreads the real `lib/api` exactly as a fast-tier one does
+([[testing-patterns#Shared test harnesses]]);
+[`ImportPanel.browser.test.tsx`](../../cire/host/tests/components/ImportPanel.browser.test.tsx)
+and
+[`PreviewInviteButton.browser.test.tsx`](../../cire/host/tests/components/PreviewInviteButton.browser.test.tsx)
+both do. What fails is importing a different module inside the factory.
+
 ### Media emulation
 
 `prefers-reduced-motion` and `prefers-color-scheme` are properties of the browser

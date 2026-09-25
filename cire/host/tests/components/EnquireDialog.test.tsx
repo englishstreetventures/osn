@@ -15,10 +15,14 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  redirectToLogin: vi.fn(),
-}));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    redirectToLogin: vi.fn(),
+  };
+});
 
 vi.mock("../../src/lib/enquiries-store", () => ({
   upsertCachedEnquiry: vi.fn(),

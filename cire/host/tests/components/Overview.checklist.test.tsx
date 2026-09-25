@@ -29,11 +29,15 @@ const authFetch = vi.fn(async (url: string) => {
 });
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: () => false,
-  redirectToLogin: () => {},
-}));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    isAuthExpired: () => false,
+    redirectToLogin: () => {},
+  };
+});
 
 vi.mock("../../src/components/GettingStarted", () => ({
   default: (p: { weddingId: string }) => <div data-testid="getting-started">{p.weddingId}</div>,

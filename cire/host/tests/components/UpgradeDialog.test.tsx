@@ -21,11 +21,15 @@ vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({
   toast: { success: toastSuccess, error: toastError, info: toastInfo },
 }));
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  redirectToLogin,
-  navigateTo,
-}));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    redirectToLogin,
+    navigateTo,
+  };
+});
 vi.mock("../../src/lib/haptics", () => ({ haptic: vi.fn() }));
 
 import UpgradeDialog from "../../src/components/UpgradeDialog";

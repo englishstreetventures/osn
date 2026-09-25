@@ -20,11 +20,15 @@ vi.mock("@shared/rp-auth/solid", async () => {
   return rpAuthSolidMock();
 });
 
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: redirectToLoginMock,
-}));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
+    redirectToLogin: redirectToLoginMock,
+  };
+});
 
 const invalidateEventsMock = vi.hoisted(() => vi.fn());
 const invalidateGuestsMock = vi.hoisted(() => vi.fn());

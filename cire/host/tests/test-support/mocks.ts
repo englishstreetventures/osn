@@ -50,10 +50,12 @@ export function toastMock() {
  *
  * Spreads the real module and overrides only the three exports a component
  * test has to control — the URL builder, the auth-expiry predicate, and the
- * redirect. Listing exports instead would make every future addition to
- * `lib/api` silently `undefined` in fifteen test files, which is not a failure
- * that reads as a missing mock: the component calls it, throws a TypeError
- * inside its own `try`, and renders a load error as though the API were down.
+ * redirect. Listing exports instead leaves every later addition to `lib/api`
+ * out of the mock, and that does not fail as a missing mock: Vitest throws
+ * `No "<name>" export is defined on the mock` when the component reaches for
+ * it, the component's own `try` catches that, and it renders a load error as
+ * though the API were down. A suite with its own `lib/api` mock spreads
+ * `vi.importActual` the same way.
  */
 export async function organiserApiMock() {
   const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");

@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../src/lib/api", () => ({ apiUrl: (path: string) => `https://api.test${path}` }));
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return { ...actual, apiUrl: (path: string) => `https://api.test${path}` };
+});
 
 import {
   fetchCatalogue,
