@@ -1,4 +1,4 @@
-import { events, families, guests, guestEvents, weddings } from "@cire/db";
+import { events, families, guests, guestEvents } from "@cire/db";
 import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
@@ -51,25 +51,16 @@ export const hostCodeService = {
    *
    * weddingId is caller-supplied and already membership-checked by
    * `weddingMember()` upstream (any role — previewing is the read experience);
-   * this method does not re-authorise.
+   * this method does not re-authorise. `slug` is the wedding's slug, which the
+   * same gate read with the owner; it is handed back unchanged for the link.
    */
   ensureForWedding(
     weddingId: string,
+    slug: string,
   ): Effect.Effect<{ publicId: string; slug: string }, HostCodeError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
-
-      // The wedding's slug for the path-routed preview link. weddingMember()
-      // already proved the wedding exists, so a missing row here is a real
-      // invariant break — surface it as a HostCodeError, not a silent default.
-      const [wedding] = yield* dbQuery(() =>
-        db.select({ slug: weddings.slug }).from(weddings).where(eq(weddings.id, weddingId)).all(),
-      );
-      if (!wedding) {
-        return yield* new HostCodeError({ reason: "wedding not found" });
-      }
-      const slug = wedding.slug;
 
       // `run` is declared `void`: each caller hands over a Drizzle write (or a
       // `commitBatch`) whose result nobody here reads — the write either landed

@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 
 import type { Db } from "../src/db";
+import type { TestDb } from "../src/db/setup";
 
 /** Default `cf-connecting-ip` injected for tests — simulates the Cloudflare edge
  *  so the fail-closed rate limiter (C4) resolves a real IP instead of denying. */
@@ -106,4 +107,50 @@ export function countingDb(db: Db) {
     },
   });
   return { db: counted, selectCount: () => n };
+}
+
+/** One SQL statement the driver prepared, and the rows it handed back. */
+export interface RecordedStatement {
+  sql: string;
+  /** Rows returned by each `values()`/`all()` call on it (none for a write). */
+  rowCounts: number[];
+}
+
+/**
+ * Records every statement the bun:sqlite client prepares from here on, with
+ * the number of rows each read returned. `countingDb` counts `.select()` calls,
+ * which is not the same thing: a `unionAll` of two selects is one statement and
+ * one round trip. Drizzle's bun:sqlite session prepares every query through
+ * `client.prepare` and reads rows through the statement's `values()` or
+ * `all()`, so shadowing `prepare` on the client instance sees all of it.
+ *
+ * Takes the concrete test handle (`createDb`'s return), because the service
+ * `Db` type does not surface `$client`. Install it after seeding, or the seed's
+ * own inserts are recorded too.
+ */
+export function recordStatements(db: TestDb): RecordedStatement[] {
+  const client = db.$client;
+  const prepare = client.prepare.bind(client);
+  const recorded: RecordedStatement[] = [];
+  Object.defineProperty(client, "prepare", {
+    configurable: true,
+    value: (sql: string) => {
+      const entry: RecordedStatement = { sql, rowCounts: [] };
+      recorded.push(entry);
+      const statement = prepare(sql);
+      for (const read of ["values", "all"] as const) {
+        const original = statement[read].bind(statement);
+        Object.defineProperty(statement, read, {
+          configurable: true,
+          value: (...params: Parameters<typeof original>) => {
+            const rows = original(...params);
+            entry.rowCounts.push(rows.length);
+            return rows;
+          },
+        });
+      }
+      return statement;
+    },
+  });
+  return recorded;
 }

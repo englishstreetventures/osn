@@ -6,14 +6,20 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
+  weddings,
 } from "@cire/db";
-import { Effect, Logger } from "effect";
+import { eq } from "drizzle-orm";
+import { Effect, Logger, References } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
+import { minorToDecimal } from "../../src/lib/money";
 import { MAX_GIFT_EXPORT_ROWS, giftExportService } from "../../src/services/gift-export";
+import { registryService } from "../../src/services/registry";
+import type { GiftLogEntryDto } from "../../src/services/registry";
 import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
+import { effWith, recordStatements } from "../test-helpers";
 
 const withDb = effWith(TestDbLayer);
 
@@ -50,6 +56,252 @@ function seedHousehold(db: Db) {
       updatedAt: at(0),
     })
     .run();
+}
+
+/** A logger layer with no loggers, for tests that do not read the log. */
+const silent = Logger.layer([]);
+
+/** Rows per insert statement, to stay well under SQLite's bound-variable cap. */
+const CHUNK = 100;
+
+/**
+ * `total` gifts for the `seedHousehold` family, alternating by age: index 0 is
+ * the oldest, even indices are cash gifts and odd ones are claims, each claim
+ * on its own item (one household can claim an item once). Each row's note is
+ * `row-<index>` and its time is `at(index)`, so every row is distinct and its
+ * age can be read back from the file.
+ */
+function seedOverflow(db: Db, total: number) {
+  const indices = Array.from({ length: total }, (_, i) => i);
+  const odd = indices.filter((i) => i % 2 === 1);
+  const even = indices.filter((i) => i % 2 === 0);
+  for (let start = 0; start < odd.length; start += CHUNK) {
+    const slice = odd.slice(start, start + CHUNK);
+    db.insert(registryItems)
+      .values(
+        slice.map((i) => ({
+          id: `ritem_bulk_${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: `Item ${i}`,
+          createdAt: at(0),
+          updatedAt: at(0),
+        })),
+      )
+      .run();
+    db.insert(registryClaims)
+      .values(
+        slice.map((i) => ({
+          id: `rclaim_bulk_${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          itemId: `ritem_bulk_${i}`,
+          familyId: "fam_gifts",
+          quantity: 1,
+          status: "purchased" as const,
+          note: `row-${i}`,
+          createdAt: at(i),
+          updatedAt: at(i),
+        })),
+      )
+      .run();
+  }
+  for (let start = 0; start < even.length; start += CHUNK) {
+    db.insert(registryContributions)
+      .values(
+        even.slice(start, start + CHUNK).map((i) => ({
+          id: `rcon_bulk_${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: "fam_gifts",
+          status: "succeeded" as const,
+          amountMinor: 100,
+          currency: "AUD",
+          message: `row-${i}`,
+          createdAt: at(i),
+          updatedAt: at(i),
+        })),
+      )
+      .run();
+  }
+}
+
+/**
+ * One row for every branch the gift log and the export must agree on: each
+ * claim status, each contribution status (`failed` is the one both hide), a
+ * gift from the host household, a cash gift whose item was deleted afterwards,
+ * one in another currency with the snapshotted conversion, and two gifts on a
+ * second wedding that neither side may show.
+ */
+function seedParity(db: Db) {
+  seedHousehold(db);
+  db.insert(families)
+    .values({
+      id: "fam_host",
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      publicId: "HOST-BBB-0002",
+      familyName: "Okonkwo",
+      kind: "host",
+      createdAt: at(0),
+      updatedAt: at(0),
+    })
+    .run();
+  db.insert(registryItems)
+    .values(
+      ["vase", "rug", "gone"].map((name) => ({
+        id: `ritem_${name}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: name === "gone" ? "Deleted Lamp" : `The ${name}`,
+        createdAt: at(0),
+        updatedAt: at(0),
+      })),
+    )
+    .run();
+  db.insert(registryClaims)
+    .values([
+      {
+        id: "rclaim_purchased",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_pan",
+        familyId: "fam_gifts",
+        quantity: 2,
+        status: "purchased",
+        note: "Bought the pair",
+        displayName: "Auntie Ros",
+        thankedAt: at(30),
+        createdAt: at(1),
+        updatedAt: at(30),
+      },
+      {
+        id: "rclaim_reserved",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_vase",
+        familyId: "fam_gifts",
+        quantity: 1,
+        status: "reserved",
+        createdAt: at(2),
+        updatedAt: at(2),
+      },
+      {
+        id: "rclaim_released",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_rug",
+        familyId: "fam_gifts",
+        quantity: 1,
+        status: "released",
+        note: "Changed my mind",
+        createdAt: at(3),
+        updatedAt: at(3),
+      },
+    ])
+    .run();
+  const cash = (
+    id: string,
+    minutes: number,
+    fields: Partial<typeof registryContributions.$inferInsert>,
+  ) => ({
+    id,
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    familyId: "fam_gifts",
+    status: "succeeded" as const,
+    amountMinor: 5_000,
+    currency: "AUD",
+    createdAt: at(minutes),
+    updatedAt: at(minutes),
+    ...fields,
+  });
+  db.insert(registryContributions)
+    .values([
+      cash("rcon_general", 4, { message: "For the honeymoon", displayName: "The Marchettis" }),
+      cash("rcon_pending", 5, { status: "pending", itemId: "ritem_vase" }),
+      cash("rcon_disputed", 6, { status: "disputed", message: "Held by the bank" }),
+      cash("rcon_refunded", 7, { status: "refunded", message: "Sent back later" }),
+      cash("rcon_failed", 8, { status: "failed", message: "Card declined here" }),
+      cash("rcon_host", 9, { familyId: "fam_host", message: "From us two" }),
+      cash("rcon_gone", 10, { itemId: "ritem_gone", message: "Towards the lamp" }),
+      cash("rcon_yen", 11, {
+        amountMinor: 20_000,
+        currency: "JPY",
+        primaryAmountMinor: 20_400,
+        primaryCurrency: "AUD",
+        fxRate: "0.0102",
+        thankedAt: at(40),
+      }),
+    ])
+    .run();
+  // Deleting the item sets the gift's `item_id` NULL rather than erasing it.
+  db.delete(registryItems).where(eq(registryItems.id, "ritem_gone")).run();
+
+  db.insert(weddings)
+    .values({
+      id: "wed_parity_other",
+      slug: "parity-other",
+      displayName: "Another Wedding",
+      ownerOsnProfileId: "usr_parity_other",
+      createdAt: at(0),
+      updatedAt: at(0),
+    })
+    .run();
+  db.insert(families)
+    .values({
+      id: "fam_parity_other",
+      weddingId: "wed_parity_other",
+      publicId: "OTHR-CCC-0003",
+      familyName: "Someone Else",
+      createdAt: at(0),
+      updatedAt: at(0),
+    })
+    .run();
+  db.insert(registryItems)
+    .values({
+      id: "ritem_parity_other",
+      weddingId: "wed_parity_other",
+      title: "Someone Elses Kettle",
+      createdAt: at(0),
+      updatedAt: at(0),
+    })
+    .run();
+  db.insert(registryClaims)
+    .values({
+      id: "rclaim_parity_other",
+      weddingId: "wed_parity_other",
+      itemId: "ritem_parity_other",
+      familyId: "fam_parity_other",
+      quantity: 1,
+      status: "purchased",
+      createdAt: at(12),
+      updatedAt: at(12),
+    })
+    .run();
+  db.insert(registryContributions)
+    .values({
+      ...cash("rcon_parity_other", 13, { message: "Not your gift" }),
+      weddingId: "wed_parity_other",
+      familyId: "fam_parity_other",
+    })
+    .run();
+}
+
+/**
+ * A gift-log entry written out as the export's line would be. The seeds hold
+ * no comma, quote or formula marker, so no cell needs quoting or escaping.
+ */
+function asExportLine(e: GiftLogEntryDto): string {
+  return [
+    e.kind === "claim" ? "Gift list" : "Cash gift",
+    e.itemTitle ?? "",
+    e.familyName,
+    e.displayName ?? "",
+    e.quantity === null ? "" : String(e.quantity),
+    e.status,
+    e.note ?? "",
+    e.amountMinor === null || e.currency === null ? "" : minorToDecimal(e.amountMinor, e.currency),
+    e.currency ?? "",
+    e.primaryAmountMinor === null || e.primaryCurrency === null
+      ? ""
+      : minorToDecimal(e.primaryAmountMinor, e.primaryCurrency),
+    e.primaryCurrency ?? "",
+    e.fxRate ?? "",
+    e.thankedAt === null ? "" : new Date(e.thankedAt).toISOString(),
+    new Date(e.createdAt).toISOString(),
+  ].join(",");
 }
 
 describe("giftExportService.giftsCsv", () => {
@@ -326,47 +578,133 @@ describe("giftExportService.giftsCsv", () => {
     ),
   );
 
-  it(
-    "caps the export at the ceiling and warns rather than truncating in silence",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        seedHousehold(db);
-        const overflow = MAX_GIFT_EXPORT_ROWS + 1;
-        // One statement per chunk keeps every insert under SQLite's 999
-        // bound-variable ceiling.
-        const chunk = 100;
-        for (let start = 0; start < overflow; start += chunk) {
-          const values = Array.from({ length: Math.min(chunk, overflow - start) }, (_, i) => ({
-            id: `rcon_bulk_${start + i}`,
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            familyId: "fam_gifts",
-            status: "succeeded" as const,
-            amountMinor: 100,
-            currency: "AUD",
-            createdAt: at(1),
-            updatedAt: at(1),
-          }));
-          db.insert(registryContributions).values(values).run();
+  it("keeps the newest rows across both tables at the ceiling and warns that it cut", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedHousehold(db);
+    seedOverflow(db, MAX_GIFT_EXPORT_ROWS + 1);
+
+    const warnings: Array<{ message: string; annotations: Record<string, unknown> }> = [];
+    // v4 log levels are capitalised string literals ("Warn"), `Logger.layer`
+    // replaces the set of loggers rather than adding one, and a logger reads
+    // annotations off the fiber rather than from its arguments.
+    const capture = Logger.layer([
+      Logger.make(({ logLevel, message, fiber }) => {
+        if (logLevel === "Warn") {
+          warnings.push({
+            message: Array.isArray(message) ? message.join(" ") : String(message),
+            annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
+          });
         }
-
-        const warnings: string[] = [];
-        // v4 log levels are capitalised string literals ("Warn"), and
-        // `Logger.layer` replaces the set of loggers rather than one of them.
-        const capture = Logger.layer([
-          Logger.make(({ logLevel, message }) => {
-            if (logLevel === "Warn") {
-              warnings.push(Array.isArray(message) ? message.join(" ") : String(message));
-            }
-          }),
-        ]);
-        const csv = yield* giftExportService
-          .giftsCsv(BOOTSTRAP_WEDDING_ID)
-          .pipe(Effect.provide(capture));
-
-        expect(lines(csv)).toHaveLength(MAX_GIFT_EXPORT_ROWS + 1);
-        expect(warnings.join(" ")).toContain("exceeds the export ceiling");
       }),
-    ),
-  );
+    ]);
+    const csv = await Effect.runPromise(
+      giftExportService
+        .giftsCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(capture)),
+    );
+
+    const data = lines(csv).slice(1);
+    expect(data).toHaveLength(MAX_GIFT_EXPORT_ROWS);
+    // Newest first, the oldest one dropped: row-2000 (a cash gift) down to
+    // row-1 (a claim), with row-0 nowhere. Truncation is tolerable only
+    // because it loses the oldest end, so the order is pinned row by row.
+    const notes = data.map((line) => line.split(",")[6]);
+    expect(notes).toEqual(
+      Array.from({ length: MAX_GIFT_EXPORT_ROWS }, (_, i) => `row-${MAX_GIFT_EXPORT_ROWS - i}`),
+    );
+    expect(data[0]!.startsWith("Cash gift,")).toBe(true);
+    expect(data.at(-1)!.startsWith("Gift list,")).toBe(true);
+    expect(csv).not.toContain(",row-0,");
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toContain("exceeds the export ceiling");
+    // The read stops one row past the ceiling, so any row count it could log
+    // would only ever be that. It says what happened instead.
+    expect(warnings[0]!.annotations).toEqual({
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      exportCap: MAX_GIFT_EXPORT_ROWS,
+      truncated: true,
+    });
+  }, 30_000);
+
+  it("prints a log exactly at the ceiling whole, and does not warn", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedHousehold(db);
+    seedOverflow(db, MAX_GIFT_EXPORT_ROWS);
+
+    const warnings: string[] = [];
+    const capture = Logger.layer([
+      Logger.make(({ logLevel, message }) => {
+        if (logLevel === "Warn") warnings.push(String(message));
+      }),
+    ]);
+    const csv = await Effect.runPromise(
+      giftExportService
+        .giftsCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(capture)),
+    );
+
+    // The other side of the boundary: a file that was not cut keeps its oldest
+    // row and raises no alarm.
+    const notes = lines(csv)
+      .slice(1)
+      .map((line) => line.split(",")[6]);
+    expect(notes).toEqual(
+      Array.from({ length: MAX_GIFT_EXPORT_ROWS }, (_, i) => `row-${MAX_GIFT_EXPORT_ROWS - 1 - i}`),
+    );
+    expect(warnings).toEqual([]);
+  }, 30_000);
+
+  it("reads the whole log in one statement that stops one row past the ceiling", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedHousehold(db);
+    seedOverflow(db, 2 * (MAX_GIFT_EXPORT_ROWS + 1));
+
+    const statements = recordStatements(db);
+    await Effect.runPromise(
+      giftExportService
+        .giftsCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(silent)),
+    );
+
+    // Each table alone holds more rows than the ceiling (2,001 of each), so
+    // reading each to the ceiling separately would fetch 4,002 rows to print
+    // 2,000. One statement, cut once, fetches the ceiling plus the single row
+    // that tells the export it was cut.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.rowCounts).toEqual([MAX_GIFT_EXPORT_ROWS + 1]);
+  }, 30_000);
+
+  it("prints exactly the rows the portal's gift log shows", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedParity(db);
+    const provide = <A>(eff: Effect.Effect<A, never, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+    const portal: GiftLogEntryDto[] = [];
+    for (let offset = 0; ;) {
+      const page = await provide(registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset }));
+      portal.push(...page.entries);
+      if (!page.hasMore) break;
+      offset += page.entries.length;
+    }
+    const exported = lines(await provide(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID))).slice(
+      1,
+    );
+
+    // Every printed column, not a key: the union matches its two branches by
+    // position, so a column read from the wrong field would still produce
+    // the right number of rows. Sorted arrays rather than sets, so a row a
+    // join doubled cannot hide.
+    const portalRows = portal.map(asExportLine).toSorted();
+    expect(exported.toSorted()).toEqual(portalRows);
+    // The seed: 3 claims and 8 cash gifts on this wedding, one of them
+    // failed, plus two gifts on another wedding that neither side may show.
+    expect(portalRows).toHaveLength(10);
+    expect(exported.join("\n")).not.toContain("Someone Else");
+  }, 30_000);
 });

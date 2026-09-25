@@ -204,7 +204,10 @@ describe("applyImport + re-diff (idempotent)", () => {
         // Populate the wedding, then provision the host preview family.
         const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
         yield* applyImport("import-1", plan, BOOTSTRAP_WEDDING_ID);
-        const { publicId } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        const { publicId } = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
 
         // The host family is invisible to the diff — never removed, never churned.
         const rediff = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
@@ -1037,7 +1040,7 @@ describe("applyImport — capacity enforcement", () => {
     // Provision a host family (kind='host') with its synthetic guest.
     await Effect.runPromise(
       hostCodeService
-        .ensureForWedding(BOOTSTRAP_WEDDING_ID)
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
         .pipe(Effect.provideService(DbService, db)),
     );
 

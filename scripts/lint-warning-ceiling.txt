@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1036   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-entitlement-gates @ 2026-09-25 — -3 after merging main at 1039: rewritten route comments no longer carry finding tags. No rule was disabled and nothing was suppressed.
+1035   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-gift-export @ 2026-09-25 — -1 after merging fix/cire-entitlement-gates at 1036: the gift-export rewrite drops one warning. No rule was disabled and nothing was suppressed.

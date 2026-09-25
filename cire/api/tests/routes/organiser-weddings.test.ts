@@ -17,12 +17,15 @@ import {
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { appRequest, jsonBody } from "../test-helpers";
+import { organiserSessionService } from "../../src/services/organiser-session";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -102,6 +105,25 @@ function seedOtherWedding(db: TestDb) {
       updatedAt: now,
     })
     .run();
+}
+
+/** Mints an organiser session directly against `db`, returning its raw token. */
+function seedOrganiserSession(db: Db, osnProfileId: string): Promise<string> {
+  return Effect.runPromise(
+    organiserSessionService
+      .create({
+        osnProfileId,
+        osnSub: `pw_${osnProfileId}`,
+        email: `${osnProfileId}@example.test`,
+        handle: osnProfileId,
+        displayName: "Organiser",
+        avatarUrl: null,
+      })
+      .pipe(
+        Effect.provideService(DbService, db),
+        Effect.map((session) => session.token),
+      ),
+  );
 }
 
 async function get(app: ReturnType<typeof buildApp>["app"], path: string, profileId?: string) {
@@ -587,6 +609,20 @@ describe("GET /api/organiser/weddings/:weddingId/events", () => {
     const res = await get(app, "/api/organiser/weddings/wed_nope/events", BOOTSTRAP_OWNER);
     expect(res.status).toBe(404);
   });
+
+  it("scopes event image paths by the gate's slug, reading the wedding row once", async () => {
+    const { db, app } = buildApp();
+    db.update(events)
+      .set({ eventImageKey: "events/evt_other/v7.webp" })
+      .where(eq(events.id, "evt_other"))
+      .run();
+    const statements = recordStatements(db);
+    const res = await get(app, `/api/organiser/weddings/${OTHER_WEDDING_ID}/events`, OTHER_OWNER);
+    expect(res.status).toBe(200);
+    const [row] = (await res.json()) as { imageUrl: string | null }[];
+    expect(row!.imageUrl).toContain("other-wedding");
+    expect(statements.filter((s) => /\bfrom "weddings"/.test(s.sql))).toHaveLength(1);
+  });
 });
 
 async function post(app: ReturnType<typeof buildApp>["app"], path: string, profileId?: string) {
@@ -742,6 +778,15 @@ describe("POST /api/organiser/weddings/:weddingId/preview-code", () => {
     const { app } = buildApp();
     const res = await post(app, "/api/organiser/weddings/wed_nope/preview-code", BOOTSTRAP_OWNER);
     expect(res.status).toBe(404);
+  });
+
+  it("takes the preview link's slug from the gate, reading the wedding row once", async () => {
+    const { db, app } = buildApp();
+    const statements = recordStatements(db);
+    const res = await post(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { slug: string }).slug).toBe("cire-wedding");
+    expect(statements.filter((s) => /\bfrom "weddings"/.test(s.sql))).toHaveLength(1);
   });
 
   it("does not leak the host preview family into the organiser guest roster", async () => {
@@ -1340,6 +1385,36 @@ describe("GET /api/organiser/weddings/:weddingId/events.csv", () => {
   });
 });
 
+describe("organiser CSV exports read the wedding row once", () => {
+  // The filename carries the wedding's slug. The member gate already reads the
+  // wedding row to authorise the caller, so the slug comes from that read
+  // rather than a second one.
+  const exportsByFilename = [
+    ["rsvps.csv", "cire-rsvps-cire-wedding.csv"],
+    ["guests.csv", "cire-guests-cire-wedding.csv"],
+    ["events.csv", "cire-events-cire-wedding.csv"],
+    ["gifts.csv", "cire-gifts-cire-wedding.csv"],
+    ["export/events.csv", "cire-export-events-cire-wedding.csv"],
+    ["export/guests.csv", "cire-export-guests-cire-wedding.csv"],
+  ] as const;
+
+  for (const [route, filename] of exportsByFilename) {
+    it(`${route} names the file from the gate's read`, async () => {
+      const { db, app } = buildApp();
+      const statements = recordStatements(db);
+      const res = await get(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/${route}`,
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-disposition")).toContain(`filename="${filename}"`);
+      const weddingReads = statements.filter((s) => /\bfrom "weddings"/.test(s.sql));
+      expect(weddingReads).toHaveLength(1);
+    });
+  }
+});
+
 describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
   const COHOST = "usr_cohost_giftscsv";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/gifts.csv`;
@@ -1523,6 +1598,47 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
     const body = await res.text();
     expect(body).toContain("Copper Pan");
     expect(body).toContain("For the honeymoon");
+  });
+
+  it("answers a failed read with a plain 500, never part of a file", async () => {
+    const { db, app } = buildApp();
+    seedGifts(db);
+    // Every D1 error reaches the handler as a defect; breaking one of the two
+    // tables the union reads is the cheapest way to raise one here.
+    db.$client.exec("DROP TABLE registry_contributions");
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  // A browser reaches the download with the organiser session cookie, not a
+  // bearer token. The six exports share one `osnAuth`, so one route stands
+  // for all of them.
+  it("serves the CSV to an organiser session cookie", async () => {
+    const { db, app } = buildApp();
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+    const res = await appRequest(app, path, { headers: { cookie: `cire_org_session=${token}` } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain(
+      'filename="cire-gifts-cire-wedding.csv"',
+    );
+  });
+
+  it("refuses a session cookie that names no live session", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, path, {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
+  });
+
+  it("refuses a bearer token that does not verify", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, path, { headers: { authorization: "Bearer not-a-jwt" } });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
   });
 
   it("serves a header-only CSV when the couple have had no gifts", async () => {

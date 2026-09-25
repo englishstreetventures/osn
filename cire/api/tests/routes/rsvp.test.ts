@@ -295,7 +295,7 @@ describe("POST /api/rsvp", () => {
       Effect.gen(function* () {
         // Provision the wedding's host preview code, then claim it for a cookie.
         const { publicId } = yield* hostCodeService
-          .ensureForWedding(BOOTSTRAP_WEDDING_ID)
+          .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
           .pipe(Effect.provideService(DbService, db));
         const cookie = yield* claimAndCookie(publicId);
 

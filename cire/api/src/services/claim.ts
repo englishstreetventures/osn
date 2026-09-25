@@ -425,8 +425,14 @@ export const claimService = {
   },
 
   /** All events for one wedding (organiser view). weddingId is required —
-   * an unscoped variant would be a cross-tenant leak waiting to happen. */
-  listEvents(weddingId: string): Effect.Effect<
+   * an unscoped variant would be a cross-tenant leak waiting to happen.
+   * `weddingSlug` scopes the first-party event-image paths — distinct from
+   * `events.slug`, the per-event slug. The route takes it from the member gate,
+   * which has already read the wedding row. */
+  listEvents(
+    weddingId: string,
+    weddingSlug: string,
+  ): Effect.Effect<
     {
       id: string;
       name: string;
@@ -449,12 +455,6 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // The wedding slug scopes the first-party event-image paths — distinct from
-      // `events.slug` (the per-event slug). Resolved once for the whole list.
-      const [wedding] = yield* dbQuery(() =>
-        db.select({ slug: weddings.slug }).from(weddings).where(eq(weddings.id, weddingId)).all(),
-      );
-      const weddingSlug = wedding?.slug ?? weddingId;
       const rows = yield* dbQuery(() =>
         db
           .select()

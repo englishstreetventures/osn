@@ -1,5 +1,6 @@
 import { families, registryClaims, registryContributions, registryItems } from "@cire/db";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -22,28 +23,17 @@ import { minorToDecimal } from "../lib/money";
  * dominated by `serialiseCsv`, which trims, scans and quotes every one of the
  * fourteen cells in a row: measured at roughly 6 ms for 2,000 rows and 11 ms
  * for 5,000, so the higher figure spends the whole budget and the request is
- * killed with `exceededCpu`. Raising it back to "a plausible wedding" means
- * streaming the response first — see the follow-up issue on this file.
+ * killed with `exceededCpu`.
+ *
+ * Streaming the response would not raise it. Workers counts the CPU spent
+ * running the Worker's code, and serialising rows into a stream is still that
+ * code, so a streamed file costs the same CPU as a buffered one. Memory does
+ * not bind either: a 2,000-row file is far inside the 128 MB an isolate may
+ * use. Raising the ceiling means cutting what `serialiseCsv` spends per row.
  */
 export const MAX_GIFT_EXPORT_ROWS = 2000;
 
-/** One gift, already flattened into the columns the CSV prints. */
-interface GiftRow {
-  kind: "Gift list" | "Cash gift";
-  itemTitle: string | null;
-  familyName: string;
-  displayName: string | null;
-  quantity: number | null;
-  status: string;
-  note: string | null;
-  amountMinor: number | null;
-  currency: string | null;
-  primaryAmountMinor: number | null;
-  primaryCurrency: string | null;
-  fxRate: string | null;
-  thankedAt: Date | null;
-  createdAt: Date;
-}
+type GiftKind = "Gift list" | "Cash gift";
 
 const iso = (at: Date | null): string => (at ? at.toISOString() : "");
 
@@ -53,12 +43,13 @@ const iso = (at: Date | null): string => (at ? at.toISOString() : "");
  * a page at a time and keeps it for a year; the export is how the couple take
  * the detail with them before the retention sweep folds it into totals.
  *
- * Reads the same two tables as `registryService.giftLog`, with the same shape
- * deliberately: the same `failed`-contributions exclusion (money that never
- * moved is not a gift, while a `refunded` gift did happen and stays
+ * Reads the same two tables as `registryService.giftLog` with the same joins
+ * and filters, deliberately: the same `failed`-contributions exclusion (money
+ * that never moved is not a gift, while a `refunded` gift did happen and stays
  * visible), the same LEFT join for cash gifts that have no item, and NO
  * host-family exclusion, because the export must contain exactly what the
- * portal shows and nothing else.
+ * portal shows and nothing else. A parity test in
+ * `tests/services/gift-export.test.ts` holds the two to that.
  *
  * A household is named, never coded. `families.public_id` is the claim
  * code — a bearer credential that opens that household's invite on its own —
@@ -80,139 +71,91 @@ export const giftExportService = {
       // that would have been dropped rather than on the last one kept.
       const readAhead = MAX_GIFT_EXPORT_ROWS + 1;
 
-      // The two reads are independently wedding-scoped — collapse them to one
-      // D1 round-trip; matches the parallel shape in table-export.ts.
-      const [claimRows, contributionRows] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({
-                id: registryClaims.id,
-                itemTitle: registryItems.title,
-                familyName: families.familyName,
-                displayName: registryClaims.displayName,
-                quantity: registryClaims.quantity,
-                status: registryClaims.status,
-                note: registryClaims.note,
-                thankedAt: registryClaims.thankedAt,
-                createdAt: registryClaims.createdAt,
-              })
-              .from(registryClaims)
-              .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
-              .innerJoin(families, eq(registryClaims.familyId, families.id))
-              .where(eq(registryClaims.weddingId, weddingId))
-              .orderBy(desc(registryClaims.createdAt))
-              .limit(readAhead)
-              .all(),
+      // Both tables in one statement: SQLite merges the two branches newest
+      // first and stops at `readAhead`, so the Worker never receives a row it
+      // will not print. Each branch walks its own `(wedding_id, created_at)`
+      // index in order, which is what lets the merge stop early.
+      //
+      // The branches are matched by POSITION, so both list the same columns in
+      // the same order, with a NULL literal where a column belongs to the other
+      // table. Every literal carries an alias so no two result columns share a
+      // name: the D1 driver's batch path keys a row by column name.
+      // The claims branch's `itemTitle`, `quantity` and `status` are widened to
+      // the cash-gift types, because Drizzle types the whole union from its
+      // first branch.
+      const claims = db
+        .select({
+          kind: sql<GiftKind>`'Gift list'`.as("kind"),
+          itemTitle: sql<string | null>`${registryItems.title}`,
+          familyName: families.familyName,
+          displayName: registryClaims.displayName,
+          quantity: sql<number | null>`${registryClaims.quantity}`,
+          status: sql<string>`${registryClaims.status}`,
+          note: registryClaims.note,
+          amountMinor: sql<number | null>`NULL`.as("amount_minor"),
+          currency: sql<string | null>`NULL`.as("currency"),
+          primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
+          primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
+          fxRate: sql<string | null>`NULL`.as("fx_rate"),
+          thankedAt: registryClaims.thankedAt,
+          // Aliased because a compound SELECT can only ORDER BY a name its
+          // first branch declares with AS.
+          createdAt: sql<Date>`${registryClaims.createdAt}`
+            .mapWith(registryClaims.createdAt)
+            .as("created_at"),
+        })
+        .from(registryClaims)
+        .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
+        .innerJoin(families, eq(registryClaims.familyId, families.id))
+        .where(eq(registryClaims.weddingId, weddingId));
+
+      const cashGifts = db
+        .select({
+          kind: sql<GiftKind>`'Cash gift'`.as("kind"),
+          itemTitle: registryItems.title,
+          familyName: families.familyName,
+          displayName: registryContributions.displayName,
+          quantity: sql<number | null>`NULL`.as("quantity"),
+          status: registryContributions.status,
+          note: registryContributions.message,
+          amountMinor: registryContributions.amountMinor,
+          currency: registryContributions.currency,
+          primaryAmountMinor: registryContributions.primaryAmountMinor,
+          primaryCurrency: registryContributions.primaryCurrency,
+          fxRate: registryContributions.fxRate,
+          thankedAt: registryContributions.thankedAt,
+          createdAt: sql<Date>`${registryContributions.createdAt}`
+            .mapWith(registryContributions.createdAt)
+            .as("created_at"),
+        })
+        .from(registryContributions)
+        // LEFT: a general cash gift has no item, and an item deleted after
+        // the fact sets `item_id` NULL rather than erasing the gift.
+        .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
+        .innerJoin(families, eq(registryContributions.familyId, families.id))
+        .where(
+          and(
+            eq(registryContributions.weddingId, weddingId),
+            ne(registryContributions.status, "failed"),
           ),
-          dbQuery(() =>
-            db
-              .select({
-                id: registryContributions.id,
-                itemTitle: registryItems.title,
-                familyName: families.familyName,
-                displayName: registryContributions.displayName,
-                status: registryContributions.status,
-                note: registryContributions.message,
-                amountMinor: registryContributions.amountMinor,
-                currency: registryContributions.currency,
-                primaryAmountMinor: registryContributions.primaryAmountMinor,
-                primaryCurrency: registryContributions.primaryCurrency,
-                fxRate: registryContributions.fxRate,
-                thankedAt: registryContributions.thankedAt,
-                createdAt: registryContributions.createdAt,
-              })
-              .from(registryContributions)
-              // LEFT: a general cash gift has no item, and an item deleted after
-              // the fact sets `item_id` NULL rather than erasing the gift.
-              .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
-              .innerJoin(families, eq(registryContributions.familyId, families.id))
-              .where(
-                and(
-                  eq(registryContributions.weddingId, weddingId),
-                  ne(registryContributions.status, "failed"),
-                ),
-              )
-              .orderBy(desc(registryContributions.createdAt))
-              .limit(readAhead)
-              .all(),
-          ),
-        ],
-        { concurrency: 2 },
+        );
+
+      // Newest first, the order the portal's log is read in.
+      const gifts = yield* dbQuery(() =>
+        unionAll(claims, cashGifts)
+          .orderBy(desc(sql`created_at`))
+          .limit(readAhead)
+          .all(),
       );
 
-      const claims: GiftRow[] = (
-        claimRows as Array<{
-          itemTitle: string;
-          familyName: string;
-          displayName: string | null;
-          quantity: number;
-          status: string;
-          note: string | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => ({
-        kind: "Gift list" as const,
-        itemTitle: r.itemTitle,
-        familyName: r.familyName,
-        displayName: r.displayName,
-        quantity: r.quantity,
-        status: r.status,
-        note: r.note,
-        amountMinor: null,
-        currency: null,
-        primaryAmountMinor: null,
-        primaryCurrency: null,
-        fxRate: null,
-        thankedAt: r.thankedAt,
-        createdAt: r.createdAt,
-      }));
-
-      const contributions: GiftRow[] = (
-        contributionRows as Array<{
-          itemTitle: string | null;
-          familyName: string;
-          displayName: string | null;
-          status: string;
-          note: string | null;
-          amountMinor: number;
-          currency: string;
-          primaryAmountMinor: number | null;
-          primaryCurrency: string | null;
-          fxRate: string | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => ({
-        kind: "Cash gift" as const,
-        itemTitle: r.itemTitle,
-        familyName: r.familyName,
-        displayName: r.displayName,
-        quantity: null,
-        status: r.status,
-        note: r.note,
-        amountMinor: r.amountMinor,
-        currency: r.currency,
-        primaryAmountMinor: r.primaryAmountMinor,
-        primaryCurrency: r.primaryCurrency,
-        fxRate: r.fxRate,
-        thankedAt: r.thankedAt,
-        createdAt: r.createdAt,
-      }));
-
-      // Newest first, the order the portal's log is read in. Sorted in place:
-      // `merged` is built here and handed to nobody else, so this is not the
-      // shared-array aliasing hazard oxlint's `no-array-sort` guards against.
-      const merged: GiftRow[] = [...claims, ...contributions];
-      merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-      if (merged.length > MAX_GIFT_EXPORT_ROWS) {
+      if (gifts.length > MAX_GIFT_EXPORT_ROWS) {
+        // No row count: the read stops one past the ceiling, so it could only
+        // ever report that. The warning says the file was cut, and at what.
         yield* Effect.logWarning("[gift-export] gift log exceeds the export ceiling").pipe(
           Effect.annotateLogs({
             weddingId,
-            rows: merged.length,
             exportCap: MAX_GIFT_EXPORT_ROWS,
+            truncated: true,
           }),
         );
       }
@@ -233,7 +176,7 @@ export const giftExportService = {
         "Thanked At",
         "Received At",
       ];
-      const rows = merged
+      const rows = gifts
         .slice(0, MAX_GIFT_EXPORT_ROWS)
         .map((g) => [
           g.kind,

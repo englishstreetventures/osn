@@ -290,6 +290,21 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
     // must not touch it — the role gate passes no key and never folds.
     expect(res.status).toBe(200);
   });
+
+  it("carries the wedding's slug through the fallback when the fold breaks", async () => {
+    const db = buildDb({ grantVendors: true });
+    db.$client.exec("DROP TABLE wedding_entitlements");
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ osnProfileId: COHOST }))
+      .group("/w/:weddingId", (g) =>
+        g.use(weddingMember(db, "vendors")).get("/slug", ({ weddingSlug }) => ({ weddingSlug })),
+      );
+    const res = await appRequest(app, `/w/${WEDDING_ID}/slug`);
+    // The export routes name their download from this, so the plain query the
+    // fold falls back to must read the slug as well.
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ weddingSlug: "fold-wedding" });
+  });
 });
 
 describe("the owner gate folds the entitlement check too", () => {

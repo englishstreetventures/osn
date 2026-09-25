@@ -236,12 +236,16 @@ type AuthorizeResult = {
   /** The caller's stored run-sheet visibility. `own` for anyone with no seat —
    *  the narrow value, so a missing row can never widen what is returned. */
   runSheetScope: RunSheetScope;
+  /** The wedding's slug, read from the same row as its owner, so a route that
+   *  names a download after the wedding does not read that row again. */
+  weddingSlug: string;
 };
 
 /**
- * The entitlement-free `authorize()` — the query shape this service has always
- * run, extracted so both the plain caller and
- * {@link authorizeWithEntitlement}'s defect fallback can reach it.
+ * The entitlement-free `authorize()`: the wedding row, then the caller's seat
+ * unless they own it, with no `wedding_entitlements` column. Kept apart so both
+ * the plain caller and {@link authorizeWithEntitlement}'s defect fallback can
+ * reach it.
  */
 function authorizePlain(
   weddingId: string,
@@ -251,7 +255,7 @@ function authorizePlain(
     const db = yield* DbService;
     const [owner] = yield* dbQuery(() =>
       db
-        .select({ owner: weddings.ownerOsnProfileId })
+        .select({ owner: weddings.ownerOsnProfileId, slug: weddings.slug })
         .from(weddings)
         .where(eq(weddings.id, weddingId))
         .all(),
@@ -269,6 +273,7 @@ function authorizePlain(
         // and no stored scope; they see the whole run sheet by role.
         hostId: null,
         runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
+        weddingSlug: owner.slug,
       };
     }
 
@@ -295,15 +300,16 @@ function authorizePlain(
       runSheetScope: host
         ? normaliseRunSheetScope(host.runSheetScope)
         : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
+      weddingSlug: owner.slug,
     };
   }).pipe(Effect.withSpan("cire.host.authorize"));
 }
 
 /**
  * The `entitlementKey`-carrying half of `authorize()` — kept as a separate
- * function rather than an inline branch so the plain path above stays exactly
- * the query it always was, byte for byte, for every caller that never asks
- * for an entitlement fold. Each SELECT gains one boolean `entitled` column
+ * function rather than an inline branch so the plain path above carries no
+ * entitlement column for any caller that never asks for an entitlement fold.
+ * Each SELECT gains one boolean `entitled` column
  * (an `EXISTS` subquery against `wedding_entitlements`) instead of the caller
  * issuing a THIRD, separate `entitlementService.has()` round trip afterward —
  * same total query count as the plain path (one query on the owner branch,
@@ -320,7 +326,11 @@ function authorizeWithEntitlement(
     const db = yield* DbService;
     const [owner] = yield* dbQuery(() =>
       db
-        .select({ owner: weddings.ownerOsnProfileId, entitled: entitledExists })
+        .select({
+          owner: weddings.ownerOsnProfileId,
+          slug: weddings.slug,
+          entitled: entitledExists,
+        })
         .from(weddings)
         .where(eq(weddings.id, weddingId))
         .all(),
@@ -336,6 +346,7 @@ function authorizeWithEntitlement(
         role: "owner" as const,
         hostId: null,
         runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
+        weddingSlug: owner.slug,
         entitled: Boolean(owner.entitled),
       };
     }
@@ -364,6 +375,7 @@ function authorizeWithEntitlement(
       runSheetScope: host
         ? normaliseRunSheetScope(host.runSheetScope)
         : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
+      weddingSlug: owner.slug,
       // No host row means neither the owner nor a co-host branch matched — the
       // caller is a stranger, and `entitled` is meaningless (the role gate
       // 403s before anything reads it), so `false` rather than a bogus query.
@@ -633,16 +645,18 @@ export const hostsService = {
    * Is `osnProfileId` allowed to reach `weddingId`'s dashboard, and at what
    * level? True when they own it OR co-host it. Returns the owner id too so the
    * caller (the `weddingMember()` / `weddingEditor()` gates) can distinguish
-   * owner from co-host — and, via `role`, editor from viewer — in a single
-   * round-trip. `null` result means the wedding doesn't exist (caller maps to
-   * 404); `role` is `null` when the caller is neither owner nor host.
+   * owner from co-host — and, via `role`, editor from viewer — and the
+   * wedding's slug from the same row. One query for the owner; a co-host or a
+   * stranger costs a second, for the seat. `null` result means the wedding
+   * doesn't exist (caller maps to 404); `role` is `null` when the caller is
+   * neither owner nor host.
    *
    * `entitlementKey`, when given, folds a presence check for that entitlement
    * into the SAME query as the owner/host lookup (an `EXISTS` column, same
    * idiom as `directory.ts`'s `inWedding`) rather than a separate round trip —
-   * see `weddingEntitlement`. Omitted, this runs exactly the query shape it
-   * always has, so a role gate on a route with no entitlement gate — which
-   * must never pass a key — is unaffected.
+   * see `weddingEntitlement`. Omitted, no entitlement column is read, so a role
+   * gate on a route with no entitlement gate — which must never pass a key —
+   * pays nothing for it.
    */
   authorize(
     weddingId: string,

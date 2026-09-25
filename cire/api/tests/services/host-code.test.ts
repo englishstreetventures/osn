@@ -20,12 +20,15 @@ describe("hostCodeService.ensureForWedding", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const { publicId, slug } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        const { publicId, slug } = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
         expect(publicId).toMatch(/^HOST-[A-F0-9]{32}$/);
-        // Returns the wedding slug for the path-routed preview link.
+        // Hands back the slug it was given, for the path-routed preview link.
         expect(slug).toBe("cire-wedding");
 
-        const allEvents = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID);
+        const allEvents = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID, "cire-wedding");
         const claimed = yield* claimService.lookup(publicId);
         expect(claimed.preview).toBe(true);
         expect(claimed.events.map((e) => e.id).toSorted()).toEqual(
@@ -52,8 +55,11 @@ describe("hostCodeService.ensureForWedding", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const first = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
-        const second = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        const first = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding");
+        const second = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
         expect(second.publicId).toBe(first.publicId);
 
         const hostFamilies = yield* Effect.promise(() =>
@@ -75,7 +81,10 @@ describe("hostCodeService.ensureForWedding", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const { publicId } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        const { publicId } = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
 
         // A new event lands (e.g. via a later spreadsheet import).
         yield* Effect.promise(() =>
@@ -101,7 +110,7 @@ describe("hostCodeService.ensureForWedding", () => {
         const before = yield* claimService.lookup(publicId);
         expect(before.events.some((e) => e.id === "evt_after_host")).toBe(false);
 
-        yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding");
         const after = yield* claimService.lookup(publicId);
         expect(after.events.some((e) => e.id === "evt_after_host")).toBe(true);
       }),
@@ -126,7 +135,7 @@ describe("hostCodeService.ensureForWedding", () => {
 
     const error = await Effect.runPromise(
       hostCodeService
-        .ensureForWedding(BOOTSTRAP_WEDDING_ID)
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
         .pipe(Effect.provideService(DbService, failing), Effect.flip),
     );
     expect(error).toBeInstanceOf(HostCodeError);

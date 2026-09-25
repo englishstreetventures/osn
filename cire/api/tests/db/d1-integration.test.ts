@@ -5,6 +5,9 @@ import {
   families,
   guestEvents,
   guests,
+  registryClaims,
+  registryContributions,
+  registryItems,
   registrySettings,
   rsvps,
   tasks,
@@ -21,6 +24,7 @@ import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { claimService } from "../../src/services/claim";
+import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { rsvpService } from "../../src/services/rsvp";
@@ -511,6 +515,62 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
         .orderBy(asc(tasks.sortOrder));
       expect(rows.map((r) => r.id)).toEqual(reversed);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "gift export reads both tables in one union and prints every cell in place",
+    async () => {
+      // The D1 driver maps a union's rows by POSITION, using the first
+      // branch's fields, so a column out of step shows up here as a value in
+      // the wrong cell. The truncation above clears these rows through the
+      // foreign keys: items cascade from the wedding, claims and cash gifts
+      // from the family.
+      const at = (minutes: number) => new Date(Date.UTC(2026, 7, 20, 10, minutes, 0));
+      await db.insert(registryItems).values({
+        id: "ritem_d1",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      await db.insert(registryClaims).values({
+        id: "rclaim_d1",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_d1",
+        familyId: FAMILY_ID,
+        quantity: 2,
+        status: "purchased",
+        note: "Bought the pair",
+        displayName: "Auntie Ros",
+        thankedAt: at(5),
+        createdAt: at(1),
+        updatedAt: at(5),
+      });
+      await db.insert(registryContributions).values({
+        id: "rcon_d1",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_d1",
+        familyId: FAMILY_ID,
+        status: "succeeded",
+        displayName: "Uncle Jo",
+        message: "Towards the pan",
+        amountMinor: 20_000,
+        currency: "JPY",
+        primaryAmountMinor: 20_400,
+        primaryCurrency: "AUD",
+        fxRate: "0.0102",
+        thankedAt: at(6),
+        createdAt: at(2),
+        updatedAt: at(6),
+      });
+
+      const csv = await run(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      expect(csv.split("\r\n").slice(1)).toEqual([
+        "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Towards the pan,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
+        "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Bought the pair,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
+      ]);
     },
     MF_TIMEOUT_MS,
   );

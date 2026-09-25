@@ -149,4 +149,20 @@ describe("weddingMember", () => {
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ weddingOwnerOsnProfileId: OWNER });
   });
+
+  it("derives the wedding's slug for the owner and a co-host alike", async () => {
+    // The CSV exports name their download after the slug, and take it from
+    // here rather than reading the wedding row again.
+    const db = buildDb();
+    const slugApp = (profileId: string) =>
+      new Elysia({ aot: false })
+        .derive(() => ({ osnProfileId: profileId }))
+        .group("/weddings/:weddingId", (group) =>
+          group.use(weddingMember(db)).get("/probe", ({ weddingSlug }) => ({ weddingSlug })),
+        );
+    const asOwner = await appRequest(slugApp(OWNER), `/weddings/${WEDDING_ID}/probe`);
+    const asCohost = await appRequest(slugApp(COHOST), `/weddings/${WEDDING_ID}/probe`);
+    expect(await jsonBody(asOwner)).toEqual({ weddingSlug: "alice-wedding" });
+    expect(await jsonBody(asCohost)).toEqual({ weddingSlug: "alice-wedding" });
+  });
 });

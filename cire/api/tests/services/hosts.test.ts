@@ -443,6 +443,7 @@ describe("hostsService.authorize", () => {
       role: "owner",
       hostId: null,
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
     });
   });
 
@@ -466,6 +467,7 @@ describe("hostsService.authorize", () => {
       role: "editor",
       hostId: expect.stringMatching(/^whost_/),
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
     });
   });
 
@@ -511,6 +513,7 @@ describe("hostsService.authorize", () => {
       role: null,
       hostId: null,
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
     });
   });
 
@@ -557,6 +560,7 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       role: "owner",
       hostId: null,
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
       entitled: true,
     });
   });
@@ -613,6 +617,7 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       role: "editor",
       hostId: expect.stringMatching(/^whost_/),
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
       entitled: true,
     });
   });
@@ -653,6 +658,7 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       role: null,
       hostId: null,
       runSheetScope: "own",
+      weddingSlug: "test-wedding",
       entitled: false,
     });
   });
