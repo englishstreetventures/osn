@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1026   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-gift-image-urls @ 2026-09-25 — after merging main at 1029: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.
+1017   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-link-preview-cap @ 2026-09-25 — after merging main at 1026: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.

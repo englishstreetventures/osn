@@ -7,6 +7,7 @@ import {
   createAssetsStub,
   MAX_IMAGE_BYTES,
 } from "../../src/services/invite-assets";
+import { MAX_HOST_LOOKUPS } from "../../src/services/link-preview";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
 import { registryImageService } from "../../src/services/registry-image";
 
@@ -204,6 +205,39 @@ describe("registryImageService.storeFromUrl", () => {
         .pipe(Effect.provideService(AssetsR2Service, stub)),
     );
     expect(failureTag(exit)).toBe("RegistryImageBlocked");
+    expect(stub._store.size).toBe(0);
+  });
+
+  it("shares the preview's DNS lookup budget", async () => {
+    // Only reachable through the `maxRedirects` test seam: the default three
+    // redirects touch four hosts. This pins the copy to the same guard, and the
+    // budget reason to a blocked error rather than a crash.
+    const fetched: string[] = [];
+    const stub = createAssetsStub();
+    const exit = await runFromUrl(
+      "https://hop0.example/pan.jpg",
+      {
+        maxRedirects: 20,
+        fetchImpl: ((input: string) => {
+          fetched.push(input);
+          const n = Number(/^https:\/\/hop(\d+)\.example\//.exec(input)?.[1] ?? 0);
+          return Promise.resolve(
+            new Response("", {
+              status: 302,
+              headers: { location: `https://hop${n + 1}.example/pan.jpg` },
+            }),
+          );
+        }) as unknown as typeof fetch,
+        resolveHost: () => Promise.resolve(["93.184.216.34"]),
+      },
+      stub,
+    );
+    expect(failureTag(exit)).toBe("RegistryImageBlocked");
+    const error = Exit.isFailure(exit)
+      ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+      : undefined;
+    expect(error !== undefined && "reason" in error ? error.reason : null).toBe("lookup_budget");
+    expect(fetched.length).toBe(MAX_HOST_LOOKUPS);
     expect(stub._store.size).toBe(0);
   });
 });

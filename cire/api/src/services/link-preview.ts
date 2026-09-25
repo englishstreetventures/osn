@@ -28,7 +28,10 @@
  *      and the platform's own redirect follower would happily go.
  *   4. Caps. One total time budget across all hops (`AbortSignal.timeout`), a
  *      byte cap read off the stream rather than trusted from `Content-Length`,
- *      and a `Content-Type` that must start with `text/html`.
+ *      a `Content-Type` that must start with `text/html`, and a budget of DNS
+ *      lookups per operation ({@link MAX_HOST_LOOKUPS}), so the number of
+ *      outbound requests one preview makes has a ceiling of our own however
+ *      many hosts a page names.
  *   5. The candidates we emit. Absolute-ised against the FINAL document URL,
  *      `https:` only, and each image host run through layer 2 as well. We do not
  *      fetch those URLs — the organiser's browser does — but a `javascript:` or
@@ -67,7 +70,9 @@ export type BlockReason =
   | "no_host"
   | "port"
   | "private_address"
-  | "unresolvable";
+  | "unresolvable"
+  /** The operation had spent its {@link MAX_HOST_LOOKUPS}, so the host was never checked. */
+  | "lookup_budget";
 
 /** 400-class: the URL (or a hop of it) is one we refuse to fetch. */
 export class LinkPreviewBlocked extends Data.TaggedError("LinkPreviewBlocked")<{
@@ -262,7 +267,7 @@ interface DohAnswer {
  * or malformed query contributes no addresses, which the caller reads as
  * "unresolvable" and refuses. It never widens what we are willing to dial.
  *
- * The lookup answers to two clocks (P-W3): its own {@link DOH_TIMEOUT_MS}, and
+ * The lookup answers to two clocks: its own {@link DOH_TIMEOUT_MS}, and
  * the caller's whole-operation budget. Without the second, DNS sat OUTSIDE the
  * budget the fetches share — a preview that had already spent its 5 seconds on
  * hops could still go on to add 2 more per candidate host. `AbortSignal.any`
@@ -304,6 +309,37 @@ export function createDohResolver(fetchImpl: typeof fetch = fetch): HostResolver
 export const DEFAULT_MAX_REDIRECTS = 3;
 export const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_MAX_BYTES = 512 * 1024;
+
+/**
+ * How far down the ranked candidate list the host warm-up looks, and how many
+ * distinct hosts it resolves ahead of the emit loop.
+ */
+const PREFETCH_CANDIDATES = 32;
+const PREFETCH_HOSTS = 8;
+
+/**
+ * DNS lookups one guarded operation may make — every page hop and every
+ * candidate host together. Past it, a host that is not already in the guard's
+ * memo is refused as `lookup_budget` without a query.
+ *
+ * Sized as the page hops a default preview can take plus the hosts the warm-up
+ * resolves: 4 + 8 = 12. The emit loop gets whatever those leave (up to 3 on a
+ * direct link, none after a full redirect chain), which only matters when the
+ * first eight candidate hosts offer nothing usable.
+ *
+ * The point is the outbound count. Each lookup is two DoH requests (A and
+ * AAAA), so a preview's own fetches stop at 2 × 12 + 4 = 28 with default
+ * redirects, however many hosts the page names. Without it the emit loop would
+ * resolve every candidate host until six images were found, and a page of a few
+ * hundred `og:image` tags on hosts that resolve inward would cost a few hundred
+ * DoH queries — for names the caller chose.
+ *
+ * The same invocation can spend a few more outside this module (a JWKS fetch on
+ * the bearer-auth path, the trace export when it is configured), which is why
+ * the budget stays well under Workers Free's 50 external subrequests.
+ */
+export const MAX_HOST_LOOKUPS = DEFAULT_MAX_REDIRECTS + 1 + PREFETCH_HOSTS;
+
 const MAX_IMAGES = 6;
 /** Never emit a title longer than the column that will eventually hold it. */
 const MAX_TITLE_CHARS = 200;
@@ -335,7 +371,7 @@ export interface LinkPreview {
 // ---------------------------------------------------------------------------
 
 /**
- * Tag matchers, written so no input can make them backtrack (P-C1).
+ * Tag matchers, written so no input can make them backtrack.
  *
  * The earlier shapes let the character class match `<`, so an unclosed tag left
  * the engine free to restart the same class at every following position — and
@@ -355,20 +391,48 @@ const LINK_RE = /<link\s[^<>]*>/gi;
 const IMG_RE = /<img\s[^<>]*>/gi;
 
 /**
- * How many `<img>` candidates are worth collecting (P-W1).
+ * How many candidates each rank band collects: social-card images, then
+ * `image_src` links, then `<img>` tags.
  *
- * Only {@link MAX_IMAGES} URLs are ever emitted, and every `<img>` shares the
- * bottom rank band, so the sort keeps the FIRST six of them in document order —
- * a decision the 33rd `<img>` cannot change. Higher-ranked candidates
- * (`og:image`, `image_src`) keep being collected without a cap, so nothing that
- * could win is dropped. The headroom over six is for the emit loop, which walks
- * past candidates a redirect or a DNS check refuses.
+ * Only {@link MAX_IMAGES} URLs are ever emitted, and the sort is stable, so
+ * inside a band the FIRST ones in document order win — the 33rd `og:image`
+ * could only matter if the 32 before it and every higher band gave fewer than
+ * six usable images. The headroom over six is for the emit loop, which walks
+ * past candidates a DNS check refuses. The cap is a CPU bound: a 512 KB page
+ * holds thousands of these tags, and every one collected is one more string
+ * the emit loop decodes and parses — well past the 10 ms of CPU a Workers
+ * Free invocation gets.
  */
-const MAX_IMG_CANDIDATES = 32;
+const MAX_CANDIDATES_PER_BAND = 32;
+
+/**
+ * A candidate URL longer than this is skipped. No product image URL comes near
+ * it, and decoding and parsing one costs CPU in proportion to its length — a
+ * single 512 KB `og:image` spelled in entities is tens of milliseconds.
+ */
+const MAX_CANDIDATE_URL_CHARS = 2048;
+
+/**
+ * How much of a raw title or site name is decoded. Past {@link MAX_TITLE_CHARS}
+ * decoded characters the rest is cut anyway, and the longest entity the decoder
+ * reads is ten characters, so sixteen raw per kept character is room enough.
+ */
+const MAX_RAW_TEXT_CHARS = MAX_TITLE_CHARS * 16;
+
+/**
+ * One compiled pattern per attribute name. The names are a fixed handful, and
+ * compiling per call cost more than the match on a page of thousands of tags.
+ * No `g` or `y` flag, so a shared instance carries no state between calls.
+ */
+const ATTR_PATTERNS = new Map<string, RegExp>();
 
 /** Pull one attribute out of a raw tag string. Quoted or bare, any case. */
 function attr(tag: string, name: string): string | null {
-  const re = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i");
+  let re = ATTR_PATTERNS.get(name);
+  if (re === undefined) {
+    re = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i");
+    ATTR_PATTERNS.set(name, re);
+  }
   const m = re.exec(tag);
   if (!m) return null;
   return m[2] ?? m[3] ?? m[4] ?? null;
@@ -397,7 +461,7 @@ function decodeEntities(value: string): string {
 
 function clean(value: string | null): string | null {
   if (value === null) return null;
-  const text = decodeEntities(value).replace(/\s+/g, " ").trim();
+  const text = decodeEntities(value.slice(0, MAX_RAW_TEXT_CHARS)).replace(/\s+/g, " ").trim();
   if (text.length === 0) return null;
   return text.length > MAX_TITLE_CHARS ? text.slice(0, MAX_TITLE_CHARS) : text;
 }
@@ -429,10 +493,11 @@ interface ScannedHtml {
  * purpose (`og:image`, `twitter:image`), then the legacy `<link rel="image_src">`,
  * then `<img>` tags in document order with the ones that declare themselves tiny
  * dropped. Order inside a band is document order, which for a product page puts
- * the hero shot first.
+ * the hero shot first. Each band keeps its first {@link MAX_CANDIDATES_PER_BAND},
+ * and a URL longer than {@link MAX_CANDIDATE_URL_CHARS} is never collected.
  *
  * URLs come back exactly as the document wrote them — entity decoding happens
- * where a candidate is EMITTED (P-W1), so a page with a thousand images pays for
+ * where a candidate is EMITTED, so a page with a thousand images pays for
  * the handful that survive the ranking rather than for all thousand.
  */
 export function scanHtml(html: string): ScannedHtml {
@@ -441,29 +506,41 @@ export function scanHtml(html: string): ScannedHtml {
   let siteName: string | null = null;
   const candidates: Candidate[] = [];
 
+  // The meta loop cannot stop at the cap: a title or site name can follow the
+  // images. Past the cap it skips image tags before reading their content.
+  let socialCount = 0;
   for (const [tag] of html.matchAll(META_RE)) {
     const key = (attr(tag, "property") ?? attr(tag, "name"))?.toLowerCase();
     if (!key) continue;
+    const isImage = SOCIAL_IMAGE_KEYS.has(key);
+    if (isImage && socialCount >= MAX_CANDIDATES_PER_BAND) continue;
     const content = attr(tag, "content");
     if (content === null) continue;
-    if (SOCIAL_IMAGE_KEYS.has(key)) candidates.push({ url: content, rank: 0 });
-    else if (key === "og:title") ogTitle = content;
+    if (isImage) {
+      if (content.length > MAX_CANDIDATE_URL_CHARS) continue;
+      candidates.push({ url: content, rank: 0 });
+      socialCount += 1;
+    } else if (key === "og:title") ogTitle = content;
     else if (key === "twitter:title") twitterTitle = content;
     else if (key === "og:site_name") siteName = content;
   }
 
+  let linkCount = 0;
   for (const [tag] of html.matchAll(LINK_RE)) {
+    if (linkCount >= MAX_CANDIDATES_PER_BAND) break;
     const rel = attr(tag, "rel")?.toLowerCase();
     if (rel !== "image_src") continue;
     const href = attr(tag, "href");
-    if (href) candidates.push({ url: href, rank: 1 });
+    if (!href || href.length > MAX_CANDIDATE_URL_CHARS) continue;
+    candidates.push({ url: href, rank: 1 });
+    linkCount += 1;
   }
 
   let imgCount = 0;
   for (const [tag] of html.matchAll(IMG_RE)) {
-    if (imgCount >= MAX_IMG_CANDIDATES) break;
+    if (imgCount >= MAX_CANDIDATES_PER_BAND) break;
     const src = attr(tag, "src");
-    if (!src) continue;
+    if (!src || src.length > MAX_CANDIDATE_URL_CHARS) continue;
     // A declared dimension is the only size signal available without fetching
     // the bytes. Absent dimensions are kept — most product images declare none.
     const width = Number(attr(tag, "width") ?? Number.NaN);
@@ -580,17 +657,20 @@ export interface UrlGuard {
   readonly seen: Map<string, boolean>;
   /** The operation's time budget, handed to every DNS lookup the guard makes. */
   readonly signal?: AbortSignal;
+  /** DNS lookups this operation may still make. Starts at {@link MAX_HOST_LOOKUPS}. */
+  lookupsLeft: number;
 }
 
 /**
- * A fresh guard, with an empty host memo, for one operation.
+ * A fresh guard, with an empty host memo and a full lookup budget, for one
+ * operation.
  *
  * Pass the operation's `signal` so DNS runs inside the same budget as the
- * fetches (P-W3). Omitting it leaves each lookup on its own 2s timeout, which is
+ * fetches. Omitting it leaves each lookup on its own 2s timeout, which is
  * what the tests do.
  */
 export function createUrlGuard(resolveHost: HostResolver, signal?: AbortSignal): UrlGuard {
-  return { resolveHost, seen: new Map<string, boolean>(), signal };
+  return { resolveHost, seen: new Map<string, boolean>(), signal, lookupsLeft: MAX_HOST_LOOKUPS };
 }
 
 /**
@@ -629,6 +709,13 @@ export async function checkUrl(
     guard.seen.set(host, ok);
     return ok ? url : "private_address";
   }
+
+  // Out of lookups: refuse the host unchecked rather than query for it. Not
+  // memoised — the memo records hosts that were vetted, and this one was not.
+  // The budget is taken before the `await` below, so the warm-up's parallel
+  // checks cannot all see the same last lookup and overspend it.
+  if (guard.lookupsLeft <= 0) return "lookup_budget";
+  guard.lookupsLeft -= 1;
 
   // A resolver that throws must read as "no answer", not as a crash: failing
   // open here would hand every DNS outage a free SSRF.
@@ -805,14 +892,6 @@ async function fetchDocument(
   return { ok: true, document: { finalUrl, html } };
 }
 
-/**
- * How far down the ranked list the host warm-up looks, and how many distinct
- * hosts it will resolve. Bounds the fan-out so a page listing a hundred hosts
- * cannot turn one preview into a hundred DNS queries.
- */
-const PREFETCH_CANDIDATES = 32;
-const PREFETCH_HOSTS = 8;
-
 /** The host a candidate would be fetched from, or null if it is not an https URL. */
 function candidateHost(raw: string, base: string): string | null {
   try {
@@ -825,7 +904,8 @@ function candidateHost(raw: string, base: string): string | null {
 
 /**
  * Warm `guard.seen` by resolving the DISTINCT hosts of the top candidates at
- * once (P-W3).
+ * once — at most {@link PREFETCH_HOSTS} of them, from the first
+ * {@link PREFETCH_CANDIDATES}.
  *
  * The emit loop below stays sequential and unchanged, so the order and the
  * membership of the result are exactly what they were — this only decides WHEN
@@ -857,12 +937,18 @@ async function warmHosts(
   );
 }
 
+interface ResolvedCandidates {
+  readonly urls: readonly string[];
+  /** A candidate host went unchecked because the operation was out of lookups. */
+  readonly lookupBudgetSpent: boolean;
+}
+
 /** Layer 5: absolute-ise, keep `https:`, re-check the host, dedupe, cap. */
 async function resolveCandidates(
   candidates: readonly Candidate[],
   finalUrl: URL,
   guard: UrlGuard,
-): Promise<readonly string[]> {
+): Promise<ResolvedCandidates> {
   const ranked = [...candidates];
   // `toSorted` is ES2023 and this package's lib is ES2022. Copy, then sort.
   ranked.sort((a, b) => a.rank - b.rank);
@@ -871,26 +957,31 @@ async function resolveCandidates(
 
   const out: string[] = [];
   const seenUrls = new Set<string>();
+  let lookupBudgetSpent = false;
   for (const candidate of ranked) {
     if (out.length >= MAX_IMAGES) break;
-    // Entities are decoded HERE rather than at scan time (P-W1): only the
-    // candidates that reach this loop are worth the string work.
+    // Entities are decoded HERE rather than at scan time: only the candidates
+    // that reach this loop are worth the string work.
     //
     // Sequential on purpose, and NOT a `Promise.all` over `ranked`: the break
     // above stops at MAX_IMAGES, so checking the candidates together would
-    // resolve hosts the picker never reaches and push DoH lookups past the cap
-    // `warmHosts` was written to respect.
+    // spend the guard's lookup budget on hosts the picker never reaches.
     // eslint-disable-next-line no-await-in-loop
     const checked = await checkUrl(decodeEntities(candidate.url), finalUrl.href, guard);
     // A `javascript:` / `data:` src, a private host, an unparseable value — all
     // land here as a reason string and are simply dropped. The picker only ever
-    // sees URLs that would have passed the fetch guard.
-    if (typeof checked === "string") continue;
+    // sees URLs that would have passed the fetch guard. The loop carries on past
+    // an exhausted budget: a later candidate on a host already in the memo, or
+    // on a literal IP, costs no lookup and can still be emitted.
+    if (typeof checked === "string") {
+      if (checked === "lookup_budget") lookupBudgetSpent = true;
+      continue;
+    }
     if (seenUrls.has(checked.href)) continue;
     seenUrls.add(checked.href);
     out.push(checked.href);
   }
-  return out;
+  return { urls: out, lookupBudgetSpent };
 }
 
 /**
@@ -918,8 +1009,8 @@ function preview(
     // Worker's wall clock.
     const signal = AbortSignal.timeout(timeoutMs);
     // The guard holds the same signal, so the DNS lookups it makes are inside the
-    // budget too rather than beside it (P-W3) — a stalled resolver used to be able
-    // to outlive the fetch it was gating.
+    // budget too rather than beside it, so a stalled resolver cannot outlive the
+    // fetch it is gating.
     const guard = createUrlGuard(resolveHost, signal);
 
     const outcome = yield* Effect.promise(() =>
@@ -934,9 +1025,15 @@ function preview(
 
     const { finalUrl, html } = outcome.document;
     const scanned = scanHtml(html);
-    const imageUrls = yield* Effect.promise(() =>
+    const { urls: imageUrls, lookupBudgetSpent } = yield* Effect.promise(() =>
       resolveCandidates(scanned.candidates, finalUrl, guard),
     );
+    // A page naming more hosts than the budget covers is odd for a shop and
+    // normal for someone probing the preview. No annotation: the hosts are the
+    // caller's input, and the budget is a constant.
+    if (lookupBudgetSpent) {
+      yield* Effect.logWarning("link preview ran out of DNS lookups");
+    }
 
     if (imageUrls.length === 0) {
       const error = new LinkPreviewNoImages();
