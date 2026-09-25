@@ -1,5 +1,3 @@
-import type { DietaryPreset } from "@cire/dietary";
-
 export interface DressSwatch {
   name: string;
   color: string;
@@ -63,7 +61,13 @@ export interface RsvpSummary {
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
-  dietaryPresets: readonly DietaryPreset[];
+  /**
+   * The preset keys this guest picked. Strings rather than `DietaryPreset`,
+   * because the claim guard admits a key the server knows and this build does
+   * not; the picker keeps such a key through an edit. Optional on the wire so a
+   * payload from an API that predates the column reads as no presets.
+   */
+  dietaryPresets?: readonly string[];
   /**
    * Whether this row's Art. 9(2)(a) consent was given against the copy shown now.
    *
@@ -72,8 +76,9 @@ export interface RsvpSummary {
    * consent can never stand in for another's, and a household where anyone is
    * new to consent — or whose record predates a consent-copy change — must be
    * asked afresh. The server computes it, because the server owns the version.
+   * Optional on the wire; absent reads as not covered, so the box opens unticked.
    */
-  dietaryConsentCurrent: boolean;
+  dietaryConsentCurrent?: boolean;
 }
 
 /**

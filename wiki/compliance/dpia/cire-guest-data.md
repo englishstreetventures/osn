@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # DPIA — Cire guest data
@@ -207,6 +207,13 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   answer from the same or less data. Rows written before the picker keep their
   prose; nothing back-fills it into keys, because inferring which keys a
   sentence meant would be the kind of guess this control exists to remove.
+- **Accuracy across a vocabulary change (Art. 5(1)(d)).** The vocabulary
+  grows on the server first, and a guest's open page keeps the build it
+  loaded with, so a saved reply can carry a key that page has no pill for.
+  The guest invite and the organiser portal keep such a key through an edit
+  and send it back with the reply, so changing one answer never erases
+  another. The page does not display that key, so the guest cannot see or
+  untick it there until the page reloads onto a newer build.
 
 ### C-M1 (2026-08-02) — the household session now auto-discloses, and cannot be ended
 

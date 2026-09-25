@@ -135,13 +135,16 @@ jobs:
             fi
           }
 
+          # Each cire surface also lists every `@cire/*` package it bundles,
+          # directly or through another one; scripts/tests/deploy-surface-map.test.ts
+          # fails when a package.json gains a `@cire/*` dependency this map lacks.
           # cire-api owns the D1 migrations + the seed scripts, so a change to
           # either has to redeploy it (the dev job resets and re-seeds).
-          emit cire_api     '^(cire/api/|cire/db/|cire/invite-designs/|cire/theme/|scripts/(cire-db-|cire-dev-db-guard|check-d1-database-id))'
-          emit cire_invites '^(cire/invites/|cire/invite-designs/|cire/theme/)'
-          emit cire_host    '^(cire/host/|cire/invite-designs/|cire/theme/)'
-          emit cire_vendor  '^(cire/vendor/|cire/theme/)'
-          emit cire_landing '^cire/landing/'
+          emit cire_api     '^(cire/api/|cire/db/|cire/dietary/|cire/invite-designs/|cire/theme/|scripts/(cire-db-|cire-dev-db-guard|check-d1-database-id))'
+          emit cire_invites '^(cire/invites/|cire/dietary/|cire/invite-designs/|cire/theme/|cire/ui/)'
+          emit cire_host    '^(cire/host/|cire/dietary/|cire/invite-designs/|cire/theme/|cire/ui/)'
+          emit cire_vendor  '^(cire/vendor/|cire/dietary/|cire/theme/|cire/ui/)'
+          emit cire_landing '^(cire/landing/|cire/dietary/|cire/ui/)'
           emit osn_api      '^(osn/api/|osn/db/)'
           emit osn_social   '^(musubi/social/|osn/client/|shared/ui/|osn/auth-ui/)'
           emit zap_api      '^zap/'

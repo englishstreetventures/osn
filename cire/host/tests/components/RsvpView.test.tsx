@@ -536,6 +536,36 @@ describe("RsvpView", () => {
     });
   });
 
+  it("editor keeps a stored preset key this build does not know when another is ticked", async () => {
+    // The vocabulary grows on the server first, and an open portal keeps the
+    // build it loaded. Ada's stored answer carries a key this build has no pill
+    // for; an organiser ticking another preset must not erase it from the row.
+    restoreViewport = mockViewport(false);
+    const withUnknown = structuredClone(VIEW);
+    const ada = withUnknown.events[0]!.guests.find((g) => g.guestId === ADA.guestId)!;
+    ada.dietaryPresets = ["gluten", "a_future_key"];
+    authFetchMock
+      .mockResolvedValueOnce(json(withUnknown))
+      .mockResolvedValueOnce(
+        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
+      )
+      .mockResolvedValueOnce(json(withUnknown));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    await screen.findByLabelText(/Status/i);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dairy" }));
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    const body = JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string) as {
+      dietaryPresets: readonly string[];
+    };
+    expect(body.dietaryPresets).toEqual(["gluten", "dairy", "a_future_key"]);
+  });
+
   it("editor shows no attestation when the existing reply carries no dietary data", async () => {
     // The other branch of the prefill rule. Bo's stored reply has neither
     // presets nor free text, so there is nothing to attest to and the checkbox

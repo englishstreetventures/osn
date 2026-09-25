@@ -111,6 +111,58 @@ describe("DietaryPresets", () => {
   });
 });
 
+/*
+ * A key the server knows and this build does not.
+ *
+ * The vocabulary grows server-first, and a page already open in a guest's tab
+ * keeps the build it loaded with. The saved reply then carries a key with no
+ * pill here, and it is still the guest's answer — possibly an allergy. Ticking
+ * or unticking a pill must hand it back, or the next save stores the answer
+ * without it and stamps fresh consent over the shortened version.
+ */
+function OpenHarness(props: { initial: readonly string[] }) {
+  const [value, setValue] = createSignal<readonly string[]>(props.initial);
+  return (
+    <>
+      <DietaryPresets value={value()} onChange={setValue} label="Dietary requirements for Ada" />
+      <output data-testid="value">{value().join(",")}</output>
+    </>
+  );
+}
+
+describe("a key this build does not know", () => {
+  it("survives a tick on another preset, trailing the keys it does know", () => {
+    render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
+    expect(valueOf()).toBe("vegan,nuts,a_future_key");
+  });
+
+  it("survives an untick", () => {
+    render(() => <OpenHarness initial={["vegan", "a_future_key"]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /vegan/i }));
+    expect(valueOf()).toBe("a_future_key");
+  });
+
+  it("hands back every such key, in the order they arrived", () => {
+    render(() => <OpenHarness initial={["vegan", "future_b", "future_a"]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
+    expect(valueOf()).toBe("vegan,nuts,future_b,future_a");
+  });
+
+  it("is handed back once, however often it arrived", () => {
+    render(() => <OpenHarness initial={["a_future_key", "a_future_key"]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /^egg$/i }));
+    expect(valueOf()).toBe("egg,a_future_key");
+  });
+
+  it("renders no pill of its own", () => {
+    render(() => <OpenHarness initial={["a_future_key"]} />);
+    const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes).toHaveLength(DIETARY_PRESETS.length);
+    for (const box of boxes) expect(box.checked).toBe(false);
+  });
+});
+
 describe("the pill's containing block", () => {
   it("positions each pill, so its hidden checkbox resolves inside it", () => {
     // `sr-only` is `position: absolute`. With a static label the input resolves

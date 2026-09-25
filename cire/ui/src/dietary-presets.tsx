@@ -2,6 +2,7 @@ import {
   DIETARY_PRESET_BAND,
   DIETARY_PRESET_LABEL,
   DIETARY_PRESETS,
+  isDietaryPreset,
   type DietaryBand,
   type DietaryPreset,
 } from "@cire/dietary";
@@ -61,10 +62,18 @@ const BAND_LABEL = {
 /** The order bands render in; `other` trails both and gets no heading. */
 const BANDS = ["diet", "allergy", "other"] as const;
 
-export interface DietaryPresetsProps {
+/**
+ * `K` is what the caller's selection may hold. A caller that has proven every
+ * key against the vocabulary leaves it at `DietaryPreset`; the guest sheet
+ * passes `string`, because a claim response may carry a key the server knows
+ * and this build does not (the vocabulary grows server-first). Such a key gets
+ * no pill and is handed back with every change, so an edit never shortens a
+ * stored answer.
+ */
+export interface DietaryPresetsProps<K extends string = DietaryPreset> {
   /** The current selection. Controlled — this component holds no state. */
-  value: readonly DietaryPreset[];
-  onChange: (next: readonly DietaryPreset[]) => void;
+  value: readonly K[];
+  onChange: (next: readonly (K | DietaryPreset)[]) => void;
   /** Disables every checkbox and the trigger: submitting, saved, or past the
    *  RSVP deadline. */
   disabled?: boolean;
@@ -75,17 +84,21 @@ export interface DietaryPresetsProps {
   wrap?: boolean;
 }
 
-function toggle(
-  current: readonly DietaryPreset[],
+function toggle<K extends string>(
+  current: readonly K[],
   key: DietaryPreset,
   on: boolean,
-): readonly DietaryPreset[] {
-  const next = new Set(current);
+): readonly (K | DietaryPreset)[] {
+  const next = new Set<K | DietaryPreset>(current);
   if (on) next.add(key);
   else next.delete(key);
-  // Canonical order, so the value this hands back is the order it renders and
-  // the order the column stores. Nothing downstream has to re-sort.
-  return DIETARY_PRESETS.filter((k) => next.has(k));
+  // Known keys in canonical order, so the value this hands back is the order it
+  // renders and the order the column stores. Keys this build does not know
+  // trail them, once each: they are still the guest's answer, and the server
+  // that sent them puts them back in its own canonical place on save.
+  const result: (K | DietaryPreset)[] = DIETARY_PRESETS.filter((k) => next.has(k));
+  for (const k of next) if (!isDietaryPreset(k)) result.push(k);
+  return result;
 }
 
 function PresetCheckbox(props: {
@@ -139,8 +152,10 @@ export const BANDED_PRESETS = BANDS.map((band) => ({
   presets: DIETARY_PRESETS.filter((k) => DIETARY_PRESET_BAND[k] === band),
 }));
 
-export default function DietaryPresets(props: DietaryPresetsProps): JSX.Element {
-  const selected = createMemo(() => new Set(props.value));
+export default function DietaryPresets<K extends string = DietaryPreset>(
+  props: DietaryPresetsProps<K>,
+): JSX.Element {
+  const selected = createMemo(() => new Set<string>(props.value));
 
   /**
    * `wrap` is the caller's, not a media query's.

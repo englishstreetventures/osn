@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { isValidClaimResponse } from "../../src/components/utils";
+import { isValidClaimResponse, isValidRsvpSaveResponse } from "../../src/components/utils";
 
 describe("isValidClaimResponse", () => {
   const baseEvent = {
@@ -278,10 +278,11 @@ describe("isValidClaimResponse", () => {
     ).toBe(false);
   });
 
-  it("rejects rsvps missing dietaryPresets, or carrying a non-array one", () => {
-    // The field the sheet re-lights its picker from. An API that stopped
-    // sending it would leave every guest's selection silently empty rather
-    // than failing, which is why the guard has to prove it.
+  describe("the two dietary fields", () => {
+    // Nothing orders this site's production deploy after the API's, and both
+    // callers read `false` as "no session" — so a field this guard insists on
+    // would send every signed-in household back to the code form whenever the
+    // site reached production first. Absence degrades; a wrong type still fails.
     const base = { guestId: "g1", eventId: "e1", status: "attending", dietary: "" };
     const wrap = (rsvp: unknown) => ({
       publicId: "X",
@@ -290,45 +291,46 @@ describe("isValidClaimResponse", () => {
       events: [],
       rsvps: [rsvp],
     });
-    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: true }))).toBe(false);
-    expect(
-      isValidClaimResponse(
-        wrap({ ...base, dietaryPresets: "vegetarian", dietaryConsentCurrent: true }),
-      ),
-    ).toBe(false);
-    expect(
-      isValidClaimResponse(wrap({ ...base, dietaryPresets: [42], dietaryConsentCurrent: true })),
-    ).toBe(false);
-    // An unknown key is accepted: the vocabulary grows server-first, and
-    // rejecting here would strand a guest on an older deploy of this site.
-    expect(
-      isValidClaimResponse(
-        wrap({ ...base, dietaryPresets: ["a_future_key"], dietaryConsentCurrent: true }),
-      ),
-    ).toBe(true);
-  });
 
-  it("rejects rsvps missing dietaryConsentCurrent, or carrying a non-boolean one", () => {
-    // Decides whether the consent box may open already ticked. Absent, the
-    // sheet would read `undefined` as "not consented" for a household that had
-    // consented — or, worse, as truthy for one that had not.
-    const base = {
-      guestId: "g1",
-      eventId: "e1",
-      status: "attending",
-      dietary: "",
-      dietaryPresets: [],
-    };
-    const wrap = (rsvp: unknown) => ({
-      publicId: "X",
-      familyName: "Test",
-      members: [],
-      events: [],
-      rsvps: [rsvp],
+    it("accepts a row carrying neither, as an API that predates them sends it", () => {
+      expect(isValidClaimResponse(wrap(base))).toBe(true);
     });
-    expect(isValidClaimResponse(wrap(base))).toBe(false);
-    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: "yes" }))).toBe(false);
-    expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: false }))).toBe(true);
+
+    it("accepts a row carrying only one of them", () => {
+      expect(isValidClaimResponse(wrap({ ...base, dietaryPresets: ["vegan"] }))).toBe(true);
+      expect(isValidClaimResponse(wrap({ ...base, dietaryConsentCurrent: true }))).toBe(true);
+    });
+
+    it("rejects dietaryPresets that is present but not an array of strings", () => {
+      for (const dietaryPresets of ["vegetarian", [42], ["vegan", 42], null, {}]) {
+        expect(
+          isValidClaimResponse(wrap({ ...base, dietaryPresets, dietaryConsentCurrent: true })),
+        ).toBe(false);
+      }
+    });
+
+    it("accepts a preset key this build does not know", () => {
+      // The vocabulary grows server-first; rejecting here would strand a guest
+      // on an older deploy of this site.
+      expect(
+        isValidClaimResponse(
+          wrap({ ...base, dietaryPresets: ["a_future_key"], dietaryConsentCurrent: true }),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects dietaryConsentCurrent that is present but not a boolean", () => {
+      // It decides whether the consent box may open ticked; a truthy non-boolean
+      // must never be read as consent.
+      for (const dietaryConsentCurrent of ["yes", 1, null]) {
+        expect(
+          isValidClaimResponse(wrap({ ...base, dietaryPresets: [], dietaryConsentCurrent })),
+        ).toBe(false);
+      }
+      expect(
+        isValidClaimResponse(wrap({ ...base, dietaryPresets: [], dietaryConsentCurrent: false })),
+      ).toBe(true);
+    });
   });
 
   it("rejects events with non-number sortOrder", () => {
@@ -340,5 +342,39 @@ describe("isValidClaimResponse", () => {
         events: [{ ...baseEvent, sortOrder: "0" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("isValidRsvpSaveResponse", () => {
+  // The save response carries the same rows as the claim response, and they
+  // replace the page's copy, so they are held to the same row check.
+  const row = {
+    guestId: "g1",
+    eventId: "e1",
+    status: "attending",
+    dietary: "",
+    dietaryPresets: ["vegan"],
+    dietaryConsentCurrent: true,
+  };
+
+  it("accepts rows the claim guard would accept", () => {
+    expect(isValidRsvpSaveResponse({ rsvps: [row] })).toBe(true);
+    expect(isValidRsvpSaveResponse({ rsvps: [] })).toBe(true);
+  });
+
+  it("accepts rows lacking the two dietary fields, as the claim guard does", () => {
+    const { dietaryPresets: _p, dietaryConsentCurrent: _c, ...bare } = row;
+    expect(isValidRsvpSaveResponse({ rsvps: [bare] })).toBe(true);
+  });
+
+  it("rejects a body with no rows array, or a row of the wrong shape", () => {
+    for (const body of [null, "ok", {}, { rsvps: "x" }]) {
+      expect(isValidRsvpSaveResponse(body)).toBe(false);
+    }
+    expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, dietaryPresets: "nuts" }] })).toBe(false);
+    expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, status: "yolo" }] })).toBe(false);
+    expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, dietaryConsentCurrent: "yes" }] })).toBe(
+      false,
+    );
   });
 });

@@ -1,4 +1,4 @@
-import type { ClaimResult } from "./types";
+import type { ClaimResult, RsvpSummary } from "./types";
 
 // These guards read an untrusted payload one field at a time. Each field is
 // proven with `key in value` before it is read, which is what lets the checks
@@ -9,6 +9,51 @@ function isDressSwatch(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   if (!("name" in value) || typeof value.name !== "string") return false;
   return "color" in value && typeof value.color === "string";
+}
+
+/**
+ * One RSVP row, as both the claim response and the save response carry it.
+ *
+ * Both read the same way downstream — the rows replace the page's copy and seed
+ * the next sheet — so one check covers both.
+ */
+function isRsvpSummary(r: unknown): r is RsvpSummary {
+  if (typeof r !== "object" || r === null) return false;
+  if (!("guestId" in r) || typeof r.guestId !== "string") return false;
+  if (!("eventId" in r) || typeof r.eventId !== "string") return false;
+  if (!("status" in r)) return false;
+  if (r.status !== "attending" && r.status !== "declined" && r.status !== "maybe") return false;
+  if (!("dietary" in r) || typeof r.dietary !== "string") return false;
+  // The sheet re-lights its picker from `dietaryPresets` and decides whether
+  // the consent box may open ticked from `dietaryConsentCurrent`. Each is
+  // proven here when present and may be absent.
+  //
+  // Absent, not rejected, because both callers of `isValidClaimResponse`
+  // read `false` as "no session" and nothing orders this site's production
+  // deploy after the API's: a field required here sends every signed-in
+  // household back to the code form whenever the site ships first. Absence fails closed at the reader —
+  // no presets lit, and a consent box that opens unticked (`=== true`). An
+  // API that omits `dietaryPresets` also predates the column, so it stores
+  // no presets for the empty picker to overwrite; nor does it store any the
+  // guest ticks, which is the price of letting the household in.
+  //
+  // The keys are checked as strings rather than against the vocabulary on
+  // purpose. A key added server-side is a normal, additive change; measured
+  // against a closed list here it would make the whole claim response invalid
+  // on a site that had not redeployed yet. The picker renders no pill for
+  // such a key and hands it back with every change, so an edit never
+  // shortens the stored answer.
+  if ("dietaryPresets" in r) {
+    if (!Array.isArray(r.dietaryPresets)) return false;
+    if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;
+  }
+  return !("dietaryConsentCurrent" in r) || typeof r.dietaryConsentCurrent === "boolean";
+}
+
+/** The body of a 200 from `POST /api/rsvp`: the household's rows after the write. */
+export function isValidRsvpSaveResponse(data: unknown): data is { rsvps: RsvpSummary[] } {
+  if (typeof data !== "object" || data === null) return false;
+  return "rsvps" in data && Array.isArray(data.rsvps) && data.rsvps.every(isRsvpSummary);
 }
 
 export function isValidClaimResponse(data: unknown): data is ClaimResult {
@@ -26,33 +71,7 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     return "eventIds" in m && Array.isArray(m.eventIds);
   });
   if (!membersValid) return false;
-  const rsvpsValid = data.rsvps.every((r: unknown) => {
-    if (typeof r !== "object" || r === null) return false;
-    if (!("guestId" in r) || typeof r.guestId !== "string") return false;
-    if (!("eventId" in r) || typeof r.eventId !== "string") return false;
-    if (!("status" in r)) return false;
-    if (r.status !== "attending" && r.status !== "declined" && r.status !== "maybe") return false;
-    if (!("dietary" in r) || typeof r.dietary !== "string") return false;
-    // The sheet re-lights its picker from `dietaryPresets` and decides whether
-    // the consent box may open ticked from `dietaryConsentCurrent`, so both are
-    // read on the strength of this guard and both have to be proven here.
-    //
-    // The keys are checked as strings rather than against the vocabulary on
-    // purpose. A key added server-side is a normal, additive change; measured
-    // against a closed list here it would make the whole claim response invalid
-    // on a site that had not redeployed yet, and both callers read invalid as
-    // "no session" — so a guest with a valid code would be shown the code form
-    // instead of their invite.
-    //
-    // The cost of admitting an unrecognised key is the VALUE, not just a
-    // missing label: the sheet round-trips it untouched, but the first tick on
-    // that member's picker rebuilds the selection from the shipped vocabulary,
-    // so the unrecognised key is dropped and the row rewritten without it.
-    if (!("dietaryPresets" in r) || !Array.isArray(r.dietaryPresets)) return false;
-    if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;
-    return "dietaryConsentCurrent" in r && typeof r.dietaryConsentCurrent === "boolean";
-  });
-  if (!rsvpsValid) return false;
+  if (!data.rsvps.every(isRsvpSummary)) return false;
   return data.events.every((e: unknown) => {
     if (typeof e !== "object" || e === null) return false;
     if (!("id" in e) || typeof e.id !== "string") return false;

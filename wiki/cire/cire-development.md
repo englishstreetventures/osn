@@ -209,6 +209,18 @@ against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
 
+**A field the guest site reads is optional there.** `deploy-cire-invites` has no
+`needs:` edge on `deploy-cire-api` in `deploy.yml`, so the site can reach
+production before the API that serves a new field. `isValidClaimResponse`
+(`cire/invites/src/components/utils.ts`) is read as "no session" by both its
+callers when it returns `false`, so a field it requires sends every signed-in
+household back to the code form for that window. Give the field `?` in the type
+(`cire/invites/src/components/types.ts`), check its type in the guard only when
+it is present, and let the reader supply a default that fails closed — as the two
+dietary fields on `RsvpSummary` do. If the page also writes the field back, an
+API older than the column accepts the write and drops the field, so a value
+entered in that window is not stored.
+
 ### Deploying by hand
 
 CI does this on merge ([[production-deploy]]). By hand:

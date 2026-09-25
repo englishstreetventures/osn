@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-13
+last-reviewed: 2026-09-25
 ---
 
 # Dev environment (cire + OSN identity)
@@ -111,9 +111,15 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
    landing page and nothing else. Two escalations to "deploy everything": a
    trigger with no diff base (`workflow_dispatch`), and a diff that fails to
    compute (first push, force-push — `git diff` exits 128). Any change under
-   `shared/`, `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`, or
-   `deploy.yml` itself also deploys everything, rather than maintaining a
-   shared-package→consumer map that rots on the first new import.
+   `shared/`, `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,
+   `.browserslistrc`, or `deploy.yml` itself also deploys everything, rather
+   than maintaining a shared-package→consumer map that rots on the first new
+   import. The cire packages are the exception: each cire surface's filter
+   lists every `@cire/*` package it bundles (`cire/ui`, `cire/dietary`,
+   `cire/theme`, …), and
+   [`scripts/tests/deploy-surface-map.test.ts`](../../scripts/tests/deploy-surface-map.test.ts)
+   fails when a surface's `package.json` gains a `@cire/*` dependency its
+   filter does not name.
 2. **`build`** — install, `bun run build`, `bun run test`, `bun run test:d1`.
    Everything below `needs:` it, so nothing ships from a broken tree.
 3. **`deploy-<surface>-dev`** — `environment: dev`, no reviewers, runs unattended.

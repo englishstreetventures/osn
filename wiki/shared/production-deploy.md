@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -745,8 +745,11 @@ is treated as changed. So work out what is actually stale before acting on it:
    no longer true. Re-run the job.
 2. **A skipped job is not a failure.** A grey `Skipped` on a surface the push did not
    touch is the filter working. Confirm with
-   `git diff --name-only <last-good-sha> <sha> -- <package>`; empty means there was
-   nothing to ship.
+   `git diff --name-only <last-good-sha> <sha> -- <package> <each package it bundles>`;
+   empty means there was nothing to ship. A cire surface also redeploys when a
+   `@cire/*` package it bundles changes — `cire/host` on `cire/ui` or
+   `cire/dietary`, for instance — so the paths to diff are the ones its `emit` line
+   in the `changes` job names, not only its own directory.
 3. **A production job stuck on `Waiting` is the approval gate**, not a hang — its dev
    twin has already deployed and the run is waiting on a reviewer. See §5.5.
 4. **`Set up job` failing with `Failed to resolve action download info` is GitHub

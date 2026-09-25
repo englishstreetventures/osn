@@ -1,4 +1,3 @@
-import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
@@ -18,6 +17,7 @@ import { AnimatedModal } from "./AnimatedModal";
 import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
+import { isValidRsvpSaveResponse } from "./utils";
 
 interface RsvpModalProps {
   event: EventSummary;
@@ -103,7 +103,8 @@ interface MemberState {
   attending: Attending;
   /** What this member typed under "Other". Everything nameable is a preset. */
   dietary: string;
-  dietaryPresets: readonly DietaryPreset[];
+  /** May hold a key this build has no pill for; see `RsvpSummary`. */
+  dietaryPresets: readonly string[];
   /**
    * Whether this member's dietary data is already covered by a stored
    * Art. 9(2)(a) consent record.
@@ -303,7 +304,7 @@ export function RsvpModal(props: RsvpModalProps) {
     }));
   }
 
-  function setDietaryPresets(guestId: string, dietaryPresets: readonly DietaryPreset[]) {
+  function setDietaryPresets(guestId: string, dietaryPresets: readonly string[]) {
     setResponses((prev) => ({
       ...prev,
       [guestId]: { ...prev[guestId]!, dietaryPresets },
@@ -458,7 +459,11 @@ export function RsvpModal(props: RsvpModalProps) {
       });
 
       if (res.status === 200) {
-        const data = (await res.json()) as { rsvps: RsvpSummary[] };
+        // A 200 means the write happened, so the sheet confirms it whatever the
+        // body holds. Rows the guard cannot vouch for stay out of the page,
+        // which keeps the answers it already has until the next claim.
+        const data: unknown = await res.json().catch(() => null);
+        const rows = isValidRsvpSaveResponse(data) ? data.rsvps : null;
         // All three writes in one `batch` (P-I1). We are past an `await`, so
         // without it each is its own synchronous graph walk: `locked()` is a
         // plain accessor rather than a memo, so every `disabled={locked()}`
@@ -485,7 +490,7 @@ export function RsvpModal(props: RsvpModalProps) {
         batch(() => {
           setLoading(false);
           enterSavedState(celebrate, performance.now() - submittedAt);
-          props.onSubmitted?.(data.rsvps);
+          if (rows) props.onSubmitted?.(rows);
         });
         return;
       }
