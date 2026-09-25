@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 
 # Retention
@@ -73,6 +73,7 @@ already enforces some of them; the rest need a sweeper job.
 | Cire `vendor_enquiries` rows (S4 — `status`, `quoted_minor`, `pending_body`, `lead_forward_email`) | Tied to the wedding lifecycle (`ON DELETE CASCADE` from `weddings.id`) **and** to the directory listing (`ON DELETE CASCADE` from `directory_vendors.id`). `pending_body` is additionally cleared to `NULL` in-place when the vendor claims and the buffer is flushed (transient first-message text — see [[data-map]] S4 rows); if never flushed (vendor never claims), it persists with the enquiry row until one of the two cascades fires. | DB cascade on wedding or listing delete. No independent sweeper — low volume; cascade paths cover the two main lifecycle events. A future "close stale unclaimed enquiries" sweeper may be warranted once listing volumes grow. | **OK for cascade path** — both cascade FKs are declared. **Honest-gap** for `pending_body` on a never-claimed listing: the text persists indefinitely until the listing is deleted or the wedding is deleted. Low-priority given listing-delete removes it, but no time-bounded purge exists today. | Cire |
 | Cire `lead_forward_email` (vendor-supplied sole-trader contact email on `vendor_enquiries`) | Same lifecycle as the `vendor_enquiries` row — cascades on wedding or listing delete | DB cascade (see row above) | **OK** — covered by parent cascade | Cire |
 | Zap c2b message bodies in the cire vendor-enquiry thread | Governed by Zap message retention — currently indefinite pending the Zap disappearing-messages flag (Zap M1). Covered by the `account-export` DSAR path (PR A, [[zap]]). | Zap message retention sweeper (planned, Zap M1) | **TODO** — Zap M1 disappearing-messages flag (shared open item, see Zap row above) | Zap / Cire |
+| Cire host-portal client caches (`cire/host/src/lib/*-store.ts`: guest names, vendor contact emails and phone numbers, budget figures and the gift log, held in the organiser's browser memory) | While that wedding's dashboard is on screen in the tab. Memory only — never written to browser storage, and gone when the tab closes. | App code: the dashboard drops a wedding's caches when it unmounts (another wedding, back to the list, sign-out, or the organiser removed or narrowed to a role without the dashboard), and the stores refuse writes for a wedding once dropped. See [[cire-host-portal-layout]]. | **OK** — outside the stored-data windows above, and listed so the register does not suggest the portal holds nothing client-side. | Cire |
 | Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
 | Grafana Cloud logs | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
 | Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |

@@ -6,6 +6,7 @@
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
 import type { CatalogueEntry } from "./upgrade-api";
+import { isWeddingClosed } from "./wedding-scope";
 
 interface CacheEntry {
   catalogue: Accessor<CatalogueEntry[] | null>;
@@ -30,7 +31,10 @@ export function catalogueAccessor(weddingId: string): Accessor<CatalogueEntry[] 
   return entryFor(weddingId).catalogue;
 }
 
+/** Ignored for a closed wedding (see `wedding-scope.ts`): the dialog that
+ *  asked for the prices has already been torn down. */
 export function setCatalogue(weddingId: string, entries: CatalogueEntry[]): void {
+  if (isWeddingClosed(weddingId)) return;
   entryFor(weddingId).setCatalogue(entries);
 }
 
@@ -44,6 +48,13 @@ export function hasCachedCatalogue(weddingId: string): boolean {
  *  cannot keep offering something the wedding now holds. */
 export function invalidateCatalogue(weddingId: string): void {
   cache.get(weddingId)?.setCatalogue(null);
+}
+
+/** Forget a wedding's prices. A view still holding the old accessor reads
+ *  `null` from then on. */
+export function dropCatalogue(weddingId: string): void {
+  cache.get(weddingId)?.setCatalogue(null);
+  cache.delete(weddingId);
 }
 
 /** Test-only: the module cache outlives a test file otherwise. */

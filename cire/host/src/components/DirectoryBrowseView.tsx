@@ -11,7 +11,7 @@ import { Portal } from "solid-js/web";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
-import { invalidateVendors } from "../lib/vendors-store";
+import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
 interface BrowseListing {
   id: string;
@@ -177,7 +177,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         // 409 is "already on the list" — from where the host stands the vendor
         // is now in the wedding either way, so both confirm.
         markInWedding(listingId);
-        invalidateVendors(props.weddingId);
+        // A 201 carries the row it created, so it goes straight into the
+        // vendors list. A 409 carries none, and neither does a body that
+        // won't parse: the list is marked stale for the next load to fill.
+        const created =
+          res.status === 201
+            ? await res
+                .json()
+                .then((body: { vendor?: VendorRow }) => body.vendor ?? null)
+                .catch(() => null)
+            : null;
+        if (created) upsertCachedVendor(props.weddingId, created);
+        else invalidateVendors(props.weddingId);
         haptic("commit");
       } else if (!res.ok) {
         haptic("reject");

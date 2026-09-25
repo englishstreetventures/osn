@@ -5,7 +5,7 @@ related:
   - "[[cire-platform-plan]]"
   - "[[cire-checklist-tasks]]"
   - "[[decisions/deferred-decisions]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-25
 ---
 # Budget
 
@@ -95,13 +95,10 @@ Both sides use the **same precedence** — no disagreement on what "spent" means
 
 ## Client-Store Fetch-Lift
 
-**`organiser/lib/budget-store.ts`** — weddingId-keyed store for one wedding's budget.
+**`cire/host/src/lib/budget-store.ts`** — the `weddingId`-keyed cache of one wedding's budget snapshot (`GET /api/organiser/weddings/:weddingId/budget`), shared by the Budget view and the Overview's budget widget so the two make one request.
 
-- `fetchBudget()` — GET `/api/organiser/weddings/:weddingId/budget`
-- **Draft mode** — in-session changes without server round-trips (undo/discard within session)
-- **Invalidation** — after POST/PUT/DELETE, re-fetch and notify subscribers
-
-Sibling pattern: `guests-store.ts`, `events-store.ts` (shared Astro signals across island boundaries).
+- **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
+- **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
 
 ## Cap Moved Out of Settings
 

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 # Host Portal Layout System
 
@@ -229,9 +229,13 @@ component was previously reading a container it did not live in.
      messages that aren't the named enquiry's — otherwise A's correspondence
      renders under B's name for a round-trip. Re-fetching the *same* enquiry
      (after sending) still matches, so the thread doesn't blank.
-  4. `handleSend` still refreshes the list with `setCachedEnquiries` — it
+  4. `handleSend` refreshes the list with `setCachedEnquiries` — it
      already holds the new row, so writing it straight in skips a pointless
-     round trip, and that part hasn't changed. What *has* changed is
+     round trip. The thread works the same way: the reply's response carries
+     the sent message, so `handleSend` puts it at the head of the loaded
+     thread (the API lists a thread newest first) instead of reading the
+     thread again. Only a thread still loading, or showing another enquiry,
+     is read again. What *has* changed is
      `invalidateEnquiries` itself: it no longer does `cache.delete(...)` (the
      historical bug this note used to warn about, which minted a new signal
      the always-mounted inbox never saw). It now marks the wedding `stale`,
@@ -297,6 +301,7 @@ Shared export surface, and what each does under a stale mark:
 | `setCachedXxx(id, rows)` | Writes the signal. Does **not** clear the stale mark |
 | `invalidateXxx(id)` | Marks stale, bumps the generation, drops any inflight slot. Does **not** touch the signal |
 | `ensureXxxLoaded(id, fetcher)` | No-op if already fresh; otherwise dedupes and fetches. Success writes the rows and clears the stale mark; failure blanks the signal and rethrows. Both branches generation-guarded |
+| `dropXxx(id)` | Not a stale mark: forgets the wedding. See "Lifetime" below |
 
 **Known gap, tracked in #620:** `peekCachedXxx` and the readers built
 directly on it — `spentSoFar`/`upcomingPayments` (`budget-store.ts`) — don't
@@ -319,6 +324,77 @@ Shipped across all eight caches by PR #860 (write through the signal instead
 of deleting the cache entry on invalidate) and PR #864 (this
 stale-while-revalidate contract, plus the failure-branch re-authorization
 check).
+
+### Lifetime: one wedding on screen, one wedding in memory
+
+The caches hold guest names, vendor emails and phone numbers, budget figures
+and the gift log. A wedding keeps them only while its dashboard is mounted.
+This covers the eight caches above and the upgrade catalogue
+(`upgrade-store.ts`), which keeps prices and has no stale mark.
+
+- **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell.
+  Its body calls `openWeddingCaches(id)` before any view below it runs.
+- **Drop.** The same scope's `onCleanup` calls `dropWeddingCaches(id)`
+  (`lib/wedding-caches.ts`). One hook covers every way out: another wedding,
+  back to the list, Security, a hash edit or Back/Forward, a role that loses
+  the dashboard, the wedding leaving the organiser's list, and sign-out.
+- **What a drop does, per store** (`dropXxx`). It nulls the signal, so a view
+  still holding the accessor lets go of the rows. It then deletes the entry
+  and the in-flight slot, and **bumps** the generation. The generation is never
+  deleted: a deleted generation reads as 0, which is the value an old load
+  captured, and that load would then cache what it fetched.
+- **Closed means closed.** Between a drop and the next open, the wedding is
+  closed (`lib/wedding-scope.ts`). `setCachedXxx`, `setCatalogue` and
+  `upsertCachedVendor` ignore it, and `ensureXxxLoaded` returns `false`
+  without fetching. A request a torn-down view started cannot put the rows
+  back.
+- **One dashboard per wedding.** The dashboard's `Show` is keyed on the wedding
+  id, so another wedding is a fresh mount. The dashboard takes its id from the
+  key, not from the selection, and reads its summary by that id. A view that
+  finishes a request after a switch still writes to its own wedding. A rename
+  keeps the id, so it does not remount.
+- **Never build a list from nothing.** A patch applies only to a loaded list.
+  See `patchTasks` in `ChecklistView` and `patchVendors`/`patchSnap` in the
+  vendors, budget and registry views. A write onto `null` would read as a
+  complete, fresh list and stop the next load from asking the server. Where
+  the list is not loaded, or is stale with a load in flight, the code marks it
+  stale or reloads instead (`upsertCachedVendor`, and `ChecklistView`'s
+  create).
+
+Returning to a wedding re-issues its reads. That is the cost of dropping.
+
+### Noticing a lost wedding
+
+The API checks the caller's role on every request. What goes stale is the tab:
+an organiser removed from a wedding, or narrowed to `helper`, keeps the rows
+already on screen until something asks the API again. Owner, editor and
+viewer read the same rows, so a change between those three only changes what
+the dashboard offers.
+
+`Dashboard` in `OrganiserApp.tsx` re-reads `GET /api/organiser/weddings` and
+applies the answer. A wedding missing from the answer sends the route back to
+the list. A `helper` role swaps in its seat. Either way the scope unmounts and
+drops the rows. The re-read runs on:
+
+- **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
+  whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
+  Every request below it is watched.
+- **the tab coming back into view, or a move within the dashboard** (module,
+  sub-view or wedding). Either one runs at most once a minute
+  (`RECHECK_AFTER_MS`). A module already loaded answers from its cache and
+  sends no request, so without the move trigger a tab in use could go from
+  module to module and never be refused. A 401 on the re-read signs the tab
+  out, and that full page load discards the heap.
+
+Concurrent triggers share one request. The exception is a 403 on a request
+sent after the shared request started: the answer may predate the change the
+403 reports, so a new request goes out. A request unanswered after 30 s is
+abandoned, and only the newest request's answer is applied. A failed answer,
+or one without a list, changes nothing. The list is also written locally: a
+created wedding, a rename, or the upgrade return's own refresh. An answer
+that arrives after one of those local writes is thrown away and the list is
+asked for once more. Nothing pushes a change to a tab left untouched. It
+waits for the tab's next request, move or return to view.
 
 ## Testing
 

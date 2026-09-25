@@ -8,10 +8,12 @@ import {
   invalidateVendors,
   peekCachedVendors,
   setCachedVendors,
+  upsertCachedVendor,
   vendorCount,
   vendorsAccessor,
   type VendorRow,
 } from "../../src/lib/vendors-store";
+import { __resetWeddingScope, closeWeddingScope } from "../../src/lib/wedding-scope";
 
 const vendor = (over: Partial<VendorRow>): VendorRow => ({
   id: "ven_1",
@@ -31,7 +33,10 @@ const vendor = (over: Partial<VendorRow>): VendorRow => ({
   ...over,
 });
 
-beforeEach(() => __resetVendorsCache());
+beforeEach(() => {
+  __resetVendorsCache();
+  __resetWeddingScope();
+});
 
 describe("vendors-store", () => {
   it("loads once and reuses the cache", async () => {
@@ -270,5 +275,73 @@ describe("vendors-store", () => {
 
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["seed"]);
     expect(hasCachedVendors("wed_1")).toBe(false);
+  });
+
+  describe("upsertCachedVendor", () => {
+    it("replaces a row by id, or appends one it does not hold", () => {
+      setCachedVendors("wed_1", [vendor({ id: "a", name: "Old" }), vendor({ id: "b" })]);
+
+      upsertCachedVendor("wed_1", vendor({ id: "a", name: "New" }));
+      upsertCachedVendor("wed_1", vendor({ id: "c" }));
+
+      expect(peekCachedVendors("wed_1")?.map((v) => [v.id, v.name])).toEqual([
+        ["a", "New"],
+        ["b", "Florist"],
+        ["c", "Florist"],
+      ]);
+      expect(hasCachedVendors("wed_1")).toBe(true);
+    });
+
+    it("does not invent a list for a wedding that was never loaded", () => {
+      upsertCachedVendor("wed_1", vendor({ id: "a" }));
+      expect(peekCachedVendors("wed_1")).toBeNull();
+      expect(hasCachedVendors("wed_1")).toBe(false);
+    });
+
+    it("discards a load in flight from before the write, rather than let it drop the row", async () => {
+      let settle: (rows: VendorRow[]) => void = () => {};
+      const pending = ensureVendorsLoaded(
+        "wed_1",
+        () => new Promise<VendorRow[]>((resolve) => (settle = resolve)),
+      );
+
+      // The row lands while the list is still loading; the load was asked
+      // before the row existed.
+      upsertCachedVendor("wed_1", vendor({ id: "new" }));
+      settle([vendor({ id: "old" })]);
+
+      expect(await pending).toBe(false);
+      expect(hasCachedVendors("wed_1")).toBe(false);
+      let calls = 0;
+      await ensureVendorsLoaded("wed_1", async () => {
+        calls += 1;
+        return [vendor({ id: "old" }), vendor({ id: "new" })];
+      });
+      expect(calls).toBe(1);
+      expect(peekCachedVendors("wed_1")?.map((v) => v.id)).toEqual(["old", "new"]);
+    });
+
+    it("leaves a stale list for its refetch instead of patching it", async () => {
+      await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "a" })]);
+      invalidateVendors("wed_1");
+      let settle: (rows: VendorRow[]) => void = () => {};
+      const pending = ensureVendorsLoaded(
+        "wed_1",
+        () => new Promise<VendorRow[]>((resolve) => (settle = resolve)),
+      );
+
+      upsertCachedVendor("wed_1", vendor({ id: "b" }));
+      settle([vendor({ id: "a" })]);
+
+      expect(await pending).toBe(false);
+      expect(hasCachedVendors("wed_1")).toBe(false);
+    });
+
+    it("writes nothing for a closed wedding", () => {
+      setCachedVendors("wed_1", [vendor({ id: "a" })]);
+      closeWeddingScope("wed_1");
+      upsertCachedVendor("wed_1", vendor({ id: "b" }));
+      expect(peekCachedVendors("wed_1")?.map((v) => v.id)).toEqual(["a"]);
+    });
   });
 });

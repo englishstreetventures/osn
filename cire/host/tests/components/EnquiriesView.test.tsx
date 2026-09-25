@@ -315,6 +315,102 @@ describe("EnquiriesView", () => {
     expect(listReads).toHaveLength(0);
   });
 
+  // The reply's own response carries the message, so the thread shows it
+  // without reading the whole thread again.
+  it("shows a sent reply without re-reading the thread", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    const earlier = makeMessage({ id: "msg_old", body: "We have your date free." });
+    const sent = makeMessage({
+      id: "msg_new",
+      senderProfileId: "p_me",
+      body: "Wonderful, please send a quote.",
+    });
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? new Response(JSON.stringify({ message: sent }), { status: 201 })
+        : new Response(JSON.stringify({ messages: [earlier] }), { status: 200 }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    await screen.findByText("We have your date free.");
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Wonderful, please send a quote." } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    const reply = await screen.findByText("Wonderful, please send a quote.");
+    const earlierMessage = screen.getByText("We have your date free.");
+    // Newest first, as the API lists a thread.
+    expect(
+      reply.compareDocumentPosition(earlierMessage) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const threadReads = authFetch.mock.calls.filter(
+      ([url, init]: unknown[]) =>
+        String(url).endsWith("/messages") && (init as RequestInit | undefined)?.method !== "POST",
+    );
+    expect(threadReads).toHaveLength(1);
+  });
+
+  it("reads the thread again when a reply lands before the thread has loaded", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    const sent = makeMessage({ id: "msg_new", senderProfileId: "p_me", body: "Hello!" });
+    let threadReads = 0;
+    authFetch.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ message: sent }), { status: 201 }));
+      }
+      threadReads += 1;
+      // The first read never answers: the thread is still loading when the
+      // reply comes back, so there is no loaded thread to put it in.
+      if (threadReads === 1) return new Promise<Response>(() => {});
+      return Promise.resolve(new Response(JSON.stringify({ messages: [sent] }), { status: 200 }));
+    });
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Hello!" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => expect(threadReads).toBe(2));
+    expect(await screen.findByText("Hello!")).toBeInTheDocument();
+  });
+
+  it("does not re-read a thread the organiser left while the reply was in flight", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [
+      makeItem({ id: "enq_1", vendorName: "Blue Roses" }),
+      makeItem({ id: "enq_2", vendorName: "Green Cakes", lastMessageAt: Date.now() - 1000 }),
+    ]);
+    let releaseReply: (res: Response) => void = () => {};
+    const reads: string[] = [];
+    authFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Promise<Response>((resolve) => (releaseReply = resolve));
+      }
+      reads.push(String(url));
+      return Promise.resolve(new Response(JSON.stringify({ messages: [] }), { status: 200 }));
+    });
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Hello!" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Green Cakes/ }));
+    await waitFor(() => expect(reads.some((u) => u.includes("enq_2"))).toBe(true));
+
+    releaseReply(
+      new Response(JSON.stringify({ message: makeMessage({ body: "Hello!" }) }), { status: 201 }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(reads.filter((u) => u.includes("enq_2"))).toHaveLength(1);
+    expect(reads.filter((u) => u.includes("enq_1"))).toHaveLength(1);
+  });
+
   // The master-detail contract: opening a thread no longer UNMOUNTS the inbox.
   // On a wide panel the two sit side by side; on a narrow one the inbox is
   // hidden with `@max-3xl/enquiries:hidden`, which happy-dom never applies — so

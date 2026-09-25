@@ -4,6 +4,8 @@
 // view share ONE fetch. Effect is deliberately NOT imported (frontend code).
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
+import { isWeddingClosed } from "./wedding-scope";
+
 /** One task row as the organiser API returns it (timestamps are ms-epoch numbers). */
 export interface TaskRow {
   id: string;
@@ -47,6 +49,7 @@ export function hasCachedTasks(weddingId: string): boolean {
 }
 
 export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
+  if (isWeddingClosed(weddingId)) return;
   entryFor(weddingId).setTasks(tasks);
 }
 
@@ -122,6 +125,9 @@ export function ensureTasksLoaded(
   weddingId: string,
   fetcher: () => Promise<TaskRow[]>,
 ): Promise<boolean> {
+  // A closed wedding loads nothing: the caller is a view that has already
+  // been torn down.
+  if (isWeddingClosed(weddingId)) return Promise.resolve(false);
   if (hasCachedTasks(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
@@ -160,6 +166,21 @@ export function ensureTasksLoaded(
     inflight.set(weddingId, pending);
   }
   return pending;
+}
+
+/**
+ * Forget a wedding: release its rows, drop its in-flight slot, and bump its
+ * generation so a load still in flight discards what it fetches. A view still
+ * holding the old accessor reads `null` from then on. The generation is bumped
+ * rather than deleted, because a deleted one reads as 0 — the same value an
+ * old load captured — and that load would then cache what it fetched.
+ */
+export function dropTasks(weddingId: string): void {
+  cache.get(weddingId)?.setTasks(null);
+  cache.delete(weddingId);
+  inflight.delete(weddingId);
+  stale.delete(weddingId);
+  generation.set(weddingId, generationOf(weddingId) + 1);
 }
 
 /** Test-only: clear the whole cache so each test starts cold. */

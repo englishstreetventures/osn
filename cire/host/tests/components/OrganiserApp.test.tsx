@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * OrganiserApp's Dashboard owns the glue the child components don't: mapping the
@@ -16,11 +16,16 @@ const logoutMock = vi.fn().mockResolvedValue(undefined);
 
 // session() returns a truthy value so RequireAuth renders its children; the
 // identity fields feed the ProfileMenu (real, not stubbed) in the masthead.
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
-  useAuth: () => ({
-    authFetch: authFetchMock,
-    logout: logoutMock,
+//
+// `AuthContext` is a real context and `useAuth` reads it before falling back
+// to the base value, because the Dashboard provides a context of its own — the
+// same `authFetch`, wrapped to notice a 403 — and everything below it must see
+// that one, as it does in the app.
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { createContext, useContext } = await import("solid-js");
+  const base = {
+    authFetch: (...args: unknown[]) => authFetchMock(...args),
+    logout: (...args: unknown[]) => logoutMock(...args),
     session: () => ({
       osnProfileId: "usr_owner",
       displayName: "Alex Host",
@@ -29,8 +34,14 @@ vi.mock("@shared/rp-auth/solid", () => ({
       avatarUrl: null,
       expiresAt: "2099-01-01T00:00:00Z",
     }),
-  }),
-}));
+  };
+  const AuthContext = createContext<typeof base>();
+  return {
+    AuthContext,
+    AuthProvider: (props: { children: unknown }) => props.children,
+    useAuth: () => useContext(AuthContext) ?? base,
+  };
+});
 
 vi.mock("@shared/toast", () => ({ Toaster: () => null }));
 
@@ -73,29 +84,57 @@ vi.mock("../../src/components/WeddingList", () => ({
 // the hash-driven module/sub and exercise a module switch (which the parent
 // mirrors into the URL hash). It also owns the import + Overview internally now,
 // so those aren't separately mounted at the dashboard level.
-vi.mock("../../src/components/ModuleShell", () => ({
-  default: (props: {
-    weddingId: string;
-    canManage: boolean;
-    canEdit: boolean;
-    module: string;
-    sub: string;
-    onModule: (m: string) => void;
-    onSub: (s: string) => void;
-  }) => (
-    <div
-      data-testid="module-shell"
-      data-can-manage={String(props.canManage)}
-      data-can-edit={String(props.canEdit)}
-      data-module={props.module}
-      data-sub={props.sub}
-    >
-      {props.weddingId}
-      <button onClick={() => props.onModule("guests")}>go-guests</button>
-      <button onClick={() => props.onSub("rsvps")}>go-rsvps</button>
-    </div>
-  ),
-}));
+//
+// It also stands in for every view below it in two ways: `read-vendors` sends
+// a wedding-scoped request through the `authFetch` the shell sees (resolved in
+// the component body, where the context is visible), and each mount stamps a
+// fresh `data-mount` so a test can tell a remount from a re-render.
+let shellMounts = 0;
+vi.mock("../../src/components/ModuleShell", async () => {
+  const { useAuth } = await import("@shared/rp-auth/solid");
+  return {
+    default: (props: {
+      weddingId: string;
+      canManage: boolean;
+      canEdit: boolean;
+      module: string;
+      sub: string;
+      onModule: (m: string) => void;
+      onSub: (s: string) => void;
+      onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+    }) => {
+      const { authFetch } = useAuth();
+      shellMounts += 1;
+      const mount = shellMounts;
+      return (
+        <div
+          data-testid="module-shell"
+          data-can-manage={String(props.canManage)}
+          data-can-edit={String(props.canEdit)}
+          data-module={props.module}
+          data-sub={props.sub}
+          data-mount={String(mount)}
+        >
+          {props.weddingId}
+          <button onClick={() => props.onModule("guests")}>go-guests</button>
+          <button onClick={() => props.onSub("rsvps")}>go-rsvps</button>
+          <button
+            onClick={() =>
+              void authFetch(`https://api.test/api/organiser/weddings/${props.weddingId}/vendors`)
+            }
+          >
+            read-vendors
+          </button>
+          <button
+            onClick={() => props.onWeddingUpdated?.({ displayName: "Renamed", slug: "renamed" })}
+          >
+            rename
+          </button>
+        </div>
+      );
+    },
+  };
+});
 vi.mock("../../src/components/PreviewInviteButton", () => ({
   default: () => <div data-testid="preview-button" />,
 }));
@@ -108,6 +147,13 @@ import OrganiserApp from "../../src/components/OrganiserApp";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
+import {
+  __resetVendorsCache,
+  peekCachedVendors,
+  setCachedVendors,
+  type VendorRow,
+} from "../../src/lib/vendors-store";
+import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function listResponse(
@@ -137,6 +183,12 @@ function listResponse(
 }
 
 describe("OrganiserApp Dashboard", () => {
+  beforeEach(() => {
+    authFetchMock.mockReset();
+    __resetWeddingScope();
+    __resetVendorsCache();
+  });
+
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
@@ -458,5 +510,433 @@ describe("OrganiserApp Dashboard", () => {
 
     await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
     expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("invite");
+  });
+  // ── Per-wedding cache lifetime ──────────────────────────────────────────────
+
+  const vendorRow = (weddingId: string): VendorRow => ({
+    id: `ven_${weddingId}`,
+    weddingId,
+    directoryVendorId: null,
+    name: "Florist",
+    category: "florals",
+    status: "researching",
+    contactName: "Sam",
+    email: "sam@example.com",
+    phone: "0400 000 000",
+    notes: null,
+    quotedMinor: null,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+
+  const LIST_URL = "https://api.test/api/organiser/weddings";
+  const listCalls = () => authFetchMock.mock.calls.filter(([url]) => url === LIST_URL).length;
+  const shell = () => screen.getByTestId("module-shell");
+
+  it("drops the rows of a wedding the organiser leaves, from a deep link onward", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        { id: "wed_a", slug: "a", displayName: "Alice & Bob" },
+        { id: "wed_b", slug: "b", displayName: "Bea & Cal" },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    const firstMount = shell().getAttribute("data-mount");
+
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+
+    // Browser Back/Forward or an edited URL: the route moves without any
+    // in-app handler running.
+    window.location.hash = "#/w/wed_b";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    await waitFor(() => expect(shell().textContent).toContain("wed_b"));
+    // Another wedding is another dashboard, not the old one re-pointed.
+    expect(shell().getAttribute("data-mount")).not.toBe(firstMount);
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    // A request the old dashboard started cannot put the rows back.
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toBeNull();
+
+    // Back to the list drops the wedding it came from too.
+    setCachedVendors("wed_b", [vendorRow("wed_b")]);
+    expect(peekCachedVendors("wed_b")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
+    expect(screen.getByTestId("wedding-list")).toBeTruthy();
+    expect(peekCachedVendors("wed_b")).toBeNull();
+
+    // Opening a wedding again opens its caches again.
+    window.location.hash = "#/w/wed_a";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("keeps the same dashboard when the open wedding is renamed", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    const mount = shell().getAttribute("data-mount");
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    fireEvent.click(screen.getByText("rename"));
+
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("rechecks the list on a refusal, and drops a wedding the organiser was removed from", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let removed = false;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url === LIST_URL) {
+        return listResponse(
+          removed ? [] : [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }],
+        );
+      }
+      return new Response(JSON.stringify({ error: "forbidden" }), { status: 403 });
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(listCalls()).toBe(1);
+
+    // The organiser is removed server-side; the next wedding request says so.
+    removed = true;
+    fireEvent.click(screen.getByText("read-vendors"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(listCalls()).toBe(2);
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("drops the rows when a recheck finds the role narrowed to one with no dashboard", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let role = "editor";
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url === LIST_URL) {
+        return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role }]);
+      }
+      return new Response(JSON.stringify({ error: "forbidden" }), { status: 403 });
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    role = "helper";
+    fireEvent.click(screen.getByText("read-vendors"));
+
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("keeps the dashboard and its rows when a refusal changes nothing", async () => {
+    // A refusal that is not about the wedding — an owner-only field refused to
+    // an editor — costs one list read and nothing else.
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockImplementation(async (url: string) =>
+      url === LIST_URL
+        ? listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "editor" }])
+        : new Response(JSON.stringify({ error: "owner_only_fields" }), { status: 403 }),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    const mount = shell().getAttribute("data-mount");
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    fireEvent.click(screen.getByText("read-vendors"));
+
+    await waitFor(() => expect(listCalls()).toBe(2));
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("does not recheck on a response that is not a refusal", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockImplementation(async (url: string) =>
+      url === LIST_URL
+        ? listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }])
+        : new Response(JSON.stringify({ vendors: [] }), { status: 200 }),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    fireEvent.click(screen.getByText("read-vendors"));
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(2));
+    expect(listCalls()).toBe(1);
+  });
+
+  it("throws away a recheck answer the list was written over, and asks again", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
+    let releaseStale: (res: Response) => void = () => {};
+    let listReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== LIST_URL) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+      }
+      listReads += 1;
+      // The recheck's first answer is held back until after a local write.
+      if (listReads === 2) return new Promise<Response>((resolve) => (releaseStale = resolve));
+      return Promise.resolve(listResponse(wedA));
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    fireEvent.click(screen.getByText("read-vendors"));
+    await waitFor(() => expect(listReads).toBe(2));
+    // A rename lands while the recheck is in flight.
+    fireEvent.click(screen.getByText("rename"));
+    // The held answer predates the rename and omits the wedding. Applied, it
+    // would close the dashboard; it must be dropped and the list asked again.
+    releaseStale(listResponse([]));
+
+    await waitFor(() => expect(listReads).toBe(3));
+    expect(shell().textContent).toContain("wed_a");
+  });
+
+  it("rechecks when the tab comes back into view, at most once a minute", async () => {
+    const start = 1_900_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      history.replaceState(null, "", "#/w/wed_a");
+      authFetchMock.mockResolvedValue(
+        listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+      );
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      expect(listCalls()).toBe(1);
+
+      // Straight back: too soon to ask again.
+      clock.mockReturnValue(start + 30_000);
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(listCalls()).toBe(1);
+
+      // Back after a minute: ask.
+      clock.mockReturnValue(start + 61_000);
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() => expect(listCalls()).toBe(2));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  /** A list read the test answers by hand. */
+  function heldList() {
+    let answer: (res: Response) => void = () => {};
+    const promise = new Promise<Response>((resolve) => (answer = resolve));
+    return { promise, answer };
+  }
+
+  it.each([
+    ["answers 500", () => Promise.resolve(new Response(null, { status: 500 }))],
+    ["fails outright", () => Promise.reject(new Error("network down"))],
+    [
+      "answers without a list",
+      () => Promise.resolve(new Response(JSON.stringify({ weddings: null }), { status: 200 })),
+    ],
+  ])("changes nothing when the recheck %s", async (_label, failedRead) => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let listReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== LIST_URL) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+      }
+      listReads += 1;
+      return listReads === 1
+        ? Promise.resolve(listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]))
+        : failedRead();
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    const mount = shell().getAttribute("data-mount");
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    fireEvent.click(screen.getByText("read-vendors"));
+    await waitFor(() => expect(listReads).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends the organiser to sign-in when the recheck finds the session gone", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let listReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== LIST_URL) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+      }
+      listReads += 1;
+      return listReads === 1
+        ? Promise.resolve(listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]))
+        : Promise.reject(new Error("AuthExpiredError"));
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    fireEvent.click(screen.getByText("read-vendors"));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it("shares one list read between refusals that arrive together", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    const held = heldList();
+    let listReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== LIST_URL) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+      }
+      listReads += 1;
+      return listReads === 1
+        ? Promise.resolve(listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]))
+        : held.promise;
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getByText("read-vendors"));
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(5));
+    expect(listReads).toBe(2);
+
+    held.answer(listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]));
+  });
+
+  it("gives up on a recheck left unanswered, and lets the newest answer win", async () => {
+    const start = 1_900_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      history.replaceState(null, "", "#/w/wed_a");
+      const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
+      const hung = heldList();
+      const newer = heldList();
+      let listReads = 0;
+      authFetchMock.mockImplementation((url: string) => {
+        if (url !== LIST_URL) {
+          return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+        }
+        listReads += 1;
+        if (listReads === 2) return hung.promise;
+        if (listReads === 3) return newer.promise;
+        return Promise.resolve(listResponse(wedA));
+      });
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+      fireEvent.click(screen.getByText("read-vendors"));
+      await waitFor(() => expect(listReads).toBe(2));
+
+      // Half a minute on, the first read is still unanswered: a new refusal
+      // sends a new read rather than waiting on it.
+      clock.mockReturnValue(start + 31_000);
+      fireEvent.click(screen.getByText("read-vendors"));
+      await waitFor(() => expect(listReads).toBe(3));
+
+      // The newer read says the organiser was removed...
+      newer.answer(listResponse([]));
+      await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+      expect(peekCachedVendors("wed_a")).toBeNull();
+
+      // ...and the older one, landing late with the wedding still in it,
+      // must not bring the wedding back.
+      hung.answer(listResponse(wedA));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.getByTestId("count").textContent).toBe("0");
+      expect(screen.queryByTestId("module-shell")).toBeNull();
+      expect(peekCachedVendors("wed_a")).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("drops the wedding's rows when the organiser opens Security", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    window.location.hash = "#/security";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    await waitFor(() => expect(screen.getByTestId("security-panel")).toBeTruthy());
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("rechecks when the organiser moves within the dashboard, at most once a minute", async () => {
+    // Loaded modules answer from their caches, so moving between them sends
+    // no request a refusal could come back on.
+    const start = 1_900_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      history.replaceState(null, "", "#/w/wed_a");
+      authFetchMock.mockResolvedValue(
+        listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+      );
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+      clock.mockReturnValue(start + 30_000);
+      fireEvent.click(screen.getByText("go-guests"));
+      expect(listCalls()).toBe(1);
+
+      clock.mockReturnValue(start + 61_000);
+      fireEvent.click(screen.getByText("go-rsvps"));
+      await waitFor(() => expect(listCalls()).toBe(2));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("asks again when a refusal comes from a request sent after the check in flight", async () => {
+    // The check in flight may have been answered before the change the new
+    // refusal reports; joining it would spend that evidence on a stale answer.
+    const start = 1_900_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      history.replaceState(null, "", "#/w/wed_a");
+      const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
+      const early = heldList();
+      let listReads = 0;
+      authFetchMock.mockImplementation((url: string) => {
+        if (url !== LIST_URL) {
+          return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+        }
+        listReads += 1;
+        if (listReads === 2) return early.promise;
+        return Promise.resolve(listResponse(listReads === 3 ? [] : wedA));
+      });
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+      fireEvent.click(screen.getByText("read-vendors"));
+      await waitFor(() => expect(listReads).toBe(2));
+
+      clock.mockReturnValue(start + 1_000);
+      fireEvent.click(screen.getByText("read-vendors"));
+
+      await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+      expect(listReads).toBe(3);
+      early.answer(listResponse(wedA));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.queryByTestId("module-shell")).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

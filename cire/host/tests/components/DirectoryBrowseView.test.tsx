@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
-vi.mock("../../src/lib/vendors-store", () => ({ invalidateVendors: vi.fn() }));
+vi.mock("../../src/lib/vendors-store", () => ({
+  invalidateVendors: vi.fn(),
+  upsertCachedVendor: vi.fn(),
+}));
 
 import DirectoryBrowseView from "../../src/components/DirectoryBrowseView";
-import { invalidateVendors } from "../../src/lib/vendors-store";
+import { invalidateVendors, upsertCachedVendor } from "../../src/lib/vendors-store";
 
 const listing = (over = {}) => ({
   id: "LA",
@@ -66,7 +69,40 @@ describe("DirectoryBrowseView", () => {
         category: "venue",
       });
     });
-    expect(invalidateVendors).toHaveBeenCalledWith("w1");
+    // The 201 hands back the row it created, so it goes into the vendors list
+    // directly: no list read is queued for it.
+    await waitFor(() => expect(upsertCachedVendor).toHaveBeenCalledWith("w1", { id: "v1" }));
+    expect(invalidateVendors).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no row", () => json({}, 201)],
+    ["a body that will not parse", () => new Response("not json", { status: 201 })],
+  ])("marks the vendors list stale when a 201 carries %s", async (_label, created) => {
+    authFetch.mockResolvedValueOnce(
+      json({ listings: [listing({ categories: ["venue"] })], total: 1 }),
+    );
+    authFetch.mockResolvedValueOnce(created());
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    await waitFor(() => screen.getByText("Acme Venue"));
+    fireEvent.click(screen.getAllByRole("button", { name: /add to wedding/i })[0]!);
+
+    await waitFor(() => expect(invalidateVendors).toHaveBeenCalledWith("w1"));
+    expect(upsertCachedVendor).not.toHaveBeenCalled();
+  });
+
+  it("marks the vendors list stale when the vendor was already on it (409)", async () => {
+    authFetch.mockResolvedValueOnce(
+      json({ listings: [listing({ categories: ["venue"] })], total: 1 }),
+    );
+    authFetch.mockResolvedValueOnce(json({ error: "conflict" }, 409));
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    await waitFor(() => screen.getByText("Acme Venue"));
+    fireEvent.click(screen.getAllByRole("button", { name: /add to wedding/i })[0]!);
+
+    // A 409 carries no row, so the list is left for the next load to fill.
+    await waitFor(() => expect(invalidateVendors).toHaveBeenCalledWith("w1"));
+    expect(upsertCachedVendor).not.toHaveBeenCalled();
   });
 
   it("hides the Add control for viewers (canEdit false)", async () => {

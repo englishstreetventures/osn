@@ -57,7 +57,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
   // yields the PREVIOUS value — and since switching threads no longer unmounts
   // anything (see the keyed `Show` below), that value would render enquiry A's
   // messages under enquiry B's name and quote for the length of a round-trip.
-  const [messages, { refetch }] = createResource(selectedId, async (id) => ({
+  const [messages, { mutate, refetch }] = createResource(selectedId, async (id) => ({
     enquiryId: id,
     items: await fetchMessages(authFetch, props.weddingId, id),
   }));
@@ -76,7 +76,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
   const handleSend = async (message: string) => {
     const id = selectedId();
     if (!id) return;
-    await replyEnquiry(authFetch, props.weddingId, id, message);
+    const sent = await replyEnquiry(authFetch, props.weddingId, id, message);
     // Refresh the inbox row by writing through the LIVE signal, not by
     // invalidate-then-reload. `invalidateEnquiries` now notifies the same
     // signal the mounted inbox reads, so a reload WOULD reach it — but it
@@ -98,8 +98,18 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
       const now = Date.now();
       upsertCachedEnquiry(props.weddingId, { ...current, lastMessageAt: now, updatedAt: now });
     }
-    // Refetch the thread messages.
-    await refetch();
+    // Put the sent message into the thread rather than re-reading the whole
+    // thread to learn one row the server has just handed back. First, because
+    // the API lists a thread newest first. A thread still loading has no list
+    // to add it to, and its load may have been sent before the reply, so it
+    // is read again. A thread the organiser has left is not: opening it again
+    // reads it fresh.
+    const loaded = messages();
+    if (loaded && loaded.enquiryId === id && !messages.loading) {
+      mutate({ enquiryId: id, items: [sent, ...loaded.items] });
+    } else if (selectedId() === id) {
+      await refetch();
+    }
   };
 
   const handleAddToBudget = async () => {

@@ -72,7 +72,15 @@ export default function ChecklistView(props: ChecklistViewProps) {
     }));
   });
 
-  const patchCache = (next: TaskRow[]) => setCachedTasks(props.weddingId, next);
+  // Writes only onto a loaded list. A list that isn't loaded has nothing to
+  // patch, and one built from nothing would read as a complete checklist and
+  // stop the next load from asking the server.
+  const patchTasks = (fn: (rows: TaskRow[]) => TaskRow[]): boolean => {
+    const cur = peekCachedTasks(props.weddingId);
+    if (!cur) return false;
+    setCachedTasks(props.weddingId, fn(cur));
+    return true;
+  };
 
   const addTask = async (e: Event) => {
     e.preventDefault();
@@ -95,7 +103,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { task } = (await res.json()) as { task: TaskRow };
-      patchCache([...(peekCachedTasks(props.weddingId) ?? []), task]);
+      // No list to add it to: load one, which will carry the new task.
+      if (!patchTasks((rows) => [...rows, task])) void reload();
       haptic("commit");
     } catch {
       haptic("reject");
@@ -109,11 +118,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
     // Optimistic flip. The haptic rides with it rather than with the response:
     // the tick is what the host is confirming, and a buzz arriving a network
     // round-trip after the box changed would read as a second, separate event.
-    patchCache(
-      (peekCachedTasks(props.weddingId) ?? []).map((t) =>
-        t.id === task.id ? { ...t, status: nextStatus } : t,
-      ),
-    );
+    patchTasks((rows) => rows.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     haptic("commit");
     try {
       const res = await authFetch(
@@ -127,9 +132,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
       const { task: updated } = (await res.json()) as { task: TaskRow };
-      patchCache(
-        (peekCachedTasks(props.weddingId) ?? []).map((t) => (t.id === updated.id ? updated : t)),
-      );
+      patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
     } catch {
       // The optimistic tick is about to be taken back — say so.
       haptic("reject");
@@ -139,7 +142,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   };
 
   const deleteTask = async (task: TaskRow) => {
-    patchCache((peekCachedTasks(props.weddingId) ?? []).filter((t) => t.id !== task.id));
+    patchTasks((rows) => rows.filter((t) => t.id !== task.id));
     haptic("commit");
     try {
       const res = await authFetch(
@@ -168,8 +171,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
     // Rewrite sort_order locally + in the cache.
     const orderedIds = reordered.map((t) => t.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
-    patchCache(
-      (peekCachedTasks(props.weddingId) ?? []).map((t) =>
+    patchTasks((rows) =>
+      rows.map((t) =>
         t.timeframeBucket === bucket ? { ...t, sortOrder: bySort.get(t.id) ?? t.sortOrder } : t,
       ),
     );

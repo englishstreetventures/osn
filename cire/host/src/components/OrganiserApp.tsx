@@ -1,4 +1,4 @@
-import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
+import { AuthContext, AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { toast, Toaster } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
 import {
@@ -6,11 +6,14 @@ import {
   createResource,
   createSignal,
   lazy,
+  on,
   onCleanup,
   onMount,
   type ParentProps,
+  type Setter,
   Show,
   Suspense,
+  untrack,
 } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -24,6 +27,7 @@ import {
   parseRoute,
   serializeRoute,
 } from "../lib/dashboard-route";
+import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
 import { confirmNavigation } from "../lib/unsaved-guard";
@@ -35,6 +39,7 @@ import {
   readUpgradeReturn,
 } from "../lib/upgrade-return";
 import { invalidateCatalogue } from "../lib/upgrade-store";
+import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
@@ -51,6 +56,19 @@ import WeddingList from "./WeddingList";
  * this chunk has arrived.
  */
 const CommandPalette = lazy(() => import("./CommandPalette"));
+
+/**
+ * How long after the last check the portal asks the API again, when the tab
+ * comes back into view or the organiser moves within the dashboard, which
+ * weddings the organiser holds and in what role. Short enough that a removal
+ * stops a tab in use showing that wedding within a minute; long enough that
+ * flicking between tabs or modules is not a request each time.
+ */
+const RECHECK_AFTER_MS = 60_000;
+
+/** A wedding-list check still unanswered after this long is abandoned: the
+ *  next trigger sends a fresh one rather than waiting on it. */
+const RECHECK_ABANDONED_AFTER_MS = 30_000;
 
 type WeddingsState =
   | { kind: "error"; message: string }
@@ -121,6 +139,10 @@ function RequireAuth(props: ParentProps) {
  *  navigation back up via `onModule` / `onSub`. Getting-started (now the Overview
  *  empty-state) and the import both moved into their modules. */
 function WeddingDashboard(props: {
+  /** The wedding this dashboard belongs to, fixed for the dashboard's life.
+   *  Views read it after an `await`, and by then the organiser may have moved
+   *  to another wedding; a live read would point their writes at that one. */
+  weddingId: string;
   wedding: WeddingSummary;
   /** Active module + sub as accessors so they stay reactive across hash changes
    *  even while the same wedding object stays selected. */
@@ -139,22 +161,46 @@ function WeddingDashboard(props: {
 
   return (
     <Show when={surfaces().canOpenDashboard} fallback={<RunSheetSeat />}>
-      <ModuleShell
-        weddingId={props.wedding.id}
-        weddingName={props.wedding.displayName}
-        weddingSlug={props.wedding.slug}
-        canManage={surfaces().canManage}
-        canEdit={surfaces().canEdit}
-        module={props.module()}
-        sub={props.sub()}
-        onModule={props.onModule}
-        onSub={props.onSub}
-        onWeddingUpdated={props.onWeddingUpdated}
-        entitlements={props.wedding.entitlements ?? []}
-        guestCap={props.wedding.guestCap ?? 100}
-      />
+      <WeddingCacheScope weddingId={props.weddingId}>
+        <ModuleShell
+          weddingId={props.weddingId}
+          weddingName={props.wedding.displayName}
+          weddingSlug={props.wedding.slug}
+          canManage={surfaces().canManage}
+          canEdit={surfaces().canEdit}
+          module={props.module()}
+          sub={props.sub()}
+          onModule={props.onModule}
+          onSub={props.onSub}
+          onWeddingUpdated={props.onWeddingUpdated}
+          entitlements={props.wedding.entitlements ?? []}
+          guestCap={props.wedding.guestCap ?? 100}
+        />
+      </WeddingCacheScope>
     </Show>
   );
+}
+
+/**
+ * Holds one wedding's cached rows for exactly as long as its dashboard is on
+ * screen.
+ *
+ * The stores keep guest names, vendor contacts and budget figures in memory,
+ * keyed by wedding. This scope opens the wedding's caches before any view
+ * below it runs (children are read lazily, after this body) and drops them
+ * when it unmounts — on a switch to another wedding, back to the list, to
+ * Security, on a role that loses the dashboard, on the wedding leaving the
+ * organiser's list, and on sign-out. Once dropped, the stores refuse writes
+ * and loads for the wedding, so a request a torn-down view started cannot
+ * bring its rows back.
+ */
+function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
+  // Read once: a scope belongs to one wedding for its whole life. The parent
+  // is keyed on the wedding id, so another wedding gets another scope.
+  const weddingId = untrack(() => props.weddingId);
+  openWeddingCaches(weddingId);
+  onCleanup(() => dropWeddingCaches(weddingId));
+  return <>{props.children}</>;
 }
 
 /** What a seat with no dashboard surface opens onto.
@@ -181,10 +227,128 @@ function initialRoute(): DashboardRoute {
 }
 
 function Dashboard() {
-  const { authFetch, logout, session } = useAuth();
+  const auth = useAuth();
+  const { authFetch, logout, session } = auth;
   // Locally-tracked weddings so a freshly-created one shows up without a
   // refetch. Seeded from the initial load.
-  const [weddings, setWeddings] = createSignal<WeddingSummary[] | null>(null);
+  const [weddings, writeWeddings] = createSignal<WeddingSummary[] | null>(null);
+
+  // Every local write to the list bumps `listVersion`, so a recheck that was
+  // already in flight cannot overwrite it with an older answer (see
+  // `recheckWeddings`). It also frees the recheck slot: a trigger arriving
+  // after this write must send a new request, not join one whose answer is
+  // about to be thrown away.
+  let listVersion = 0;
+  let recheck: { startedAt: number; done: Promise<void> } | null = null;
+  let recheckSeq = 0;
+  let lastRecheckedAt = Date.now();
+  const setWeddings = ((value: Parameters<Setter<WeddingSummary[] | null>>[0]) => {
+    listVersion += 1;
+    recheck = null;
+    return writeWeddings(value);
+  }) as Setter<WeddingSummary[] | null>;
+
+  /**
+   * Ask the API again which weddings the organiser holds, and in what role.
+   *
+   * The API checks the role on every request, so the rows already on screen
+   * are what goes stale: an organiser removed from a wedding, or narrowed to
+   * a role without the dashboard, keeps reading them until something asks.
+   * Applying the answer is enough to stop that — a wedding that left the
+   * list drops the route back to the list, a role without the dashboard
+   * swaps in its seat, and either way the wedding's cache scope unmounts and
+   * drops its rows. A role that keeps the dashboard only changes what the
+   * dashboard offers; its rows are still the organiser's to read.
+   *
+   * Runs on any 403 from a wedding route, and — at most once a minute — when
+   * the tab comes back into view or the organiser moves within the
+   * dashboard. Concurrent triggers share one request, except a refusal of a
+   * request sent after that one started: its answer may predate the change
+   * the refusal reports, so a new request is sent. An answer is thrown away
+   * if the list was written locally while it was in flight (a created
+   * wedding, a rename), and then asked for once more; an answer overtaken by
+   * a newer request is thrown away too.
+   *
+   * `refusedAt` is when the refused request was sent, for a 403 trigger.
+   */
+  function recheckWeddings(refusedAt?: number, retry = true): Promise<void> {
+    if (untrack(weddings) === null) return Promise.resolve();
+    if (
+      recheck &&
+      Date.now() - recheck.startedAt < RECHECK_ABANDONED_AFTER_MS &&
+      !(refusedAt !== undefined && refusedAt > recheck.startedAt)
+    ) {
+      return recheck.done;
+    }
+    recheckSeq += 1;
+    const seq = recheckSeq;
+    const version = listVersion;
+    const done = (async () => {
+      let answer: WeddingSummary[] | null = null;
+      try {
+        const res = await authFetch(apiUrl("/api/organiser/weddings"));
+        // A failed check changes nothing: an empty or partial answer read as
+        // "no weddings" would drop every scope.
+        if (res.ok) {
+          const body = (await res.json()) as { weddings?: unknown };
+          if (Array.isArray(body.weddings)) answer = body.weddings as WeddingSummary[];
+        }
+      } catch (err) {
+        if (isAuthExpired(err)) redirectToLogin();
+      }
+      // Overtaken by a newer check: that one owns the answer.
+      if (seq !== recheckSeq) return;
+      recheck = null;
+      lastRecheckedAt = Date.now();
+      if (answer === null) return;
+      if (version === listVersion) {
+        const next = answer.map(withKnownRole);
+        // An unchanged answer is not written: a fresh array would wake every
+        // reader of the list for nothing.
+        if (JSON.stringify(next) !== JSON.stringify(untrack(weddings))) writeWeddings(next);
+      } else if (retry) {
+        await recheckWeddings(undefined, false);
+      }
+    })();
+    recheck = { startedAt: Date.now(), done };
+    return done;
+  }
+
+  /** Recheck unless the last check is under a minute old. */
+  function recheckIfDue(): void {
+    if (Date.now() - lastRecheckedAt >= RECHECK_AFTER_MS) void recheckWeddings();
+  }
+
+  onMount(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") recheckIfDue();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    onCleanup(() => document.removeEventListener("visibilitychange", onVisibility));
+  });
+
+  // Everything below the dashboard fetches through this: the same `authFetch`,
+  // plus a recheck of the list whenever the API refuses a wedding route.
+  const watchedAuth = {
+    ...auth,
+    authFetch: watchForbidden(authFetch, (sentAt) => void recheckWeddings(sentAt)),
+  };
+
+  /**
+   * One wedding's summary, read by id from the live list, keeping the last
+   * one seen. A dashboard reads its own wedding through this rather than
+   * through the selection, which moves on the moment the organiser does: a
+   * view finishing a request after a switch still names its own wedding, and
+   * never reads a selection that has since gone away.
+   */
+  function summaryFor(weddingId: string): () => WeddingSummary {
+    let last = untrack(weddings)?.find((w) => w.id === weddingId);
+    return () => {
+      const found = weddings()?.find((w) => w.id === weddingId);
+      if (found) last = found;
+      return last!;
+    };
+  }
 
   // The single source of navigable state: top-level view + selected wedding +
   // active tab, mirrored into the URL hash so a hard refresh restores it and a
@@ -264,6 +428,11 @@ function Dashboard() {
   });
 
   const view = () => route().view;
+
+  // A module already loaded is served from its cache with no request, so a
+  // tab in use can move between modules without the API being asked
+  // anything. Every move is a moment to ask.
+  createEffect(on(route, recheckIfDue, { defer: true }));
 
   function selectView(next: "weddings" | "security") {
     if (next === "security")
@@ -461,7 +630,7 @@ function Dashboard() {
   const sectionLabel = () => (view() === "security" ? "Security" : "All weddings");
 
   return (
-    <>
+    <AuthContext.Provider value={watchedAuth}>
       <TopBar
         session={session()}
         wedding={selected()}
@@ -521,20 +690,33 @@ function Dashboard() {
                   }
                 >
                   {(wedding) => (
-                    <WeddingDashboard
-                      wedding={wedding()}
-                      module={() => {
-                        const r = route();
-                        return r.view === "weddings" ? r.module : DEFAULT_MODULE;
+                    // Keyed on the id: another wedding is another dashboard,
+                    // mounted fresh, with its own cache scope. The key is the
+                    // function's argument on purpose — Show only calls a
+                    // children function that takes one, and an unused `()`
+                    // would make `keyed` do nothing.
+                    <Show when={wedding().id} keyed>
+                      {(weddingId) => {
+                        const summary = summaryFor(weddingId);
+                        return (
+                          <WeddingDashboard
+                            weddingId={weddingId}
+                            wedding={summary()}
+                            module={() => {
+                              const r = route();
+                              return r.view === "weddings" ? r.module : DEFAULT_MODULE;
+                            }}
+                            sub={() => {
+                              const r = route();
+                              return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
+                            }}
+                            onModule={selectModule}
+                            onSub={selectSub}
+                            onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                          />
+                        );
                       }}
-                      sub={() => {
-                        const r = route();
-                        return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
-                      }}
-                      onModule={selectModule}
-                      onSub={selectSub}
-                      onWeddingUpdated={(patch) => handleWeddingUpdated(wedding().id, patch)}
-                    />
+                    </Show>
                   )}
                 </Show>
               )}
@@ -542,7 +724,7 @@ function Dashboard() {
           </Show>
         </Show>
       </main>
-    </>
+    </AuthContext.Provider>
   );
 }
 
