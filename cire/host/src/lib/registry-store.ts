@@ -75,7 +75,15 @@ export interface GiftLogEntry {
   /** Claims only. */
   quantity: number | null;
   status: string;
+  /** Null when the guest wrote none or a host hid it. */
   note: string | null;
+  /**
+   * A host hid this gift's note; `note` is then null and the words stay on the
+   * server. Optional because the portal can deploy before the API that sends
+   * it (`deploy-cire-host` has no `needs:` edge on `deploy-cire-api`); a
+   * missing flag reads as not hidden.
+   */
+  noteHidden?: boolean;
   amountMinor: number | null;
   currency: string | null;
   primaryAmountMinor: number | null;
@@ -83,6 +91,14 @@ export interface GiftLogEntry {
   fxRate: string | null;
   thankedAt: number | null;
   createdAt: number;
+}
+
+/** What `POST …/gifts/:kind/:giftId/note-hidden` answers: the note as the gift
+ *  log now shows it. After an unhide `note` carries the words, which the
+ *  portal does not hold for a hidden row. */
+export interface GiftNoteView {
+  note: string | null;
+  noteHidden: boolean;
 }
 
 /**

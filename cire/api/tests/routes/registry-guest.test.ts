@@ -485,6 +485,20 @@ describe("GET /api/invite/:slug/registry/mine", () => {
     ]);
   });
 
+  it("still shows a household its own note after the couple hid it", async () => {
+    const { app, db } = buildApp();
+    const cookie = await guestCookie(app);
+    expect((await claim(app, cookie, { quantity: 1, note: "ours" })).status).toBe(200);
+    // A hide is the couple's view of their own log; the guest is not told, and
+    // their own record of what they wrote is unchanged.
+    db.update(registryClaims)
+      .set({ noteHiddenAt: new Date(), noteHiddenByOsnProfileId: "usr_dev_bootstrap_owner" })
+      .run();
+    expect((await mine(app, cookie)).claims).toEqual([
+      { itemId: PAN, quantity: 1, status: "reserved", note: "ours", displayName: null },
+    ]);
+  });
+
   it("is never cached", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${guestBase()}/mine`, {

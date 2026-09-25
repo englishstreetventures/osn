@@ -59,7 +59,7 @@ Two CHECK constraints: `quantity_wanted >= 1` and `kind in ('product','cash_fund
 
 ### `registry_claims`
 
-`id` (`rcl_*`) · `wedding_id` · `item_id` · `family_id` · `quantity` · `status` (`reserved` \| `purchased` \| `released`) · `note` · `display_name` · `thanked_at` / `thanked_by` · timestamps.
+`id` (`rcl_*`) · `wedding_id` · `item_id` · `family_id` · `quantity` · `status` (`reserved` \| `purchased` \| `released`) · `note` · `display_name` · `thanked_at` / `thanked_by` · `note_hidden_at` / `note_hidden_by_osn_profile_id` (migration 0062; see [Hiding a note](#hiding-a-note)) · timestamps.
 
 `wedding_id` is denormalised from the item so the gift log filters without a join and a wedding delete cascades even once the item is gone. `display_name` covers "thank Auntie Ros", where the household name isn't who to write to.
 
@@ -74,6 +74,8 @@ Two covering indexes carry the hot reads. `(item_id, status, family_id, quantity
 One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**, and that uniqueness is the webhook idempotency anchor — the same role `provider_ref` plays for entitlement grants. A replayed `checkout.session.completed` conflicts there instead of writing a second gift.
 
 `item_id` is `ON DELETE SET NULL`, not cascade: removing a listing must never erase the record of money someone actually sent.
+
+The guest's words are in `message`, and `note_hidden_at` / `note_hidden_by_osn_profile_id` (migration 0062) hide them from the couple's log the same way as on a claim — see [Hiding a note](#hiding-a-note).
 
 ### Invite copy
 
@@ -215,6 +217,7 @@ All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, ga
 | `PUT /registry/settings`                                                                           | `weddingEditor`                                                                                                                |
 | `POST /registry/items`, `PATCH /registry/items/reorder`, `PATCH \| DELETE /registry/items/:itemId` | `weddingEditor`                                                                                                                |
 | `POST /registry/gifts/:kind/:giftId/thanked`                                                       | `weddingEditor`                                                                                                                |
+| `POST /registry/gifts/:kind/:giftId/note-hidden` — `{ hidden }`; answers `{ ok, note, noteHidden }` | `weddingEditor`                                                                                                                |
 | `POST /registry/link-preview`                                                                      | `weddingEditor` + **its own** per-organiser limiter — see [Link preview](#link-preview)                                        |
 | `POST /registry/image` (raw bytes), `POST /registry/image/from-url`                                | `weddingEditor` + **their own** 10-a-minute limiter — see [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) |
 | `GET /registry/image/:name` — serves our R2 copy, `private`                                        | `weddingMember`                                                                                                                |
@@ -285,6 +288,7 @@ The export exists because the two things above are in tension. The portal reads 
 - **Amounts are bare major-unit decimals with the currency in its own column** — a spreadsheet can sum `125.00`, not `$125.00`. The minor-unit exponent is read off `Intl`, not assumed to be 2: JPY has none and KWD has three, and a fixed `/ 100` is wrong by 100× the moment a gift arrives in yen (`cire/api/src/lib/money.ts`, mirroring the host-side helper).
 - **The FX columns carry the snapshot, never a fresh conversion.** `Amount In Your Currency` / `Your Currency` / `Exchange Rate` are the values stored at charge time, blank for a gift that already arrived in the wedding's primary currency.
 - **No Stripe identifiers.** The charge and payment-intent references are payment plumbing, not part of the couple's record of who gave what.
+- **A hidden note prints as `Note hidden`**, never its words, through the same `giftNoteView` rule the gift log uses. There is no extra column, so the row stays at fourteen cells and the CPU figure above holds.
 
 Cells are formula-sanitised by `serialiseCsv` like every other export — a guest-authored note beginning `=` opens as text, not as a formula.
 
@@ -430,6 +434,19 @@ Candidates are filtered to `https:` **again in the browser** before any of them 
 
 ---
 
+### Hiding a note
+
+A guest's note (a claim's `note`, a contribution's `message`) is the one text in the portal that no host wrote. An owner or editor can hide it from the gift log, and undo that; a viewer sees that a note is hidden and changes nothing. The guest is not told.
+
+- **The words stay in the row.** `POST …/gifts/:kind/:giftId/note-hidden` sets or clears `note_hidden_at` and `note_hidden_by_osn_profile_id` and nothing else. The guest's own view (`GET /api/invite/:slug/registry/mine`) still returns the note, a data-subject request still finds it, and the one-year sweep deletes it with the gift as before.
+- **Organiser surfaces never receive a hidden note's words.** `registryService.giftLog` (so `GET /registry` and `GET /registry/gifts`) sends `note: null` and `noteHidden: true`, and `gifts.csv` prints `Note hidden`. Both go through `giftNoteView` in `cire/api/src/services/registry.ts`. `noteHidden` is true only when there are words to hide, judged the way the portal judges whether to show a note (a non-empty string), so a hidden row with no note says nothing.
+- **The two columns record the hide in force, not a history.** A second hide overwrites who and when, and an unhide clears both, as `thanked_at` / `thanked_by` do.
+- **A guest rewriting the note leaves the hide standing.** The claim upsert does not touch the hide columns, so a guest cannot un-hide a note by editing it; the couple reads the new words with Unhide. A contribution's message cannot change after checkout.
+- **The route reaches only rows the log shows.** It is scoped by `id` and `wedding_id`, and a `failed` contribution answers 404 like a foreign one: the log and the CSV never show it, and an unhide answers with the words.
+- **The route answers with the note as the log now shows it.** After an unhide that is the text, which the portal does not hold for a hidden row, so it shows the words again without re-reading the log (a re-read would drop the pages already appended). The portal takes a note off screen before the server answers a hide, then applies the answer in both directions, since only the server knows whether the guest changed the note meanwhile.
+- **Focus stays on the row.** `<For>` tracks rows by object, so a write that replaces a gift rebuilds its row and the pressed button is gone. Hide note, Unhide and the thank-you toggle move focus to the rebuilt row's control of the same kind (`refocus` in `RegistryView.tsx`); after a hide that is Unhide, whose name tells a screen-reader user what changed.
+- **There is no report action.** Nothing would receive a report: there is no moderation queue, and the log is read only by the couple and their co-hosts.
+
 ### The settings tab (`@cire/host`)
 
 `RegistrySettingsView` is the registry module's third sub-tab, beside the gift list and the gifts received. It holds the four decisions the guest surface reads — publish, copy, shipping address (and its embargo date), money gifts — plus Stripe onboarding.
@@ -535,7 +552,7 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 
 ## Observability
 
-`cire.registry.item.write` (attribute: `action` = create/update/remove) and `cire.registry.gift` (attribute: `action` = thanked/unthanked). Both are attributed by action only — no `weddingId`, `itemId` or `familyId` ever reaches a metric attribute; those belong in spans and logs.
+`cire.registry.item.write` (attribute: `action` = create/update/remove) and `cire.registry.gift` (attribute: `action` = thanked/unthanked/note_hidden/note_unhidden). Both are attributed by action only — no `weddingId`, `itemId` or `familyId` ever reaches a metric attribute; those belong in spans and logs.
 
 Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **logged** (`registry handler defect`, annotated with `weddingId` alone) instead of being swallowed into a bare 500. `weddingId` alone is the point: a guest's note, display name or contribution message is PII and never reaches a log line, so the annotation is deliberately the one field that identifies the wedding and nothing that identifies a person.
 

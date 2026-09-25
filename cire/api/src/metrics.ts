@@ -319,8 +319,11 @@ export type RegistryItemAction = "create" | "update" | "remove";
 type RegistryItemWriteAttrs = { action: RegistryItemAction };
 /** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
  *  directions — worth separating, since a couple un-thanking in bulk is a
- *  different (and more suspicious) signal than thanking. */
-export type RegistryGiftAction = "thanked" | "unthanked";
+ *  different (and more suspicious) signal than thanking. `note_hidden` /
+ *  `note_unhidden` are a host hiding a guest's note and showing it again; a
+ *  rise in hides is the signal that guests are writing things couples do not
+ *  want to read. */
+export type RegistryGiftAction = "thanked" | "unthanked" | "note_hidden" | "note_unhidden";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
 /** Which capability an upgrade counter is about. Deliberately the full
  *  entitlement key set rather than only the two sold today, so making another
@@ -538,7 +541,7 @@ const registryItemWrite = createCounter<RegistryItemWriteAttrs>({
 
 const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
-  description: "Registry gift-log thank-you toggles, by direction",
+  description: "Registry gift-log thank-you toggles and note hides, by action",
   unit: "{gift}",
 });
 

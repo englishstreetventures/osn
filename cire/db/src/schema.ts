@@ -739,6 +739,12 @@ export const registryClaims = sqliteTable(
     displayName: text("display_name"),
     thankedAt: integer("thanked_at", { mode: "timestamp" }),
     thankedBy: text("thanked_by"),
+    // An owner or editor hid `note` from the gift log and its CSV. The text
+    // stays, so the guest's own view and a data-subject request still read it.
+    // Set together and cleared together; they record the hide in force, not a
+    // history. A guest rewriting the note does not clear them.
+    noteHiddenAt: integer("note_hidden_at", { mode: "timestamp" }),
+    noteHiddenByOsnProfileId: text("note_hidden_by_osn_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
@@ -834,6 +840,10 @@ export const registryContributions = sqliteTable(
     displayName: text("display_name"),
     thankedAt: integer("thanked_at", { mode: "timestamp" }),
     thankedBy: text("thanked_by"),
+    // Hides `message` from the gift log and its CSV; the same contract as the
+    // pair on `registry_claims`.
+    noteHiddenAt: integer("note_hidden_at", { mode: "timestamp" }),
+    noteHiddenByOsnProfileId: text("note_hidden_by_osn_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

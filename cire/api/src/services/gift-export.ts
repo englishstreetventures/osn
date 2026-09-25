@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { minorToDecimal } from "../lib/money";
+import { giftNoteView } from "./registry";
 
 /**
  * Row ceiling on one gift export.
@@ -38,6 +39,15 @@ type GiftKind = "Gift list" | "Cash gift";
 const iso = (at: Date | null): string => (at ? at.toISOString() : "");
 
 /**
+ * The Note cell. A note a host hid prints as `Note hidden`, never its words —
+ * the same rule, through the same function, as the portal's gift log.
+ */
+const noteCell = (note: string | null, hiddenAt: Date | null): string => {
+  const view = giftNoteView(note, hiddenAt);
+  return view.noteHidden ? "Note hidden" : (view.note ?? "");
+};
+
+/**
  * The couple's gift log as a CSV download — the third organiser export, and the
  * one that answers a data-portability request. The portal shows this log
  * a page at a time and keeps it for a year; the export is how the couple take
@@ -50,6 +60,10 @@ const iso = (at: Date | null): string => (at ? at.toISOString() : "");
  * host-family exclusion, because the export must contain exactly what the
  * portal shows and nothing else. A parity test in
  * `tests/services/gift-export.test.ts` holds the two to that.
+ *
+ * A note a host hid from the gift log is hidden here too: the Note cell reads
+ * `Note hidden`. The words stay in the database for the guest's own view and a
+ * data-subject request, not in the couple's file.
  *
  * A household is named, never coded. `families.public_id` is the claim
  * code — a bearer credential that opens that household's invite on its own —
@@ -92,6 +106,7 @@ export const giftExportService = {
           quantity: sql<number | null>`${registryClaims.quantity}`,
           status: sql<string>`${registryClaims.status}`,
           note: registryClaims.note,
+          noteHiddenAt: registryClaims.noteHiddenAt,
           amountMinor: sql<number | null>`NULL`.as("amount_minor"),
           currency: sql<string | null>`NULL`.as("currency"),
           primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
@@ -118,6 +133,7 @@ export const giftExportService = {
           quantity: sql<number | null>`NULL`.as("quantity"),
           status: registryContributions.status,
           note: registryContributions.message,
+          noteHiddenAt: registryContributions.noteHiddenAt,
           amountMinor: registryContributions.amountMinor,
           currency: registryContributions.currency,
           primaryAmountMinor: registryContributions.primaryAmountMinor,
@@ -185,7 +201,7 @@ export const giftExportService = {
           g.displayName ?? "",
           g.quantity === null ? "" : String(g.quantity),
           g.status,
-          g.note ?? "",
+          noteCell(g.note, g.noteHiddenAt),
           g.amountMinor === null || g.currency === null
             ? ""
             : minorToDecimal(g.amountMinor, g.currency),

@@ -577,6 +577,47 @@ describe("cire/api over real D1 (Miniflare)", () => {
         "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Towards the pan,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
         "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Bought the pair,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
       ]);
+
+      // A host hides both notes. `UPDATE … RETURNING` and the extra column in
+      // each union branch both run on the D1 driver here, not only on bun:sqlite.
+      for (const [kind, giftId] of [
+        ["claim", "rclaim_d1"],
+        ["contribution", "rcon_d1"],
+      ] as const) {
+        expect(
+          await run(
+            registryService.setNoteHidden({
+              weddingId: BOOTSTRAP_WEDDING_ID,
+              kind,
+              giftId,
+              hidden: true,
+              actorOsnProfileId: "usr_editor",
+            }),
+          ),
+        ).toEqual({ note: null, noteHidden: true });
+      }
+      const hiddenCsv = await run(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      expect(hiddenCsv.split("\r\n").slice(1)).toEqual([
+        "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Note hidden,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
+        "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Note hidden,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
+      ]);
+      const { entries } = await run(registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+      expect(entries.map((e) => [e.note, e.noteHidden])).toEqual([
+        [null, true],
+        [null, true],
+      ]);
+
+      expect(
+        await run(
+          registryService.setNoteHidden({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            kind: "contribution",
+            giftId: "rcon_d1",
+            hidden: false,
+            actorOsnProfileId: "usr_editor",
+          }),
+        ),
+      ).toEqual({ note: "Towards the pan", noteHidden: false });
     },
     MF_TIMEOUT_MS,
   );

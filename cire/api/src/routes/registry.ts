@@ -19,6 +19,7 @@ import {
   RegistryLinkPreviewBody,
   RegistrySaveImageFromUrlBody,
   ReorderRegistryItemsBody,
+  SetNoteHiddenBody,
   SetThankedBody,
   UpdateRegistryItemBody,
   UpdateRegistrySettingsBody,
@@ -221,6 +222,7 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
  *   PATCH  /registry/items/:itemId                   (weddingEditor)
  *   DELETE /registry/items/:itemId                   (weddingEditor)
  *   POST   /registry/gifts/:kind/:giftId/thanked     (weddingEditor)
+ *   POST   /registry/gifts/:kind/:giftId/note-hidden (weddingEditor)
  *
  * A viewer gets 403 `read_only_role`; a wedding without the entitlement gets 402.
  * The service re-scopes every write by wedding_id, so a cross-tenant id 404s.
@@ -406,6 +408,40 @@ export const createRegistryWriteRoutes = (
                   metricRegistryGift(body.thanked ? "thanked" : "unthanked"),
                 );
                 return { ok: true as const };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
+                Effect.catchTag("GiftNotInWedding", () => giftNotFound(set)),
+                Effect.tapDefect(logDefect(weddingId)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        )
+        // Hides a guest's note from the gift log and its CSV, or shows it again.
+        // The answer carries the note as the log now shows it: after an unhide
+        // that is the text, which the portal does not hold for a hidden row.
+        .post(
+          "/registry/gifts/:kind/:giftId/note-hidden",
+          async ({ weddingId, params, request, osnProfileId, set }) => {
+            if (!weddingId || !osnProfileId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(SetNoteHiddenBody)(raw);
+                const kind = yield* Schema.decodeUnknownEffect(GiftKindSchema)(params.kind);
+                const note = yield* registryService.setNoteHidden({
+                  weddingId,
+                  kind,
+                  giftId: params.giftId,
+                  hidden: body.hidden,
+                  actorOsnProfileId: osnProfileId,
+                });
+                yield* Effect.sync(() =>
+                  metricRegistryGift(body.hidden ? "note_hidden" : "note_unhidden"),
+                );
+                return { ok: true as const, ...note };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),

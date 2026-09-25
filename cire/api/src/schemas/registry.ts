@@ -230,6 +230,12 @@ export const SetThankedBody = Schema.Struct({
 });
 export type SetThankedBody = Schema.Schema.Type<typeof SetThankedBody>;
 
+/** Hide or show a gift's note in the couple's gift log. `kind` picks the table. */
+export const SetNoteHiddenBody = Schema.Struct({
+  hidden: Schema.Boolean,
+});
+export type SetNoteHiddenBody = Schema.Schema.Type<typeof SetNoteHiddenBody>;
+
 export const GiftKindSchema = Schema.Literals(["claim", "contribution"]);
 
 /**

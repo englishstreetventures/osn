@@ -36,6 +36,13 @@
       "when": 1789681367622,
       "tag": "0061_upgrade_purchases",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1790333621867,
+      "tag": "0062_gift_note_hidden",
+      "breakpoints": true
     }
   ]
 }

@@ -187,6 +187,9 @@ function seedParity(db: Db) {
         quantity: 1,
         status: "released",
         note: "Changed my mind",
+        // Hidden by a host: both sides must print the marker, not the text.
+        noteHiddenAt: at(20),
+        noteHiddenByOsnProfileId: "usr_editor",
         createdAt: at(3),
         updatedAt: at(3),
       },
@@ -209,7 +212,12 @@ function seedParity(db: Db) {
   });
   db.insert(registryContributions)
     .values([
-      cash("rcon_general", 4, { message: "For the honeymoon", displayName: "The Marchettis" }),
+      cash("rcon_general", 4, {
+        message: "For the honeymoon",
+        displayName: "The Marchettis",
+        noteHiddenAt: at(21),
+        noteHiddenByOsnProfileId: "usr_editor",
+      }),
       cash("rcon_pending", 5, { status: "pending", itemId: "ritem_vase" }),
       cash("rcon_disputed", 6, { status: "disputed", message: "Held by the bank" }),
       cash("rcon_refunded", 7, { status: "refunded", message: "Sent back later" }),
@@ -291,7 +299,7 @@ function asExportLine(e: GiftLogEntryDto): string {
     e.displayName ?? "",
     e.quantity === null ? "" : String(e.quantity),
     e.status,
-    e.note ?? "",
+    e.noteHidden ? "Note hidden" : (e.note ?? ""),
     e.amountMinor === null || e.currency === null ? "" : minorToDecimal(e.amountMinor, e.currency),
     e.currency ?? "",
     e.primaryAmountMinor === null || e.primaryCurrency === null
@@ -578,6 +586,62 @@ describe("giftExportService.giftsCsv", () => {
     ),
   );
 
+  it(
+    "prints Note hidden in place of a hidden note on both gift kinds, and never the words",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        seedHousehold(db);
+        db.insert(registryClaims)
+          .values({
+            id: "rclaim_hidden",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_pan",
+            familyId: "fam_gifts",
+            quantity: 1,
+            status: "purchased",
+            note: "Rude claim note",
+            noteHiddenAt: at(9),
+            noteHiddenByOsnProfileId: "usr_editor",
+            createdAt: at(1),
+            updatedAt: at(9),
+          })
+          .run();
+        const cash = (
+          id: string,
+          minutes: number,
+          fields: Partial<typeof registryContributions.$inferInsert>,
+        ) => ({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: "fam_gifts",
+          status: "succeeded" as const,
+          amountMinor: 1_000,
+          currency: "AUD",
+          createdAt: at(minutes),
+          updatedAt: at(minutes),
+          ...fields,
+        });
+        db.insert(registryContributions)
+          .values([
+            cash("rcon_hidden", 2, { message: "Rude cash note", noteHiddenAt: at(9) }),
+            // Hidden, but there were no words to hide: an empty cell, no marker.
+            cash("rcon_hidden_blank", 3, { message: null, noteHiddenAt: at(9) }),
+            cash("rcon_shown", 4, { message: "Kind words" }),
+          ])
+          .run();
+
+        const csv = yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID);
+        const notes = lines(csv)
+          .slice(1)
+          .map((line) => line.split(",")[6]);
+        // Newest first: shown, blank, hidden cash, hidden claim.
+        expect(notes).toEqual(["Kind words", "", "Note hidden", "Note hidden"]);
+        expect(csv).not.toContain("Rude");
+      }),
+    ),
+  );
+
   it("keeps the newest rows across both tables at the ceiling and warns that it cut", async () => {
     const db = createDb(":memory:");
     seedDb(db);
@@ -706,5 +770,10 @@ describe("giftExportService.giftsCsv", () => {
     // failed, plus two gifts on another wedding that neither side may show.
     expect(portalRows).toHaveLength(10);
     expect(exported.join("\n")).not.toContain("Someone Else");
+    // The two hidden notes: the marker on both sides, the words on neither.
+    expect(portal.filter((e) => e.noteHidden)).toHaveLength(2);
+    expect(exported.filter((line) => line.includes(",Note hidden,"))).toHaveLength(2);
+    expect(exported.join("\n")).not.toContain("For the honeymoon");
+    expect(exported.join("\n")).not.toContain("Changed my mind");
   }, 30_000);
 });

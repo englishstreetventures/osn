@@ -77,6 +77,7 @@ const gift = (over: Partial<GiftLogEntry>): GiftLogEntry => ({
   primaryCurrency: null,
   fxRate: null,
   thankedAt: null,
+  noteHidden: false,
   createdAt: 1,
   ...over,
 });
@@ -586,6 +587,212 @@ describe("RegistryView — gifts received", () => {
     ));
     expect(await screen.findByText("Thanked")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /thanked/i })).not.toBeInTheDocument();
+  });
+
+  it("hides a note at once, POSTs the hide and keeps the words out of the cache", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ gifts: [gift({ id: "clm_9", kind: "claim", note: "Something rude" })] }),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, note: null, noteHidden: true }), { status: 200 }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide note from The Nguyens" }));
+    // Off the screen before the server answers.
+    expect(screen.queryByText("Something rude")).not.toBeInTheDocument();
+    expect(screen.getByText("Note hidden")).toBeInTheDocument();
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    const [url, init] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/registry\/gifts\/claim\/clm_9\/note-hidden$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ hidden: true });
+    await waitFor(() =>
+      expect(peekCachedRegistry("wed_1")!.gifts[0]).toMatchObject({ note: null, noteHidden: true }),
+    );
+    expect(screen.getByRole("button", { name: "Unhide note from The Nguyens" })).toHaveTextContent(
+      "Unhide",
+    );
+  });
+
+  it("shows a hidden note again with the words the server sends back", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        gifts: [gift({ id: "rct_4", kind: "contribution", note: null, noteHidden: true })],
+      }),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, note: "Welcome back", noteHidden: false }), {
+        status: 200,
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Unhide note from The Nguyens" }));
+    expect(await screen.findByText("Welcome back")).toBeInTheDocument();
+    expect(screen.queryByText("Note hidden")).not.toBeInTheDocument();
+    const [url, init] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/registry\/gifts\/contribution\/rct_4\/note-hidden$/);
+    expect(JSON.parse(init.body)).toEqual({ hidden: false });
+  });
+
+  it("takes the server's word on a hide when the guest has since cleared the note", async () => {
+    setCachedRegistry("wed_1", snapshot({ gifts: [gift({ id: "clm_9", note: "Stale words" })] }));
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, note: null, noteHidden: false }), { status: 200 }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide note from The Nguyens" }));
+    await waitFor(() => expect(screen.queryByText("Note hidden")).not.toBeInTheDocument());
+    expect(peekCachedRegistry("wed_1")!.gifts[0]).toMatchObject({ note: null, noteHidden: false });
+  });
+
+  it("tells a viewer a note is hidden and gives them no control over notes", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        gifts: [
+          gift({ id: "a", note: null, noteHidden: true }),
+          gift({ id: "b", familyName: "The Okafors", note: "Lovely day" }),
+        ],
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={false} />
+    ));
+    expect(await screen.findByText("Note hidden")).toBeInTheDocument();
+    expect(screen.getByText("Lovely day")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /hide note/i })).not.toBeInTheDocument();
+  });
+
+  it("offers no hide on a gift without a note, and reads a missing flag as shown", async () => {
+    // An API older than the hide sends no `noteHidden` at all.
+    const { noteHidden: _, ...legacy } = gift({ id: "a", note: "Old API note" });
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ gifts: [legacy as GiftLogEntry, gift({ id: "b", note: null })] }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(await screen.findByText("Old API note")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /hide note from/i })).toHaveLength(1);
+    expect(screen.queryByText("Note hidden")).not.toBeInTheDocument();
+  });
+
+  it("puts the note back and says so when a hide fails", async () => {
+    const shown = gift({ id: "clm_9", note: "Something rude" });
+    setCachedRegistry("wed_1", snapshot({ gifts: [shown] }));
+    authFetch
+      .mockResolvedValueOnce(new Response("{}", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(snapshot({ gifts: [shown] })), { status: 200 }),
+      );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide note from The Nguyens" }));
+    expect(await screen.findByText("Couldn't hide that note.")).toBeInTheDocument();
+    expect(await screen.findByText("Something rude")).toBeInTheDocument();
+  });
+
+  it("keeps keyboard focus on the row's note control through a hide and an unhide", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        gifts: [
+          gift({ id: "clm_1", note: "First note" }),
+          gift({ id: "clm_2", familyName: "The Okafors", note: "Second note" }),
+        ],
+      }),
+    );
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, note: null, noteHidden: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, note: "Second note", noteHidden: false }), {
+          status: 200,
+        }),
+      );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const hide = await screen.findByRole("button", { name: "Hide note from The Okafors" });
+    hide.focus();
+    fireEvent.click(hide);
+    // The row is rebuilt by the patch; focus follows to its new control
+    // rather than falling to the page.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Unhide note from The Okafors" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Unhide note from The Okafors" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Hide note from The Okafors" }),
+      ),
+    );
+  });
+
+  it("keeps keyboard focus on the thank-you toggle it just pressed", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        gifts: [gift({ id: "clm_1" }), gift({ id: "clm_2", familyName: "The Okafors" })],
+      }),
+    );
+    authFetch.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const toggle = await screen.findByRole("button", { name: "Mark thanked: The Okafors" });
+    toggle.focus();
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Mark thanked: The Okafors" }),
+      ),
+    );
+    expect(document.activeElement).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("sends the couple to sign in again when a hide answers 401", async () => {
+    redirectToLoginMock.mockClear();
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ gifts: [gift({ id: "clm_9", note: "Something rude" })] }),
+    );
+    authFetch.mockResolvedValueOnce(new Response("", { status: 401 }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide note from The Nguyens" }));
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
+    expect(screen.queryByText("Couldn't hide that note.")).not.toBeInTheDocument();
+  });
+
+  it("keeps a note hidden and says so when an unhide fails", async () => {
+    const hidden = gift({ id: "rct_4", kind: "contribution", note: null, noteHidden: true });
+    setCachedRegistry("wed_1", snapshot({ gifts: [hidden] }));
+    authFetch
+      .mockResolvedValueOnce(new Response("{}", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(snapshot({ gifts: [hidden] })), { status: 200 }),
+      );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Unhide note from The Nguyens" }));
+    expect(await screen.findByText("Couldn't show that note again.")).toBeInTheDocument();
+    expect(await screen.findByText("Note hidden")).toBeInTheDocument();
   });
 
   it("pages the gift log by offset from the gifts-only route and appends the next page", async () => {

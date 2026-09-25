@@ -237,7 +237,10 @@ export interface GiftLogEntryDto {
   /** Claims only. */
   quantity: number | null;
   status: string;
+  /** The guest's note, or null when there is none or a host has hidden it. */
   note: string | null;
+  /** A host hid this gift's note. The text is withheld, not deleted. */
+  noteHidden: boolean;
   amountMinor: number | null;
   currency: string | null;
   primaryAmountMinor: number | null;
@@ -245,6 +248,28 @@ export interface GiftLogEntryDto {
   fxRate: string | null;
   thankedAt: number | null;
   createdAt: number;
+}
+
+/** A gift's note as an organiser surface may show it. */
+export interface GiftNoteView {
+  note: string | null;
+  noteHidden: boolean;
+}
+
+/**
+ * A gift note as the couple's gift log and its CSV show it.
+ *
+ * A hidden note is sent as `null` with `noteHidden: true`, so its text never
+ * leaves the API for an organiser surface. The row keeps the text, which is
+ * what lets the guest's own view and a data-subject request still read it.
+ *
+ * `noteHidden` is true only when there are words to hide, judged the way the
+ * portal judges whether to show a note (a truthy string): a hidden row whose
+ * note is null or empty says nothing was hidden, because nothing was.
+ */
+export function giftNoteView(note: string | null, hiddenAt: Date | null): GiftNoteView {
+  if (hiddenAt === null) return { note, noteHidden: false };
+  return { note: null, noteHidden: Boolean(note) };
 }
 
 export interface RegistrySnapshot {
@@ -993,6 +1018,7 @@ export const registryService = {
             quantity: registryClaims.quantity,
             status: registryClaims.status,
             note: registryClaims.note,
+            noteHiddenAt: registryClaims.noteHiddenAt,
             thankedAt: registryClaims.thankedAt,
             createdAt: registryClaims.createdAt,
           })
@@ -1015,6 +1041,7 @@ export const registryService = {
             displayName: registryContributions.displayName,
             status: registryContributions.status,
             note: registryContributions.message,
+            noteHiddenAt: registryContributions.noteHiddenAt,
             amountMinor: registryContributions.amountMinor,
             currency: registryContributions.currency,
             primaryAmountMinor: registryContributions.primaryAmountMinor,
@@ -1060,28 +1087,33 @@ export const registryService = {
           quantity: number;
           status: string;
           note: string | null;
+          noteHiddenAt: Date | null;
           thankedAt: Date | null;
           createdAt: Date;
         }>
-      ).map((r) => ({
-        kind: "claim" as const,
-        id: r.id,
-        itemId: r.itemId,
-        itemTitle: r.itemTitle,
-        familyId: r.familyId,
-        familyName: r.familyName,
-        displayName: r.displayName,
-        quantity: r.quantity,
-        status: r.status,
-        note: r.note,
-        amountMinor: null,
-        currency: null,
-        primaryAmountMinor: null,
-        primaryCurrency: null,
-        fxRate: null,
-        thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
-        createdAt: r.createdAt.getTime(),
-      }));
+      ).map((r) => {
+        const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
+        return {
+          kind: "claim" as const,
+          id: r.id,
+          itemId: r.itemId,
+          itemTitle: r.itemTitle,
+          familyId: r.familyId,
+          familyName: r.familyName,
+          displayName: r.displayName,
+          quantity: r.quantity,
+          status: r.status,
+          note,
+          noteHidden,
+          amountMinor: null,
+          currency: null,
+          primaryAmountMinor: null,
+          primaryCurrency: null,
+          fxRate: null,
+          thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
+          createdAt: r.createdAt.getTime(),
+        };
+      });
 
       const contributions: GiftLogEntryDto[] = (
         contributionRows as Array<{
@@ -1093,6 +1125,7 @@ export const registryService = {
           displayName: string | null;
           status: string;
           note: string | null;
+          noteHiddenAt: Date | null;
           amountMinor: number;
           currency: string;
           primaryAmountMinor: number | null;
@@ -1101,25 +1134,29 @@ export const registryService = {
           thankedAt: Date | null;
           createdAt: Date;
         }>
-      ).map((r) => ({
-        kind: "contribution" as const,
-        id: r.id,
-        itemId: r.itemId,
-        itemTitle: r.itemTitle,
-        familyId: r.familyId,
-        familyName: r.familyName,
-        displayName: r.displayName,
-        quantity: null,
-        status: r.status,
-        note: r.note,
-        amountMinor: r.amountMinor,
-        currency: r.currency,
-        primaryAmountMinor: r.primaryAmountMinor,
-        primaryCurrency: r.primaryCurrency,
-        fxRate: r.fxRate,
-        thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
-        createdAt: r.createdAt.getTime(),
-      }));
+      ).map((r) => {
+        const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
+        return {
+          kind: "contribution" as const,
+          id: r.id,
+          itemId: r.itemId,
+          itemTitle: r.itemTitle,
+          familyId: r.familyId,
+          familyName: r.familyName,
+          displayName: r.displayName,
+          quantity: null,
+          status: r.status,
+          note,
+          noteHidden,
+          amountMinor: r.amountMinor,
+          currency: r.currency,
+          primaryAmountMinor: r.primaryAmountMinor,
+          primaryCurrency: r.primaryCurrency,
+          fxRate: r.fxRate,
+          thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
+          createdAt: r.createdAt.getTime(),
+        };
+      });
 
       // `merged` is built here and returned to nobody else, so sorting it in
       // place is not the shared-array aliasing hazard oxlint's `no-array-sort`
@@ -2633,6 +2670,66 @@ export const registryService = {
       );
       if (!updated) return yield* Effect.fail(new GiftNotInWedding());
     }).pipe(Effect.withSpan("cire.registry.setThanked"));
+  },
+
+  /**
+   * Hide a gift's note from the couple's gift log and its CSV, or show it again.
+   * `kind` picks the table.
+   *
+   * The text stays in the row: the guest's own view and a data-subject request
+   * still read it, and the retention sweep deletes it with the gift as before.
+   * The two columns record the hide in force — who and when — and unhiding
+   * clears both. A guest who rewrites the note leaves the hide standing.
+   *
+   * Answers with the note as the gift log now shows it, so the portal can show
+   * the text again after an unhide without re-reading the log.
+   */
+  setNoteHidden(input: {
+    weddingId: string;
+    kind: GiftKind;
+    giftId: string;
+    hidden: boolean;
+    actorOsnProfileId: string;
+  }): Effect.Effect<GiftNoteView, GiftNotInWedding, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { weddingId, kind, giftId, hidden, actorOsnProfileId } = input;
+      const now = new Date();
+      const set = {
+        noteHiddenAt: hidden ? now : null,
+        noteHiddenByOsnProfileId: hidden ? actorOsnProfileId : null,
+        updatedAt: now,
+      };
+      const [updated] = yield* dbQuery(() =>
+        kind === "claim"
+          ? db
+              .update(registryClaims)
+              .set(set)
+              .where(and(eq(registryClaims.id, giftId), eq(registryClaims.weddingId, weddingId)))
+              .returning({ note: registryClaims.note, noteHiddenAt: registryClaims.noteHiddenAt })
+              .all()
+          : db
+              .update(registryContributions)
+              .set(set)
+              .where(
+                and(
+                  eq(registryContributions.id, giftId),
+                  eq(registryContributions.weddingId, weddingId),
+                  // The gift log and its CSV never show a `failed` row, and an
+                  // unhide answers with the words, so this route may not reach
+                  // one either.
+                  ne(registryContributions.status, "failed"),
+                ),
+              )
+              .returning({
+                note: registryContributions.message,
+                noteHiddenAt: registryContributions.noteHiddenAt,
+              })
+              .all(),
+      );
+      if (!updated) return yield* Effect.fail(new GiftNotInWedding());
+      return giftNoteView(updated.note, updated.noteHiddenAt);
+    }).pipe(Effect.withSpan("cire.registry.setNoteHidden"));
   },
 
   /** Does this wedding have any registry rows? Gates the currency-change confirm. */

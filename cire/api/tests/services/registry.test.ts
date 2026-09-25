@@ -18,6 +18,7 @@ import {
   CurrencyMismatch,
   FamilyNotInWedding,
   GiftNotInWedding,
+  giftNoteView,
   ImageKeyNotInWedding,
   InvalidQuantity,
   ItemFullyClaimed,
@@ -95,6 +96,7 @@ function seedContribution(
     /** Explicit `null` is meaningful: an attempt that never got a page. */
     sessionId: string | null;
     paymentIntentId: string | null;
+    message: string | null;
     createdAt: Date;
   }> = {},
 ) {
@@ -118,7 +120,7 @@ function seedContribution(
       stripeCheckoutSessionId:
         over.sessionId === undefined ? `cs_${crypto.randomUUID()}` : over.sessionId,
       stripePaymentIntentId: over.paymentIntentId ?? null,
-      message: null,
+      message: over.message ?? null,
       displayName: null,
       thankedAt: null,
       thankedBy: null,
@@ -935,6 +937,211 @@ describe("gift log", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(exit.cause.toString()).toContain(new GiftNotInWedding()._tag);
+    }
+  });
+});
+
+describe("hiding a gift note", () => {
+  const hiddenAt = new Date(1_000_000);
+
+  it("reads a hidden note as absent, and only a note with words in it as hidden", () => {
+    expect(giftNoteView("Thank you!", null)).toEqual({ note: "Thank you!", noteHidden: false });
+    expect(giftNoteView(null, null)).toEqual({ note: null, noteHidden: false });
+    expect(giftNoteView("Thank you!", hiddenAt)).toEqual({ note: null, noteHidden: true });
+    // Nothing to hide: the portal shows no note for these either way, so it
+    // must not say one was hidden.
+    expect(giftNoteView(null, hiddenAt)).toEqual({ note: null, noteHidden: false });
+    expect(giftNoteView("", hiddenAt)).toEqual({ note: null, noteHidden: false });
+    expect(giftNoteView("", null)).toEqual({ note: "", noteHidden: false });
+  });
+
+  /** One claim and one contribution on the bootstrap wedding, both with a note. */
+  async function seedNotes(db: Db0) {
+    const [famA] = twoFamilies(db);
+    const item = await ok(db, registryService.createItem(newItem()));
+    const claimInput = {
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      itemId: item.id,
+      familyId: famA,
+      quantity: 1,
+      status: "reserved" as const,
+      note: "Something rude",
+      displayName: null,
+    };
+    await ok(db, registryService.claim(claimInput));
+    const claimId = (
+      db.select({ id: registryClaims.id }).from(registryClaims).all() as { id: string }[]
+    )[0]!.id;
+    const contributionId = seedContribution(db, { message: "Also rude" });
+    return { claimInput, claimId, contributionId };
+  }
+
+  const hiddenColumns = (db: Db0, kind: "claim" | "contribution", id: string) =>
+    kind === "claim"
+      ? (db
+          .select({
+            at: registryClaims.noteHiddenAt,
+            by: registryClaims.noteHiddenByOsnProfileId,
+            text: registryClaims.note,
+          })
+          .from(registryClaims)
+          .where(eq(registryClaims.id, id))
+          .all()[0] as { at: Date | null; by: string | null; text: string | null })
+      : (db
+          .select({
+            at: registryContributions.noteHiddenAt,
+            by: registryContributions.noteHiddenByOsnProfileId,
+            text: registryContributions.message,
+          })
+          .from(registryContributions)
+          .where(eq(registryContributions.id, id))
+          .all()[0] as { at: Date | null; by: string | null; text: string | null });
+
+  it("hides a note from the gift log on both gift kinds, keeps the text, and unhides it", async () => {
+    const db = db0();
+    const { claimId, contributionId } = await seedNotes(db);
+
+    for (const [kind, giftId, text] of [
+      ["claim", claimId, "Something rude"],
+      ["contribution", contributionId, "Also rude"],
+    ] as const) {
+      const hidden = await ok(
+        db,
+        registryService.setNoteHidden({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          kind,
+          giftId,
+          hidden: true,
+          actorOsnProfileId: "usr_editor",
+        }),
+      );
+      expect(hidden).toEqual({ note: null, noteHidden: true });
+      const row = hiddenColumns(db, kind, giftId);
+      expect(row.at).toBeInstanceOf(Date);
+      expect(row.by).toBe("usr_editor");
+      // The guest's words are still in the row: a hide is the couple's view of
+      // their log, not an erasure.
+      expect(row.text).toBe(text);
+    }
+
+    const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) {
+      expect(entry.note).toBeNull();
+      expect(entry.noteHidden).toBe(true);
+    }
+    expect(JSON.stringify(entries)).not.toContain("rude");
+
+    const shown = await ok(
+      db,
+      registryService.setNoteHidden({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        kind: "claim",
+        giftId: claimId,
+        hidden: false,
+        actorOsnProfileId: "usr_owner",
+      }),
+    );
+    // Unhide answers with the text, since the portal holds none for a hidden row.
+    expect(shown).toEqual({ note: "Something rude", noteHidden: false });
+    expect(hiddenColumns(db, "claim", claimId)).toMatchObject({ at: null, by: null });
+    const { entries: after } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+    expect(after.find((g) => g.kind === "claim")).toMatchObject({
+      note: "Something rude",
+      noteHidden: false,
+    });
+    expect(after.find((g) => g.kind === "contribution")).toMatchObject({
+      note: null,
+      noteHidden: true,
+    });
+  });
+
+  it("keeps a note hidden when the guest rewrites it", async () => {
+    const db = db0();
+    const { claimInput, claimId } = await seedNotes(db);
+    await ok(
+      db,
+      registryService.setNoteHidden({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        kind: "claim",
+        giftId: claimId,
+        hidden: true,
+        actorOsnProfileId: "usr_editor",
+      }),
+    );
+    // A re-claim is an upsert on the same row; the guest cannot un-hide by editing.
+    await ok(db, registryService.claim({ ...claimInput, note: "Something ruder" }));
+    const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+    expect(entries.find((g) => g.kind === "claim")).toMatchObject({
+      note: null,
+      noteHidden: true,
+    });
+    expect(hiddenColumns(db, "claim", claimId).text).toBe("Something ruder");
+  });
+
+  it("says nothing is hidden on a gift that carries no note", async () => {
+    const db = db0();
+    const contributionId = seedContribution(db);
+    const result = await ok(
+      db,
+      registryService.setNoteHidden({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        kind: "contribution",
+        giftId: contributionId,
+        hidden: true,
+        actorOsnProfileId: "usr_editor",
+      }),
+    );
+    expect(result).toEqual({ note: null, noteHidden: false });
+    const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+    expect(entries[0]).toMatchObject({ note: null, noteHidden: false });
+  });
+
+  it("refuses a failed contribution, which the gift log never shows", async () => {
+    const db = db0();
+    const failedId = seedContribution(db, { status: "failed", message: "Card declined words" });
+    for (const hidden of [true, false]) {
+      const exit = await run(
+        db,
+        registryService.setNoteHidden({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          kind: "contribution",
+          giftId: failedId,
+          hidden,
+          actorOsnProfileId: "usr_editor",
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.toString()).toContain(new GiftNotInWedding()._tag);
+        expect(exit.cause.toString()).not.toContain("Card declined words");
+      }
+    }
+    expect(hiddenColumns(db, "contribution", failedId).at).toBeNull();
+  });
+
+  it("refuses a gift that is not this wedding's, on both kinds", async () => {
+    const db = db0();
+    const { claimId, contributionId } = await seedNotes(db);
+    for (const [kind, giftId] of [
+      ["claim", claimId],
+      ["contribution", contributionId],
+    ] as const) {
+      const exit = await run(
+        db,
+        registryService.setNoteHidden({
+          weddingId: OTHER,
+          kind,
+          giftId,
+          hidden: true,
+          actorOsnProfileId: "usr_bob",
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.toString()).toContain(new GiftNotInWedding()._tag);
+      }
+      expect(hiddenColumns(db, kind, giftId).at).toBeNull();
     }
   });
 });

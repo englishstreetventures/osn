@@ -26,6 +26,7 @@ import {
   ensureRegistryLoaded,
   type GiftLogEntry,
   type GiftLogPage,
+  type GiftNoteView,
   invalidateRegistry,
   peekCachedRegistry,
   registryAccessor,
@@ -497,6 +498,21 @@ export default function RegistryView(props: RegistryViewProps) {
         : null,
     );
 
+  // ── Gift-log controls ─────────────────────────────────────────────────────
+  // `<For>` tracks rows by object, and every write below replaces the gift
+  // object, so the row the user acted on is rebuilt and the button they pressed
+  // is gone — focus would fall to the page. `refocus` puts it on the rebuilt
+  // row's control of the same kind: after a hide, that is Unhide, whose name
+  // also tells a screen-reader user what changed.
+  let giftList: HTMLUListElement | undefined;
+  const refocus = (gift: GiftLogEntry, control: "note" | "thanked") => {
+    const key = `${gift.kind}:${gift.id}`;
+    const buttons = giftList?.querySelectorAll<HTMLElement>(`[data-gift-control="${control}"]`);
+    for (const el of buttons ?? []) {
+      if (el.dataset.gift === key) return el.focus();
+    }
+  };
+
   const toggleThanked = async (gift: GiftLogEntry) => {
     const thanked = gift.thankedAt == null;
     const at = thanked ? Date.now() : null;
@@ -506,6 +522,7 @@ export default function RegistryView(props: RegistryViewProps) {
         g.kind === gift.kind && g.id === gift.id ? { ...g, thankedAt: at } : g,
       ),
     }));
+    refocus(gift, "thanked");
     haptic("commit");
     try {
       const res = await authFetch(
@@ -525,6 +542,53 @@ export default function RegistryView(props: RegistryViewProps) {
     } catch {
       haptic("reject");
       setError("Couldn't save that thank-you.");
+      void reload();
+    }
+  };
+
+  /** Hide a guest's note from the couple's log, or show it again. A hide takes
+   *  the words off screen before the server answers; the answer then settles
+   *  both directions, because only the server holds a hidden note's words and
+   *  knows whether the guest has changed them since this page loaded. */
+  const setNoteHidden = async (gift: GiftLogEntry, hidden: boolean) => {
+    const patchNote = (view: GiftNoteView) =>
+      patchSnap((s) => ({
+        ...s,
+        gifts: s.gifts.map((g) =>
+          g.kind === gift.kind && g.id === gift.id ? { ...g, ...view } : g,
+        ),
+      }));
+    if (hidden) {
+      patchNote({ note: null, noteHidden: true });
+      refocus(gift, "note");
+    }
+    haptic("commit");
+    try {
+      const res = await authFetch(
+        apiUrl(
+          `/api/organiser/weddings/${wedding()}/registry/gifts/${encodeURIComponent(
+            gift.kind,
+          )}/${encodeURIComponent(gift.id)}/note-hidden`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hidden }),
+        },
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`note-hidden ${res.status}`);
+      const view = (await res.json()) as GiftNoteView;
+      // A hide already patched the row; patch again only when the server says
+      // otherwise (the guest cleared the note since this page loaded), since
+      // each patch maps the whole log and rebuilds the row.
+      if (!hidden || view.note !== null || !view.noteHidden) {
+        patchNote({ note: view.note, noteHidden: view.noteHidden });
+        refocus(gift, "note");
+      }
+    } catch {
+      haptic("reject");
+      setError(hidden ? "Couldn't hide that note." : "Couldn't show that note again.");
       void reload();
     }
   };
@@ -992,7 +1056,7 @@ export default function RegistryView(props: RegistryViewProps) {
             </Show>
           }
         >
-          <ul class="flex flex-col gap-1">
+          <ul ref={(el) => (giftList = el)} class="flex flex-col gap-1">
             <For each={gifts()}>
               {(gift) => {
                 // One formatting pass per row: `formatMinorPair` was called
@@ -1043,6 +1107,8 @@ export default function RegistryView(props: RegistryViewProps) {
                           type="button"
                           aria-pressed={gift.thankedAt != null}
                           aria-label={`Mark thanked: ${giftFrom(gift)}`}
+                          data-gift={`${gift.kind}:${gift.id}`}
+                          data-gift-control="thanked"
                           onClick={() => toggleThanked(gift)}
                         >
                           {gift.thankedAt != null ? "Thanked" : "Mark thanked"}
@@ -1056,9 +1122,50 @@ export default function RegistryView(props: RegistryViewProps) {
                         This one went back to the guest, so it is not counted in the total above.
                       </p>
                     </Show>
-                    <Show when={gift.note}>
-                      {/* Guest-authored — a text node, never markup (S-L3). */}
-                      <p class="text-text-muted text-ui-sm italic">{gift.note}</p>
+                    {/* A hidden note arrives without its words, so there is
+                        nothing of the guest's to render — only the fact. An
+                        owner or editor can hide a shown note or show a hidden
+                        one; a viewer sees which, and changes neither. */}
+                    <Show
+                      when={gift.noteHidden}
+                      fallback={
+                        <Show when={gift.note}>
+                          <div class="flex flex-wrap items-baseline gap-x-3">
+                            {/* Guest-authored — a text node, never markup (S-L3). */}
+                            <p class="text-text-muted text-ui-sm min-w-0 flex-1 italic">
+                              {gift.note}
+                            </p>
+                            <Show when={props.canEdit}>
+                              <Button
+                                variant="link"
+                                type="button"
+                                aria-label={`Hide note from ${giftFrom(gift)}`}
+                                data-gift={`${gift.kind}:${gift.id}`}
+                                data-gift-control="note"
+                                onClick={() => void setNoteHidden(gift, true)}
+                              >
+                                Hide note
+                              </Button>
+                            </Show>
+                          </div>
+                        </Show>
+                      }
+                    >
+                      <div class="flex flex-wrap items-baseline gap-x-3">
+                        <p class="text-text-muted text-ui-sm">Note hidden</p>
+                        <Show when={props.canEdit}>
+                          <Button
+                            variant="link"
+                            type="button"
+                            aria-label={`Unhide note from ${giftFrom(gift)}`}
+                            data-gift={`${gift.kind}:${gift.id}`}
+                            data-gift-control="note"
+                            onClick={() => void setNoteHidden(gift, false)}
+                          >
+                            Unhide
+                          </Button>
+                        </Show>
+                      </div>
                     </Show>
                   </li>
                 );

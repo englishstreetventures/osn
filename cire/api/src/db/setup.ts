@@ -410,6 +410,8 @@ CREATE TABLE IF NOT EXISTS registry_claims (
   display_name TEXT,
   thanked_at INTEGER,
   thanked_by TEXT,
+  note_hidden_at INTEGER,
+  note_hidden_by_osn_profile_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   CONSTRAINT registry_claims_quantity_ck CHECK (quantity >= 1 and quantity <= 99),
@@ -438,6 +440,8 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   display_name TEXT,
   thanked_at INTEGER,
   thanked_by TEXT,
+  note_hidden_at INTEGER,
+  note_hidden_by_osn_profile_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
