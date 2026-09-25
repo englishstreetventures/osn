@@ -5,11 +5,11 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 # Vendors — directory, CRM, and email-verification claim
 
-> **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`) and the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) both require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy this capability from the portal; see [[cire-upgrades]].
+> **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`), the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) and the couple's enquiry routes (`/api/organiser/weddings/:weddingId/enquiries/*`) all require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy this capability from the portal; see [[cire-upgrades]].
 
 The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/deploy.yml`, and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist.
 

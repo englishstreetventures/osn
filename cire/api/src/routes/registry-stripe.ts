@@ -126,7 +126,7 @@ export const createRegistryStripeRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingOwner(db))
+        .use(weddingOwner(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         // Gate order: owner (403) → entitlement (402) → limiter (429), so a
         // stranger never spends the couple's budget.

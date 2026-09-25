@@ -22,7 +22,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-25
 ---
 
 # Cire
@@ -190,7 +190,7 @@ Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The 
 - **Per-user spam limiter** — the couple-side `POST /enquiries` and vendor-side `POST /enquiries/:id/messages` (reply / quote) run through a per-user rate limiter to prevent spam across enquiries.
 - **Not E2E encrypted** — the c2b thread is server-visible (not end-to-end encrypted). A disclosure notice for guests/vendors is planned for PR C.
 
-Auth boundaries: couple routes are under `/api/organiser/weddings/:weddingId/enquiries` — reads are `weddingMember`-gated (viewer co-hosts can read), writes are `weddingEditor`-gated (viewer co-hosts get 403 `read_only_role`). Every id-bearing handler re-scopes the loaded enquiry to the gated `weddingId` and returns 404 on a cross-tenant id. Vendor routes are under `/api/vendor/enquiries` — gated by `vendorOrgMember()`, which resolves the listing's `owner_org_id` and 404s on any org mismatch (no enumeration). Compliance rows: [[data-map]] (S4 section) + [[retention]] (S4 rows) + [[scope-matrix]] (DSA Art. 30 out-of-scope note). Deploy-time step: [[production-deploy]] §10 (cire→zap ARC key registration).
+Auth boundaries: couple routes are under `/api/organiser/weddings/:weddingId/enquiries` — reads are `weddingMember`-gated (viewer co-hosts can read), writes are `weddingEditor`-gated (viewer co-hosts get 403 `read_only_role`), and both then require the `vendors` entitlement (402 `payment_required` without it, before the write limiter — see [[cire-entitlements]]). Every id-bearing handler re-scopes the loaded enquiry to the gated `weddingId` and returns 404 on a cross-tenant id. Vendor routes are under `/api/vendor/enquiries` — gated by `vendorOrgMember()`, which resolves the listing's `owner_org_id` and 404s on any org mismatch (no enumeration). Compliance rows: [[data-map]] (S4 section) + [[retention]] (S4 rows) + [[scope-matrix]] (DSA Art. 30 out-of-scope note). Deploy-time step: [[production-deploy]] §10 (cire→zap ARC key registration).
 
 ## Compliance
 

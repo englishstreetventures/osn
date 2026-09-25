@@ -33,15 +33,16 @@ interface EntitlementGateError {
  * 403 `read_only_role`, then 402 `payment_required`) and denies an anonymous
  * caller a free D1 read on every request.
  *
- * P-W1: every mount site sits directly behind `weddingMember()`/`weddingEditor()`
- * (see those files), which — called with this SAME `key` — already folded the
- * entitlement presence check into its own authorize() query, no extra round
- * trip. This derive picks that answer up via `readWeddingEntitlementFold`
- * rather than running `entitlementService.has()` itself, so a gated route no
- * longer pays for a THIRD query on top of the role gate's own. The `has()` call
- * survives as a fallback for the (currently only-in-tests) case of this gate
- * mounted standalone with no preceding role gate, or one that ran without a
- * key — it must still answer correctly there, just at the old cost.
+ * Every mount site sits directly behind `weddingMember()`, `weddingEditor()` or
+ * `weddingOwner()` called with this SAME `key`, which folds the entitlement
+ * presence check into the role gate's own query. This derive picks that answer
+ * up via `readWeddingEntitlementFold` instead of running
+ * `entitlementService.has()` itself, so a gated route pays no query of its own
+ * for the entitlement. `tests/routes/entitlement-gate-pairing.test.ts` fails
+ * the build when a mount breaks that pairing. The `has()` call is the fallback
+ * for a fold that is missing or answers a different key — a gate mounted
+ * standalone (only in tests), or a role gate whose fold query defected — and
+ * it answers correctly there, at the cost of one more query.
  */
 export function weddingEntitlement(db: Db, key: EntitlementKey) {
   return new Elysia()

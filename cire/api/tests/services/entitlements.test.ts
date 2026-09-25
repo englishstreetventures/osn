@@ -1,10 +1,17 @@
 import { describe, it, expect } from "bun:test";
 
+import { weddings } from "@cire/db";
+import { eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
-import { entitlementService, CapacityExceeded } from "../../src/services/entitlements";
+import {
+  entitlementPresent,
+  entitlementService,
+  CapacityExceeded,
+} from "../../src/services/entitlements";
+import type { EntitlementKey } from "../../src/services/entitlements";
 
 const run = <A, E>(db: ReturnType<typeof createDb>, eff: Effect.Effect<A, E, DbService>) =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)) as Effect.Effect<A, E, never>);
@@ -32,6 +39,31 @@ function seedWedding(db: ReturnType<typeof createDb>, id = "wed_test") {
   );
   return id;
 }
+
+describe("entitlementPresent", () => {
+  // The column both role-gate folds read. Every gated organiser route trusts
+  // it, so it must answer for the wedding it names and no other: one couple's
+  // purchase unlocking every wedding would pass every single-wedding test.
+  it("answers for the named wedding and key only", async () => {
+    const db = createDb();
+    const unpaid = seedWedding(db, "wed_unpaid");
+    const paid = seedWedding(db, "wed_paid");
+    await run(
+      db,
+      entitlementService.grant(paid, "vendors", { source: "comp", grantedBy: "usr_owner" }),
+    );
+    const present = (weddingId: string, key: EntitlementKey) =>
+      db
+        .select({ v: entitlementPresent(weddingId, key) })
+        .from(weddings)
+        .where(eq(weddings.id, weddingId))
+        .get()?.v;
+
+    expect(present(paid, "vendors")).toBe(1);
+    expect(present(unpaid, "vendors")).toBe(0);
+    expect(present(paid, "registry")).toBe(0);
+  });
+});
 
 describe("grant + has", () => {
   it("grant makes has() true; absent key is false", async () => {

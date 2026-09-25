@@ -43,12 +43,15 @@ function buildApp() {
   const db = createDb(":memory:");
   seedDb(db);
   seedOtherWedding(db);
-  // Generous create limiter: every create test in this file shares one app + IP,
-  // so the default 10/min limiter would bleed across cases. The dedicated
-  // rate-limit test below builds its own app with a 1-req limiter to assert 429.
+  // Generous create and export limiters: the defaults are built once per module
+  // and keyed on the caller, so every test in this file that signs in as the
+  // same owner would share one 10/min bucket and bleed into the next. The
+  // dedicated rate-limit tests below build their own apps with a 1-req limiter
+  // to assert 429.
   const app = createApp(db, {
     osnTestKey: auth.key,
     weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
   });
   return { db, app };
 }
@@ -1498,6 +1501,28 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
     // not this couple's.
     expect(body).not.toContain("Card declined here");
     expect(body).not.toContain("Someone Elses Kettle");
+  });
+
+  // The export carries no `registry` entitlement gate, on purpose: the gift log
+  // is the couple's own record, and they must be able to take it away even
+  // when the wedding holds no `registry` row. A plain entitlement gate added to
+  // the export group breaks this test, and that is the test's job.
+  it("exports the couple's gifts for a wedding that holds no registry entitlement", async () => {
+    const { db, app } = buildApp();
+    seedGifts(db);
+    const held = db
+      .select()
+      .from(weddingEntitlements)
+      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()
+      .map((row) => row.entitlement);
+    expect(held).not.toContain("registry");
+
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Copper Pan");
+    expect(body).toContain("For the honeymoon");
   });
 
   it("serves a header-only CSV when the couple have had no gifts", async () => {

@@ -404,6 +404,16 @@ export const createOrganiserExportRoutes = (
         // who gave what, in which currency, and what they wrote. Same
         // weddingMember() gate + attachment/no-store contract as the exports
         // above.
+        //
+        // No `weddingEntitlement(db, "registry")` gate, unlike every other
+        // registry surface, and that is deliberate: the log is the couple's
+        // own record, and they must be able to take it away whether or not
+        // the wedding still holds `registry`. Refusing to hand back data we
+        // hold is the worse failure. A wedding that never held the entitlement
+        // has no gifts, so it gets the header line and nothing else; the read
+        // is capped and rate-limited. A gate here would have to keep admitting
+        // this read for as long as the gift rows exist, so it cannot be the
+        // plain one the registry routes use.
         .get("/gifts.csv", ({ weddingId, set }) => {
           if (!weddingId) {
             set.status = 500;

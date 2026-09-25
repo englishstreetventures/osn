@@ -45,6 +45,7 @@
         "@shared/typescript-config": "workspace:*",
         "jose": "^6.2.12",
         "miniflare": "^4.20260730.0",
+        "typescript": "^6.0.3",
         "wrangler": "^4.127.1",
       },
     },

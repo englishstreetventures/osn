@@ -1,8 +1,9 @@
-import { weddingEntitlements, weddingHosts, weddings } from "@cire/db";
-import { and, asc, count, eq, sql } from "drizzle-orm";
+import { weddingHosts, weddings } from "@cire/db";
+import { and, asc, count, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { entitlementPresent } from "./entitlements";
 import type { EntitlementKey } from "./entitlements";
 
 /**
@@ -313,7 +314,7 @@ function authorizeWithEntitlement(
   osnProfileId: string,
   entitlementKey: EntitlementKey,
 ): Effect.Effect<(AuthorizeResult & { entitled?: boolean }) | null, never, DbService> {
-  const entitledExists = sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = ${entitlementKey})`;
+  const entitledExists = entitlementPresent(weddingId, entitlementKey);
 
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -370,22 +371,20 @@ function authorizeWithEntitlement(
     };
   }).pipe(
     Effect.withSpan("cire.host.authorize"),
-    // S-L1 (found reviewing this branch): folding the entitlement probe into
-    // the role query also folded their FAILURE modes together. Before the
-    // fold, a defect confined to `wedding_entitlements` — a bad row, a lock,
-    // an index problem — denied only the entitlement half (a scoped 402, with
-    // a log line naming the wedding and the key) while the role check, a
-    // separate query, still answered. In one SELECT, that same defect throws
-    // out of the gate's derive and the whole route 500s, on all nine gated
-    // mount sites, with a generic log nobody can triage from.
+    // Folding the entitlement probe into the role query folds their failure
+    // modes together too. A defect confined to `wedding_entitlements` — a bad
+    // row, a lock, an index problem — must deny only the entitlement half (a
+    // scoped 402, with a log line naming the wedding and the key) while the
+    // role check still answers. Left alone, that defect would throw out of the
+    // gate's derive and 500 every gated route, with a generic log nobody can
+    // triage from.
     //
-    // Fall back to the query shape this service always ran. It answers the
-    // role on its own, and returns no `entitled` — so no fold reaches the
-    // context, and `weddingEntitlement` runs its own `has()`, still wrapped in
-    // its own defect-to-false-with-log. That is exactly the old contract: the
-    // two checks fail independently, each with its own scoped outcome. If the
-    // role half is what defected, `authorizePlain` defects too and the request
-    // 500s as it always would have.
+    // So fall back to the plain role query. It answers the role on its own
+    // and returns no `entitled`, so no fold reaches the context and
+    // `weddingEntitlement` runs its own `has()`, still wrapped in its own
+    // defect-to-false-with-log: the two checks fail independently, each with
+    // its own scoped outcome. If the role half is what defected,
+    // `authorizePlain` defects too and the request 500s.
     Effect.catchDefect((defect) =>
       Effect.logWarning(
         "cire.host.authorize entitlement fold failed — falling back to the plain role query",
@@ -641,9 +640,9 @@ export const hostsService = {
    * `entitlementKey`, when given, folds a presence check for that entitlement
    * into the SAME query as the owner/host lookup (an `EXISTS` column, same
    * idiom as `directory.ts`'s `inWedding`) rather than a separate round trip —
-   * see P-W1 / `weddingEntitlement`. Omitted, this runs exactly the query
-   * shape it always has; every caller that never passes a key (every route
-   * gate but the three that also mount `weddingEntitlement`) is unaffected.
+   * see `weddingEntitlement`. Omitted, this runs exactly the query shape it
+   * always has, so a role gate on a route with no entitlement gate — which
+   * must never pass a key — is unaffected.
    */
   authorize(
     weddingId: string,

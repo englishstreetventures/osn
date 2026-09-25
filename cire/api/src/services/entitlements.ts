@@ -88,6 +88,20 @@ function grantStatement(
     .onConflictDoNothing();
 }
 
+/**
+ * A column that is 1 when `weddingId` holds `key` and 0 when it does not, for a
+ * role gate to add to the query it already runs instead of making a second
+ * round trip. `hostsService.authorize()` and `weddingOwner()` both use it, so
+ * the two folds cannot disagree about what "holds" means.
+ *
+ * It stays a raw `sql` fragment on purpose. Built from `db.select()` it would
+ * read as a second query to anything counting builder calls, and the query
+ * count is the reason the fold exists.
+ */
+export function entitlementPresent(weddingId: string, key: EntitlementKey) {
+  return sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = ${key})`;
+}
+
 export const entitlementService = {
   deriveCap,
 

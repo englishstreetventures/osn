@@ -6,7 +6,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-auth]]"
   - "[[cire-upgrades]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-25
 ---
 # Entitlements — per-wedding capability gates
 
@@ -103,9 +103,13 @@ HTTP status `402`. In the organiser portal a locked module has no page at all, s
 
 A missing `weddingId` in `params` (should not occur after the role gate validates it) degrades to a `402` rather than throwing.
 
-**It does no D1 read when the role gate has already refused.** Both role gates park their refusal on the context as `weddingGateError`; the entitlement `derive` returns immediately when it finds one. Elysia runs every `derive` before any `onBeforeHandle`, so without that check a stranger's request still paid for an entitlement query whose answer could never change the response — a free, unauthenticated read on every request to every gated route. Skipping it leaves the status ordering untouched (401, then 403 `read_only_role`, then 402 `payment_required`), which route tests pin.
+**It does no D1 read when the role gate has already refused.** Every role gate parks its refusal on the context as `weddingGateError`; the entitlement `derive` returns immediately when it finds one. Elysia runs every `derive` before any `onBeforeHandle`, so without that check a stranger's request still paid for an entitlement query whose answer could never change the response — a free, unauthenticated read on every request to every gated route. Skipping it leaves the status ordering untouched (401, then 403 `read_only_role`, then 402 `payment_required`), which route tests pin.
 
-**It shares a query with the role gate instead of running its own (P-W1, fixed).** `weddingMember(db, key)` / `weddingEditor(db, key)` take the SAME entitlement key this middleware is mounted with as an optional second argument. When given, `hostsService.authorize()` folds an `EXISTS` check against `wedding_entitlements` into the SAME `SELECT` it already runs for the owner/host row (one extra column, not a second query — the `directory.ts` `inWedding` idiom) and exposes the answer as `weddingEntitlementFold` on context. `weddingEntitlement`'s derive picks that up (`readWeddingEntitlementFold` in `upstream-context.ts`) instead of calling `entitlementService.has()` itself, provided the fold's key matches its own — a mismatch or absence (the gate mounted standalone, or a role gate called with no key) falls back to the old separate query, so correctness never depends on the two call sites staying in sync, only the round-trip saving does. Net effect on a gated route: an owner drops from 2 queries to 1, a co-host from 3 to 2. **Every route that mounts a role gate WITHOUT `weddingEntitlement` must never pass a key** — an unconditional fold would add the entitlement query's cost to every organiser route, gated or not; only the three route files that also `.use(weddingEntitlement(db, key))` pass one (`vendor-directory.ts`, `vendors.ts`, `registry.ts`). Proven by `cire/api/tests/middleware/wedding-entitlement-fold.test.ts`, which counts `db.select()` calls on both a gated and an ungated route.
+**It shares a query with the role gate instead of running its own.** `weddingMember(db, key)`, `weddingEditor(db, key)` and `weddingOwner(db, key)` take the SAME entitlement key this middleware is mounted with as an optional second argument. When given, the role gate adds an `EXISTS` check against `wedding_entitlements` to the `SELECT` it already runs for the owner/host row — one extra column, not a second query. The column is `entitlementPresent()` in `cire/api/src/services/entitlements.ts`, used by both `hostsService.authorize()` (member and editor gates) and `weddingOwner()`. The gate exposes the answer as `weddingEntitlementFold` on context, and `weddingEntitlement`'s derive picks it up (`readWeddingEntitlementFold` in `upstream-context.ts`) instead of calling `entitlementService.has()` itself, provided the fold's key matches its own. A mismatch or absence — the gate mounted standalone, a role gate called with no key, or a fold query that defected and fell back to the plain role query — falls back to that separate `has()` query, so correctness never depends on the two call sites agreeing; only the saved round trip does. On a gated route an owner's request costs one query and a co-host's two.
+
+**The two gates are always mounted as a pair.** Every `.use(weddingEntitlement(db, key))` sits directly after `.use(weddingMember | weddingEditor | weddingOwner(db, key))` with the same literal key, and a role gate never takes a key without that entitlement gate after it — on a route with no entitlement gate the fold would add the check's cost for nothing. The route files that pass a key are `vendor-directory.ts`, `vendors.ts`, `registry.ts`, `registry-stripe.ts` and `organiser-enquiries.ts`. `cire/api/tests/routes/entitlement-gate-pairing.test.ts` parses every file under `cire/api/src/` and fails on a broken pair in either direction; it also pins which files mount the gate and how many times, so a new gated route, or one that loses its gate, changes that list on purpose. `cire/api/tests/middleware/wedding-entitlement-fold.test.ts` counts `db.select()` calls on gated and ungated routes for all three role gates.
+
+**One registry surface is ungated on purpose: the gift-log export** (`GET …/gifts.csv`). It is the couple's own record, and they must be able to take it away whether or not the wedding still holds `registry` — see [[cire-registry]]. A named test in `cire/api/tests/routes/organiser-weddings.test.ts` fails if a plain gate is added to it.
 
 ---
 
@@ -163,7 +167,7 @@ Two paths, and only two.
 
 ## Related
 
-- [[cire-vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
+- [[cire-vendors]] — Vendor CRM, Directory and enquiries; all three route groups gate on the `vendors` entitlement
 - [[cire-registry]] — Gift registry; purchasable self-serve, and comp-grantable as before
 - [[cire-upgrades]] — the self-serve purchase flow: catalogue, checkout, the platform webhook that grants
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates
