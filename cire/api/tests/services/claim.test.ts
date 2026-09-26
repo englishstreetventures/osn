@@ -12,6 +12,7 @@ import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { claimService, InvalidCredentials } from "../../src/services/claim";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
 function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
@@ -638,4 +639,50 @@ describe("claimService.restore", () => {
       }),
     ),
   );
+});
+
+describe("plus-ones in the claim payload and the organiser guest read", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    return { db, bo, samId, run };
+  };
+
+  it("lists the plus-one straight after the member who brought them", async () => {
+    const { db, bo, samId, run } = setUp();
+    // Reorder the household so Bo is last: the plus-one still follows Bo, not
+    // the stale sort order copied when they were named.
+    db.update(guests).set({ sortOrder: 9 }).where(eq(guests.id, bo.id)).run();
+
+    const claim = await run(claimService.lookup("TESTTWO-OAK-BB22"));
+    const order = claim.members.map((m) => m.firstName);
+    expect(order).toEqual(["Cleo", "Dot", "Bo", "Sam"]);
+
+    const sam = claim.members.find((m) => m.guestId === samId)!;
+    expect(sam).toMatchObject({ plusOneOf: bo.id, plusOneAllowed: false, lastName: "Guest" });
+    expect(sam.eventIds.toSorted()).toEqual(eventIdsOf(db, bo.id));
+    expect(claim.members.find((m) => m.guestId === bo.id)).toMatchObject({
+      plusOneAllowed: true,
+      plusOneOf: null,
+    });
+  });
+
+  it("carries both fields on every organiser guest row", async () => {
+    const { bo, samId, run } = setUp();
+    const rows = await run(claimService.getAllGuests(BOOTSTRAP_WEDDING_ID));
+    expect(rows.find((r) => r.guestId === samId)).toMatchObject({
+      plusOneOf: bo.id,
+      plusOneAllowed: false,
+    });
+    expect(rows.find((r) => r.guestId === bo.id)).toMatchObject({
+      plusOneOf: null,
+      plusOneAllowed: true,
+    });
+    const ada = rows.find((r) => r.firstName === "Ada")!;
+    expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
 });

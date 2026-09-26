@@ -55,7 +55,8 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply was self-submitted.
+   *   - "guest"     — every reply came through the invite (a plus-one's is
+   *     written by the household that brought them).
    *   - "organiser" — at least one reply was organiser-recorded
    *     (`consent_source='organiser_attested'`), so the dietary/consent story is
    *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
@@ -115,6 +116,10 @@ export interface RsvpViewGuest {
    *  plus-one's reply). The dashboard badges organiser-entered answers so an
    *  overwrite of a guest reply is visible. */
   consentSource: ConsentSource;
+  /** Set when the guest is a plus-one: the guest id of the member who brought
+   *  them. A named plus-one is an ordinary guest, so they already count in the
+   *  event's tallies; this only says who they came with. */
+  plusOneOf: string | null;
 }
 
 /** An invited guest with no reply yet — the pool an organiser can record a
@@ -126,6 +131,8 @@ export interface RsvpViewInvitedGuest {
   lastName: string;
   familyName: string;
   familyCode: string;
+  /** As on {@link RsvpViewGuest}. */
+  plusOneOf: string | null;
 }
 
 /** One event with its responded guests + a status tally. `invited` is how many
@@ -195,6 +202,7 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
@@ -215,6 +223,7 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
@@ -260,6 +269,7 @@ export const rsvpExportService = {
           dietary: row.dietary,
           dietaryPresets: parsePresets(row.dietaryPresets),
           consentSource: row.consentSource,
+          plusOneOf: row.plusOneOf,
           sortOrder: row.sortOrder,
         });
         if (row.status === "attending") acc.attending += 1;
@@ -287,6 +297,7 @@ export const rsvpExportService = {
           lastName: row.lastName,
           familyName: row.familyName,
           familyCode: row.familyCode,
+          plusOneOf: row.plusOneOf,
           sortOrder: row.sortOrder,
         });
       }

@@ -61,6 +61,11 @@ export const FamilyMember = Schema.Struct({
   firstName: Schema.String,
   lastName: Schema.String,
   eventIds: Schema.Array(Schema.String),
+  // Whether this member may bring a plus-one — what the invite asks the
+  // household about. Always false on a plus-one.
+  plusOneAllowed: Schema.Boolean,
+  // Set on a plus-one: the member who brought them, who is listed just before.
+  plusOneOf: Schema.NullOr(Schema.String),
 });
 export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
 
@@ -139,6 +144,13 @@ export const OrganiserGuestRow = Schema.Struct({
   // this an untouched nickname would be blanked on the next save.
   nickname: Schema.NullOr(Schema.String),
   events: Schema.Array(Schema.String),
+  // Whether this guest may bring a plus-one (per guest; the household control
+  // writes every member's). Always false on a plus-one's own row.
+  plusOneAllowed: Schema.Boolean,
+  // Set on a plus-one's row: the guest id of the member who brought them. A
+  // plus-one belongs to the household, not to the organiser's sheet, so the
+  // guest editor leaves these rows out of its draft.
+  plusOneOf: Schema.NullOr(Schema.String),
   // Epoch-ms timestamp the organiser last copied this family's invite message
   // (the per-family "Copy message" button), or `null` if never shared. Drives
   // the dashboard's "Sent" indicator + the remint "already sent out" warning.
