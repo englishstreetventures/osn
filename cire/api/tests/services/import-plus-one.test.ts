@@ -1,0 +1,209 @@
+import { describe, expect, it } from "bun:test";
+
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddingEntitlements } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
+import { eq } from "drizzle-orm";
+import { Effect } from "effect";
+
+import { DbService } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
+import type { TestDb } from "../../src/db/setup";
+import type { ParsedEvent, ParsedFamily } from "../../src/schemas/import";
+import { BASE_GUEST_CAP } from "../../src/services/entitlements";
+import type { DiffOptions } from "../../src/services/import";
+import { applyImport, diffAgainstDb } from "../../src/services/import";
+import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { stateExportService } from "../../src/services/state-export";
+import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+
+// A plus-one is the household's, not the organiser's: the change pipeline never
+// matches, edits or removes one on its own account, removes one with their
+// inviter, and keeps their invitations equal to the inviter's.
+
+/** The editor's front door: ids authoritative, the draft the whole truth. */
+const EDITOR: DiffOptions = { removeManual: true, matchByName: false };
+
+function setUp() {
+  const db = createDb(":memory:");
+  seedDb(db);
+  const bo = guestNamed(db, "Bo");
+  const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+  const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+    Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+  return { db, bo, samId, run };
+}
+
+/** The wedding as a full-fidelity round trip parses it: every row id-bearing,
+ *  the plus-one absent (the export leaves them out). */
+function draftOf(db: TestDb) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
+      const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
+      const ev = yield* parseEventsCsv(eventsCsv);
+      const fam = yield* parseGuestsCsv(guestsCsv, ev);
+      return { ev: ev as ParsedEvent[], fam: fam as ParsedFamily[] };
+    }).pipe(Effect.provideService(DbService, db)),
+  );
+}
+
+const nameOfEvent = (ev: readonly ParsedEvent[], id: string) => ev.find((e) => e.id === id)!.name;
+
+describe("diffAgainstDb — plus-ones", () => {
+  it("leaves a plus-one alone when an editor draft omits them", async () => {
+    const { db, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    const plan = await run(diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.guestRemoves.map((g) => g.id)).not.toContain(samId);
+    expect(plan.guestUpdates).toHaveLength(0);
+    expect(plan.eventLinkRemoves).toHaveLength(0);
+    expect(plan.warnings).toHaveLength(0);
+  });
+
+  it("ignores a plus-one row an editor draft carries, instead of refusing the draft as stale", async () => {
+    const { db, bo, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    // Put the plus-one in their household, AHEAD of the other members and
+    // renamed, with no invitations: every one of those is ignored.
+    const withPlusOne = fam.map((f) =>
+      f.id === bo.familyId
+        ? {
+            ...f,
+            guests: [
+              { id: samId, firstName: "Renamed", lastName: "", nickname: null, eventNames: [] },
+              ...f.guests,
+            ],
+          }
+        : f,
+    );
+    const plan = await run(diffAgainstDb(ev, withPlusOne, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.guestCreates).toHaveLength(0);
+    // No member's sort order moved because a plus-one row sat in front of them.
+    expect(plan.guestUpdates).toHaveLength(0);
+    expect(plan.guestRemoves).toHaveLength(0);
+    expect(plan.eventLinkRemoves).toHaveLength(0);
+  });
+
+  it("ignores a plus-one on a spreadsheet upload that leaves them out", async () => {
+    const { db, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    for (const options of [{}, { removeManual: true }] satisfies DiffOptions[]) {
+      const plan = await run(diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID, options));
+      expect(plan.guestRemoves.map((g) => g.id)).not.toContain(samId);
+      expect(plan.eventLinkRemoves.map((l) => l.guestId)).not.toContain(samId);
+    }
+  });
+
+  it("removes the plus-one with their inviter, and says so", async () => {
+    const { db, bo, samId, run } = setUp();
+    db.insert(rsvps)
+      .values({
+        id: "r_sam",
+        guestId: samId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const { ev, fam } = await draftOf(db);
+    const withoutBo = fam.map((f) => ({ ...f, guests: f.guests.filter((g) => g.id !== bo.id) }));
+
+    const plan = await run(diffAgainstDb(ev, withoutBo, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.guestRemoves.map((g) => g.id).toSorted()).toEqual([bo.id, samId].toSorted());
+    expect(plan.warnings).toContain("Removing guest Bo also removes their plus-one Sam.");
+    expect(
+      plan.warnings.some((w) => w.startsWith("Removing guest Sam would lose their RSVP")),
+    ).toBe(true);
+
+    const summary = await run(applyImport("chg_bo", plan, BOOTSTRAP_WEDDING_ID));
+    expect(summary.guestsRemoved).toBe(2);
+    expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toEqual([]);
+  });
+
+  it("removes a household's plus-ones once each when the household goes", async () => {
+    const { db, bo, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    const withoutHousehold = fam.filter((f) => f.id !== bo.familyId);
+    const plan = await run(diffAgainstDb(ev, withoutHousehold, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.guestRemoves.filter((g) => g.id === samId)).toHaveLength(1);
+  });
+
+  it("gives the plus-one the inviter's new invitations and takes away the dropped ones", async () => {
+    const { db, bo, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    // Bo: hindu + reception → reception + mehendi.
+    const reception = nameOfEvent(ev, eventsData.reception.id);
+    const mehendi = nameOfEvent(ev, eventsData.mehendi.id);
+    const moved = fam.map((f) => ({
+      ...f,
+      guests: f.guests.map((g) =>
+        g.id === bo.id ? { ...g, eventNames: [reception, mehendi] } : g,
+      ),
+    }));
+
+    const plan = await run(diffAgainstDb(ev, moved, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.eventLinkCreates).toContainEqual({
+      guestId: samId,
+      eventId: eventsData.mehendi.id,
+    });
+    expect(plan.eventLinkRemoves).toContainEqual({ guestId: samId, eventId: eventsData.hindu.id });
+
+    await run(applyImport("chg_move", plan, BOOTSTRAP_WEDDING_ID));
+    expect(eventIdsOf(db, samId)).toEqual(eventIdsOf(db, bo.id));
+  });
+
+  it("counts plus-ones toward the guest cap in the preview", async () => {
+    const { db, run } = setUp();
+    // Fill the organiser's guests up to the base cap, less the one place the
+    // plus-one already holds.
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_fill",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "FILL-0001",
+        familyName: "Filler",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const total = () =>
+      db
+        .select({ id: guests.id })
+        .from(guests)
+        .innerJoin(families, eq(guests.familyId, families.id))
+        .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+        .all().length;
+    for (let i = total(); i < BASE_GUEST_CAP; i++) {
+      db.insert(guests)
+        .values({
+          id: `g_fill_${i}`,
+          familyId: "fam_fill",
+          firstName: `Filler${i}`,
+          sortOrder: i,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    db.delete(weddingEntitlements)
+      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const { ev, fam } = await draftOf(db);
+    const oneMore = fam.map((f) =>
+      f.id === "fam_fill"
+        ? {
+            ...f,
+            guests: [
+              ...f.guests,
+              { firstName: "Extra", lastName: "", nickname: null, eventNames: [] },
+            ],
+          }
+        : f,
+    );
+    const plan = await run(diffAgainstDb(ev, oneMore, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.warnings.some((w) => w.includes(`capped at ${BASE_GUEST_CAP}`))).toBe(true);
+  });
+});

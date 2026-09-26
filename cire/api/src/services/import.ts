@@ -402,7 +402,7 @@ export function diffAgainstDb(
     // ── Guests ──────────────────────────────────────────────────────────────
     const removedFamilyIds = new Set(familyRemoves.map((f) => f.id));
     // Wedding-scoped via the families join — guests carry no wedding_id.
-    const existingGuests = manageGuests
+    const existingGuestRows = manageGuests
       ? yield* dbQuery(() =>
           db
             .select({
@@ -413,6 +413,7 @@ export function diffAgainstDb(
               nickname: guests.nickname,
               sortOrder: guests.sortOrder,
               source: guests.source,
+              plusOneOf: guests.plusOneOfGuestId,
             })
             .from(guests)
             .innerJoin(families, eq(guests.familyId, families.id))
@@ -420,6 +421,31 @@ export function diffAgainstDb(
             .all(),
         )
       : [];
+    // PLUS-ONES ([[cire-plus-ones]]) are the household's data, not the
+    // organiser's sheet: this diff never matches, updates or removes one on
+    // its own account. They follow their inviter instead — removed with them,
+    // and invited to whatever the inviter ends up invited to (below). So the
+    // matching passes see only the organiser's guests.
+    const existingGuests = existingGuestRows.filter((g) => g.plusOneOf === null);
+    const existingPlusOnes = existingGuestRows.filter(
+      (g): g is typeof g & { plusOneOf: string } => g.plusOneOf !== null,
+    );
+    // A desired row that names a plus-one's id is dropped before matching. The
+    // organiser editor leaves plus-ones out of its drafts, so this is the
+    // backstop for a client that does not: without it the id would resolve to
+    // no organiser guest, and the save would be refused as stale.
+    const plusOneIds = new Set(existingPlusOnes.map((p) => p.id));
+    const guestFamilies =
+      plusOneIds.size === 0
+        ? desiredFamilies
+        : desiredFamilies.map((family) =>
+            family.guests.some((g) => g.id !== undefined && plusOneIds.has(g.id))
+              ? {
+                  ...family,
+                  guests: family.guests.filter((g) => g.id === undefined || !plusOneIds.has(g.id)),
+                }
+              : family,
+          );
 
     type ExistingGuest = (typeof existingGuests)[number];
     /**
@@ -457,7 +483,7 @@ export function diffAgainstDb(
     const guestIdByParsedIndex: string[][] = [];
 
     // Matched + new families
-    desiredFamilies.forEach((parsedFamily, familyIndex) => {
+    guestFamilies.forEach((parsedFamily, familyIndex) => {
       const familyId = familyIdByParsedIndex[familyIndex]!;
       // A family is "new" iff it was NOT matched to an existing row. With no ids
       // this equals `!existingFamilyByNorm.has(norm)` (byte-identical); with ids
@@ -597,6 +623,22 @@ export function diffAgainstDb(
       }
     }
 
+    // A removed guest's plus-one goes with them. The foreign key would cascade
+    // it anyway; naming it here puts it in the preview's counts and RSVP-loss
+    // warnings, and in the capacity arithmetic below. Only this loop adds
+    // plus-ones, once each.
+    const plusOneWarnings: string[] = [];
+    const removingGuestIds = new Set(guestRemoves.map((g) => g.id));
+    const inviterFirstName = new Map(existingGuests.map((g) => [g.id, g.firstName]));
+    for (const plusOne of existingPlusOnes) {
+      if (!removingGuestIds.has(plusOne.plusOneOf) || removingGuestIds.has(plusOne.id)) continue;
+      guestRemoves.push({ id: plusOne.id, firstName: plusOne.firstName });
+      removingGuestIds.add(plusOne.id);
+      plusOneWarnings.push(
+        `Removing guest ${inviterFirstName.get(plusOne.plusOneOf) ?? "(unknown)"} also removes their plus-one ${plusOne.firstName}.`,
+      );
+    }
+
     // ── Stale-draft refusal (id-authoritative front doors only) ──────────────
     // Every id in the desired state has now been looked up. On the editor path a
     // miss means the draft was built against state that no longer exists, and
@@ -610,7 +652,7 @@ export function diffAgainstDb(
     // door every name comes from the draft's own event list, so one that
     // resolves to nothing is stale, not a column to ignore.
     if (!matchByName) {
-      for (const family of desiredFamilies) {
+      for (const family of guestFamilies) {
         for (const guest of family.guests) {
           for (const name of guest.eventNames) {
             if (!eventIdByNorm.has(normaliseName(name))) unresolvedIds += 1;
@@ -639,8 +681,10 @@ export function diffAgainstDb(
     const existingLinkSet = new Set(existingLinks.map((l) => `${l.guestId}::${l.eventId}`));
     /** Track desired (guestId, eventId) pairs after import. */
     const desiredLinks = new Set<string>();
+    /** Desired event ids per guest — what each plus-one mirrors below. */
+    const desiredEventsByGuest = new Map<string, string[]>();
 
-    desiredFamilies.forEach((parsedFamily, familyIndex) => {
+    guestFamilies.forEach((parsedFamily, familyIndex) => {
       const resolvedIds = guestIdByParsedIndex[familyIndex]!;
       parsedFamily.guests.forEach((parsedGuest, guestIndex) => {
         const guestId = resolvedIds[guestIndex]!;
@@ -652,9 +696,30 @@ export function diffAgainstDb(
           if (!existingLinkSet.has(key)) {
             eventLinkCreates.push({ guestId, eventId });
           }
+          const list = desiredEventsByGuest.get(guestId);
+          if (list) list.push(eventId);
+          else desiredEventsByGuest.set(guestId, [eventId]);
         }
       });
     });
+
+    // A plus-one is invited to exactly what their inviter is invited to after
+    // this change: their inviter's desired events are theirs, and any other
+    // invitation they hold falls to the removal scan below. An inviter this
+    // change does not describe (kept by the provenance rule) has no desired
+    // events here, and loses its invitations in the same scan, so the plus-one
+    // still mirrors it.
+    for (const plusOne of existingPlusOnes) {
+      if (removingGuestIds.has(plusOne.id)) continue;
+      for (const eventId of desiredEventsByGuest.get(plusOne.plusOneOf) ?? []) {
+        const key = `${plusOne.id}::${eventId}`;
+        if (desiredLinks.has(key)) continue;
+        desiredLinks.add(key);
+        if (!existingLinkSet.has(key)) {
+          eventLinkCreates.push({ guestId: plusOne.id, eventId });
+        }
+      }
+    }
 
     // Existing links whose guest is being removed (or whose event is being
     // removed) are implicitly handled by the cascade DELETE on guests + the
@@ -671,7 +736,7 @@ export function diffAgainstDb(
       }
     }
 
-    const warnings: string[] = [];
+    const warnings: string[] = [...plusOneWarnings];
 
     // ── Claim-code collisions on a CARRIED publicId ──────────────────────────
     // A create may carry its own code (the full-fidelity `Family Code` column, so
@@ -758,10 +823,12 @@ export function diffAgainstDb(
     // `assertGuestCapacity`'s "never a way to skip the check" contract.
     let derivedCap: number | undefined;
     if (guestCreates.length > 0) {
-      // `existingGuests` was already fetched above with ne(families.kind, 'host'),
-      // so it already excludes host-preview guests. The resulting headcount after
-      // this plan: current real guests minus removals plus new creates.
-      const currentRealGuests = existingGuests.length;
+      // `existingGuestRows` was already fetched above with ne(families.kind,
+      // 'host'), so it already excludes host-preview guests — and it includes
+      // plus-ones, which hold places under the cap like any guest (the apply's
+      // `countGuests` counts them too). The resulting headcount after this
+      // plan: current real guests minus removals plus new creates.
+      const currentRealGuests = existingGuestRows.length;
       const resulting = currentRealGuests - guestRemoves.length + guestCreates.length;
       // `resulting` can only rise as far as `currentRealGuests +
       // guestCreates.length` (removes only ever bring it DOWN), and the cap can

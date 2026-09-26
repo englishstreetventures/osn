@@ -28,6 +28,7 @@ import {
 } from "../../src/services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
+import { seedPlusOne } from "../test-helpers/plus-one";
 
 const EVENTS_V1 = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
@@ -704,6 +705,24 @@ describe("revertImport — an events-scoped change restores the schedule only", 
     });
     const [row] = db.select().from(imports).where(eq(imports.id, "c1")).all();
     expect(row!.status).toBe("reverted");
+  });
+
+  it("re-invites a plus-one wherever it re-invites their inviter", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    const bo = guestNamed(db, "Bo")!;
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    expect(invitesOf(db, samId)).toEqual(invitesOf(db, bo.id));
+
+    // c1 deletes the reception; both lose it.
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
+    expect(invitesOf(db, samId)).toEqual(["Wedding Ceremony"]);
+
+    await revert(layer, "c1");
+
+    // The plus-one is not in the before-image, but follows Bo back in.
+    expect(invitesOf(db, bo.id)).toEqual(["Reception", "Wedding Ceremony"]);
+    expect(invitesOf(db, samId)).toEqual(invitesOf(db, bo.id));
   });
 
   it("re-invites only guests that still exist", async () => {
