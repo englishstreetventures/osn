@@ -29,7 +29,7 @@ last-reviewed: 2026-09-27
 | `createTopicSubscription()` | `@shared/realtime/client` | the browser (no Effect) |
 | `useTopic()` | `@shared/realtime/solid` | Solid components |
 
-One hub instance serves one topic (`getByName(topic)`). It holds sockets through the hibernation API and nothing else. The client's `ping` is answered by the runtime's auto-response, so an idle hub sleeps and is not billed for duration. It caps a topic at 50 open sockets (`TopicHub.socketCap`) and one member at 5 (`TopicHub.subjectCap`). At a cap it first closes sockets that have not pinged for 75 s (close code 4002). Only then does it refuse the newcomer with 1008, which the client treats as final.
+One hub instance serves one topic (`getByName(topic)`). It holds sockets through the hibernation API and nothing else. The client's `ping` is answered by the runtime's auto-response, so an idle hub sleeps and is not billed for duration. It caps a topic at 50 open sockets (`TopicHub.socketCap`) and one member at 5 (`TopicHub.subjectCap`). At either cap it first closes sockets that have not pinged for 75 s (close code 4002); this assumes the client's default 25 s `pingIntervalMs` and must grow if that interval does. If the member is still over their cap, it closes that member's own least recently seen other socket with 1008, so a member's own dead sockets — a laptop or phone that changed network — cannot lock out their live tab. If the topic is still over its cap, it refuses the newcomer with 1008. The client treats 1008 as final.
 
 ## Adopting it in a product
 

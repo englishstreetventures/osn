@@ -168,16 +168,31 @@ describe("TopicHub", () => {
     expect(newcomer.closes).toEqual([]);
   });
 
-  it("caps one subject's sockets without refusing anyone else", async () => {
+  it("at the member cap, closes that member's least recently seen socket and keeps the newcomer", async () => {
     const one = await open("cire:wedding:wed_subject", "usr_many", "?hub=subject");
     const two = await open("cire:wedding:wed_subject", "usr_many", "?hub=subject");
     const three = await open("cire:wedding:wed_subject", "usr_many", "?hub=subject");
     const someoneElse = await open("cire:wedding:wed_subject", "usr_other", "?hub=subject");
     await tick();
-    expect(one.closes).toEqual([]);
+    expect(one.closes).toEqual([1008]);
     expect(two.closes).toEqual([]);
-    expect(three.closes).toEqual([1008]);
+    expect(three.closes).toEqual([]);
     expect(someoneElse.closes).toEqual([]);
+  });
+
+  it("uses the ping, not only accept order, to find the least recently seen socket", async () => {
+    const a = await open("cire:wedding:wed_subject_ping", "usr_many", "?hub=subject");
+    const b = await open("cire:wedding:wed_subject_ping", "usr_many", "?hub=subject");
+    // A clear gap before the ping, so its auto-response timestamp cannot tie
+    // with `b`'s accept time at millisecond resolution.
+    await tick(50);
+    a.ws.send("ping");
+    await waitForPong(a.frames);
+    const c = await open("cire:wedding:wed_subject_ping", "usr_many", "?hub=subject");
+    await tick();
+    expect(b.closes).toEqual([1008]);
+    expect(a.closes).toEqual([]);
+    expect(c.closes).toEqual([]);
   });
 
   it("closes a socket that sends anything but ping, with 1008", async () => {

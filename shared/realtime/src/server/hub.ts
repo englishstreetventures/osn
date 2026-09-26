@@ -48,13 +48,22 @@ function acceptedAt(ws: WebSocket): number {
 export class TopicHub extends DurableObject<unknown> {
   /** Open sockets one topic may hold. A subclass may lower it; the tests do. */
   static socketCap = 50;
-  /** Open sockets one subject may hold on a topic, so no member can fill it. */
+  /**
+   * Open sockets one subject may hold on a topic. A member still over this
+   * cap after stale sockets are closed does not get refused: the hub closes
+   * that member's own least recently seen other socket with 1008 instead, so
+   * a member's own dead sockets (a laptop or phone that changed network)
+   * cannot lock out their live tab.
+   */
   static subjectCap = 5;
   /**
    * A socket that has not pinged for this long (or, never having pinged, was
-   * accepted this long ago) gives up its place when the topic is full. Three
-   * of the client's default 25 s ping intervals; a hidden tab stops pinging, so
-   * its socket is the first to go, and it reconnects when shown.
+   * accepted this long ago) gives up its place at either cap, before a member's
+   * own socket is closed or the topic refuses a newcomer. This assumes the
+   * client's default 25 s `pingIntervalMs` (three intervals) and must grow if
+   * that interval does. A hidden Chromium tab is throttled but still fires its
+   * timers roughly once a minute; only a frozen or discarded tab stops
+   * outright, and that socket reconnects once it is live again.
    */
   static staleAfterMs = 75_000;
 
@@ -65,7 +74,11 @@ export class TopicHub extends DurableObject<unknown> {
 
   /**
    * Accept an upgrade that `subscribe()` built. It carries the topic and the
-   * admitted subject in headers only a product Worker can set.
+   * admitted subject in headers only a product Worker can set. At either cap
+   * it first closes sockets stale for `staleAfterMs`; if the subject is still
+   * over its cap it closes that subject's own least recently seen other
+   * socket (never the newcomer); if the topic is still over its cap it
+   * refuses the newcomer instead.
    */
   override fetch(request: Request): Response {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
@@ -82,9 +95,11 @@ export class TopicHub extends DurableObject<unknown> {
     const server = pair[1];
     this.ctx.acceptWebSocket(server, [subjectTag(subject)]);
     server.serializeAttachment({ acceptedAt: Date.now() });
-    if (this.overCapacity(subject)) {
+    if (this.overSubjectCap(subject) || this.overTopicCap()) {
       this.closeStale(server);
-      if (this.overCapacity(subject)) this.refuse(server, parsed.product);
+      if (this.overSubjectCap(subject))
+        this.evictLeastRecentlySeen(subject, server, parsed.product);
+      if (this.overTopicCap()) this.refuse(server, parsed.product);
     }
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -135,11 +150,19 @@ export class TopicHub extends DurableObject<unknown> {
     return this.ctx.getWebSockets(tag).filter((ws) => ws.readyState === WebSocket.OPEN);
   }
 
-  private overCapacity(subject: string): boolean {
+  private overSubjectCap(subject: string): boolean {
     const hub = this.constructor as typeof TopicHub;
-    return (
-      this.open().length > hub.socketCap || this.open(subjectTag(subject)).length > hub.subjectCap
-    );
+    return this.open(subjectTag(subject)).length > hub.subjectCap;
+  }
+
+  private overTopicCap(): boolean {
+    const hub = this.constructor as typeof TopicHub;
+    return this.open().length > hub.socketCap;
+  }
+
+  /** When the runtime last answered `ws`'s ping, or when it was accepted if it never pinged. */
+  private lastSeen(ws: WebSocket): number {
+    return this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? acceptedAt(ws);
   }
 
   /** Close every socket but `keep` that has not pinged within `staleAfterMs`. */
@@ -147,9 +170,22 @@ export class TopicHub extends DurableObject<unknown> {
     const staleBefore = Date.now() - (this.constructor as typeof TopicHub).staleAfterMs;
     for (const ws of this.open()) {
       if (ws === keep) continue;
-      const lastSeen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? acceptedAt(ws);
-      if (lastSeen < staleBefore) closeQuietly(ws, CLOSE_CODES.stale, "stale");
+      if (this.lastSeen(ws) < staleBefore) closeQuietly(ws, CLOSE_CODES.stale, "stale");
     }
+  }
+
+  /**
+   * Close `subject`'s own least recently seen socket other than `keep`, so a
+   * member over their cap loses a dead socket rather than the newcomer.
+   */
+  private evictLeastRecentlySeen(subject: string, keep: WebSocket, product: RealtimeProduct): void {
+    const others = this.open(subjectTag(subject)).filter((ws) => ws !== keep);
+    if (others.length === 0) return;
+    const oldest = others.reduce((least, ws) =>
+      this.lastSeen(ws) < this.lastSeen(least) ? ws : least,
+    );
+    metricHubCapacityRefused(product);
+    closeQuietly(oldest, CLOSE_CODES.policy, "subject full");
   }
 
   private refuse(ws: WebSocket, product: RealtimeProduct): void {
