@@ -66,17 +66,16 @@ const BudgetTotalMinor = Schema.Number.check(
 );
 
 /**
- * Body for `PUT /api/organiser/weddings/:weddingId/settings`. PATCH semantics
- * over PUT (the app's CORS method list has no PATCH): omitted fields keep
- * their stored value, an explicit `null` clears a nullable field. `displayName`
+ * Body for `PUT /api/organiser/weddings/:weddingId/settings`, which has PATCH
+ * semantics: omitted fields keep their stored value, an explicit `null` clears
+ * a nullable field. `displayName`
  * and `currency` are NOT NULL columns, so they can be replaced but never
  * cleared. Location is deliberately absent — an event's place is its free-text
  * `address` (the sole location source); the wedding holds only the MAIN
  * currency + budget.
  * The SLUG is deliberately absent too (read-only in Settings): renaming frees
  * the old slug for another organiser to claim, and printed invite links can't
- * be recalled — a rename feature needs slug tombstoning first (S-M1, tracked
- * as S-M1 in `englishstventures/osn-tracker`).
+ * be recalled — a rename feature needs slug tombstoning first.
  *
  * `rsvpDeadline` is the one field here that guests feel: past it the invite
  * stops accepting RSVPs. `rsvpDeadlineTimezone` names the zone that day is

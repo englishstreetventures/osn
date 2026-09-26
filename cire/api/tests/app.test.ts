@@ -2,9 +2,11 @@ import { describe, it, expect } from "bun:test";
 
 import { createRateLimiter } from "@shared/rate-limit";
 import { sql } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../src/app";
 import { createDb } from "../src/db/setup";
+import type { StripeClient } from "../src/services/stripe";
 import { appRequest, jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 
@@ -48,6 +50,124 @@ describe("CORS", () => {
       body: "{}",
     });
     expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});
+
+// The portals call this API cross-origin with credentials and a JSON body, so
+// every non-GET they send is preflighted, and the browser refuses any method
+// the preflight's `Access-Control-Allow-Methods` leaves out. The origins are
+// the committed `WEB_ORIGIN` allowlists of both deployed tiers, split here with
+// a copy of the split, trim and filter in `src/index.ts`.
+const committedToml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();
+const deployedTiers = Bun.TOML.parse(committedToml) as {
+  env: Record<"dev" | "production", { vars: { WEB_ORIGIN: string } }>;
+};
+const originsByTier = (["dev", "production"] as const).map((tier) =>
+  deployedTiers.env[tier].vars.WEB_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const portalOrigins = originsByTier.flat();
+
+// Stripe is configured so that every conditionally mounted route group is on
+// the app and in `app.routes`. A preflight never reaches a handler, so no
+// method here is ever called.
+const unreached = () => Effect.die(new Error("a CORS preflight never calls Stripe"));
+const unreachedStripe: StripeClient = {
+  createAccount: unreached,
+  createAccountLink: unreached,
+  retrieveAccount: unreached,
+  createCheckoutSession: unreached,
+  retrieveCheckoutSession: unreached,
+  createPlatformCheckoutSession: unreached,
+  retrievePlatformCheckoutSession: unreached,
+  retrievePrice: unreached,
+};
+
+const deployedApp = createApp(createDb(":memory:"), {
+  webOrigin: portalOrigins[0],
+  allowedOrigins: portalOrigins,
+  stripe: unreachedStripe,
+  stripeWebhookSecret: "whsec_test_connect",
+  stripePlatformWebhookSecret: "whsec_test_platform",
+});
+
+const CHECKLIST_REORDER = "/api/organiser/weddings/w1/tasks/reorder";
+
+function preflight(path: string, origin: string, method = "PATCH"): Promise<Response> {
+  return appRequest(deployedApp, path, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": method,
+      "Access-Control-Request-Headers": "content-type",
+    },
+  });
+}
+
+function allowedMethods(res: Response): string[] {
+  return (res.headers.get("Access-Control-Allow-Methods") ?? "")
+    .split(",")
+    .map((method) => method.trim())
+    .filter(Boolean);
+}
+
+/** Every PATCH route the app mounts, with each path parameter filled in. */
+const patchPaths = deployedApp.routes
+  .filter((route) => route.method === "PATCH")
+  .map((route) => route.path.replace(/:[^/]+/g, "x"));
+
+describe("CORS preflight for the deployed portal origins", () => {
+  it("reads an allowlist for each deployed tier", () => {
+    for (const origins of originsByTier) expect(origins.length).toBeGreaterThan(0);
+    expect(patchPaths.length).toBeGreaterThan(0);
+  });
+
+  it.each(portalOrigins)("allows a PATCH preflight from %s", async (origin) => {
+    const res = await preflight(CHECKLIST_REORDER, origin);
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+    expect(allowedMethods(res)).toContain("PATCH");
+  });
+
+  it.each(portalOrigins)("allows PATCH on every PATCH route from %s", async (origin) => {
+    for (const path of patchPaths) {
+      const res = await preflight(path, origin);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      expect(allowedMethods(res)).toContain("PATCH");
+    }
+  });
+
+  // No `Access-Control-Allow-Origin` is what makes the browser fail the
+  // preflight. `Access-Control-Allow-Credentials` is a default header on every
+  // response, so its presence here grants nothing.
+  it("gives an unlisted origin's PATCH preflight no Access-Control-Allow-Origin", async () => {
+    const res = await preflight(CHECKLIST_REORDER, "https://evil.example");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  // The match is exact membership, the rule the origin guard applies: no
+  // scheme stripping and no lookup that an object's inherited keys satisfy.
+  it.each([
+    `x://${portalOrigins[0]}`,
+    "constructor",
+    "__proto__",
+    "toString",
+    portalOrigins[0].replace("https://", "http://"),
+    `${portalOrigins[0]}/`,
+    portalOrigins[0].toUpperCase(),
+  ])("gives a near-miss Origin %s no Access-Control-Allow-Origin", async (origin) => {
+    const res = await preflight(CHECKLIST_REORDER, origin);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  // Both directions come from what the app mounts (the CORS plugin's own
+  // OPTIONS routes included), so the list can neither miss a method a route
+  // answers nor carry one no route answers, and `*` matches nothing.
+  it("allows exactly the methods mounted routes answer, never a wildcard", async () => {
+    const res = await preflight(CHECKLIST_REORDER, portalOrigins[0]);
+    const mounted = new Set(deployedApp.routes.map((route) => route.method));
+    expect(allowedMethods(res).toSorted()).toEqual([...mounted].toSorted());
   });
 });
 

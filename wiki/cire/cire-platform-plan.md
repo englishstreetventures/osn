@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-09-26
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -60,7 +60,7 @@ Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have
 
 ~~**Shipped (PR 1, 2026-07-10) — with one revision: location is EVENT-scoped, not wedding-scoped.**~~ A wedding is not a place — its events are (a Sydney reception + Jaipur ceremonies is one wedding in two countries), so `location_lat`/`location_lng` + `pricing_region` landed on `events` (the venue text stays in `events.address`), edited per event on the Events tab (`EventLocationsPanel`, member-level like the import — `PUT .../events/:eventId/location`). **Retired by 0036** — an event's place is now just its free-text `address`. The wedding keeps ONE main `currency` + `budget_total_minor` — the currency the couple thinks in, whatever countries the events land in.
 
-Other (retired) implementation notes: `pricing_region` was **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`). The profile save is `PUT` with PATCH semantics (the app's CORS method list has no PATCH) — **this remains** for the surviving `currency`/`budget`/`wedding_date` fields. The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it (WP-S-M1 in `englishstventures/osn-tracker`); renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only and the profile save is owner-only. (The geocode POST is gone.)
+Other (retired) implementation notes: `pricing_region` was **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`). The profile save is `PUT` with PATCH semantics — **this remains** for the surviving `currency`/`budget`/`wedding_date` fields. The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it; renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only and the profile save is owner-only. (The geocode POST is gone.)
 
 ### 3.2 Households ≠ claim codes
 

@@ -62,12 +62,37 @@ describe("origin guard (C5 / S-L3)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("403s a DELETE on /api/rsvp's surface with a bad Origin (matrix: another method)", async () => {
-    // /api/rsvp only accepts POST, but the guard runs before routing — a
-    // forged DELETE with a bad Origin is rejected by the guard, not a 404.
-    const res = await send("/api/rsvp", "POST", "http://evil.example");
+  // The organiser portal's own write methods, on real routes: a global
+  // `onBeforeHandle` never runs for a path the router does not match, so an
+  // unmounted method would 404 whether or not the guard covers it.
+  const organiserWrites = [
+    ["PATCH", "/api/organiser/weddings/w1/tasks/reorder"],
+    ["PATCH", "/api/organiser/weddings/w1/tasks/t1"],
+    ["DELETE", "/api/organiser/weddings/w1/tasks/t1"],
+    ["PUT", "/api/organiser/weddings/w1/settings"],
+  ] as const;
+
+  it.each(organiserWrites)("403s a %s to %s with a mismatched Origin", async (method, path) => {
+    const res = await send(path, method, "http://evil.example");
     expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden", message: "Origin not allowed" });
   });
+
+  it.each(organiserWrites)("403s a %s to %s with a missing Origin", async (method, path) => {
+    const res = await send(path, method, null);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden", message: "Missing Origin header" });
+  });
+
+  it.each(organiserWrites)(
+    "lets a %s to %s with an allowlisted Origin past the guard",
+    async (method, path) => {
+      // No organiser session, so the route's own auth answers 401 — not the
+      // guard's 403.
+      const res = await send(path, method, "http://localhost:4322");
+      expect(res.status).toBe(401);
+    },
+  );
 
   it("does NOT gate GET (non-state-changing) — no Origin required", async () => {
     // A GET to an unknown path: the guard skips it, so we get the 404 contract,

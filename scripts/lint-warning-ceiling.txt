@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1002   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-invite-faq @ 2026-09-26 — one finding tag removed from a claim-service comment the FAQ read rewrote. No rule was disabled.
+1000   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-cors-patch @ 2026-09-27 — after merging main at 1002: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.

@@ -580,6 +580,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     flags = createFeatureFlags({}),
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
+  const corsOriginSet = new Set(corsOrigins);
 
   // Vendor CRM deps — use injected instances (tests) or module-level defaults
   // (production). The email layer defaults to LogEmailLive so tests that don't
@@ -650,10 +651,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
         cors({
           // Echo the request origin verbatim when it's in the allowlist — never
           // `*` — so the browser will include credentials. Any mismatch gets no
-          // `Access-Control-Allow-Origin` header.
-          origin: corsOrigins,
-          // DELETE: account-link unlink + invite image reset. PUT: invite text save.
-          methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+          // `Access-Control-Allow-Origin` header. Exact membership, the same
+          // rule as `originGuard`: a plain string list would go through the
+          // plugin's own matcher, which strips anything up to `://` and
+          // consults a plain object's inherited keys.
+          origin: (request) => corsOriginSet.has(request.headers.get("origin") ?? ""),
+          // Every method a route answers, and no other. The portals call this
+          // API cross-origin with credentials, so each non-GET call is
+          // preflighted and the browser refuses a method this list leaves out.
+          // `tests/app.test.ts` fails unless it matches the mounted routes.
+          methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
           allowedHeaders: ["Content-Type", "Authorization"],
           credentials: true,
         }),
