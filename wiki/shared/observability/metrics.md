@@ -8,8 +8,8 @@ related:
   - "[[logging]]"
   - "[[tracing]]"
   - "[[feature-checklist]]"
-packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
-last-reviewed: 2026-08-30
+packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto", "@shared/realtime"]
+last-reviewed: 2026-09-27
 ---
 # Metrics
 
@@ -21,7 +21,7 @@ Follow [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/g
 {namespace}.{domain}.{subject}.{measurement}
 ```
 
-- **namespace**: `osn`, `pulse`, `zap`, `arc`, `db`, `http`, `process` -- identifies the owner
+- **namespace**: `osn`, `pulse`, `zap`, `arc`, `realtime`, `db`, `http`, `process` -- identifies the owner
 - **domain** + **subject**: lowercase, `snake_case` inside each segment, dots between
 - No `_total` / `_count` suffix (OTel prometheus exporter adds `_total` for counters automatically)
 - Unit lives in the metric's `unit` field, not the name
@@ -51,6 +51,7 @@ Declare every metric **exactly once**, in a `metrics.ts` file that sits with its
 | `osn/api/src/metrics.ts` | OSN auth + graph metrics |
 | `shared/crypto/src/arc-metrics.ts` | ARC token metrics |
 | `shared/observability/src/metrics/http.ts` | Shared HTTP RED metrics (used by Elysia plugin) |
+| `shared/realtime/src/server/metrics.ts` | Realtime push: subscribe outcomes, signals published, hub capacity refusals |
 
 Each file exports:
 
