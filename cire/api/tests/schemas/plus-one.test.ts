@@ -40,21 +40,55 @@ describe("PlusOneNameBody", () => {
     if (result._tag === "Success") expect(result.success.lastName).toBe("");
   });
 
-  it("refuses both ends of every hidden range, on both halves", () => {
-    for (const code of [0x00, 0x09, 0x1f, 0x7f, 0x9f, 0x202a, 0x202e, 0x2066, 0x2069]) {
+  it("refuses control, format and separator characters, on both halves", () => {
+    for (const code of [
+      0x00,
+      0x09,
+      0x1f,
+      0x7f,
+      0x9f, // controls
+      0xad,
+      0x200b,
+      0x200e,
+      0x200f,
+      0x061c,
+      0xfeff, // soft hyphen, zero-width, direction marks, BOM
+      0x202a,
+      0x202e,
+      0x2066,
+      0x2069,
+      0x206a, // overrides and isolates
+      0x2028,
+      0x2029, // line and paragraph separators
+      0x115f,
+      0x1160,
+      0x3164,
+      0xffa0,
+      0x2800, // letters that render blank
+    ]) {
       const char = String.fromCodePoint(code);
-      expect(tag({ firstName: `Sam${char}` })).toBe("Failure");
-      expect(tag({ firstName: "Sam", lastName: `Guest${char}` })).toBe("Failure");
+      expect(tag({ firstName: `Sam${char}X` })).toBe("Failure");
+      expect(tag({ firstName: "Sam", lastName: `Guest${char}X` })).toBe("Failure");
     }
   });
 
-  it("accepts the code points just past each range", () => {
-    for (const code of [0x20, 0xa0, 0x2029, 0x202f, 0x2065, 0x206a]) {
+  it("refuses a first name that shows nothing, however it is made", () => {
+    for (const blank of ["\u200b", "\u3164", "\u2800", " \u00a0 ", "-", "'"]) {
+      expect(tag({ firstName: blank })).toBe("Failure");
+    }
+  });
+
+  it("accepts spaces, the joiners, and names in any script", () => {
+    for (const code of [0x20, 0xa0, 0x202f]) {
       expect(tag({ firstName: `Sam${String.fromCodePoint(code)}x` })).toBe("Success");
     }
-    // Names in any script pass.
+    // The zero-width joiner and non-joiner some scripts and emoji need.
+    expect(tag({ firstName: "\u0915\u094d\u200d\u0937", lastName: "\u0645\u200c\u06cc" })).toBe(
+      "Success",
+    );
     expect(tag({ firstName: "Zoë", lastName: "Nguyễn-Ōkubo" })).toBe("Success");
     expect(tag({ firstName: "अनन्या", lastName: "राव" })).toBe("Success");
+    expect(tag({ firstName: "O'Brien", lastName: "de la Cruz" })).toBe("Success");
   });
 
   it("refuses a non-string name", () => {

@@ -51,14 +51,16 @@ Editor-gated (`weddingEditor()`; a viewer gets `403 read_only_role`), like every
 |---|---|---|
 | `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one` | `{ allowed, removePlusOne? }` | `{ guestId, plusOneAllowed, plusOneRemoved }` |
 | `PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one` | `{ allowed, removePlusOnes? }` | `{ familyId, plusOneAllowed, guestsUpdated, plusOnesRemoved }` |
+| `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name` | `{ firstName, lastName? }` | `{ plusOne }` |
 
 - The household route writes every member's flag and skips the household's plus-ones.
 - **Turning permission off where a plus-one is already named is refused** — `409 { error: "plus_one_named", named }` — unless the remove flag is set. With it, the plus-one and their replies go in the same batch as the switch. Deleting a guest's data is never a side effect of `allowed: false`, because this delete sits outside the change history: there is no preview and no revert. The portal must name the plus-one and ask before it sends the flag.
 - `404 guest_not_found` / `family_not_found` for a row outside the wedding or in the host-preview household; `409 plus_one_cannot_invite` on a plus-one's own row.
+- The name route corrects the name of the plus-one `:guestId` brought (`404 plus_one_not_found` if none). It is the one organiser write to a plus-one's own row, there so a name can be put right after the deadline has locked the household out (Art. 16).
 
 ### The household owns the plus-one
 
-Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile for the same reason: the cookie came from a Turnstile-gated claim. `:guestId` is the member bringing the plus-one.
+Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile for the same reason: the cookie came from a Turnstile-gated claim. A per-IP limiter (20 a minute, as on the guest registry writes) caps the write rate: naming and removing in a loop would otherwise spend the D1 write quota every wedding shares. `:guestId` is the member bringing the plus-one.
 
 | Route | Body | Answer |
 |---|---|---|
@@ -76,14 +78,15 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 | 409 | `plus_one_cannot_invite` | `:guestId` is itself a plus-one |
 | 403 | `plus_one_not_allowed` | No permission (`PUT` only — taking a plus-one back needs none) |
 | 409 | `guest_capacity` | Naming one would pass the wedding's guest cap ([[cire-entitlements]]) |
+| 429 | — | The per-IP limiter's budget is spent |
 
-Names are trimmed, at most 100 characters each, and may not contain control characters or bidirectional overrides; a first name may not be blank.
+Names are trimmed and at most 100 characters each. They may not contain control, format or separator characters (Unicode `Cc`, `Cf`, `Zl`, `Zp` — zero-width spaces, direction marks and overrides among them — save the zero-width joiner and non-joiner some scripts need) or the letters that render blank. A first name must contain a letter or digit, so it cannot look blank.
 
 **Naming is one D1 batch.** The guest insert is skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
 
 ### The reply
 
-`POST /api/rsvp` stamps a plus-one's rows `consent_source = 'inviter_attested'`: the household typed them, and a plus-one never holds the household's code or sees the invite. **It refuses dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`) until the invite shows wording for the household's attestation and a consent version to go with it — see the inviter-attested variant in [[dpia/cire-guest-data]]. A status-only reply is accepted.
+`POST /api/rsvp` stamps a plus-one's rows `consent_source = 'inviter_attested'`: the household typed them, and a plus-one never holds the household's code or sees the invite. **Both write paths refuse dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`) — the invite's, and the organiser's recording route, whose rows the household reads back — until the invite shows wording for the household's attestation and a consent version to go with it — see the inviter-attested variant in [[dpia/cire-guest-data]]. A status-only reply is accepted.
 
 The couple sees a plus-one's change the way they see any edited reply: in the RSVP table and the guest list. There is no separate notice.
 
@@ -120,7 +123,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 
 - A revert, or a spreadsheet first-name change without an id (a remove + create), re-creates a guest **without** their permission and without the plus-one that went with them.
 - Plus-ones named after a checkpoint **survive** a revert to it.
-- The guest-cap check before naming is a read followed by an insert, as the import's is; concurrent households can overshoot by the number of requests in flight.
+- The guest-cap check and the permission check before naming are reads followed by an insert, and an organiser's revoke reads "no plus-one named" before its update. Concurrent requests can overshoot the cap by the number in flight, or leave a plus-one named under a permission revoked at the same moment. Tracked as a follow-up to check both inside the write.
 
 ---
 
@@ -139,7 +142,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | `cire.plus_one.permission.set` | `scope`: `guest` \| `household`; `allowed`: `on` \| `off` |
 | `cire.rsvp.blocked` | gains `reason = plus_one_dietary` |
 
-`cire.rsvp.upserted` counts a plus-one's reply as a `guest` write. Spans: `cire.plus_one.save`, `.remove`, `.setGuestPermission`, `.setHouseholdPermission`. No log line carries a name.
+`cire.rsvp.upserted` counts a plus-one's reply as a `guest` write. Spans: `cire.plus_one.save`, `.remove`, `.renameAsOrganiser`, `.setGuestPermission`, `.setHouseholdPermission`. No log line carries a name.
 
 ---
 

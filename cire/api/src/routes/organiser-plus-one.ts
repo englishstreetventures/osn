@@ -7,7 +7,11 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import { GuestPlusOnePermissionBody, HouseholdPlusOnePermissionBody } from "../schemas/plus-one";
+import {
+  GuestPlusOnePermissionBody,
+  HouseholdPlusOnePermissionBody,
+  PlusOneNameBody,
+} from "../schemas/plus-one";
 import { plusOneService } from "../services/plus-one";
 
 // Sentinel parse hook — same idiom as the other organiser PUT routes: the
@@ -19,6 +23,7 @@ const ORGANISER_REFUSALS = {
   PlusOneFamilyNotFound: { status: 404, error: "family_not_found" },
   PlusOneCannotInvite: { status: 409, error: "plus_one_cannot_invite" },
   PlusOneNamed: { status: 409, error: "plus_one_named" },
+  PlusOneNotFound: { status: 404, error: "plus_one_not_found" },
 } as const;
 
 /**
@@ -45,8 +50,13 @@ function refuse(
  *   PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one
  *       { allowed, removePlusOnes? }
  *
+ *   PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name
+ *       { firstName, lastName? }
+ *
  * The first sets one guest's permission; the second sets it for every member of
- * a household. Turning it off where a plus-one is already named answers 409
+ * a household. The third corrects the name of the plus-one `:guestId` brought —
+ * the one organiser write to a plus-one's own row, there so a name can be put
+ * right after the deadline has locked the household out. Turning it off where a plus-one is already named answers 409
  * `plus_one_named` unless the remove flag is set, and with it the plus-one and
  * their replies are deleted in the same batch. That delete is outside the change
  * history (no preview, no revert), which is why it is never implied by
@@ -112,6 +122,36 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
                   familyId: params.familyId,
                   allowed: body.allowed,
                   removePlusOnes: body.removePlusOnes,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catch((e) => Effect.sync(() => refuse(e, set))),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .put(
+          "/guests/:guestId/plus-one/name",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(PlusOneNameBody)(raw);
+                return yield* plusOneService.renameAsOrganiser({
+                  weddingId,
+                  inviterGuestId: params.guestId,
+                  name: body,
                 });
               }).pipe(
                 Effect.provideService(DbService, db),

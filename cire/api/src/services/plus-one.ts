@@ -12,7 +12,8 @@
  *    deleting a guest's data is never a side effect of a switch.
  *  - **The household owns the plus-one**: it names, renames and removes them
  *    through the invite, until the RSVP deadline, and only for a member who has
- *    permission.
+ *    permission. An editor may also correct the name, at any time — after the
+ *    deadline it is the only way to (Art. 16 rectification).
  *
  * The change pipeline (spreadsheet upload, editor save, revert) never matches,
  * edits or removes a plus-one directly; see `diffAgainstDb`.
@@ -53,6 +54,8 @@ export class PlusOneFamilyNotFound extends Data.TaggedError("PlusOneFamilyNotFou
 export class PlusOneCannotInvite extends Data.TaggedError("PlusOneCannotInvite") {}
 /** The guest has no permission to bring a plus-one. 403-class. */
 export class PlusOneNotAllowed extends Data.TaggedError("PlusOneNotAllowed") {}
+/** The guest has no plus-one named. 404-class. */
+export class PlusOneNotFound extends Data.TaggedError("PlusOneNotFound") {}
 /** Permission off was asked for where a plus-one is named, without asking for
  *  them to be removed. 409-class. */
 export class PlusOneNamed extends Data.TaggedError("PlusOneNamed")<{ named: number }> {}
@@ -370,6 +373,65 @@ export const plusOneService = {
       if (removed) yield* Effect.sync(() => metricPlusOneChanged("removed", "guest"));
       return { removed };
     }).pipe(Effect.withSpan("cire.plus_one.remove"));
+  },
+
+  /**
+   * Correct the name of the plus-one `inviterGuestId` brought, as an editor.
+   * Not gated by the RSVP deadline or the permission: after the deadline the
+   * household can no longer rename them, and a controller must still be able
+   * to correct a name (Art. 16).
+   */
+  renameAsOrganiser(input: {
+    weddingId: string;
+    inviterGuestId: string;
+    name: PlusOneName;
+  }): Effect.Effect<{ plusOne: PlusOneRecord }, PlusOneNotFound, DbService> {
+    const { weddingId, inviterGuestId } = input;
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const clean = cleanName(input.name);
+      // The plus-one of this guest, in one of this wedding's guest households.
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ id: guests.id, firstName: guests.firstName, lastName: guests.lastName })
+          .from(guests)
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .where(
+            and(
+              eq(guests.plusOneOfGuestId, inviterGuestId),
+              eq(families.weddingId, weddingId),
+              eq(families.kind, "guest"),
+            ),
+          )
+          .all(),
+      );
+      if (!row) return yield* Effect.fail(new PlusOneNotFound());
+      const unchanged = row.firstName === clean.firstName && row.lastName === clean.lastName;
+      const rows = yield* dbQuery(() =>
+        commitGroupedBatchesReturning<PlusOneRow>(
+          db,
+          unchanged
+            ? []
+            : [
+                [
+                  db
+                    .update(guests)
+                    .set({
+                      firstName: clean.firstName,
+                      lastName: clean.lastName,
+                      updatedAt: new Date(),
+                    })
+                    .where(eq(guests.id, row.id)),
+                ],
+              ],
+          buildPlusOneReadBack(db, inviterGuestId) as ReturningTail<PlusOneRow>,
+        ),
+      );
+      const plusOne = toRecord(rows, inviterGuestId);
+      if (!plusOne) return yield* Effect.fail(new PlusOneNotFound());
+      if (!unchanged) yield* Effect.sync(() => metricPlusOneChanged("renamed", "organiser"));
+      return { plusOne };
+    }).pipe(Effect.withSpan("cire.plus_one.renameAsOrganiser"));
   },
 
   /**

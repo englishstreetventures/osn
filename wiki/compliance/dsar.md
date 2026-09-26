@@ -150,7 +150,10 @@ profile-id string with **no cross-DB FK**. Two consequences:
   (`PUT …/guests/:guestId/plus-one`, `removePlusOne: true`); or the inviting
   guest is removed. The round-trip export and the change history's
   before-images leave plus-ones out, so no before-image has to be reached for
-  them. See [[cire-plus-ones]].
+  them. **Rectification** (Art. 16): the household can rename them until the
+  deadline; an editor can correct the name at any time
+  (`PUT …/guests/:guestId/plus-one/name`, `:guestId` being the guest who
+  brought them). See [[cire-plus-ones]].
 - **Guest free text in the gift registry (migration 0057).** A guest's claim
   can carry `registry_claims.note` + `display_name`, and a contribution can
   carry `registry_contributions.message` + `display_name` — text the guest

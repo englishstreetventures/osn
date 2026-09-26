@@ -9,6 +9,7 @@ import type { TestDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { seedPlusOne } from "../test-helpers/plus-one";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
@@ -261,5 +262,31 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     // enter, and they are the ones who set the date in the first place.
     const res = await put(app, rsvpPath(db), OWNER, OK_BODY);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
+  it("records a status-only reply, and refuses dietary data even when attested", async () => {
+    const { db, app } = buildApp();
+    const samId = seedPlusOne(db, guestByName(db, "Ada"), { firstName: "Sam" });
+    const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${samId}/rsvps/${eventBySlug(db, "hindu")}`;
+
+    expect((await put(app, path, OWNER, OK_BODY)).status).toBe(200);
+
+    const refused = await put(app, path, OWNER, {
+      status: "attending",
+      dietaryPresets: ["halal"],
+      dietaryConsent: true,
+    });
+    expect(refused.status).toBe(422);
+    expect(((await refused.json()) as { error: string }).error).toBe(
+      "plus_one_dietary_unavailable",
+    );
+    const row = db
+      .select({ presets: rsvps.dietaryPresets })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, samId))
+      .get();
+    expect(row?.presets).toBe("");
   });
 });

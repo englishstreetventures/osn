@@ -1,9 +1,11 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { sessionAuth } from "../middleware/auth";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
 import { PlusOneNameBody } from "../schemas/plus-one";
 import { plusOneService } from "../services/plus-one";
@@ -34,15 +36,17 @@ const GUEST_REFUSALS = {
  * PUT names them, or renames the one already named; DELETE removes them.
  *
  * Behind the household session cookie, like `POST /api/rsvp`, and no Turnstile
- * for the same reason: the cookie came from a Turnstile-gated `/api/claim`. The
+ * for the same reason: the cookie came from a Turnstile-gated `/api/claim`. A
+ * per-IP limiter caps the write rate, as on the guest registry writes. The
  * CSRF origin guard covers both methods. The service keys every read and write
  * on the session's `familyId`, and refuses the host preview, a closed RSVP
  * window, a guest outside the household, a plus-one bringing a plus-one, a
  * member without permission and a wedding at its guest cap.
  */
-export const createPlusOneRoutes = (db: Db) =>
+export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend }) =>
   new Elysia({ prefix: "/api/plus-one" })
     .use(sessionAuth(db))
+    .use(rateLimitMiddleware(deps.limiter))
     .put(
       "/:guestId",
       async ({ request, params, familyId, set }) => {

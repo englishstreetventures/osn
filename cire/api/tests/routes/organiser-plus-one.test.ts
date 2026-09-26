@@ -316,3 +316,53 @@ describe("the organiser plus-one routes — metrics", () => {
     expect(await removed()).toBe(removedBefore + 2);
   });
 });
+
+describe("PUT …/guests/:guestId/plus-one/name", () => {
+  const namePath = (guestId: string, weddingId = BOOTSTRAP_WEDDING_ID) =>
+    `${guestPath(guestId, weddingId)}/name`;
+
+  it("lets an editor correct the name, after the RSVP deadline too", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sma" });
+    db.update(weddings)
+      .set({ rsvpDeadline: "2000-01-01" })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const renamed = await counterValue(CIRE_METRICS.plusOneChanged, {
+      action: "renamed",
+      actor: "organiser",
+    });
+
+    const res = await put(app, namePath(bo.id), EDITOR, { firstName: " Sam ", lastName: "Guest" });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toMatchObject({
+      plusOne: { guestId: samId, firstName: "Sam", lastName: "Guest", plusOneOf: bo.id },
+    });
+    expect(
+      await counterValue(CIRE_METRICS.plusOneChanged, { action: "renamed", actor: "organiser" }),
+    ).toBe(renamed + 1);
+  });
+
+  it("404s plus_one_not_found where none is named, and for another wedding's guest", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const none = await put(app, namePath(bo.id), OWNER, { firstName: "Sam" });
+    expect(none.status).toBe(404);
+    expect(await jsonBody(none)).toEqual({ error: "plus_one_not_found" });
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const foreign = await put(app, namePath(bo.id, "wed_other"), STRANGER, { firstName: "X" });
+    expect(foreign.status).toBe(404);
+  });
+
+  it("403s a viewer and 400s a blank name, changing nothing", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    expect((await put(app, namePath(bo.id), VIEWER, { firstName: "X" })).status).toBe(403);
+    expect((await put(app, namePath(bo.id), OWNER, { firstName: "​" })).status).toBe(400);
+    const row = db.select({ n: guests.firstName }).from(guests).where(eq(guests.id, samId)).get();
+    expect(row?.n).toBe("Sam");
+  });
+});

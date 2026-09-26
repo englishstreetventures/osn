@@ -8,31 +8,43 @@ import { Effect, Schema } from "effect";
 export const PLUS_ONE_NAME_MAX = 100;
 
 /**
- * Code points a name never needs and that would mislead the couple reading it:
- * C0 and C1 control characters, and the bidirectional overrides and isolates
- * that can make a name render as something other than what was stored.
+ * Characters a name never needs and that would mislead the couple reading it:
+ * every control (`Cc`) and format (`Cf`) character — invisible ones such as the
+ * zero-width space, and the direction marks, overrides and isolates that make a
+ * name render as something other than what was stored — and the line and
+ * paragraph separators (`Zl`, `Zp`). Two format characters are allowed back,
+ * the zero-width non-joiner and joiner (U+200C, U+200D), which some scripts and
+ * emoji need. Matching by category covers characters Unicode adds later.
  */
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const JOINERS = /[\u200c\u200d]/gu;
+
+/**
+ * Letters that render as nothing at all: the Hangul fillers and the blank
+ * Braille pattern. They are letters by category, so the "has a visible
+ * character" test below would otherwise accept a name made of them.
+ */
+const BLANK_LETTERS = /[\u115f\u1160\u3164\uffa0\u2800]/u;
+
 function hasHiddenCharacter(value: string): boolean {
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
-    if ((code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return true;
-  }
-  return false;
+  return HIDDEN.test(value.replace(JOINERS, "")) || BLANK_LETTERS.test(value);
 }
+
+/** Whether a name shows anything: at least one letter or digit. */
+const isVisible = (value: string): boolean => /[\p{L}\p{N}]/u.test(value);
 
 const nameChecks = [
   Schema.isMaxLength(PLUS_ONE_NAME_MAX),
   Schema.makeFilter((value: string) =>
-    hasHiddenCharacter(value) ? "Must not contain control characters" : undefined,
+    hasHiddenCharacter(value) ? "Must not contain invisible or control characters" : undefined,
   ),
 ] as const;
 
-/** A first name: bounded, printable, and not blank once trimmed. The service
- *  stores it trimmed. */
+/** A first name: bounded, printable, and with at least one letter or digit, so
+ *  it cannot look blank. The service stores it trimmed. */
 const FirstName = Schema.String.check(
   ...nameChecks,
-  Schema.makeFilter((value: string) => (value.trim().length > 0 ? undefined : "Must not be blank")),
+  Schema.makeFilter((value: string) => (isVisible(value) ? undefined : "Must not be blank")),
 );
 
 /** A last name: bounded and printable, and may be empty — not everyone has one. */

@@ -167,6 +167,7 @@ Four routes make up the surface, plus the middleware:
 | Changes — head / preview / apply / revert / list | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
 | Customise the invite (text / theme / images / crops) | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
 | Event locations (`PUT .../location`) + geocode | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
+| Plus-ones — permission per guest or household, correct a plus-one's name ([[cire-plus-ones]]) | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
 | Regenerate / re-mint claim codes, mark-shared, deactivate/reactivate a household | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | Wedding settings — name / date / guest count / currency (`PUT /settings`) | ✅ | ❌ | ❌ | ❌ | `weddingEditor()` + field check |
 | The RSVP-by deadline (`PUT /settings`, `rsvpDeadline` + `rsvpDeadlineTimezone`) | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |

@@ -31,6 +31,9 @@ beforeEach(() => {
   seedDb(db);
   app = createApp(db, {
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    // Fresh per app: the module-level default is process-wide, so the file's
+    // writes would otherwise spend one shared 20-a-minute bucket.
+    plusOneLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
 });
 
@@ -362,5 +365,22 @@ describe("DELETE /api/plus-one/:guestId", () => {
     await del(bo.id, cookie);
     await del(bo.id, cookie);
     expect(await changed("removed")).toBe(before + 1);
+  });
+});
+
+describe("the plus-one write limiter", () => {
+  it("429s once the per-IP budget is spent, and writes nothing past it", async () => {
+    app = createApp(db, {
+      claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+      plusOneLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
+    });
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    const cookie = await cookieFor(SAMPLETON);
+    expect((await put(bo.id, cookie, { firstName: "Sam" })).status).toBe(200);
+    expect((await del(bo.id, cookie)).status).toBe(200);
+    const limited = await put(bo.id, cookie, { firstName: "Pat" });
+    expect(limited.status).toBe(429);
+    expect(plusOnesOf(bo.id)).toHaveLength(0);
   });
 });
