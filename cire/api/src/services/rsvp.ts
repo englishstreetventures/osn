@@ -16,7 +16,7 @@ import type { RsvpRecord } from "../schemas/rsvp";
  *  guest self-submitted and gave their own Art. 9(2)(a) consent.
  *  `organiser_attested` — an organiser recorded a phone/paper RSVP and attests
  *  the guest consented. `inviter_attested` — the household recorded the reply
- *  of the plus-one it brought (migration 0065). Defaults to `guest` for the
+ *  of the plus-one it brought (migration 0066). Defaults to `guest` for the
  *  invite write path. Read off the column, so the enum has one home. */
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
 

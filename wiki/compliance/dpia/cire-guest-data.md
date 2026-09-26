@@ -56,7 +56,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   own reply is `'guest'`. This is the writer attribution AND the consent-basis
   in one column — see §2 (lawful basis) for the Art. 9 story of the
   organiser-attested variant.
-- **Plus-ones (migration 0065).** An editor co-host may let a guest bring a
+- **Plus-ones (migration 0066).** An editor co-host may let a guest bring a
   plus-one (`guests.plus_one_allowed`). The household then types the
   plus-one's name on the invite, and the plus-one becomes an ordinary `guests`
   row pointing at the guest who brought them (`guests.plus_one_of_guest_id`),
@@ -158,7 +158,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     The organiser (as the wedding **controller** — §1 Roles) is accountable for
     the truth of the attestation; cire (processor) captures it. No new
     subprocessor, no new data class beyond the `consent_source` discriminator.
-  - **Inviter-attested variant (migration 0065).** A plus-one's reply is typed
+  - **Inviter-attested variant (migration 0066).** A plus-one's reply is typed
     by the household that brought them, and stamped
     `consent_source = 'inviter_attested'`. It is not the `'guest'` case, even
     though one household member already ticks consent for another there
@@ -218,7 +218,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `0037_rsvp_consent_source.sql`; default `'guest'` back-fills legacy rows) so
   guest-given vs organiser-attested consent stay distinguishable in the stored
   evidence + the RSVP report ("Recorded By" column / dashboard badge).
-- **Plus-ones (migration 0065).** A plus-one's reply is stamped
+- **Plus-ones (migration 0066).** A plus-one's reply is stamped
   `consent_source = 'inviter_attested'`, distinct from a guest's own and an
   organiser's, so the stored evidence says who attested. The API refuses
   dietary data on a plus-one's reply until the invite carries wording for that

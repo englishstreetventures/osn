@@ -269,7 +269,7 @@ export const guests = sqliteTable(
     source: text("source", { enum: ["import", "manual"] })
       .notNull()
       .default("import"),
-    // ── Plus-ones (migration 0065, [[wiki/cire/cire-plus-ones]]) ───────────
+    // ── Plus-ones (migration 0066, [[wiki/cire/cire-plus-ones]]) ───────────
     // Whether this guest may bring a plus-one. Set by an editor co-host, per
     // guest or for a whole household at once. Always false on a plus-one's own
     // row: a plus-one cannot bring one. Permission alone creates nothing and
@@ -951,7 +951,7 @@ export const rsvps = sqliteTable(
     // themselves and gave their own Art. 9(2)(a) consent. `'organiser_attested'`
     // — an organiser recorded a phone/paper RSVP on the guest's behalf and
     // *attests* the guest consented to storing dietary requirements.
-    // `'inviter_attested'` (migration 0065) — the reply is about a plus-one and
+    // `'inviter_attested'` (migration 0066) — the reply is about a plus-one and
     // the household that brought them recorded it. A plus-one never holds the
     // household's code or sees the invite and its privacy notice, so the
     // household attests for them; see the DPIA's inviter-attested variant.

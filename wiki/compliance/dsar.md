@@ -137,7 +137,7 @@ profile-id string with **no cross-DB FK**. Two consequences:
   right is the organiser's responsibility as **controller** (cire is
   processor — see [[data-map]]). Route guest requests to the organiser and
   assist as processor.
-- **Plus-ones (migration 0065).** A plus-one's `guests` row — their name, their
+- **Plus-ones (migration 0066).** A plus-one's `guests` row — their name, their
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
   plus-one never holds the household's code. Their requests go to the

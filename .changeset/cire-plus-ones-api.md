@@ -6,7 +6,7 @@
 
 Store plus-ones and serve them through the cire API. A plus-one is an
 ordinary `guests` row that points at the guest who brought them
-(`plus_one_of_guest_id`, migration 0065), and `plus_one_allowed` holds an
+(`plus_one_of_guest_id`, migration 0066), and `plus_one_allowed` holds an
 editor's permission. Editors set it per guest or per household; the household
 names, renames and removes its plus-one on the invite until the RSVP deadline.
 A plus-one's reply is stamped `consent_source = 'inviter_attested'`, and the API

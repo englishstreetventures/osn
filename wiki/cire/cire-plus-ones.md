@@ -22,7 +22,7 @@ This page is the contract. The host permission UI, the guest capture on the invi
 
 A plus-one is an ordinary `guests` row. Nothing else can carry an RSVP, a dietary answer or an event invitation, so nothing else would do.
 
-| Column (`guests`, migration 0065) | On whose row | Meaning |
+| Column (`guests`, migration 0066) | On whose row | Meaning |
 |---|---|---|
 | `plus_one_allowed` | the permitting guest's | May bring a plus-one. Always `0` on a plus-one's own row. |
 | `plus_one_of_guest_id` | the plus-one's | The guest who brought them. `REFERENCES guests(id) ON DELETE CASCADE`, unique. |
@@ -126,7 +126,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 
 ## Rollback
 
-Migration 0065 only adds. Dropping the columns means rebuilding `guests`, and under D1's always-on foreign keys dropping `guests` cascades into `rsvps`, `guest_events` and `guest_account_links` — so in practice it is not undone. A Worker rolled back past this change, once plus-ones exist, treats them as ordinary guests: they re-enter the editor draft and the round-trip export.
+Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and under D1's always-on foreign keys dropping `guests` cascades into `rsvps`, `guest_events` and `guest_account_links` — so in practice it is not undone. A Worker rolled back past this change, once plus-ones exist, treats them as ordinary guests: they re-enter the editor draft and the round-trip export.
 
 ---
 
@@ -147,7 +147,7 @@ Migration 0065 only adds. Dropping the columns means rebuilding `guests`, and un
 
 | Concern | File |
 |---|---|
-| Columns | `cire/db/src/schema.ts` (`guests`, `rsvps.consent_source`), `cire/db/migrations/0065_plus_ones.sql`, `cire/api/src/db/setup.ts` |
+| Columns | `cire/db/src/schema.ts` (`guests`, `rsvps.consent_source`), `cire/db/migrations/0066_plus_ones.sql`, `cire/api/src/db/setup.ts` |
 | Service | `cire/api/src/services/plus-one.ts` |
 | Routes | `cire/api/src/routes/plus-one.ts`, `cire/api/src/routes/organiser-plus-one.ts` |
 | Bodies | `cire/api/src/schemas/plus-one.ts` |
