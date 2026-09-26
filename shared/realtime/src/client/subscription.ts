@@ -16,7 +16,7 @@ export type SignalEvent =
 export interface SubscriptionOptions {
   /** How often an open socket sends `ping`. A ping unanswered by the next one marks the socket dead. */
   readonly pingIntervalMs?: number;
-  /** Consecutive attempts that never open before the subscription gives up. */
+  /** Consecutive attempts that end before the hub has answered anything on the socket, before the subscription gives up. */
   readonly maxAttempts?: number;
   /** Ceiling of the first retry's delay; each further failure doubles it, up to `maxDelayMs`. */
   readonly baseDelayMs?: number;
@@ -43,11 +43,14 @@ export const SUBSCRIPTION_DEFAULTS = {
 
 /**
  * Hold one socket open to `url` and call `onSignal` whenever the subscriber
- * should re-read. It reconnects with capped, jittered backoff, and after
- * `maxAttempts` consecutive failed attempts it stops and calls `onFallback`
- * once, leaving the product's own refetch triggers as the only ones. It never
- * throws and never logs: a browser that cannot hold the socket behaves exactly
- * as one without push.
+ * should re-read. It reconnects with capped, jittered backoff. A failed
+ * attempt is one whose socket never receives a frame from the hub — a pong
+ * or a signal both prove the socket works end to end and reset the count,
+ * so a socket that opens and is then cut before answering anything still
+ * counts against the limit. After `maxAttempts` consecutive failed attempts
+ * it stops and calls `onFallback` once, leaving the product's own refetch
+ * triggers as the only ones. It never throws and never logs: a browser that
+ * cannot hold the socket behaves exactly as one without push.
  */
 export function createTopicSubscription(
   url: string,
@@ -119,7 +122,7 @@ export function createTopicSubscription(
   }
 
   /** `ws` is gone — closed, or abandoned as silent. A no-op for any other socket. */
-  function lost(ws: WebSocket, opened: boolean, code: number | undefined): void {
+  function lost(ws: WebSocket, opened: boolean, answered: boolean, code: number | undefined): void {
     if (socket !== ws) return;
     socket = null;
     stopPinging();
@@ -129,7 +132,7 @@ export function createTopicSubscription(
       return;
     }
     if (opened) emit({ reason: "dropped" });
-    else failures += 1;
+    if (!answered) failures += 1;
     retry();
   }
 
@@ -147,6 +150,7 @@ export function createTopicSubscription(
     }
     socket = ws;
     let opened = false;
+    let answered = false;
     let pingOutstanding = false;
 
     ws.addEventListener("open", () => {
@@ -154,10 +158,9 @@ export function createTopicSubscription(
       opened = true;
       const reconnected = everOpened;
       everOpened = true;
-      failures = 0;
       pingTimer = setInterval(() => {
         if (pingOutstanding) {
-          lost(ws, true, undefined);
+          lost(ws, true, answered, undefined);
           try {
             ws.close();
           } catch {
@@ -178,6 +181,8 @@ export function createTopicSubscription(
     ws.addEventListener("message", (event: MessageEvent) => {
       if (socket !== ws) return;
       pingOutstanding = false;
+      answered = true;
+      failures = 0;
       if (typeof event.data !== "string" || event.data === PONG) return;
       let frame: unknown;
       try {
@@ -188,7 +193,7 @@ export function createTopicSubscription(
       if (isSignal(frame)) emit({ reason: "message", signal: frame });
     });
 
-    ws.addEventListener("close", (event: CloseEvent) => lost(ws, opened, event.code));
+    ws.addEventListener("close", (event: CloseEvent) => lost(ws, opened, answered, event.code));
   }
 
   connect();

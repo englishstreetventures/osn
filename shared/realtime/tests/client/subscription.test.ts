@@ -217,4 +217,77 @@ describe("createTopicSubscription", () => {
     vi.advanceTimersByTime(10_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
+
+  it("counts a socket that opens but is cut before answering as a failed attempt, and falls back after maxAttempts", () => {
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, random: () => 0.999, onFallback });
+
+    latest().serverOpen();
+    latest().serverClose(1006); // attempt 1: opened, never answered
+    vi.advanceTimersByTime(99); // floor(0.999 × 100)
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    latest().serverOpen();
+    latest().serverClose(1006); // attempt 2: opened, never answered
+    vi.advanceTimersByTime(199); // floor(0.999 × 200): backoff grew
+    expect(FakeWebSocket.instances).toHaveLength(3);
+
+    latest().serverOpen();
+    latest().serverClose(1006); // attempt 3 = maxAttempts: opened, never answered
+    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([
+      { reason: "dropped" },
+      { reason: "reconnected" },
+      { reason: "dropped" },
+      { reason: "reconnected" },
+      { reason: "dropped" },
+      { reason: "stopped" },
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+  });
+
+  it("resets the failure count once a socket answers, rather than counting failures over its lifetime", () => {
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, random: () => 0.999, onFallback });
+
+    latest().serverOpen();
+    latest().serverClose(1006); // failure 1: opened, never answered
+    vi.advanceTimersByTime(99);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    latest().serverOpen();
+    latest().serverClose(1006); // failure 2: opened, never answered
+    vi.advanceTimersByTime(199);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+
+    // This socket answers (a pong), which resets the count, then is lost.
+    const answered = latest();
+    answered.serverOpen();
+    answered.serverSend("pong");
+    answered.serverClose(1006);
+    expect(onFallback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(99); // reset: ceiling is baseDelayMs again, not the grown one
+    expect(FakeWebSocket.instances).toHaveLength(4);
+
+    // maxAttempts (3) more failed attempts are needed now, not just one more.
+    latest().serverOpen();
+    latest().serverClose(1006); // failure 1 post-reset
+    expect(onFallback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(99);
+    expect(FakeWebSocket.instances).toHaveLength(5);
+
+    latest().serverOpen();
+    latest().serverClose(1006); // failure 2 post-reset
+    expect(onFallback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(199);
+    expect(FakeWebSocket.instances).toHaveLength(6);
+
+    latest().serverOpen();
+    latest().serverClose(1006); // failure 3 post-reset = maxAttempts
+    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
