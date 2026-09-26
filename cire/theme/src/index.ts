@@ -42,6 +42,7 @@ const COLOR_PATTERNS = [
 export * from "./css-ramp";
 export * from "@shared/color";
 export * from "./palette";
+export * from "./sections";
 export * from "./typography";
 
 export function isSafeCssColor(value: string): boolean {

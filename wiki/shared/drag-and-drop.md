@@ -7,10 +7,11 @@ related:
   - "[[cire-registry]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
+  - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[toast]]"
   - "[[component-lab]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-26
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -274,8 +275,13 @@ Current adopters, all in `@cire/host`:
 - **Gift list** (`RegistryView`) — one flat list of up to 500 rows, via `registry/items/reorder`.
 - **Checklist** (`ChecklistView`) — one list per lead-time bucket, via `tasks/reorder`.
 - **Budget** (`BudgetView`) — one list per category, via `budget/items/reorder`.
+- **Invite FAQ** (`invite/FaqEditor`) — one list of up to 30 questions, via
+  `PUT invite/faqs/order`. It saves moves together: a move shows at once, and one
+  request with the whole order follows a short pause after the last move, since
+  a keyboard walk would otherwise send one write per key press into the invite
+  builder's per-IP rate limit. See [[cire-invite-builder]].
 
-The last three draw their grip and screen-reader move buttons through
+The last four draw their grip and screen-reader move buttons through
 `cire/host/src/components/ReorderControls.tsx`; `ReorderControls.browser.test.tsx`
 mounts it in a narrow flex row beside a greedy sibling and measures the 24 px
 floor.

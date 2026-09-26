@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSrcSet, variantSrc } from "../../src/components/invite-images";
+import { buildSrcSet, heroPreloadHref, variantSrc } from "../../src/components/invite-images";
 
 describe("buildSrcSet (T-M1)", () => {
   it("appends &variant=…<width>w for each variant when the base URL already has a query", () => {
@@ -33,5 +33,39 @@ describe("variantSrc", () => {
 
   it("uses ? when the base URL has no query", () => {
     expect(variantSrc("/img", "hero-bg")).toBe("/img?variant=hero-bg");
+  });
+});
+
+describe("heroPreloadHref", () => {
+  const API = "https://api.test";
+  const hero = (over: Partial<{ imageUrl: string | null; title: string | null }> = {}) => ({
+    imageUrl: "/api/invite/s/image/hero?v=9",
+    title: null,
+    subtitle: null,
+    ...over,
+  });
+
+  // The exact URL InviteHeader renders: the single blurred backdrop variant.
+  it("preloads the hero-bg variant of a shown hero's image", () => {
+    expect(heroPreloadHref(API, { hero: hero(), visibility: { hero: true } })).toBe(
+      "https://api.test/api/invite/s/image/hero?v=9&variant=hero-bg",
+    );
+  });
+
+  it("reads a payload without the switch as on", () => {
+    expect(heroPreloadHref(API, { hero: hero() })).toBe(
+      "https://api.test/api/invite/s/image/hero?v=9&variant=hero-bg",
+    );
+  });
+
+  // A switched-off hero renders nothing, so its image must not be fetched at
+  // top priority either.
+  it("preloads nothing for a switched-off hero, image or not", () => {
+    expect(heroPreloadHref(API, { hero: hero(), visibility: { hero: false } })).toBeNull();
+  });
+
+  it("preloads nothing without a hero image, or without a payload", () => {
+    expect(heroPreloadHref(API, { hero: hero({ imageUrl: null, title: "A & B" }) })).toBeNull();
+    expect(heroPreloadHref(API, null)).toBeNull();
   });
 });

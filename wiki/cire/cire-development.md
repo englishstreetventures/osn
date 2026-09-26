@@ -20,7 +20,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-26
 ---
 
 # Cire development guide
@@ -202,6 +202,14 @@ bun run --cwd cire/db db:generate --name rsvp_dietary_presets
 Pass `--name`. Without it drizzle-kit invents one, and the journal entry's `tag`
 is the emitted filename — renaming the file by hand afterwards fails the first
 assertion in `cire/api/tests/db/ddl-lockstep.test.ts`.
+
+**A boolean column with a default needs one hand edit.** drizzle-kit writes
+`integer(..., { mode: "boolean" }).default(true)` into the migration as
+`DEFAULT true`. SQLite accepts it, but `PRAGMA table_info` then reads the
+default back as the text `true`, while the lockstep test renders Drizzle's
+boolean default as `1`. Change it to `DEFAULT 1` (or `DEFAULT 0`) in the
+generated SQL and use the same literal in `setup.ts`; leave the snapshot as
+drizzle-kit wrote it. `0063_invite_section_visibility.sql` is the example.
 
 **A cire column has three DDL surfaces, not two.** The migration and
 `cire/db/src/schema.ts` are the two an agent reaches for; the third is the test

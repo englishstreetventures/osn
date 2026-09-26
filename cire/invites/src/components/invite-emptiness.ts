@@ -1,15 +1,26 @@
 /**
- * Shared "is this content absent?" predicates for the guest invite's conditional
- * segments. A segment is HIDDEN when every field that could give it content is
- * absent. "Absent" means null, undefined, empty-string, OR whitespace-only — an
- * organiser who types only spaces into a field hasn't actually filled it.
+ * Which of the guest invite's conditional segments render. A segment is HIDDEN
+ * when every field that could give it content is absent. "Absent" means null,
+ * undefined, empty-string, OR whitespace-only — an organiser who types only
+ * spaces into a field hasn't actually filled it.
  *
- * These predicates are the single source of truth for which invite segments
- * render on the guest site (InviteHeader hero + story, DetailsModal inspiration +
- * dress code). The organiser builder mirrors the SAME logic (see
- * `cire/host/src/lib/invite-emptiness.ts`) so its "Shown / Hidden — empty"
- * badges always match what a guest actually sees. Keep the two in lockstep.
+ * The hero, Our Story, the FAQ and the closing section also have a visibility
+ * switch (`VISIBILITY_SECTIONS` in `@cire/theme`). `heroState` / `storyState` /
+ * `faqState` / `footerState` combine the switch with the emptiness check: a
+ * section renders only when its state is `shown` — switched on AND it has
+ * content.
+ *
+ * These are the single source of truth for which invite segments render on the
+ * guest site (InviteHeader hero + story, the packs' FAQ section, InviteClosing,
+ * DetailsModal inspiration + dress code). The organiser builder mirrors the
+ * content predicates and the four state functions in
+ * `cire/host/src/lib/invite-emptiness.ts`, so its
+ * badges always match what a guest actually sees. The switch vocabulary and
+ * `sectionState` itself are shared through `@cire/theme`; the content predicates
+ * are two hand-kept copies. Keep them in lockstep.
  */
+
+import { sectionState, type SectionState } from "@cire/theme";
 
 /** A value is "present" when it is a non-empty, non-whitespace-only string. */
 export function hasText(value: string | null | undefined): boolean {
@@ -66,16 +77,60 @@ export interface FooterContent {
 }
 
 /**
- * The footer's personal block is EMPTY when the couple has set neither a note
- * nor an image. Unlike the hero/story this does not hide a whole section — the
- * footer still renders its legal links either way — it just means the sign-off
- * area above them is unchanged from a wedding that never touched it.
+ * The closing section is EMPTY when the couple has set neither a note nor an
+ * image, and then it renders nothing at all. It is separate from the site
+ * footer below it, whose legal links always render.
  *
  * The two are independent: a note with no image renders the note, an image with
  * no note renders the image.
  */
 export function isFooterEmpty(footer: FooterContent): boolean {
   return !hasText(footer.message) && !hasText(footer.imageUrl);
+}
+
+/**
+ * The hero's state from its switch and its content. `visible` absent (a payload
+ * from an API older than the switches) reads as on — see `sectionState`.
+ */
+export function heroState(visible: boolean | null | undefined, hero: HeroContent): SectionState {
+  return sectionState(visible, isHeroEmpty(hero));
+}
+
+/** Our Story's state from its switch and its content. */
+export function storyState(visible: boolean | null | undefined, story: StoryContent): SectionState {
+  return sectionState(visible, isStoryEmpty(story));
+}
+
+/** The closing section's state from its switch and its content. */
+export function footerState(
+  visible: boolean | null | undefined,
+  footer: FooterContent,
+): SectionState {
+  return sectionState(visible, isFooterEmpty(footer));
+}
+
+/** One FAQ entry, as far as emptiness is concerned. */
+export interface FaqContent {
+  question: string | null | undefined;
+  answer: string | null | undefined;
+}
+
+/**
+ * The FAQ is EMPTY when no entry has both a question and an answer. The API
+ * refuses a blank field, so in practice this is "has no entries"; the check
+ * still holds against a malformed payload, where an entry with half its text
+ * missing would otherwise paint an empty disclosure.
+ */
+export function isFaqEmpty(entries: readonly FaqContent[] | null | undefined): boolean {
+  return !(entries ?? []).some((e) => hasText(e.question) && hasText(e.answer));
+}
+
+/** The FAQ's state from its switch and its entries. */
+export function faqState(
+  visible: boolean | null | undefined,
+  entries: readonly FaqContent[] | null | undefined,
+): SectionState {
+  return sectionState(visible, isFaqEmpty(entries));
 }
 
 /** A pinterest URL is present (so the Inspiration segment renders) iff it has text. */

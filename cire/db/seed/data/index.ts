@@ -6,6 +6,8 @@ export { entitlements } from "./entitlements";
 export type { SeedEntitlement } from "./entitlements";
 export { events } from "./events";
 export type { DressCodeSwatch, SeedCrop, SeedEvent } from "./events";
+export { faqs } from "./faqs";
+export type { SeedFaq } from "./faqs";
 export { guests } from "./guests";
 export type { SeedFamily, SeedGuest } from "./guests";
 export { syntheticFamilies, syntheticRsvps } from "./households";

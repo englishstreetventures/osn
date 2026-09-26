@@ -6,7 +6,7 @@ import {
   cropBackgroundStyle,
   type ImageCrop,
 } from "./image-crop";
-import { isFooterEmpty } from "./invite-emptiness";
+import { footerState } from "./invite-emptiness";
 import { buildSrcSet, variantSrc } from "./invite-images";
 
 /**
@@ -102,6 +102,12 @@ export const BAND_WIDTH_TRANSITION_CLASS = "transition-[max-width] duration-500 
 const LEGACY_CROP_ASPECT = 16 / 9;
 
 export interface InviteClosingProps {
+  /**
+   * The closing section's visibility switch, from the claim response. Off ⇒
+   * render nothing even with content. Absent (an API older than the switch)
+   * reads as on.
+   */
+  visible?: boolean | null;
   /** The couple's closing note. Blank/whitespace-only ⇒ no note. */
   message?: string | null;
   /**
@@ -146,9 +152,9 @@ export interface InviteClosingProps {
  * component therefore receives nothing at all until a code is entered — the
  * render gate and the data gate are the same gate.
  *
- * Like the hero and Our Story it is a conditional segment: with neither a note
- * nor an image it renders NOTHING — no empty surface, no stray band above the
- * footer.
+ * Like the hero and Our Story it is a conditional segment: switched off, or
+ * with neither a note nor an image, it renders NOTHING — no empty surface, no
+ * stray band above the footer.
  *
  * IMAGE SHAPE — the image is a band spanning the viewport edge to edge, with the
  * note (when there is one) reading below it on the section surface. The section
@@ -198,10 +204,11 @@ export interface InviteClosingProps {
  * applied to the width.
  */
 export function InviteClosing(props: InviteClosingProps) {
-  // The whole section is a conditional segment: nothing set ⇒ render nothing.
-  // `isFooterEmpty` is the shared predicate the organiser builder mirrors for
-  // its "Shown / Hidden — empty" badge, so the two cannot disagree.
-  const show = () => !isFooterEmpty({ message: props.message, imageUrl: props.imageUrl });
+  // The whole section is a conditional segment: switched off, or nothing set ⇒
+  // render nothing. `footerState` is the function the organiser builder mirrors
+  // for its badge, so the two cannot disagree.
+  const show = () =>
+    footerState(props.visible, { message: props.message, imageUrl: props.imageUrl }) === "shown";
 
   // Trimmed so a note of "  text  " doesn't render its padding. The API already
   // normalises on save; this also covers a legacy row.

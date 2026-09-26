@@ -80,6 +80,7 @@ export const CIRE_METRICS = {
   inviteSaved: "cire.invite.saved",
   inviteAssetUploaded: "cire.invite.asset.uploaded",
   inviteAssetSize: "cire.invite.asset.size",
+  inviteFaqWrite: "cire.invite.faq.write",
   // On-the-fly image transform on the public serve path (Cloudflare Images).
   imageTransform: "cire.image.transform",
   // Guest account-linking (OSN bridge).
@@ -402,6 +403,12 @@ type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
 type InviteSimpleAttrs = { result: "ok" | "error" };
+/** Which organiser write touched the invite's FAQ list. Bounded, one per route. */
+export type InviteFaqAction = "create" | "update" | "remove" | "reorder";
+/** How it ended: written, refused at the entry cap, or aimed at an id this
+ *  wedding does not hold. Bounded; never an id. */
+export type InviteFaqResult = "ok" | "limit_reached" | "not_found";
+type InviteFaqWriteAttrs = { action: InviteFaqAction; result: InviteFaqResult };
 
 /**
  * Outcome of a public image serve:
@@ -625,6 +632,12 @@ const inviteSaved = createCounter<InviteSimpleAttrs>({
   name: CIRE_METRICS.inviteSaved,
   description: "Invite text-customisation saves, by outcome",
   unit: "{save}",
+});
+
+const inviteFaqWrite = createCounter<InviteFaqWriteAttrs>({
+  name: CIRE_METRICS.inviteFaqWrite,
+  description: "Organiser writes to the invite FAQ, by action and outcome",
+  unit: "{write}",
 });
 
 const inviteAssetUploaded = createCounter<InviteSimpleAttrs>({
@@ -905,6 +918,9 @@ export const bucketParseReason = (tag: string): ParseRejectReason => {
 };
 
 export const metricInviteSaved = (result: "ok" | "error"): void => inviteSaved.inc({ result });
+
+export const metricInviteFaqWrite = (action: InviteFaqAction, result: InviteFaqResult): void =>
+  inviteFaqWrite.inc({ action, result });
 
 export const metricInviteAssetUploaded = (result: "ok" | "error", byteLength?: number): void => {
   inviteAssetUploaded.inc({ result });

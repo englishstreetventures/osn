@@ -405,6 +405,29 @@ INSERT OR IGNORE INTO tasks (
   );
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- Invite FAQ (3) — shown under the events once a household claims
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- The section's switch (`wedding_invite_customisations.faq_visible`) is left at
+-- its column default, on. `sort_order` is dense from 0, as the reorder endpoint
+-- writes it.
+INSERT OR IGNORE INTO wedding_faqs (
+  id, wedding_id, question, answer, sort_order, created_at, updated_at
+) VALUES
+  (
+    'faq_2c9e7a41-0000-4000-8000-000000000001', 'wed_bootstrap', 'Is there parking at the venue?', 'Yes. The venue has free parking for about sixty cars, and the overflow lot is a two-minute walk from the main entrance.',
+    0, unixepoch(), unixepoch()
+  ),
+  (
+    'faq_2c9e7a41-0000-4000-8000-000000000002', 'wed_bootstrap', 'Are children invited?', 'We love your little ones, but the reception is adults only. Children named on your invitation are very welcome at the ceremony.',
+    1, unixepoch(), unixepoch()
+  ),
+  (
+    'faq_2c9e7a41-0000-4000-8000-000000000003', 'wed_bootstrap', 'When should we arrive?', 'Please arrive twenty minutes before the ceremony starts. The doors close five minutes before, so the couple can walk in to a full room.',
+    2, unixepoch(), unixepoch()
+  );
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- Registry settings — one row, and the guest-side publish gate
 -- ────────────────────────────────────────────────────────────────────────────
 

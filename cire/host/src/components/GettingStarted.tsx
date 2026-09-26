@@ -130,8 +130,9 @@ export default function GettingStarted(props: {
         sharedByFamily.set(g.familyId, sharedByFamily.get(g.familyId) || g.codeSharedAt !== null);
       }
 
-      // The invite counts as "customised" once either the hero or the Our Story
-      // section would actually render for a guest (mirrors the builder's badges).
+      // The invite counts as "customised" once the hero or Our Story has content.
+      // A section switched off still counts: this step asks whether the
+      // organiser has made the invite their own, not what a guest sees now.
       const inviteCustomised = invite
         ? !isHeroEmpty(invite.hero) || !isStoryEmpty(invite.story)
         : false;

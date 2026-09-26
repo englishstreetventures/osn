@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-26
 ---
 
 # Cire auth model
@@ -290,12 +290,13 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 
 **Session rotation on link (C6).** A successful `POST /api/account/link` **rotates the guest session**: it mints a fresh token and revokes the presented one in a single atomic batch, then returns a new `Set-Cookie`. Linking is a privilege change (the household becomes bound to an OSN account), so any token an attacker may have planted before the legitimate user linked is invalidated in the same commit — a session-fixation defence (`sessionService.rotate`). Rotation is best-effort: if the write fails the link still stands and the existing session is kept (logged), rather than 500-ing a completed link. Clients must use the rotated cookie for subsequent requests; the old one no longer validates.
 
-**The browser-side affordance shipped with the OIDC swap** — `cire/invites/src/components/PulseAccountLink.tsx`, rendered under the claimed invite. It is strictly additive: every failure path degrades to a hidden or quiet control, never a broken invite.
+**The browser-side affordance shipped with the OIDC swap** — `cire/invites/src/components/PulseAccountLink.tsx`, rendered in the claim and welcome panel (`LoginSection`, see [[cire-invite-designs]]) once a household has claimed. It is strictly additive: every failure path degrades to a hidden or quiet control, never a broken invite.
 
 1. Probe `GET /api/account/link` with the guest cookie alone. **503 ⇒ the whole panel renders nothing** (that deployment has no ARC key, so linking is off). Any other non-OK ⇒ also hidden.
 2. Signed out, it offers "Sign in with musubi" — `signIn(window.location.href)`, the same top-level redirect the organiser portal uses. The guest cookie survives the round trip, so the guest comes back to the claimed invite with the panel signed in.
 3. Signed in, the guest picks **which household member they are** and the panel POSTs `{ guestId }` through `authFetch`. **409 is treated as success**, not an error: the seat is linked either way, and surfacing "already linked" as a failure would be a lie. 403 → "That isn't one of your household's guests." A thrown `AuthExpiredError` flips the panel back to the sign-in button.
 4. Unlink is optimistic and idempotent — the indicator flips at once, and a `404` from `DELETE /api/account/link/:guestId` counts as done.
+5. Household sign-out ends this sign-in too. The panel's "Not {name}? Sign out" control sends `POST /api/auth/signout` beside `POST /api/claim/signout`, so a shared device does not hand one guest's OSN sign-in to the next household to claim. Host preview is the exception: there the same session is the organiser's portal sign-in.
 
 ## CSRF origin guard (C5 / S-L3)
 

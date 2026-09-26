@@ -149,8 +149,8 @@ function metalUsage(): { file: string; metal: number }[] {
 const ALLOWED: { file: string; metal: number; reason: string }[] = [
   {
     file: "components/LoginSection.tsx",
-    metal: 2,
-    reason: "the two claim headings — clamp(2rem,…), no heading-scale factor, so 32px",
+    metal: 1,
+    reason: "the band layout's greeting — clamp(2rem,…) × 0.85 = 27.2px, large text",
   },
   {
     file: "components/MapPreview.tsx",

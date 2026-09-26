@@ -35,4 +35,13 @@ describe.each(["classic", "gala"])("designs/%s/Document.astro", (pack) => {
   it("flags the page exactly when the route's fetch failed", () => {
     expect(element("InvitePage")).toMatch(/\binviteMissing=\{initialInvite === null\}/);
   });
+
+  // The preload has to honour the hero's switch, which only `heroPreloadHref`
+  // does. An inline preload built straight from `hero.imageUrl` would fetch a
+  // switched-off hero's image at top priority for a section that never paints.
+  it("builds the hero preload with heroPreloadHref, never inline", () => {
+    expect(source).toMatch(/\bconst preloadHeroHref = heroPreloadHref\(apiUrl, initialInvite\)/);
+    expect(source).not.toMatch(/variant=hero-bg/);
+    expect(source).not.toMatch(/\bheroBase\b/);
+  });
 });

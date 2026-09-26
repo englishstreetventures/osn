@@ -1,7 +1,8 @@
 /**
  * Invite builder — lets the signed-in organiser customise the guest invite. It
  * is structured as one card per guest-page section, **in the order a guest
- * scrolls them** (Hero → Our Story → Code Entry & Welcome → Events → Closing),
+ * scrolls them** (Hero → Our Story → Code Entry & Welcome → Events → FAQ →
+ * Closing),
  * and each card owns EVERYTHING about its section: image, copy, colours, and a
  * live preview. Global typography sits first (it applies to every section),
  * the copyable invite message last (it is not part of the guest page). One
@@ -20,8 +21,9 @@
  * (phones) a trigger naming the current section that opens the same tabs as a
  * two-column grid — see {@link SECTION_MENU_ID}.
  *
- * Two persistence models coexist deliberately: text/theme wait for Save;
- * images, crops and the design selection apply immediately (marked with an
+ * Two persistence models coexist deliberately: text/theme and the section
+ * visibility switches wait for Save;
+ * images, crops, the design selection and the FAQ entries apply immediately (marked with an
  * "applies immediately" badge, and image removal asks first). A draft→publish
  * model that would unify them needs API support — tracked in the cire wiki.
  */
@@ -32,6 +34,7 @@ import {
   fontStack,
   paletteAdjustments,
   SECTION_TONES,
+  type SectionState,
   type SectionTone,
   typographyVars,
 } from "@cire/theme";
@@ -45,6 +48,7 @@ import {
   createResource,
   createSignal,
   For,
+  type JSX,
   onCleanup,
   onMount,
   Show,
@@ -54,16 +58,22 @@ import { createStore } from "solid-js/store";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
 import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
-import { isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../../lib/invite-emptiness";
+import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
 import { designLayout } from "./design-layout";
 import DesignPicker from "./DesignPicker";
+import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
   Disclosure,
+  FADED_LABEL,
+  HiddenSectionIcon,
+  isHiddenState,
+  SECTION_STATE_LABELS,
   SectionCard,
+  sectionTabTone,
   SliderField,
   TextAreaField,
   TextField,
@@ -78,6 +88,7 @@ import {
   DEFAULTS,
   draftFromCustomisation,
   emptyDraft,
+  type FaqEntry,
   FONT_OPTIONS,
   FONT_STYLE_OPTIONS,
   FONT_WEIGHT_OPTIONS,
@@ -86,6 +97,7 @@ import {
   HERO_BLUR_DEFAULT,
   HERO_BLUR_MAX,
   HERO_BLUR_MIN,
+  faqSampleBody,
   type ImageSlot,
   type InviteCustomisation,
   sampleCopy,
@@ -93,6 +105,7 @@ import {
   textPayload,
   themePayload,
   type ThemeSection,
+  visibilityPayload,
 } from "./model";
 import PreviewModal from "./PreviewModal";
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
@@ -106,6 +119,12 @@ interface InviteBuilderProps {
   weddingSlug: string;
   /** The wedding's entitlement keys — locks premium designs in the selector. */
   entitlements: string[];
+  /** The section to open on, when a link elsewhere in the dashboard asked for
+   *  one. Read once, as the builder mounts; the first section otherwise. */
+  initialSection?: InviteSectionId;
+  /** The line pointing at the other places that shape the invite message,
+   *  shown in the Message section. */
+  inviteMessageLinks?: JSX.Element;
 }
 
 /**
@@ -172,23 +191,42 @@ const NAV_SECTIONS = [
   { id: "invite-story", label: "Our Story" },
   { id: "invite-welcome", label: "Welcome" },
   { id: "invite-events", label: "Events" },
+  { id: "invite-faq", label: "FAQ" },
   { id: "invite-closing", label: "Closing" },
   { id: "invite-message", label: "Message" },
 ] as const;
+
+export type InviteSectionId = (typeof NAV_SECTIONS)[number]["id"];
 
 export default function InviteBuilder(props: InviteBuilderProps) {
   const { authFetch } = useAuth();
 
   const base = () => `/api/organiser/weddings/${props.weddingId}/invite`;
 
+  // The FAQ entries. They arrive once, on the first load (`?include=faqs`), and
+  // from then on `FaqEditor` keeps them current: the write routes' responses
+  // that replace `data` below never carry them. Set before the resource
+  // resolves, so the FAQ card never renders ahead of its list. `undefined`
+  // after the first load means an API older than the FAQ.
+  const [faqs, setFaqs] = createSignal<FaqEntry[] | undefined>(undefined);
+  let faqsLoaded = false;
+  // An FAQ form with typing in it, or an FAQ order not yet saved. Guarded like a
+  // dirty draft, but kept out of the save bar, which cannot save either.
+  const [faqPending, setFaqPending] = createSignal(false);
+
   const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
-    const res = await authFetch(apiUrl(base()));
+    const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
     if (res.status === 401) {
       redirectToLogin();
       throw new Error("unauthorised");
     }
     if (!res.ok) throw new Error(`Could not load invite (${res.status}).`);
-    return (await res.json()) as InviteCustomisation;
+    const body = (await res.json()) as InviteCustomisation;
+    if (!faqsLoaded) {
+      faqsLoaded = true;
+      setFaqs(body.faqs);
+    }
+    return body;
   });
 
   // The whole editable state as one draft store (see model.ts), seeded once
@@ -211,6 +249,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // `let` snapshots made an "Unsaved changes" indicator impossible.
   const [savedText, setSavedText] = createSignal("");
   const [savedTheme, setSavedTheme] = createSignal("");
+  const [savedVisibility, setSavedVisibility] = createSignal("");
 
   // Seed the draft once, when the resource first resolves (an effect, not a
   // render-path side effect). Later mutations from image/design saves refresh
@@ -222,6 +261,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setDraft(next);
     setSavedText(JSON.stringify(textPayload(next)));
     setSavedTheme(JSON.stringify(themePayload(next)));
+    setSavedVisibility(JSON.stringify(visibilityPayload(next)));
     setSeeded(true);
   });
 
@@ -237,19 +277,22 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const themeDirty = createMemo(
     () => seeded() && JSON.stringify(themePayload(draft)) !== savedTheme(),
   );
-  const isDirty = () => textDirty() || themeDirty();
+  const visibilityDirty = createMemo(
+    () => seeded() && JSON.stringify(visibilityPayload(draft)) !== savedVisibility(),
+  );
+  const isDirty = () => textDirty() || themeDirty() || visibilityDirty();
 
   // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
   // switching away (unsaved-guard), and the browser asks on tab close/reload.
   onMount(() => {
-    const unregister = registerUnsavedGuard(isDirty);
+    const unregister = registerUnsavedGuard(() => isDirty() || faqPending());
     onCleanup(unregister);
   });
   // The beforeunload listener exists ONLY while dirty — a persistently
   // registered one makes the page ineligible for the back/forward cache in
   // Firefox/Safari even with a clean form (P-I3).
   createEffect(() => {
-    if (!isDirty()) return;
+    if (!isDirty() && !faqPending()) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
@@ -339,17 +382,17 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // old vertical stack of every card. Defaults to the first section, guest
   // scroll order.
   const [activeSection, setActiveSection] = createSignal<(typeof NAV_SECTIONS)[number]["id"]>(
-    NAV_SECTIONS[0].id,
+    props.initialSection ?? NAV_SECTIONS[0].id,
   );
 
   /**
    * Whether the narrow-container section menu is open (see {@link SECTION_MENU_ID}).
    *
-   * Below `@3xl/builder` the eight tabs cannot sit on one line, and the row used
+   * Below `@3xl/builder` the tabs cannot sit on one line, and the row used
    * to be a horizontally scrolling strip: Closing and Message lived off the right
    * edge with nothing to say so, on the surface where an organiser is least
    * likely to go looking. The tabs are now collapsed behind a trigger naming the
-   * current section, and open as a two-column grid that shows all eight at once —
+   * current section, and open as a two-column grid that shows every tab at once —
    * the same move `ModuleSidebar` made for the module strip. From
    * `@3xl/builder` up the trigger is `display: none` and the same tablist is the
    * static row it has always been, so this signal is inert there.
@@ -416,6 +459,25 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     return ids[(fromIndex + delta + ids.length) % ids.length];
   }
 
+  /**
+   * The section one row down (`dir` 1) or up (-1) in the open menu's grid,
+   * wrapping within its COLUMN: down from the last row goes to the top of the
+   * same column, up from the first row to the lowest cell of that column. A
+   * plain modulo step would cross columns whenever the tab count is odd, since
+   * the last row is then a single cell.
+   */
+  function stepSectionRow(fromId: string, dir: 1 | -1): string | undefined {
+    const ids = NAV_SECTIONS.map((s): string => s.id);
+    const from = Math.max(0, ids.indexOf(fromId));
+    const next = from + dir * SECTION_MENU_COLUMNS;
+    if (next >= 0 && next < ids.length) return ids[next];
+    const column = from % SECTION_MENU_COLUMNS;
+    if (dir === 1) return ids[column];
+    const lowest =
+      column + Math.floor((ids.length - 1 - column) / SECTION_MENU_COLUMNS) * SECTION_MENU_COLUMNS;
+    return ids[lowest];
+  }
+
   /** Move focus to a tab and activate its section — the APG "automatic
    *  activation" model, same as the design radiogroup's arrow-key behaviour. */
   function focusSection(id: (typeof NAV_SECTIONS)[number]["id"]) {
@@ -457,11 +519,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         break;
       case "ArrowDown":
         if (!sectionMenuOpen()) return;
-        nextId = stepSection(currentId, SECTION_MENU_COLUMNS);
+        nextId = stepSectionRow(currentId, 1);
         break;
       case "ArrowUp":
         if (!sectionMenuOpen()) return;
-        nextId = stepSection(currentId, -SECTION_MENU_COLUMNS);
+        nextId = stepSectionRow(currentId, -1);
         break;
       case "Home":
         nextId = NAV_SECTIONS[0]!.id;
@@ -489,72 +551,76 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
-  // Live "what a guest will see" gates, mirroring the guest invite's emptiness
-  // predicates. Driven by the draft buffers (so the badge flips the instant the
-  // organiser types) plus the loaded image URL (image upload/remove refetches
-  // `data`). The hero/story sections are HIDDEN on the live invite when these
-  // report empty — the badges surface that before the organiser saves.
-  const heroShown = () =>
-    !isHeroEmpty({
+  // Live "what a guest will see" states, mirroring the guest invite's state
+  // functions: shown, empty (switched on with no content) or off. Driven by the
+  // draft (so the badge flips the instant the organiser types or flips the
+  // switch) plus the loaded image URL (image upload/remove refetches `data`).
+  // A section renders on the live invite only in the `shown` state — the badges
+  // surface that before the organiser saves.
+  const heroSectionState = () =>
+    heroState(draft.visibility.hero, {
       imageUrl: data()?.hero.imageUrl,
       title: draft.heroTitle,
       subtitle: draft.heroSubtitle,
     });
-  const storyShown = () =>
-    !isStoryEmpty({
+  const storySectionState = () =>
+    storyState(draft.visibility.story, {
       heading: draft.storyHeading,
       body: draft.storyBody,
       imageUrl: data()?.story.imageUrl,
     });
-  // The footer has no defaults, so its badge asks "is there anything personal
-  // here at all?" — a note, an image, or both. Neither ⇒ the guest sees the
-  // plain footer (names over the legal links).
-  const footerShown = () =>
-    !isFooterEmpty({ message: draft.footerMessage, imageUrl: data()?.footer?.imageUrl });
+  // The closing section has no defaults, so its content check asks "is there
+  // anything personal here at all?" — a note, an image, or both.
+  const footerSectionState = () =>
+    footerState(draft.visibility.footer, {
+      message: draft.footerMessage,
+      imageUrl: data()?.footer?.imageUrl,
+    });
 
-  /** Shown-state per nav item, mirroring the section badges in the jump list. */
-  const navShown = (id: string): boolean | undefined => {
+  // The FAQ has content once it has an entry. The entries apply at once, so the
+  // badge reads the live list; the switch is the draft's, like the others.
+  const faqSectionState = () => faqState(draft.visibility.faq, faqs());
+
+  /** Section state per nav item, mirroring the section badges. `undefined` for
+   *  the sections that cannot be hidden. */
+  const navState = (id: string): SectionState | undefined => {
     switch (id) {
       case "invite-hero":
-        return heroShown();
+        return heroSectionState();
       case "invite-story":
-        return storyShown();
+        return storySectionState();
+      case "invite-faq":
+        return faqSectionState();
       case "invite-closing":
-        return footerShown();
+        return footerSectionState();
       default:
         return undefined;
     }
   };
 
-  /** The ACTIVE section's Shown/Hidden state, for the collapsed menu trigger's
-   *  dot. Memoised because the trigger reads it three times (the `Show` plus
-   *  two `classList` entries) and `navShown` funnels into the draft-reading
-   *  emptiness predicates — one subscription per keystroke instead of three.
-   *  Declared here, not beside `activeIndex`/`activeLabel`: `createMemo` runs
-   *  its computation eagerly, so it has to sit below `navShown`. */
-  const activeShown = createMemo(() => navShown(activeSection()));
+  /** The ACTIVE section's state, for the collapsed menu trigger's faded label
+   *  and its accessible name. Memoised because the trigger reads it twice and
+   *  `navState` funnels into the draft-reading state functions — one
+   *  subscription per keystroke instead of two. Declared here, not beside
+   *  `activeIndex`/`activeLabel`: `createMemo` runs its computation eagerly, so
+   *  it has to sit below `navState`. */
+  const activeState = createMemo(() => navState(activeSection()));
 
-  /** The active section's Shown/Hidden state as a clause for the trigger's
-   *  accessible name — empty for the sections that have no such state. */
-  const shownSuffix = () => {
-    switch (activeShown()) {
-      case true:
-        return ", shown";
-      case false:
-        return ", hidden — empty";
-      default:
-        return "";
-    }
+  /** The active section's state as a clause for the trigger's accessible name —
+   *  empty for the sections that have no such state. Wording follows the badge. */
+  const stateSuffix = () => {
+    const state = activeState();
+    return state ? `, ${SECTION_STATE_LABELS[state].toLowerCase()}` : "";
   };
 
   /**
-   * The single save. The API keeps its two endpoints (`/text` + `/theme`) but
-   * the organiser sees ONE action. Dirty halves run sequentially (text then
-   * theme); each successful response refreshes its snapshot and mutates the
-   * loaded data immediately (so a text success followed by a theme failure
-   * leaves the UI consistent with what the server actually saved), and
-   * whichever half fails surfaces its own error. Wired as the form's submit
-   * handler so Enter in any field saves too.
+   * The single save. The API keeps three endpoints (`/text`, `/theme`,
+   * `/visibility`) but the organiser sees ONE action. Dirty parts run
+   * sequentially (text, then theme, then visibility); each successful response
+   * refreshes its snapshot and mutates the loaded data immediately (so a text
+   * success followed by a theme failure leaves the UI consistent with what the
+   * server actually saved), and whichever part fails surfaces its own error.
+   * Wired as the form's submit handler so Enter in any field saves too.
    */
   async function saveInvite(e?: Event) {
     e?.preventDefault();
@@ -563,11 +629,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
     const textBody = JSON.stringify(textPayload(draft));
     const themeBody = JSON.stringify(themePayload(draft));
+    const visibilityBody = JSON.stringify(visibilityPayload(draft));
     const textIsDirty = textBody !== savedText();
     const themeIsDirty = themeBody !== savedTheme();
+    const visibilityIsDirty = visibilityBody !== savedVisibility();
     // Unreachable via the UI (the button disables when clean) — belt & braces
     // against a programmatic submit.
-    if (!textIsDirty && !themeIsDirty) return;
+    if (!textIsDirty && !themeIsDirty && !visibilityIsDirty) return;
 
     setSaving(true);
     try {
@@ -597,6 +665,20 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         }
         setSavedTheme(themeBody);
         mutate((await themeRes.json()) as InviteCustomisation);
+      }
+
+      if (visibilityIsDirty) {
+        const visibilityRes = await authFetch(apiUrl(`${base()}/visibility`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: visibilityBody,
+        });
+        if (!visibilityRes.ok) {
+          const body = (await visibilityRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `Save failed (${visibilityRes.status})`);
+        }
+        setSavedVisibility(visibilityBody);
+        mutate((await visibilityRes.json()) as InviteCustomisation);
       }
       haptic("commit");
       toast.success("Invite saved");
@@ -739,6 +821,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       bodyStyle: "default",
       palette: { preset: null, seeds: {} },
     });
+  // Resetting a switchable section also switches it back on — the default a
+  // section starts with.
   const resetHero = () => {
     setDraft({
       heroTitle: "",
@@ -748,10 +832,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       titleBackdropBlur: 0,
     });
     setDraft("tones", "hero", null);
+    setDraft("visibility", "hero", true);
   };
   const resetStory = () => {
     setDraft({ storyEyebrow: "", storyHeading: "", storyBody: "" });
     setDraft("tones", "story", null);
+    setDraft("visibility", "story", true);
   };
   const resetWelcome = () => {
     setDraft({ welcomeMessage: "" });
@@ -778,7 +864,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // render-prop runs, and never again, so the preview would freeze at
   // whatever the form looked like on first render.
   const heroPreviewProps = (d: () => InviteCustomisation): PreviewPaneProps["hero"] => ({
-    shown: heroShown(),
+    state: heroSectionState(),
     imageUrl: d().hero.imageUrl,
     crop: d().hero.imageCrop,
     cropMobile: d().hero.imageCropMobile ?? null,
@@ -788,7 +874,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     backdropBlur: draft.titleBackdropBlur,
   });
   const storyPreviewProps = (): PreviewPaneProps["story"] => ({
-    shown: storyShown(),
+    state: storySectionState(),
     eyebrow: draft.storyEyebrow,
     heading: draft.storyHeading,
     body: draft.storyBody,
@@ -800,8 +886,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     eyebrow: draft.detailsEyebrow,
     heading: draft.detailsHeading,
   });
+  const faqPreviewProps = (): PreviewPaneProps["faq"] => ({
+    state: faqSectionState(),
+    questions: (faqs() ?? []).map((e) => e.question),
+  });
   const closingPreviewProps = (d: () => InviteCustomisation): PreviewPaneProps["closing"] => ({
-    shown: footerShown(),
+    state: footerSectionState(),
     message: draft.footerMessage,
     imageUrl: d().footer?.imageUrl ?? null,
     imageCrop: d().footer?.imageCrop ?? null,
@@ -842,14 +932,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           const storySlot = createMemo(() => storyPreviewProps());
           const welcomeSlot = createMemo(() => welcomePreviewProps());
           const eventsSlot = createMemo(() => eventsPreviewProps());
+          const faqSlot = createMemo(() => faqPreviewProps());
           const closingSlot = createMemo(() => closingPreviewProps(d));
 
           return (
             <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
-              {/* ── Section tabs — sticky, one section shown at a time, dots mirror
-                the Shown/Hidden badges — plus, below `@4xl/builder` (where there's
-                no room for the sticky side preview), a button that opens the
-                composed preview in a modal instead. ── */}
+              {/* ── Section tabs — sticky, one section shown at a time, a hidden
+                section's label faded with an eye-off icon (`sectionTabTone`) — plus,
+                below `@4xl/builder` (where there's no room for the sticky side
+                preview), a button that opens the composed preview in a modal
+                instead. ── */}
               <div class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
                 {/* No `relative` here on purpose: the open menu positions
                   against the STICKY BAR (already a positioned element, so it is
@@ -878,22 +970,24 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 >
                   {/* Narrow containers only: the current section as a menu
                     trigger. It names where the organiser IS (label, position,
-                    Shown/Hidden dot) so the menu only has to be opened to move,
-                    never to orient — the thing the scrolling strip could not do
-                    for the sections parked off its right edge. */}
+                    and the label faded, with an eye-off icon, while it is hidden) so the menu
+                    only has to be opened to move, never to orient — the thing
+                    the scrolling strip could not do for the sections parked off
+                    its right edge. */}
                   <Button
                     variant="tile"
                     type="button"
                     ref={(el) => (sectionMenuTrigger = el)}
                     aria-expanded={sectionMenuOpen()}
                     aria-controls={SECTION_MENU_ID}
-                    // The dot is `aria-hidden`, and an `aria-label` overrides
-                    // subtree content — so an `sr-only` span inside the button
-                    // (what the tabs themselves use) would be dropped. The state
-                    // has to be folded into the label, or the collapsed trigger
-                    // tells a sighted organiser three things and a screen-reader
-                    // one only two. Wording matches `SegmentBadge`.
-                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${shownSuffix()}. Choose a section`}
+                    // The icon is `aria-hidden`, a fade says nothing to a
+                    // screen reader, and an `aria-label` overrides subtree
+                    // content — so an `sr-only` span inside the button (what
+                    // the tabs themselves use) would be dropped. The state has
+                    // to be folded into the label, or the collapsed trigger
+                    // tells a sighted organiser three things and a
+                    // screen-reader one only two. Wording matches `SegmentBadge`.
+                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${stateSuffix()}. Choose a section`}
                     onClick={() => setSectionMenuOpen(!sectionMenuOpen())}
                     onKeyDown={(e) => {
                       if (e.key !== "Escape" || !sectionMenuOpen()) return;
@@ -902,16 +996,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     }}
                     class="flex min-h-11 w-full items-center justify-between @3xl/builder:hidden"
                   >
-                    <span class="flex min-w-0 items-center gap-2">
-                      <Show when={activeShown() !== undefined}>
-                        <span
-                          aria-hidden
-                          class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                          classList={{
-                            "bg-gold": activeShown() === true,
-                            "bg-text-muted/50": activeShown() === false,
-                          }}
-                        />
+                    <span
+                      class="flex min-w-0 items-center gap-2"
+                      classList={{ [FADED_LABEL]: isHiddenState(activeState()) }}
+                    >
+                      <Show when={isHiddenState(activeState())}>
+                        <HiddenSectionIcon />
                       </Show>
                       <span class="min-w-0 truncate">{activeLabel()}</span>
                     </span>
@@ -930,12 +1020,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   </Button>
 
                   {/* ONE tablist, two presentations. Narrow + open: a two-column
-                    grid dropped under the trigger — all eight sections on screen
+                    grid dropped under the trigger — every section on screen
                     at once, no horizontal scroll, and absolutely positioned so
                     opening it never shoves the form down. Narrow + closed:
                     `display: none` (the panels' `aria-labelledby` still resolves
                     against it — the accname spec follows hidden references).
-                    From `@3xl/builder`, where the eight fit on one line: the
+                    From `@3xl/builder`, where the row has room to wrap: the
                     static row, always laid out, menu state irrelevant. */}
                   <div
                     id={SECTION_MENU_ID}
@@ -945,7 +1035,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
-                        const shown = () => navShown(item.id);
+                        const state = () => navState(item.id);
                         const active = () => activeSection() === item.id;
                         return (
                           <button
@@ -960,25 +1050,19 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
                             // `min-h-11` is a 44px touch target in the menu; the
                             // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${
-                              active()
-                                ? "bg-gold/12 text-gold"
-                                : "text-text-muted hover:text-text hover:bg-surface/60"
-                            }`}
+                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
+                              active(),
+                              isHiddenState(state()),
+                            )}`}
                           >
-                            <Show when={shown() !== undefined}>
-                              <span
-                                aria-hidden
-                                class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                                classList={{
-                                  "bg-gold": shown() === true,
-                                  "bg-text-muted/50": shown() === false,
-                                }}
-                              />
+                            <Show when={isHiddenState(state())}>
+                              <HiddenSectionIcon />
                             </Show>
                             <span class="min-w-0 truncate">{item.label}</span>
-                            <Show when={shown() === false}>
-                              <span class="sr-only">(hidden — empty)</span>
+                            <Show when={isHiddenState(state())}>
+                              <span class="sr-only">
+                                ({SECTION_STATE_LABELS[state()!].toLowerCase()})
+                              </span>
                             </Show>
                           </button>
                         );
@@ -1095,7 +1179,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-hero"
                     legend="Hero"
-                    shown={heroShown()}
+                    visibility={{
+                      state: heroSectionState(),
+                      visible: draft.visibility.hero,
+                      onChange: (v) => setDraft("visibility", "hero", v),
+                      emptyHint: "a title, a subtitle or an image",
+                      offNote:
+                        "Switched off. Guests won't see the hero section; everything in it is kept for when you switch it back on. Your couple title still names the invite in the browser tab and the page footer, and the photo still heads your gift list.",
+                    }}
                     onReset={resetHero}
                     hidden={activeSection() !== "invite-hero"}
                   >
@@ -1187,7 +1278,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-story"
                     legend="Our Story"
-                    shown={storyShown()}
+                    visibility={{
+                      state: storySectionState(),
+                      visible: draft.visibility.story,
+                      onChange: (v) => setDraft("visibility", "story", v),
+                      emptyHint: "a heading, the story or a photo",
+                    }}
                     onReset={resetStory}
                     hidden={activeSection() !== "invite-story"}
                   >
@@ -1316,11 +1412,52 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </Show>
                   </SectionCard>
 
+                  {/* ── FAQ ────────────────────────────────────────────── */}
+                  <SectionCard
+                    id="invite-faq"
+                    legend="FAQ"
+                    visibility={{
+                      state: faqSectionState(),
+                      visible: draft.visibility.faq,
+                      onChange: (v) => setDraft("visibility", "faq", v),
+                      emptyHint: "a question and its answer",
+                      offNote:
+                        "Switched off. Guests won't see your questions; they are all kept for when you switch it back on.",
+                    }}
+                    hidden={activeSection() !== "invite-faq"}
+                    description="Answer what guests ask anyway — parking, the dress code, children, timing. The questions sit under your events once a guest enters their code, each answer opening from its question. Every household sees every question, unlike the events, which each household sees only when invited — so don't mention an event only some guests are invited to. Questions save as soon as you add, change, reorder or delete them; the switch saves with the rest of the invite."
+                  >
+                    <FaqEditor
+                      weddingId={props.weddingId}
+                      entries={faqs()}
+                      onEntriesChange={setFaqs}
+                      onPendingChange={setFaqPending}
+                    />
+                    {/* No colour picker of its own — the FAQ sits on the events
+                      section's surface, as part of the same block. */}
+                    <Show when={showInlinePreviews() && activeSection() === "invite-faq"}>
+                      <SectionPreview
+                        label="FAQ"
+                        tokens={previewTokens()}
+                        surface={toneSurface("details")}
+                        design={currentDesign()}
+                        eyebrow={DEFAULTS.faqEyebrow}
+                        heading={DEFAULTS.faqHeading}
+                        body={faqSampleBody((faqs() ?? []).map((e) => e.question))}
+                      />
+                    </Show>
+                  </SectionCard>
+
                   {/* ── Closing section ────────────────────────────────── */}
                   <SectionCard
                     id="invite-closing"
                     legend="Closing Section"
-                    shown={footerShown()}
+                    visibility={{
+                      state: footerSectionState(),
+                      visible: draft.visibility.footer,
+                      onChange: (v) => setDraft("visibility", "footer", v),
+                      emptyHint: "a closing image or a closing note",
+                    }}
                     hidden={activeSection() !== "invite-closing"}
                     description={
                       'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
@@ -1373,7 +1510,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id="invite-message"
                     legend="Invite message"
                     hidden={activeSection() !== "invite-message"}
-                    description="Not part of the invite page — this is the first line of the message you copy from the Guests tab to send a household. Leave it blank to use the default. The guest-site link and the household's labelled invitation code are added automatically on the two lines below it."
+                    description="Not part of the invite page — this is the first line of the message each household is sent. Leave it blank to use the default."
                   >
                     <TextAreaField
                       label="Invite message (optional)"
@@ -1384,6 +1521,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       hint="The wedding link and the household's invitation code are appended automatically — don't include them here."
                       onInput={(v) => setDraft("inviteMessage", v)}
                     />
+                    {props.inviteMessageLinks}
                   </SectionCard>
                 </div>
 
@@ -1402,6 +1540,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         story={storySlot()}
                         welcome={welcomeSlot()}
                         events={eventsSlot()}
+                        faq={faqSlot()}
                         closing={closingSlot()}
                       />
                     </div>
@@ -1422,6 +1561,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 story={storySlot()}
                 welcome={welcomeSlot()}
                 events={eventsSlot()}
+                faq={faqSlot()}
                 closing={closingSlot()}
               />
 
@@ -1455,8 +1595,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </span>
                   </Show>
                   <span class="font-body text-text-muted text-ui-sm">
-                    Copy, colours, fonts and hero display save together. Images, crops and the
-                    design apply as soon as you change them.
+                    Copy, colours, fonts, hero display and which sections show save together.
+                    Images, crops and the design apply as soon as you change them.
                   </span>
                 </div>
               </div>

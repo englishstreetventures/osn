@@ -220,8 +220,23 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   registry_eyebrow TEXT,
   registry_heading TEXT,
   registry_body TEXT,
-  registry_tone TEXT
+  registry_tone TEXT,
+  hero_visible INTEGER NOT NULL DEFAULT 1,
+  story_visible INTEGER NOT NULL DEFAULT 1,
+  footer_visible INTEGER NOT NULL DEFAULT 1,
+  faq_visible INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS wedding_faqs (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS wedding_faqs_wedding_sort_idx ON wedding_faqs(wedding_id, sort_order, id);
 
 CREATE TABLE IF NOT EXISTS imports (
   id TEXT PRIMARY KEY,

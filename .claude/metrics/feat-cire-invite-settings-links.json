@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1229,
+    "branch": "feat/cire-invite-settings-links",
+    "base_sha": "4124ef673a987e23dae527f3dbdd1eeb5e8a0a9a",
+    "head_sha": "8edf8565fe3f73198de7ac631bce14aa27bb6e07",
+    "generated_at": "2026-09-26T01:59:26.604Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1079,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-09-26T01:10:43.078Z",
+    "last_ts": "2026-09-26T01:59:22.817Z",
+    "span_seconds": 2920,
+    "active_seconds": 3100,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 26.605766400000025,
+    "tokens": {
+      "input": 718,
+      "output": 13709,
+      "thinking": 418,
+      "cache_write_5m": 1365264,
+      "cache_write_1h": 0,
+      "cache_read": 53224150
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 68,
+          "output": 9445,
+          "thinking": 0,
+          "cache_write_5m": 132858,
+          "cache_write_1h": 0,
+          "cache_read": 906683
+        },
+        "usd_equivalent": 1.520169,
+        "messages": 33
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 474,
+          "output": 3106,
+          "thinking": 418,
+          "cache_write_5m": 947788,
+          "cache_write_1h": 0,
+          "cache_read": 45478355
+        },
+        "usd_equivalent": 22.994298000000015,
+        "messages": 233
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 176,
+          "output": 1158,
+          "thinking": 0,
+          "cache_write_5m": 284618,
+          "cache_write_1h": 0,
+          "cache_read": 6839112
+        },
+        "usd_equivalent": 2.091299400000001,
+        "messages": 88
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 68,
+          "output": 9445,
+          "thinking": 0,
+          "cache_write_5m": 132858,
+          "cache_write_1h": 0,
+          "cache_read": 906683
+        },
+        "usd_equivalent": 1.520169,
+        "messages": 33
+      },
+      "subagent": {
+        "tokens": {
+          "input": 650,
+          "output": 4264,
+          "thinking": 418,
+          "cache_write_5m": 1232406,
+          "cache_write_1h": 0,
+          "cache_read": 52317467
+        },
+        "usd_equivalent": 25.085597400000026,
+        "messages": 321
+      }
+    },
+    "effort": {
+      "xhigh": 252,
+      "high": 69
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 6,
+      "docs": 2,
+      "config": 0,
+      "source": 6
+    },
+    "loc": {
+      "generated": {
+        "added": 20,
+        "deleted": 0
+      },
+      "test": {
+        "added": 517,
+        "deleted": 15
+      },
+      "docs": {
+        "added": 27,
+        "deleted": 5
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 300,
+        "deleted": 46
+      }
+    },
+    "packages": [
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 291,
+      "Read": 26,
+      "Edit": 10,
+      "Skill": 8,
+      "Write": 8,
+      "StructuredOutput": 7,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

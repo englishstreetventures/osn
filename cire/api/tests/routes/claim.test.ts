@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, afterEach, beforeAll } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
   events,
   families,
   rsvps,
+  weddingFaqs,
   weddingInviteCustomisations,
   weddings,
 } from "@cire/db";
@@ -38,6 +39,7 @@ interface ClaimOk {
   rsvps: unknown[];
   rsvpDeadline: unknown;
   closing: { message: string | null };
+  faq: { visible: boolean; entries: { question: string; answer: string }[] };
 }
 
 const db = createDb(":memory:");
@@ -338,6 +340,79 @@ describe("POST /api/claim event imageUrl (migration 0019)", () => {
   });
 });
 
+// The FAQ is written for the invited household, like the events: it rides the
+// claim response and never the public invite read.
+describe("POST /api/claim FAQ (migration 0064)", () => {
+  const seedFaq = (id: string, question: string, sortOrder: number) =>
+    db
+      .insert(weddingFaqs)
+      .values({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        question,
+        answer: `${question} — yes.`,
+        sortOrder,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+
+  const setFaqSwitch = (faqVisible: boolean) =>
+    db
+      .insert(weddingInviteCustomisations)
+      .values({ weddingId: BOOTSTRAP_WEDDING_ID, faqVisible, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: weddingInviteCustomisations.weddingId,
+        set: { faqVisible, updatedAt: new Date() },
+      })
+      .run();
+
+  const claimFaq = async () => {
+    const res = await Effect.runPromise(post({ publicId: "TESTONE-IVY-AA11" }));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as ClaimOk).faq;
+  };
+
+  // The suite shares one database, so a failed assertion must not leave entries
+  // or a switched-off FAQ behind for the next test.
+  afterEach(() => {
+    db.delete(weddingFaqs).where(eq(weddingFaqs.weddingId, BOOTSTRAP_WEDDING_ID)).run();
+    setFaqSwitch(true);
+  });
+
+  it("carries the entries in the organiser's order", async () => {
+    seedFaq("faq_route_b", "Parking?", 1);
+    seedFaq("faq_route_a", "Children?", 0);
+    expect(await claimFaq()).toEqual({
+      visible: true,
+      // The text alone: the id is what the builder edits by, not the guest page.
+      entries: [
+        { question: "Children?", answer: "Children? — yes." },
+        { question: "Parking?", answer: "Parking? — yes." },
+      ],
+    });
+  });
+
+  it("sends the switch and no entries while the FAQ is switched off", async () => {
+    seedFaq("faq_route_off", "Parking?", 0);
+    setFaqSwitch(false);
+    expect(await claimFaq()).toEqual({ visible: false, entries: [] });
+  });
+
+  it("reports an empty FAQ as switched on with no entries", async () => {
+    expect(await claimFaq()).toEqual({ visible: true, entries: [] });
+  });
+
+  it("never puts the entries on the public invite read", async () => {
+    seedFaq("faq_route_public", "A question only guests with a code see", 0);
+    const res = await app.fetch(new Request("http://localhost/api/invite/cire-wedding"));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("A question only guests with a code see");
+    expect(Object.keys(JSON.parse(text) as object)).not.toContain("faq");
+  });
+});
+
 // ── GET /api/claim/session ────────────────────────────────────────────────────
 // The restore read. Its whole job is to hand a household that ALREADY proved
 // membership the same payload `POST /api/claim` gives, without a second code
@@ -429,6 +504,17 @@ describe("GET /api/claim/session", () => {
         set: { footerMessage: "With love, always", updatedAt: new Date() },
       })
       .run();
+    db.insert(weddingFaqs)
+      .values({
+        id: "faq_restore_parity",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        question: "Is there parking?",
+        answer: "Yes.",
+        sortOrder: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
 
     const { body: claimed, cookie } = await claimFor("TESTONE-IVY-AA11");
     const res = await getSession(cookie);
@@ -439,12 +525,14 @@ describe("GET /api/claim/session", () => {
     expect(claimed.rsvps.length).toBeGreaterThan(0);
     expect(claimed.rsvpDeadline).not.toBeNull();
     expect(claimed.closing.message).toBe("With love, always");
+    expect(claimed.faq.entries).toHaveLength(1);
 
     // Whole-object, not field-by-field: `buildClaimResponse` exists so the two
     // entry points cannot drift, and this pins every field ClaimResponse gains.
     expect(restored).toEqual(claimed);
 
     db.delete(rsvps).where(eq(rsvps.id, "rsvp_restore_parity")).run();
+    db.delete(weddingFaqs).where(eq(weddingFaqs.id, "faq_restore_parity")).run();
     db.update(weddings)
       .set({ rsvpDeadline: null, rsvpDeadlineTimezone: null })
       .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))

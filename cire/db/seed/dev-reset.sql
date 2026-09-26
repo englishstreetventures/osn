@@ -31,6 +31,7 @@ DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS vendor_claims;
 DROP TABLE IF EXISTS vendors;
 DROP TABLE IF EXISTS wedding_entitlements;
+DROP TABLE IF EXISTS wedding_faqs;
 DROP TABLE IF EXISTS wedding_hosts;
 DROP TABLE IF EXISTS wedding_invite_customisations;
 DROP TABLE IF EXISTS wedding_upgrade_purchases;

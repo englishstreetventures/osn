@@ -669,3 +669,61 @@ describe("InviteHeader render", () => {
     expect(panel.style.getPropertyValue("backdrop-filter")).toBe("");
   });
 });
+
+describe("classic InviteHeader visibility switches (migration 0063)", () => {
+  const FILLED: InviteCustomisation = {
+    hero: { title: "A & B", subtitle: "Save the date", imageUrl: null },
+    story: { eyebrow: null, heading: "How It Began", body: "We met long ago.", imageUrl: null },
+    heroDisplay: DEFAULT_HERO_DISPLAY,
+    theme: EMPTY_THEME,
+  };
+
+  function renderHeader(initial: InviteCustomisation) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+    return render(() => <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />);
+  }
+
+  it("shows both sections when switched on and filled", async () => {
+    const { container, getByText } = renderHeader({
+      ...FILLED,
+      visibility: { hero: true, story: true },
+    });
+    await waitFor(() => expect(getByText("We met long ago.")).toBeTruthy());
+    expect(container.querySelectorAll("section")).toHaveLength(2);
+  });
+
+  it("hides a switched-off hero that has content, and keeps the story", async () => {
+    const { container, getByText, queryByText } = renderHeader({
+      ...FILLED,
+      visibility: { hero: false, story: true },
+    });
+    await waitFor(() => expect(getByText("We met long ago.")).toBeTruthy());
+    expect(queryByText("Save the date")).toBeNull();
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+  });
+
+  it("hides a switched-off story that has content, and keeps the hero", async () => {
+    const { container, getByText, queryByText } = renderHeader({
+      ...FILLED,
+      visibility: { hero: true, story: false },
+    });
+    await waitFor(() => expect(getByText("Save the date")).toBeTruthy());
+    expect(queryByText("We met long ago.")).toBeNull();
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+  });
+
+  it("renders nothing for sections switched on but empty", async () => {
+    const { container } = renderHeader({
+      hero: { title: null, subtitle: "  ", imageUrl: null },
+      story: { eyebrow: "Our Story", heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+      visibility: { hero: true, story: true },
+    });
+    await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
+    expect(container.querySelector("section")).toBeNull();
+  });
+});

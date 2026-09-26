@@ -1185,6 +1185,20 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   registryHeading: text("registry_heading"),
   registryBody: text("registry_body"),
   registryTone: text("registry_tone"),
+  // Per-section visibility switches (migration 0063), one per section in
+  // `VISIBILITY_SECTIONS` (`@cire/theme`). A section renders on the guest invite
+  // only when its switch is on AND it has content — switched on but empty still
+  // renders nothing. Switching off never touches the content, so switching back
+  // on restores the section as it was. Default on: a section appears as soon as
+  // it has content. 0063 set each existing row's switches to what the emptiness
+  // check gave at the time.
+  heroVisible: integer("hero_visible", { mode: "boolean" }).notNull().default(true),
+  storyVisible: integer("story_visible", { mode: "boolean" }).notNull().default(true),
+  footerVisible: integer("footer_visible", { mode: "boolean" }).notNull().default(true),
+  // The FAQ section's switch (migration 0064), same contract as the three above.
+  // Its content is the `wedding_faqs` rows, not columns on this row. 0064 set no
+  // backfill: no wedding had entries then, so on reads as "switched on, empty".
+  faqVisible: integer("faq_visible", { mode: "boolean" }).notNull().default(true),
   // Optional host override for the FIRST line of the message an organiser copies
   // to send a family their invite (migration 0023). NULL ⇒ the built-in default
   // prose. The copied message is always the same 3-line shape — this line, then
@@ -1204,6 +1218,35 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // only ever seen copy saves) coalesces to `updated_at` at read time.
   imagesUpdatedAt: integer("images_updated_at", { mode: "timestamp" }),
 });
+
+// The invite's FAQ section (migration 0064): questions the couple answers for
+// their guests — parking, dress code detail, children, timing. Shown under the
+// events once a household has entered its code, so the entries ride the claim
+// response, never the public invite read. Organiser-written free text: the
+// guest site renders it as text, never as HTML.
+//
+// Same `sort_order` convention and id style as `registry_items`. The count per
+// wedding is capped in the API (`FAQ_LIMITS` in cire/api/src/schemas/invite-faq.ts),
+// inside the INSERT itself, so the cap holds under concurrent writes.
+export const weddingFaqs = sqliteTable(
+  "wedding_faqs",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    answer: text("answer").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // Every read is `WHERE wedding_id = ? ORDER BY sort_order, id`: one
+    // composite serves the filter and the order, so the list read never sorts.
+    index("wedding_faqs_wedding_sort_idx").on(t.weddingId, t.sortOrder, t.id),
+  ],
+);
 
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. The surrounding flow is

@@ -6,7 +6,9 @@ import type {
   HeadingSizeChoice,
   PalettePresetKey,
   SectionTone,
+  VisibilitySection,
 } from "@cire/theme";
+import { VISIBILITY_SECTIONS } from "@cire/theme";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -20,6 +22,7 @@ import {
   type InviteImageSlot,
   type InviteTextBody,
   type InviteThemeBody,
+  type InviteVisibilityBody,
 } from "../schemas/invite";
 import { versionFromKey } from "./event-image";
 import { deleteAsset, storeAsset } from "./invite-assets";
@@ -161,6 +164,10 @@ export interface InviteCustomisation {
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
+  // Per-section visibility switches (migration 0063). A section renders only
+  // when its switch is on AND it has content (`sectionState` in `@cire/theme`).
+  // A wedding with no customisation row reads every switch as on.
+  visibility: Record<VisibilitySection, boolean>;
   // Optional host override for the first line of the copyable invite message
   // (migration 0023). `null` ⇒ the organiser falls back to the built-in default
   // prose. Surfaced on the organiser GET only (the guest site never reads it).
@@ -200,9 +207,40 @@ const EMPTY: InviteCustomisation = {
   footer: { message: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
+  visibility: { hero: true, story: true, faq: true, footer: true },
   inviteMessage: null,
   designId: "classic",
 };
+
+/**
+ * What the public `GET /api/invite/:slug` returns. The closing section's and
+ * the FAQ's switches are left out with those sections, which ride the claim
+ * payload instead (see `getForSlug`), and the organiser-only invite message is
+ * left out entirely: it is the line an organiser copies to send a household,
+ * and the guest site never reads it.
+ */
+export type PublicInviteCustomisation = Omit<
+  InviteCustomisation,
+  "visibility" | "inviteMessage"
+> & {
+  visibility: Omit<InviteCustomisation["visibility"], "footer" | "faq">;
+};
+
+/**
+ * Which column backs each section's visibility switch — the one place the
+ * `VISIBILITY_SECTIONS` union maps onto storage, as `SLOT_COLUMNS` does for the
+ * image slots. The read and the write both go through it, so a section added to
+ * the union fails to compile here until it has a column.
+ */
+const SECTION_VISIBILITY_COLUMNS = {
+  hero: "heroVisible",
+  story: "storyVisible",
+  faq: "faqVisible",
+  footer: "footerVisible",
+} as const satisfies Record<
+  VisibilitySection,
+  keyof typeof weddingInviteCustomisations.$inferSelect
+>;
 
 /** Public path the invite image is served from. Clients prepend the API origin. */
 function imagePath(slug: string, slot: InviteImageSlot, version: string): string {
@@ -313,6 +351,12 @@ function toCustomisation(
     detailsTone: string | null;
     welcomeTone: string | null;
     registryTone: string | null;
+    // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
+    // coalesced to on below, the column default.
+    heroVisible: boolean | null;
+    storyVisible: boolean | null;
+    faqVisible: boolean | null;
+    footerVisible: boolean | null;
     inviteMessage: string | null;
     // NOT NULL column, but a LEFT JOIN miss (no customisation row) yields null.
     designId: string | null;
@@ -397,8 +441,47 @@ function toCustomisation(
         registry: c.registryTone as SectionTone | null,
       },
     },
+    visibility: visibilityOf(c),
     inviteMessage: c.inviteMessage,
     designId: c.designId ?? "classic",
+  };
+}
+
+/** Each section's switch off the row, a missing row reading as on. */
+function visibilityOf(
+  c: Record<(typeof SECTION_VISIBILITY_COLUMNS)[VisibilitySection], boolean | null>,
+): InviteCustomisation["visibility"] {
+  const out = { ...EMPTY.visibility };
+  for (const section of VISIBILITY_SECTIONS) {
+    out[section] = c[SECTION_VISIBILITY_COLUMNS[section]] ?? true;
+  }
+  return out;
+}
+
+/**
+ * The public read's view of a customisation. It leaves out what only a
+ * switched-off section shows, so those words are not in the page source of an
+ * invite that does not show them:
+ *
+ *  - story off ⇒ every story field is null;
+ *  - hero off ⇒ the subtitle is null. The title and image stay, because the tab
+ *    title, the site footer and the gift-list page's masthead read them too —
+ *    switching the hero off hides the hero section, not the couple's name.
+ *
+ * This keeps the payload tidy; it is not access control. The story image stays
+ * reachable at its public image URL, which the organiser builder's own thumbnail
+ * loads, and the hero and story copy were public before they were switched off.
+ * The closing section, the FAQ's switch and the organiser-only invite message
+ * are left out entirely; the first two ride the claim payload.
+ */
+function publicView(full: InviteCustomisation): PublicInviteCustomisation {
+  const { visibility, inviteMessage: _organiserOnly, ...rest } = full;
+  return {
+    ...rest,
+    hero: visibility.hero ? full.hero : { ...full.hero, subtitle: null },
+    story: visibility.story ? full.story : EMPTY.story,
+    footer: EMPTY.footer,
+    visibility: { hero: visibility.hero, story: visibility.story },
   };
 }
 
@@ -486,6 +569,10 @@ export const inviteService = {
             detailsTone: weddingInviteCustomisations.detailsTone,
             welcomeTone: weddingInviteCustomisations.welcomeTone,
             registryTone: weddingInviteCustomisations.registryTone,
+            heroVisible: weddingInviteCustomisations.heroVisible,
+            storyVisible: weddingInviteCustomisations.storyVisible,
+            footerVisible: weddingInviteCustomisations.footerVisible,
+            faqVisible: weddingInviteCustomisations.faqVisible,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             designId: weddingInviteCustomisations.designId,
             updatedAt: weddingInviteCustomisations.updatedAt,
@@ -518,8 +605,11 @@ export const inviteService = {
    * `<Show when={claimResult()}>` is presentation; without this redaction the
    * note would still be one unauthenticated `curl` away, and the render gate
    * would be decoration rather than a control.
+   *
+   * It also leaves out what only a switched-off section shows — see
+   * `publicView`.
    */
-  getForSlug(slug: string): Effect.Effect<InviteCustomisation, WeddingNotFound, DbService> {
+  getForSlug(slug: string): Effect.Effect<PublicInviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [wedding] = yield* dbQuery(() =>
@@ -527,7 +617,7 @@ export const inviteService = {
       );
       if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const full = yield* inviteService.getForWedding(wedding.id, slug);
-      return { ...full, footer: EMPTY.footer };
+      return publicView(full);
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 
@@ -747,6 +837,43 @@ export const inviteService = {
       yield* Effect.logInfo("invite design saved", { weddingId, designId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
     }).pipe(Effect.withSpan("cire.invite.setDesign"));
+  },
+
+  /**
+   * Set the visibility switches the body names; a section the body leaves out
+   * keeps its stored switch (a first write gives it the column default, on).
+   * The content of a switched-off section is never touched, so switching it
+   * back on restores it as it was. Bumps `updatedAt` only — NEVER
+   * `imagesUpdatedAt`: a switch changes no stored image bytes, and bumping the
+   * image version would make every guest re-fetch images that have not changed.
+   */
+  setVisibility(
+    weddingId: string,
+    body: InviteVisibilityBody,
+  ): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const switches: Partial<
+        Record<(typeof SECTION_VISIBILITY_COLUMNS)[VisibilitySection], boolean>
+      > = {};
+      for (const section of VISIBILITY_SECTIONS) {
+        const value = body[section];
+        if (value !== undefined) switches[SECTION_VISIBILITY_COLUMNS[section]] = value;
+      }
+      const now = new Date();
+      yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, ...switches, updatedAt: now })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { ...switches, updatedAt: now },
+          })
+          .run(),
+      );
+      yield* Effect.logInfo("invite visibility saved", { weddingId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
+    }).pipe(Effect.withSpan("cire.invite.setVisibility"));
   },
 
   /**

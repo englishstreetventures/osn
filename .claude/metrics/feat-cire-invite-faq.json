@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1233,
+    "branch": "feat/cire-invite-faq",
+    "base_sha": "2e61a3fafb64748790252e2626e038b872ada62a",
+    "head_sha": "5c296b81f5aec473b6769775c646157178c018ae",
+    "generated_at": "2026-09-26T13:00:44.703Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1082,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "area:schema",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 6,
+    "first_ts": "2026-09-26T11:43:50.993Z",
+    "last_ts": "2026-09-26T13:00:40.222Z",
+    "span_seconds": 4609,
+    "active_seconds": 4796,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 94.76057309999999,
+    "tokens": {
+      "input": 1279,
+      "output": 20297,
+      "thinking": 97,
+      "cache_write_5m": 3766582,
+      "cache_write_1h": 0,
+      "cache_read": 187894143
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 53,
+          "output": 9472,
+          "thinking": 0,
+          "cache_write_5m": 169174,
+          "cache_write_1h": 0,
+          "cache_read": 1000694
+        },
+        "usd_equivalent": 1.7947494999999996,
+        "messages": 28
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1226,
+          "output": 10825,
+          "thinking": 97,
+          "cache_write_5m": 3597408,
+          "cache_write_1h": 0,
+          "cache_read": 186893449
+        },
+        "usd_equivalent": 92.96582360000001,
+        "messages": 609
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 53,
+          "output": 9472,
+          "thinking": 0,
+          "cache_write_5m": 169174,
+          "cache_write_1h": 0,
+          "cache_read": 1000694
+        },
+        "usd_equivalent": 1.7947494999999996,
+        "messages": 28
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1226,
+          "output": 10825,
+          "thinking": 97,
+          "cache_write_5m": 3597408,
+          "cache_write_1h": 0,
+          "cache_read": 186893449
+        },
+        "usd_equivalent": 92.96582360000001,
+        "messages": 609
+      }
+    },
+    "effort": {
+      "xhigh": 506,
+      "high": 103
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 19,
+      "docs": 5,
+      "config": 2,
+      "source": 35
+    },
+    "loc": {
+      "generated": {
+        "added": 27,
+        "deleted": 0
+      },
+      "test": {
+        "added": 2665,
+        "deleted": 45
+      },
+      "docs": {
+        "added": 179,
+        "deleted": 43
+      },
+      "config": {
+        "added": 3633,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1709,
+        "deleted": 51
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/invites",
+      "cire/theme"
+    ],
+    "touches_migration": true,
+    "commits": 10
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 583,
+      "Read": 26,
+      "Write": 10,
+      "Skill": 6,
+      "StructuredOutput": 5,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

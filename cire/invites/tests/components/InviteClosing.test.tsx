@@ -66,6 +66,41 @@ describe("InviteClosing", () => {
     });
   });
 
+  describe("visibility switch", () => {
+    it("renders when switched on and it has content", () => {
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} visible message="No boxed gifts please" imageUrl={IMG} />
+      ));
+      expect(closing(container)).toBeTruthy();
+    });
+
+    it("renders nothing when switched off, even with a note and an image", () => {
+      const { container } = render(() => (
+        <InviteClosing
+          apiUrl={API}
+          visible={false}
+          message="No boxed gifts please"
+          imageUrl={IMG}
+        />
+      ));
+      expect(closing(container)).toBeNull();
+      expect(container.querySelector("img")).toBeNull();
+    });
+
+    it("renders nothing when switched on but empty", () => {
+      const { container } = render(() => <InviteClosing apiUrl={API} visible message="  " />);
+      expect(closing(container)).toBeNull();
+    });
+
+    // A claim payload from an API older than the switch carries no flag.
+    it("reads an absent switch as on", () => {
+      const { container } = render(() => (
+        <InviteClosing apiUrl={API} visible={null} message="With love" />
+      ));
+      expect(closing(container)).toBeTruthy();
+    });
+  });
+
   describe("note + image together", () => {
     it("puts the image above the note, and pads the note's own block", () => {
       const { container } = render(() => (

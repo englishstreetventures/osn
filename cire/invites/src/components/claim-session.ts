@@ -40,9 +40,10 @@ export function hasClaimedHint(): boolean {
  * Fired on `window` whenever this browser's household session CHANGES — a claim
  * landing ({@link noteClaimed}) or an explicit sign-out ({@link signOut}).
  *
- * The guest page is several ISLANDS, not one app. `InvitePage` owns the code
- * form and therefore the claim; the gift-list band is a separate island that
- * each design pack's `Document.astro` mounts after it. They share no Solid
+ * The guest page is several ISLANDS, not one app. `InvitePage` holds the claim
+ * and welcome panel (`LoginSection`), which fires this on a claim and on a
+ * sign-out; the gift-list band is a separate island that each design pack's
+ * `Document.astro` mounts after it. They share no Solid
  * root, and a claim navigates nowhere: the reveal is an in-page animation. So
  * nothing but this event can tell the band that the code form just signed in,
  * or that the guest just signed out.

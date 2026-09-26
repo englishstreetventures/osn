@@ -7,7 +7,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { createSignal, onCleanup, onMount, Show, For, createMemo } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, For, createMemo, type JSX } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
@@ -81,6 +81,9 @@ interface GuestTableProps {
   /** URL slug of the wedding — the copied invite message links to this wedding's
    *  path on the SSR'd, path-routed guest site (`CIRE_WEB_URL/<slug>`). */
   weddingSlug: string;
+  /** The line pointing at the other places that shape the invite message, shown
+   *  under the introduction. */
+  inviteMessageLinks?: JSX.Element;
 }
 
 export default function GuestTable(props: GuestTableProps) {
@@ -101,6 +104,10 @@ export default function GuestTable(props: GuestTableProps) {
   // from the same invite-customisation endpoint the Invite builder writes; `null`
   // ⇒ buildInviteMessage falls back to its default prose.
   const [inviteMessage, setInviteMessage] = createSignal<string | null>(null);
+  // Whether that read has settled — answered, failed or thrown. Copy waits for
+  // it: on a remount the cached rows paint at once, and a copy before the read
+  // lands would send the default first line in place of the host's own.
+  const [messageSettled, setMessageSettled] = createSignal(false);
   // Skip the skeleton on a cache hit — a remount already has rows to paint.
   const [loading, setLoading] = createSignal(!hasCachedGuests(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
@@ -235,6 +242,7 @@ export default function GuestTable(props: GuestTableProps) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load guest list. Is the API running?");
     } finally {
+      setMessageSettled(true);
       setLoading(false);
     }
   });
@@ -354,33 +362,38 @@ export default function GuestTable(props: GuestTableProps) {
 
   return (
     <div class="flex flex-col gap-8">
-      <SectionIntro
-        eyebrow="Guest list"
-        title="Households, invites & RSVPs"
-        description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
-        actions={
-          <Show when={!loading() && !error() && hasGuests()}>
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              onClick={() => void exportCsv("guests")}
-              disabled={exporting() !== null}
-            >
-              {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              onClick={() => void exportCsv("rsvps")}
-              disabled={exporting() !== null}
-            >
-              {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
-            </Button>
-          </Show>
-        }
-      />
+      {/* The pointer to where the message is written sits with the intro, not
+          a whole section gap below it. */}
+      <div class="flex flex-col gap-3">
+        <SectionIntro
+          eyebrow="Guest list"
+          title="Households, invites & RSVPs"
+          description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
+          actions={
+            <Show when={!loading() && !error() && hasGuests()}>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => void exportCsv("guests")}
+                disabled={exporting() !== null}
+              >
+                {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => void exportCsv("rsvps")}
+                disabled={exporting() !== null}
+              >
+                {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
+              </Button>
+            </Show>
+          }
+        />
+        {props.inviteMessageLinks}
+      </div>
 
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
@@ -508,6 +521,7 @@ export default function GuestTable(props: GuestTableProps) {
                                 variant="quiet"
                                 size="sm"
                                 type="button"
+                                disabled={!messageSettled()}
                                 onClick={() => void copyMessage(family)}
                               >
                                 Copy message

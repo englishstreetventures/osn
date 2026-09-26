@@ -13,8 +13,10 @@ import {
 } from "solid-js";
 
 import { awaitEventCards } from "../../components/await-event-cards";
-import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
+import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
+import { faqEntries } from "../../components/faq-entries";
+import { faqState } from "../../components/invite-emptiness";
 import {
   createInviteRetry,
   type DetailsCopy,
@@ -57,12 +59,10 @@ const DetailsModal = lazy(() =>
 const EventCard = lazy(() =>
   import("../../components/EventCard").then((m) => ({ default: m.EventCard })),
 );
-const PulseAccountLink = lazy(() =>
-  import("../../components/PulseAccountLink").then((m) => ({ default: m.PulseAccountLink })),
-);
-const AuthProvider = lazy(() =>
-  import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider })),
-);
+// The FAQ section, split out the same way — and deliberately NOT warmed at
+// idle: most invites have no FAQ, and one that does asks for this chunk only
+// once the claim has said there is something to show.
+const FaqSection = lazy(() => import("./FaqSection").then((m) => ({ default: m.FaqSection })));
 
 /** The slice of the invite customisation this island renders. */
 interface LiveInvite {
@@ -152,8 +152,6 @@ export default function InvitePage(props: InvitePageProps) {
       prefetchOnIdle(() => RsvpModal.preload()),
       prefetchOnIdle(() => DetailsModal.preload()),
       prefetchOnIdle(() => EventCard.preload()),
-      prefetchOnIdle(() => PulseAccountLink.preload()),
-      prefetchOnIdle(() => AuthProvider.preload()),
     ];
     onCleanup(() => cancels.forEach((cancel) => cancel()));
   });
@@ -260,10 +258,6 @@ export default function InvitePage(props: InvitePageProps) {
 
   async function handleClaimed(result: ClaimResult) {
     setClaimResult(result);
-    // Mark this browser as having a household session, so the next visit
-    // restores instead of asking for the code again — and so a first-time
-    // visitor never spends a request on a guaranteed 401.
-    noteClaimed();
 
     // Start the post-claim chunk NOW, not when the reveal reaches its events
     // step. `onMount` warms it at idle, but the whole reason this wait exists is
@@ -309,10 +303,10 @@ export default function InvitePage(props: InvitePageProps) {
       // sitting on top of an invite this guest has already claimed. Idempotent —
       // the happy path has normally set it already, from `onFormHidden`.
       //
-      // Conditional on the claim still being current (P-W2). `onFormHidden`
-      // fires at the end of step 1 and the sequence then runs on for ~200ms
-      // more, so "Use a different claim code" is already on screen and
-      // clickable while this await is still pending. An unconditional write
+      // Conditional on the claim still being current. `onFormHidden` fires at
+      // the end of step 1 and the sequence then runs on for ~200ms more, so the
+      // sign-out control is already on screen and clickable while this await
+      // is still pending. An unconditional write
       // here would land AFTER that reset and re-hide the form with
       // `claimResult` back at null — the welcome banner rendering from
       // nothing, and no in-page way back, since nothing else writes
@@ -322,37 +316,10 @@ export default function InvitePage(props: InvitePageProps) {
     }
   }
 
-  // Ends the household session — a shared device, or a code that opened the
-  // wrong family's invite. A REAL sign-out: `signOut` revokes `cire_session`
-  // server-side (the cookie is HttpOnly and host-scoped to the API origin, so
-  // only the server can clear it) and drops the local restore hint, so a
-  // reload lands on the code form rather than re-opening the household.
-  //
-  // Fire-and-forget on purpose. The local reset must not wait on the network:
-  // a guest on a borrowed phone tapping "Sign out" has to see the invite
-  // disappear now, not after a timeout, and the request carries its own
-  // credentials so nothing here depends on its result.
+  // The household signed out. `LoginSection` has already revoked the session,
+  // dropped the restore hint and reset its form; this puts the page back to
+  // its unclaimed state in one commit.
   function handleSignOut() {
-    // Revoke `cire_session` server-side and drop the local restore hint.
-    // Fire-and-forget on purpose: the local reset must not wait on the
-    // network, or a guest on a borrowed phone tapping this watches the
-    // household's invite sit there through a timeout. The request carries its
-    // own cookie, so nothing below depends on its result.
-    void signOut(props.apiUrl);
-    // T-U1: the unlock sequence fades the form out with Motion, which leaves
-    // its END STATE as inline styles on this wrapper (`opacity: 0; transform:
-    // translateY(-12px)`). Solid's binding on the element owns only `display`, so
-    // nothing ever clears them — the restored form would return to the layout
-    // fully transparent, i.e. a blank panel with no way back but a reload.
-    // jsdom cannot see this (no CSS, no layout) and the unit tier mocks the
-    // animation away, so it is pinned in the browser tier instead.
-    //
-    // Writing these two is safe for the same reason `display` would not be:
-    // Solid does not manage them, so there is no binding to desynchronise.
-    if (loginFormRef) {
-      loginFormRef.style.opacity = "";
-      loginFormRef.style.transform = "";
-    }
     batch(() => {
       setRevealed(false);
       setRestoredSession(false);
@@ -363,6 +330,7 @@ export default function InvitePage(props: InvitePageProps) {
   return (
     <>
       <LoginSection
+        layout="band"
         apiUrl={props.apiUrl}
         result={claimResult()}
         revealed={revealed()}
@@ -455,23 +423,32 @@ export default function InvitePage(props: InvitePageProps) {
                 </Suspense>
               </div>
             </div>
-
-            {/* Optional, additive "Link my Pulse account" affordance. Shown only
-                post-claim (it lives inside this claimed-state Show), and never in
-                preview mode (a host previewing isn't a guest seat to link). Wrapped
-                in its own AuthProvider, which reads the cire session cookie from
-                cire-api — the rest of the guest site stays free of any OSN
-                dependency. The component self-hides when linking is disabled (503) or
-                unavailable, so it can never break the core invite. */}
-            <Show when={!data().preview}>
-              <Suspense fallback={null}>
-                <AuthProvider config={{ apiBase: props.apiUrl }}>
-                  <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
-                </AuthProvider>
-              </Suspense>
-            </Show>
           </section>
         )}
+      </Show>
+
+      {/* The FAQ, under the events and on their surface — the same block to a
+          guest, in the same centred column. Its entries arrive in the claim
+          response, like the events, and only there. Not `opacity-0`, for the
+          reason the closing section below gives: it sits under every event card,
+          off-screen while the reveal plays.
+
+          `faq` is memoised on its own first: an RSVP save replaces
+          `claimResult` with a spread that keeps `faq` at the same reference, so
+          the memo stops there, and the list keeps its rows — an answer the
+          guest has open stays open. */}
+      <Show when={claimResult()}>
+        {(data) => {
+          const faq = createMemo(() => data().faq);
+          const entries = createMemo(() => faqEntries(faq()?.entries));
+          return (
+            <Show when={faqState(faq()?.visible, entries()) === "shown"}>
+              <Suspense fallback={null}>
+                <FaqSection entries={entries()} themeVars={filterThemeVars(detailsVars())} />
+              </Suspense>
+            </Show>
+          );
+        }}
       </Show>
 
       {/* The couple's sign-off — their motif and closing note, the invite's last
@@ -492,6 +469,7 @@ export default function InvitePage(props: InvitePageProps) {
             // same measure as the cards above it once the screen is wider than
             // the invite needs.
             bandCap="column-xl"
+            visible={data().closing?.visible}
             message={data().closing?.message}
             imageUrl={data().closing?.imageUrl}
             imageCrop={data().closing?.imageCrop}
@@ -547,19 +525,14 @@ export default function InvitePage(props: InvitePageProps) {
           </Suspense>
         )}
       </Show>
-      {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately.
-          It used to sit next to `PulseAccountLink` inside the events section,
-          which is `<Show when={!preview}>` — so host preview had no toaster at
-          all and every `toast.success` there was silently dropped. Out here it
-          renders in both modes.
-
-          It also used to be trapped by that section: Motion One's reveal leaves
-          an inline `transform` on it, which makes it the containing block AND a
-          stacking context for a `position: fixed` toaster inside it, so the
-          toast painted BELOW the `z-100` RSVP sheet it fires underneath.
-          `@shared/toast` portals its container to <body>, so that half can no
-          longer happen wherever this is mounted — but the preview half still
-          can, which is why this stays at the root.
+      {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately, outside
+          every section: a toaster inside a section renders only when that
+          section does, and host preview must get its confirmations too.
+          Motion One's reveal leaves an inline `transform` on the events
+          section, which makes it the containing block AND a stacking context
+          for anything `position: fixed` inside it; `@shared/toast` portals its
+          container to <body>, so the toast paints above the `z-100` RSVP
+          sheet it fires underneath wherever this is mounted.
 
           `top-center`, not bottom: the toast is raised while the RSVP sheet is
           still open, and that sheet's sticky action bar owns the bottom edge. */}

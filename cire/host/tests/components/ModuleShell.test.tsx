@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
-import { createSignal } from "solid-js";
+import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
@@ -20,9 +20,14 @@ import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
 // prop means deleting the pass-down fails typecheck while quietly passing `[]`
 // does not. Rendering it here is what makes the wrong value visible.
 vi.mock("../../src/components/Overview", () => ({
-  default: (p: { weddingId: string; entitlements: readonly string[] }) => (
+  default: (p: {
+    weddingId: string;
+    entitlements: readonly string[];
+    onNavigate: (module: "guests", sub?: string) => void;
+  }) => (
     <div data-testid="overview" data-entitlements={p.entitlements.join(",")}>
       {p.weddingId}
+      <button onClick={() => p.onNavigate("guests", "rsvps")}>overview-to-rsvps</button>
     </div>
   ),
 }));
@@ -35,8 +40,16 @@ vi.mock("../../src/components/EventsEditor", () => ({
 vi.mock("../../src/components/GuestsEditor", () => ({
   default: (p: { weddingId: string }) => <div data-testid="guests-editor">{p.weddingId}</div>,
 }));
+// The three leaves that carry the invite-message links render the slot, so the
+// shell's own links — the real component, wired to the shell's navigation — are
+// clickable here. An optional slot dropped from the shell is otherwise silent.
 vi.mock("../../src/components/GuestTable", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="guests">{p.weddingId}</div>,
+  default: (p: { weddingId: string; inviteMessageLinks?: JSX.Element }) => (
+    <div data-testid="guests">
+      {p.weddingId}
+      {p.inviteMessageLinks}
+    </div>
+  ),
 }));
 vi.mock("../../src/components/ImportPanel", () => ({
   // Surfaces `kind`: the whole point of the split is that the events module gets
@@ -51,11 +64,31 @@ vi.mock("../../src/components/ImportPanel", () => ({
 vi.mock("../../src/components/RsvpView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="rsvps">{p.weddingId}</div>,
 }));
+// Counts mounts, so a test can tell a move that passed through the builder on
+// its way somewhere else from one that never touched it.
+let builderMounts = 0;
 vi.mock("../../src/components/InviteBuilder", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="invite-design">{p.weddingId}</div>,
+  default: (p: {
+    weddingId: string;
+    initialSection?: string;
+    inviteMessageLinks?: JSX.Element;
+  }) => {
+    builderMounts += 1;
+    return (
+      <div data-testid="invite-design" data-section={p.initialSection ?? ""}>
+        {p.weddingId}
+        {p.inviteMessageLinks}
+      </div>
+    );
+  },
 }));
 vi.mock("../../src/components/RemintPanel", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="codes">{p.weddingId}</div>,
+  default: (p: { weddingId: string; inviteMessageLinks?: JSX.Element }) => (
+    <div data-testid="codes">
+      {p.weddingId}
+      {p.inviteMessageLinks}
+    </div>
+  ),
 }));
 vi.mock("../../src/components/HostsPanel", () => ({
   // Surfaces BOTH flags, for the same reason SettingsPanel surfaces
@@ -121,20 +154,27 @@ function renderShell(opts: {
   sub?: string;
   entitlements?: string[];
   guestCap?: number;
+  /** Stand in for a declined unsaved-changes prompt: every module switch is
+   *  refused and the route stays where it is. */
+  refuseModule?: boolean;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
-  const onModule = vi.fn((m: Module) => {
+  const onModule = vi.fn((m: Module, next?: string) => {
+    if (opts.refuseModule) return;
     setModule(m);
-    // Mirror OrganiserApp: a module switch resets the sub to the module default.
+    // Mirror OrganiserApp: a module switch lands on the sub asked for when the
+    // module has it, else on the module default.
     setSub(
-      m === "guests" || m === "registry"
-        ? "list"
-        : m === "invite"
-          ? "design"
-          : m === "settings"
-            ? "wedding"
-            : "index",
+      next !== undefined && isSubOf(m, next)
+        ? next
+        : m === "guests" || m === "registry"
+          ? "list"
+          : m === "invite"
+            ? "design"
+            : m === "settings"
+              ? "wedding"
+              : "index",
     );
   });
   const onSub = vi.fn((s: string) => setSub(s));
@@ -184,6 +224,14 @@ describe("ModuleShell", () => {
     fireEvent.click(within(rail()).getByRole("button", { name: /Events/ }));
     expect(onModule).toHaveBeenCalledWith("events");
     expect(screen.getByTestId("events")).toBeTruthy();
+  });
+
+  it("moves an Overview card's target module and sub in one step", () => {
+    const { onModule, onSub } = renderShell({});
+    fireEvent.click(screen.getByRole("button", { name: "overview-to-rsvps" }));
+    expect(onModule.mock.calls).toEqual([["guests", "rsvps"]]);
+    expect(onSub).not.toHaveBeenCalled();
+    expect(screen.getByTestId("rsvps")).toBeTruthy();
   });
 
   it("shows the Events sub-tabs (List + Edit) and switches to the events editor", async () => {
@@ -615,6 +663,111 @@ describe("ModuleShell", () => {
       expect(panel.id).toBe("subpanel-settings");
       expect(panel.getAttribute("aria-labelledby")).toBe("subtab-settings-hosts");
       expect(document.getElementById("subtab-settings-hosts")).toBeTruthy();
+    });
+  });
+
+  describe("invite message links", () => {
+    const MESSAGE = { name: "Invite, Design, Message" };
+    const CODES = { name: "Invite, Codes" };
+    const HOUSEHOLDS = { name: "Guests, Households" };
+
+    it("sends the owner from Codes to the builder, open on its Message section", async () => {
+      const { onModule, onSub } = renderShell({ module: "invite", sub: "codes" });
+
+      fireEvent.click(within(screen.getByTestId("codes")).getByRole("button", MESSAGE));
+
+      expect(onSub.mock.calls).toEqual([["design"]]);
+      expect(onModule).not.toHaveBeenCalled();
+      const builder = await screen.findByTestId("invite-design");
+      expect(builder.getAttribute("data-section")).toBe("invite-message");
+    });
+
+    it("sends a Households reader to the builder, open on its Message section", async () => {
+      const { onModule, onSub } = renderShell({ module: "guests", sub: "list" });
+
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", MESSAGE));
+
+      expect(onModule.mock.calls).toEqual([["invite", "design"]]);
+      expect(onSub).not.toHaveBeenCalled();
+      const builder = await screen.findByTestId("invite-design");
+      expect(builder.getAttribute("data-section")).toBe("invite-message");
+    });
+
+    it("moves the owner from Households to Codes in one step, never through the builder", async () => {
+      // Load the lazy builder first, so a stop at invite/design on the way would
+      // mount it synchronously and show up in the count.
+      const { onModule, onSub, setModule, setSub } = renderShell({
+        module: "invite",
+        sub: "design",
+      });
+      await screen.findByTestId("invite-design");
+      setModule("guests");
+      setSub("list");
+      onSub.mockClear();
+      const mountsBefore = builderMounts;
+
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", CODES));
+
+      expect(onModule.mock.calls).toEqual([["invite", "codes"]]);
+      expect(onSub).not.toHaveBeenCalled();
+      expect(screen.getByTestId("codes")).toBeTruthy();
+      expect(builderMounts).toBe(mountsBefore);
+    });
+
+    it("sends the message editor's reader to Households", async () => {
+      const { onModule } = renderShell({ module: "invite", sub: "design" });
+
+      const builder = await screen.findByTestId("invite-design");
+      fireEvent.click(within(builder).getByRole("button", HOUSEHOLDS));
+
+      expect(onModule.mock.calls).toEqual([["guests", "list"]]);
+      expect(screen.getByTestId("guests")).toBeTruthy();
+    });
+
+    it("asks nothing more when the move is refused", async () => {
+      const { onModule, onSub } = renderShell({
+        module: "invite",
+        sub: "design",
+        refuseModule: true,
+      });
+
+      const builder = await screen.findByTestId("invite-design");
+      fireEvent.click(within(builder).getByRole("button", HOUSEHOLDS));
+
+      expect(onModule).toHaveBeenCalledTimes(1);
+      expect(onSub).not.toHaveBeenCalled();
+      expect(screen.getByTestId("invite-design")).toBeTruthy();
+    });
+
+    it("names Codes without a link for an editor co-host", () => {
+      renderShell({ canManage: false, canEdit: true, module: "guests", sub: "list" });
+
+      const households = screen.getByTestId("guests");
+      expect(within(households).getByRole("button", MESSAGE)).toBeTruthy();
+      expect(within(households).queryByRole("button", CODES)).toBeNull();
+    });
+
+    it("opens the builder on its first section again once the organiser has moved on", async () => {
+      renderShell({ module: "invite", sub: "codes" });
+      fireEvent.click(within(screen.getByTestId("codes")).getByRole("button", MESSAGE));
+      expect((await screen.findByTestId("invite-design")).getAttribute("data-section")).toBe(
+        "invite-message",
+      );
+
+      fireEvent.click(screen.getByRole("tab", { name: "Codes" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Design" }));
+
+      expect((await screen.findByTestId("invite-design")).getAttribute("data-section")).toBe("");
+    });
+
+    it("moves focus to the new view's heading", () => {
+      renderShell({ module: "guests", sub: "list" });
+
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", CODES));
+
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 2, name: "Invite" }),
+      );
     });
   });
 });

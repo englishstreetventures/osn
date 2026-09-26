@@ -21,6 +21,7 @@ import {
   DIETARY_CONSENT_VERSION,
   entitlements,
   events,
+  faqs,
   guests,
   hosts,
   registryClaims,
@@ -464,6 +465,25 @@ ${rows.join(",\n")};`,
   );
 }
 
+function faqsBlock(): string {
+  const rows = faqs.map(
+    (f) => `  (
+    ${sql(f.id)}, ${sql(bootstrapWedding.id)}, ${sql(f.question)}, ${sql(f.answer)},
+    ${f.sortOrder}, unixepoch(), unixepoch()
+  )`,
+  );
+  return section(
+    `Invite FAQ (${rows.length}) — shown under the events once a household claims`,
+    `-- The section's switch (\`wedding_invite_customisations.faq_visible\`) is left at
+-- its column default, on. \`sort_order\` is dense from 0, as the reorder endpoint
+-- writes it.
+INSERT OR IGNORE INTO wedding_faqs (
+  id, wedding_id, question, answer, sort_order, created_at, updated_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
 function registrySettingsBlock(): string {
   const r = registrySettings;
   return section(
@@ -559,6 +579,8 @@ export function generateSeedSql(): string {
     paymentsBlock(),
     "",
     tasksBlock(),
+    "",
+    faqsBlock(),
     "",
     registrySettingsBlock(),
     "",

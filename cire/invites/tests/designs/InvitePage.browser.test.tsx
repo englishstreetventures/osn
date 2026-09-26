@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 
 import "../../src/styles/global.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 
 import { noteClaimed } from "../../src/components/claim-session";
 import { SWEEP_DURATION_MS, TOTAL_DURATION_MS } from "../../src/components/rsvp-responded";
@@ -569,5 +570,145 @@ describe.each([
     expect(input.disabled).toBe(false);
     const rect = input.getBoundingClientRect();
     expect(rect.width, "the code field has no box").toBeGreaterThan(0);
+
+    // Focus lands on the field. A real browser drops `focus()` on an element
+    // that is still `display: none`, so this holds only if the page swapped
+    // the form back before the panel moved focus — the order jsdom cannot see.
+    expect(document.activeElement, "focus did not follow the swap back to the form").toBe(input);
+  });
+});
+
+describe("gala InvitePage — the claim panel on a wide screen", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("sits flush with the events column's left edge from md up", async () => {
+    // Gala's panel layout is an inset card: centred on a phone, and from `md`
+    // on aligned with the column of events below it rather than floating in
+    // the middle of the page.
+    await page.viewport(1024, 900);
+    await openByCode(galaInvitePage, []);
+
+    const input = document.querySelector("input[aria-label='Invitation code']") as HTMLElement;
+    const card = [...document.querySelectorAll<HTMLElement>("[style]")].find(
+      (el) =>
+        el.style.getPropertyValue("background-color") === "var(--invite-section-bg)" &&
+        el.contains(input),
+    )!;
+    expect(card, "the claim card is not rendered").toBeTruthy();
+    const events = document.querySelector("[data-testid='events-column']") as HTMLElement;
+
+    const cardBox = card.getBoundingClientRect();
+    const eventsBox = events.getBoundingClientRect();
+    expect(cardBox.width, "the claim card has no box").toBeGreaterThan(0);
+    // Narrower than the page, so "flush left" is not just "full width".
+    expect(cardBox.width).toBeLessThan(eventsBox.width);
+    expect(Math.abs(cardBox.left - eventsBox.left)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe.each([
+  ["classic", classicInvitePage],
+  ["gala", galaInvitePage],
+] as const)("%s InvitePage — the FAQ in a real browser", (_name, Pack) => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const faq = {
+    visible: true,
+    entries: [
+      {
+        id: "faq_a",
+        question: "Is there parking?",
+        answer: "Yes — sixty spaces.\nOverflow next door.",
+      },
+      { id: "faq_b", question: "Are children invited?", answer: "To the ceremony." },
+    ],
+  };
+
+  function openWithFaq() {
+    noteClaimed();
+    const inner = ((input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/api/invite/")) return Promise.resolve(json({}));
+      return Promise.resolve(json({}, 404));
+    }) as typeof fetch;
+    vi.stubGlobal("fetch", withSession({ ...claim, faq }, inner));
+    return render(() => <Pack apiUrl="https://api.test" slug="cire-wedding" />);
+  }
+
+  it("opens an answer from its question, and only that one", async () => {
+    await page.viewport(390, 844);
+    openWithFaq();
+    const section = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-invite-faq]");
+      expect(el, "the FAQ section did not render").toBeTruthy();
+      return el!;
+    });
+    const [first, second] = [...section.querySelectorAll("details")];
+    const firstAnswer = first!.querySelector("p")!;
+
+    // Closed: the answer is not rendered. (Chromium keeps a closed disclosure's
+    // content laid out but skips painting it, so its box is no guide.)
+    expect(first!.open).toBe(false);
+    expect(firstAnswer.checkVisibility()).toBe(false);
+
+    first!.querySelector("summary")!.click();
+    expect(first!.open).toBe(true);
+    expect(second!.open).toBe(false);
+    expect(firstAnswer.checkVisibility()).toBe(true);
+    expect(second!.querySelector("p")!.checkVisibility()).toBe(false);
+    // Open: two lines, since the organiser's line break is kept.
+    const lineHeight = Number.parseFloat(getComputedStyle(firstAnswer).lineHeight);
+    expect(firstAnswer.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight * 2 - 1);
+
+    // The "+" turns into a "×" as its disclosure opens (Tailwind's `rotate-*`
+    // sets the `rotate` property, not `transform`); the closed one stays a "+".
+    const mark = (d: HTMLDetailsElement) => d.querySelector("summary [aria-hidden='true']")!;
+    await waitFor(() => expect(getComputedStyle(mark(first!)).rotate).toBe("45deg"));
+    expect(getComputedStyle(mark(second!)).rotate).toBe("none");
+
+    // The question itself is the 44px touch target.
+    expect(first!.querySelector("summary")!.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+      44,
+    );
+  });
+
+  it("lines its heading up with the events heading above it", async () => {
+    await page.viewport(1280, 900);
+    openWithFaq();
+    const faqHeading = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-invite-faq] h2");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    const eventsHeading = [...document.querySelectorAll<HTMLElement>("h2")].find(
+      (h) => h.textContent === "Your Events",
+    )!;
+    const a = faqHeading.getBoundingClientRect();
+    const b = eventsHeading.getBoundingClientRect();
+    expect(a.width).toBeGreaterThan(0);
+    expect(Math.abs(a.left - b.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+  });
+
+  it("opens and closes a question from the keyboard", async () => {
+    openWithFaq();
+    const summary = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-invite-faq] summary");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    // A summary is focusable with no tabindex of its own.
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+    await userEvent.keyboard("{Enter}");
+    expect((summary.parentElement as HTMLDetailsElement).open).toBe(true);
+    await userEvent.keyboard(" ");
+    expect((summary.parentElement as HTMLDetailsElement).open).toBe(false);
   });
 });

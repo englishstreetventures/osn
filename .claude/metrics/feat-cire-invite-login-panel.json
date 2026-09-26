@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1226,
+    "branch": "feat/cire-invite-login-panel",
+    "base_sha": "4124ef673a987e23dae527f3dbdd1eeb5e8a0a9a",
+    "head_sha": "858618611285f90129c01691069d1801f9fbaa12",
+    "generated_at": "2026-09-26T01:28:20.123Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1083,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 10,
+    "first_ts": "2026-09-25T16:01:03.138Z",
+    "last_ts": "2026-09-26T01:28:16.154Z",
+    "span_seconds": 34033,
+    "active_seconds": 4707,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 44.66966584999999,
+    "tokens": {
+      "input": 825,
+      "output": 40281,
+      "thinking": 0,
+      "cache_write_5m": 2561510,
+      "cache_write_1h": 0,
+      "cache_read": 75408626
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 117,
+          "output": 31884,
+          "thinking": 0,
+          "cache_write_5m": 336675,
+          "cache_write_1h": 0,
+          "cache_read": 3093647
+        },
+        "usd_equivalent": 4.448727249999999,
+        "messages": 72
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 708,
+          "output": 8397,
+          "thinking": 0,
+          "cache_write_5m": 2224835,
+          "cache_write_1h": 0,
+          "cache_read": 72314979
+        },
+        "usd_equivalent": 40.2209386,
+        "messages": 351
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 117,
+          "output": 31884,
+          "thinking": 0,
+          "cache_write_5m": 336675,
+          "cache_write_1h": 0,
+          "cache_read": 3093647
+        },
+        "usd_equivalent": 4.448727249999999,
+        "messages": 72
+      },
+      "subagent": {
+        "tokens": {
+          "input": 708,
+          "output": 8397,
+          "thinking": 0,
+          "cache_write_5m": 2224835,
+          "cache_write_1h": 0,
+          "cache_read": 72314979
+        },
+        "usd_equivalent": 40.2209386,
+        "messages": 353
+      }
+    },
+    "effort": {
+      "xhigh": 294,
+      "high": 57
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 10,
+      "docs": 4,
+      "config": 0,
+      "source": 7
+    },
+    "loc": {
+      "generated": {
+        "added": 22,
+        "deleted": 0
+      },
+      "test": {
+        "added": 879,
+        "deleted": 19
+      },
+      "docs": {
+        "added": 65,
+        "deleted": 8
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 466,
+        "deleted": 535
+      }
+    },
+    "packages": [
+      "cire/host",
+      "cire/invites",
+      "cire/theme"
+    ],
+    "touches_migration": false,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 326,
+      "Read": 62,
+      "Edit": 39,
+      "Grep": 14,
+      "Skill": 7,
+      "Write": 7,
+      "StructuredOutput": 6,
+      "Agent": 5,
+      "SubagentHandback": 4,
+      "ToolSearch": 1,
+      "Monitor": 1,
+      "Glob": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 8,
+      "max_edits_one_file": 10
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "superpowers:test-driven-development": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 4
+    }
+  }
+}
