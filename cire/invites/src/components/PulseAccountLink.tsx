@@ -5,10 +5,11 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import type { FamilyMember } from "./types";
 
 /**
- * Guest-facing "Link my Pulse account" affordance, shown after a guest claims
- * their invite. Purely ADDITIVE: the core invite never depends on this — every
- * failure path (linking disabled, OSN unreachable, session expired) degrades to
- * a hidden/quiet control rather than breaking the claimed invite.
+ * Guest-facing "Link my Pulse account" affordance, shown in the claim and
+ * welcome panel (`LoginSection`) after a guest claims their invite. Purely
+ * ADDITIVE: the core invite never depends on this — every failure path
+ * (linking disabled, OSN unreachable, session expired) degrades to a
+ * hidden/quiet control rather than breaking the claimed invite.
  *
  * Flow:
  *   1. Probe `GET /api/account/link` for the current linked state of the
@@ -29,8 +30,8 @@ import type { FamilyMember } from "./types";
  * cookie re-opens the claimed view — so the picker is waiting where they left
  * it.
  *
- * Must render inside an `<AuthProvider>` (mounted by the parent island) so
- * `useAuth()` resolves.
+ * Must render inside an `<AuthProvider>` (`LoginSection` mounts one around
+ * it) so `useAuth()` resolves.
  */
 
 interface PulseAccountLinkProps {
@@ -38,6 +39,12 @@ interface PulseAccountLinkProps {
   apiUrl: string;
   /** The household members from the claim response — the seats to pick from. */
   members: FamilyMember[];
+  /**
+   * Placement on the panel that hosts it — width, centring and spacing. The
+   * component owns only its own surface, since the claim and welcome panel's
+   * layout decides where it sits.
+   */
+  class?: string;
 }
 
 /** Shape of the `GET /api/account/link` response (per-member linked state). */
@@ -164,7 +171,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
     // invite is untouched.
     <Show when={probe()?.kind === "ready"}>
       <section
-        class="border-gold/30 bg-gold/5 max-w-column-sm mx-auto mt-10 rounded-sm border px-5 py-6 text-left"
+        class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
         aria-labelledby="pulse-link-heading"
       >
         <h3
@@ -206,7 +213,10 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
           <ul class="flex flex-col gap-2" aria-label="Household members">
             <For each={props.members}>
               {(member) => (
-                <li class="border-border/60 flex items-center justify-between gap-3 rounded-sm border px-3 py-2">
+                // Wraps rather than overflows: inside the narrow panel layout
+                // on a phone the row has about 200px, less than a name plus
+                // the linked state and its Unlink button need on one line.
+                <li class="border-border/60 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-sm border px-3 py-2">
                   <span class="flex items-center gap-2">
                     <input
                       type="radio"

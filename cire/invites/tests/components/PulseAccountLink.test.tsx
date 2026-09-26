@@ -100,6 +100,23 @@ describe("PulseAccountLink", () => {
     expect(signInMock).toHaveBeenCalledWith(window.location.href);
   });
 
+  it("takes its placement from the panel that hosts it, and keeps its own surface", async () => {
+    // The claim and welcome panel decides width, centring and spacing per
+    // layout; the component keeps only its bordered, tinted box.
+    globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
+    const { container } = render(() => (
+      <PulseAccountLink apiUrl={API} members={[member("Chidi")]} class="max-w-column-sm mb-8" />
+    ));
+    await waitFor(() => expect(screen.getByText(/Link your Pulse account/i)).toBeTruthy());
+    const classes = container
+      .querySelector("section[aria-labelledby='pulse-link-heading']")!
+      .className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["mb-8", "max-w-column-sm", "border"]));
+    // No placement of its own left to fight the panel's.
+    expect(classes).not.toContain("mt-10");
+    expect(classes).not.toContain("mx-auto");
+  });
+
   it("links the picked member via POST when signed in", async () => {
     sessionRef.current = { profileId: "usr_chidi" };
     globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;

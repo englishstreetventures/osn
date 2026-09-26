@@ -1,4 +1,3 @@
-import Button from "@cire/ui/button";
 import { Toaster } from "@shared/toast";
 import {
   batch,
@@ -14,8 +13,7 @@ import {
 } from "solid-js";
 
 import { awaitEventCards } from "../../components/await-event-cards";
-import { createClaimCode } from "../../components/claim-code";
-import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
+import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import {
   createInviteRetry,
@@ -29,15 +27,11 @@ import {
   sectionVars,
 } from "../../components/invite-theme";
 import { InviteClosing } from "../../components/InviteClosing";
+import { LoginSection } from "../../components/LoginSection";
 import { prefetchOnIdle } from "../../components/prefetch-idle";
 import { formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
 import { RsvpDeadlineNotice } from "../../components/RsvpDeadlineNotice";
-import {
-  TurnstileWidget,
-  turnstileEnabled,
-  type TurnstileControls,
-} from "../../components/TurnstileWidget";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 import { Z_CLASS } from "../../lib/z-index";
 
@@ -63,12 +57,6 @@ const DetailsModal = lazy(() =>
 const EventCard = lazy(() =>
   import("../../components/EventCard").then((m) => ({ default: m.EventCard })),
 );
-const PulseAccountLink = lazy(() =>
-  import("../../components/PulseAccountLink").then((m) => ({ default: m.PulseAccountLink })),
-);
-const AuthProvider = lazy(() =>
-  import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider })),
-);
 
 /** The slice of the invite customisation this island renders. */
 interface LiveInvite {
@@ -81,7 +69,6 @@ interface LiveInvite {
 // pre-customisation hardcoded strings, so an un-customised invite is unchanged.
 const DEFAULT_DETAILS_EYEBROW = "Celebrate With Us";
 const DEFAULT_DETAILS_HEADING = "Your Events";
-const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate with us.";
 
 interface InvitePageProps {
   apiUrl: string;
@@ -137,10 +124,10 @@ export default function InvitePage(props: InvitePageProps) {
   // Whether the post-claim view has taken over from the claim form. Deliberately
   // NOT derived from `claimResult`: the swap is choreographed, so the form has
   // to stay in the layout for the length of its fade-out. This signal is the
-  // SINGLE owner of both elements' `display`; the motion sequence reports the
-  // moment via `onFormHidden` and never writes `display` itself, because an
-  // imperative write desynchronises Solid's style binding permanently. See
-  // `RevealHooks` in ./UnlockReveal.motion.
+  // SINGLE owner of both elements' `display` (`LoginSection`'s `revealed`
+  // prop); the motion sequence reports the moment via `onFormHidden` and never
+  // writes `display` itself, because an imperative write desynchronises Solid's
+  // style binding permanently. See `RevealHooks` in ./UnlockReveal.motion.
   const [revealed, setRevealed] = createSignal(false);
 
   // Warm the chunks that are otherwise fetched mid-interaction: the unlock
@@ -157,8 +144,6 @@ export default function InvitePage(props: InvitePageProps) {
       prefetchOnIdle(() => RsvpModal.preload()),
       prefetchOnIdle(() => DetailsModal.preload()),
       prefetchOnIdle(() => EventCard.preload()),
-      prefetchOnIdle(() => PulseAccountLink.preload()),
-      prefetchOnIdle(() => AuthProvider.preload()),
     ];
     onCleanup(() => cancels.forEach((cancel) => cancel()));
   });
@@ -216,8 +201,9 @@ export default function InvitePage(props: InvitePageProps) {
   // from the palette applied at the document root, so every descendant — event
   // cards, buttons, hover/focus states, modal contents — already resolves the
   // organiser's scheme; a section only chooses its background.
-  // Memoised: each map has several consumers (panel + both modals), so compute
-  // once per theme change and share a stable object identity.
+  // Memoised: each map has several consumers (claim panel, events section, both
+  // modals, the closing band), so compute once per theme change and share a
+  // stable object identity.
   const detailsVars = createMemo(() => sectionVars(liveInvite().theme, "details"));
   const welcomeVars = createMemo(() => sectionVars(liveInvite().theme, "welcome"));
 
@@ -230,9 +216,6 @@ export default function InvitePage(props: InvitePageProps) {
   // Organiser copy overrides with the built-in defaults as fallback.
   const detailsEyebrow = () => liveInvite().details?.eyebrow ?? DEFAULT_DETAILS_EYEBROW;
   const detailsHeading = () => liveInvite().details?.heading ?? DEFAULT_DETAILS_HEADING;
-  // The organiser's greeting (the prop, or the retry's when the route had none),
-  // then the built-in default — the same chain as classic.
-  const welcomeMessage = () => liveInvite().welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
 
   // The RSVP deadline arrives with the claim (it is household-facing, like the
   // events beside it). One verdict drives four surfaces — the claim panel's
@@ -259,18 +242,12 @@ export default function InvitePage(props: InvitePageProps) {
     );
   });
 
-  let codeInputRef: HTMLInputElement | undefined;
-  let turnstile: TurnstileControls | undefined;
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
   let eventsSectionRef!: HTMLElement;
 
   async function handleClaimed(result: ClaimResult) {
     setClaimResult(result);
-    // Mark this browser as having a household session, so the next visit
-    // restores instead of asking for the code again — and so a first-time
-    // visitor never spends a request on a guaranteed 401.
-    noteClaimed();
 
     // Start the post-claim chunk NOW, not when the reveal reaches its events
     // step. `onMount` warms it at idle, but the whole reason this wait exists is
@@ -315,229 +292,45 @@ export default function InvitePage(props: InvitePageProps) {
       // a missing ref or a throw mid-sequence must never leave the claim form
       // sitting on top of an invite this guest has already claimed. Idempotent.
       //
-      // Conditional on the claim still being current (P-W2). `onFormHidden`
-      // fires at the end of step 1 and the sequence runs on for ~150ms more,
-      // so "Use a different claim code" is already on screen and clickable
-      // while this await is pending. An unconditional write would land AFTER
+      // Conditional on the claim still being current. `onFormHidden` fires at
+      // the end of step 1 and the sequence runs on for ~150ms more, so the
+      // sign-out control is already on screen and clickable while this await
+      // is pending. An unconditional write would land AFTER
       // that reset and re-hide the form with `claimResult` back at null — the
       // welcome banner rendering from nothing, with no in-page way back.
       if (claimResult()) setRevealed(true);
     }
   }
 
-  // Claim panel behaviour — the code entry field, the Turnstile-gated POST, and
-  // the `?code=` deep-link auto-claim — is the same headless primitive classic
-  // uses via LoginSection; gala renders its own narrow-panel markup on top.
-  const claim = createClaimCode({
-    apiUrl: props.apiUrl,
-    result: claimResult,
-    onClaimed: handleClaimed,
-  });
-
-  // A claim code can cover one guest or a whole household. A single-guest code
-  // greets the person individually ("Dear {name}"); a multi-guest code greets
-  // the household ("The {familyName} Family"). For an individual, an optional
-  // nickname overrides their first name.
-  const members = () => claimResult()?.members ?? [];
-  const isIndividual = () => members().length === 1;
-  const individualName = () => {
-    const m = members()[0];
-    if (!m) return "";
-    return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
-  };
-
-  // "Not the Okafor family? Sign out" — names the household the control ends.
-  const signOutLabel = () => {
-    const name = isIndividual() ? individualName() : claimResult()?.familyName;
-    return name?.trim() ? `Not ${name.trim()}? Sign out` : "Sign out";
-  };
-
-  // Ends the household session — see the note in classic's InvitePage. A REAL
-  // sign-out: revokes `cire_session` server-side and drops the local restore
-  // hint. Fire-and-forget so the local reset never waits on the network.
+  // The household signed out. `LoginSection` has already revoked the session,
+  // dropped the restore hint and reset its form; this puts the page back to
+  // its unclaimed state in one commit.
   function handleSignOut() {
-    // Revoke `cire_session` server-side and drop the local restore hint.
-    // Fire-and-forget on purpose: the local reset must not wait on the
-    // network, or a guest on a borrowed phone tapping this watches the
-    // household's invite sit there through a timeout. The request carries its
-    // own cookie, so nothing below depends on its result.
-    void signOut(props.apiUrl);
-    // T-U1: the unlock sequence fades the form out with Motion, which leaves
-    // its END STATE as inline styles on this wrapper (`opacity: 0; transform:
-    // translateY(-8px)`). Solid's binding on the element owns only `display`, so
-    // nothing ever clears them — the restored form would return to the layout
-    // fully transparent, i.e. a blank panel with no way back but a reload.
-    // jsdom cannot see this (no CSS, no layout) and the unit tier mocks the
-    // animation away, so it is pinned in the browser tier instead.
-    //
-    // Writing these two is safe for the same reason `display` would not be:
-    // Solid does not manage them, so there is no binding to desynchronise.
-    if (loginFormRef) {
-      loginFormRef.style.opacity = "";
-      loginFormRef.style.transform = "";
-    }
-    // Return the form to a submittable state: blank field, no stale error, no
-    // stuck `loading`, no spent single-use Turnstile token. See the notes in
-    // `createClaimCode.reset` for what each one would otherwise strand.
-    claim.reset();
-    // Re-challenge so a fresh token can replace the redeemed one. No-op when
-    // Turnstile is unconfigured.
-    turnstile?.reset();
     batch(() => {
       setRevealed(false);
       setRestoredSession(false);
       setClaimResult(null);
     });
-    // C-L1: the click removes the focused button from the accessibility tree,
-    // so without this focus falls to `<body>` and a keyboard or screen-reader
-    // user is stranded at the top of the document. The code input is both the
-    // announcement (it carries an accessible name) and the next action.
-    codeInputRef?.focus();
   }
 
   return (
     <>
-      {/* Claim panel — a narrow bordered object sitting on the page, not a
-          full-bleed section. Centered on mobile; at md+ it sits flush with the
-          events column's left edge (both share this container's gutters). */}
-      <section class="px-6 py-16 md:px-10 md:py-20">
-        <div class="max-w-column-4xl mx-auto">
-          <div
-            class="border-border max-w-column-xs mx-auto rounded-sm border px-7 py-10 md:mx-0"
-            style={{
-              ...filterThemeVars(welcomeVars()),
-              "background-color": "var(--invite-section-bg)",
-            }}
-          >
-            {/* Login form — visible before claim */}
-            <div ref={(el) => (loginFormRef = el)} style={{ display: revealed() ? "none" : "" }}>
-              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-                Your Invitation
-              </p>
-              <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
-                Enter Your Code
-              </h2>
-              <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
-                Enter the code from your invitation to see your events.
-              </p>
-              <form class="flex flex-col gap-3" onSubmit={claim.handleSubmit}>
-                {/* maxLength 48 comfortably fits the worst-case code: SURNAME(16) +
-                    "-" + longest word(10) + "-" + secure hash "XXXXX-XXXXX"(11) = 39
-                    chars, so a long code like THENGUYENFAMILY-BANISTER-DM65HQ (31) is
-                    never truncated. The server still validates the code. */}
-                <input
-                  type="text"
-                  ref={codeInputRef}
-                  // Ink-at-alpha fill + border rather than a surface token, so
-                  // the field stays one legible step from its background on
-                  // every palette and every section tone the organiser can pick,
-                  // with the border clearing WCAG SC 1.4.11's 3:1 on the worst
-                  // of them. Same values as classic's LoginSection — see the
-                  // note there; the two packs must not drift.
-                  class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base uppercase transition-colors duration-200 placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                  // A placeholder is not an accessible name, and it vanishes on
-                  // input — see the note in classic's LoginSection.
-                  aria-label="Invitation code"
-                  placeholder="e.g. PATEL-JOY-RK97"
-                  value={claim.code()}
-                  onInput={(e) => claim.setCode(e.currentTarget.value)}
-                  autocapitalize="characters"
-                  autocorrect="off"
-                  spellcheck={false}
-                  disabled={claim.loading()}
-                  maxLength={48}
-                  // NB: the hyphen must be escaped — Chrome compiles `pattern` with
-                  // the `v` flag, where a trailing unescaped `-` is a syntax error
-                  // that voids the whole pattern.
-                  pattern="[A-Za-z0-9\-]+"
-                />
-                <Show when={claim.error()}>
-                  <p class="font-body text-error text-ui-sm py-2" role="alert">
-                    {claim.error()}
-                  </p>
-                </Show>
-                {/* Turnstile challenge — renders only when a sitekey is configured;
-                    otherwise this is nothing and the form is unchanged. */}
-                <TurnstileWidget
-                  onToken={claim.setTurnstileToken}
-                  controls={(handle) => (turnstile = handle)}
-                  class="flex justify-center"
-                />
-                <Button
-                  type="submit"
-                  variant="cta"
-                  size="lg"
-                  class="w-full"
-                  disabled={
-                    claim.loading() ||
-                    !claim.code().trim() ||
-                    (turnstileEnabled() && !claim.turnstileToken())
-                  }
-                >
-                  {claim.loading() ? "Checking…" : "Open Invitation"}
-                </Button>
-              </form>
-            </div>
-
-            {/* Welcome message — visible after claim, inside the same bordered
-                object (a ref-toggled swap, not a second panel). */}
-            <div ref={(el) => (welcomeRef = el)} style={{ display: revealed() ? "" : "none" }}>
-              <Show when={claimResult()?.preview}>
-                <p
-                  class="border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mb-6 rounded-sm border px-4 py-3 uppercase"
-                  role="status"
-                >
-                  Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
-                </p>
-              </Show>
-              <Show
-                when={isIndividual()}
-                fallback={
-                  <>
-                    <h2 class="font-display text-gold-ink leading-ui-none mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
-                      Welcome, the {claimResult()?.familyName} Family
-                    </h2>
-                    <p class="text-text-muted text-ui-base leading-ui-normal mb-2 font-light">
-                      {welcomeMessage()}
-                    </p>
-                    <p class="text-text text-ui-base leading-ui-normal mb-8 font-light">
-                      <For each={claimResult()?.members}>
-                        {(member, i) => (
-                          <>
-                            {i() > 0 && ", "}
-                            {member.firstName}
-                          </>
-                        )}
-                      </For>
-                    </p>
-                  </>
-                }
-              >
-                <h2 class="font-display text-gold-ink leading-ui-none mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
-                  Dear {individualName()}
-                </h2>
-                <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
-                  {welcomeMessage()}
-                </p>
-              </Show>
-              {/* The RSVP-by date, where the guest lands. The events section
-                  states it again on top of the cards, and THAT copy is the live
-                  region and the `aria-describedby` target — this one is an
-                  ordinary paragraph, so the pair is read once each in browse
-                  mode and announced once between them when the deadline moves. */}
-              <RsvpDeadlineNotice
-                deadline={rsvpDeadline()}
-                state={rsvpState()}
-                variant="panel"
-                class="mb-8"
-              />
-              <Button variant="touchLink" type="button" onClick={handleSignOut}>
-                {signOutLabel()}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* The claim and welcome panel as an inset card rather than a band:
+          centred on phones, and from md up flush with the events column's left
+          edge (both share the page's widest container and its gutters). */}
+      <LoginSection
+        layout="panel"
+        apiUrl={props.apiUrl}
+        result={claimResult()}
+        revealed={revealed()}
+        onClaimed={handleClaimed}
+        formRef={(el) => (loginFormRef = el)}
+        welcomeRef={(el) => (welcomeRef = el)}
+        themeVars={welcomeVars()}
+        welcomeMessage={liveInvite().welcomeMessage}
+        rsvpDeadlineState={rsvpState()}
+        onSignOut={handleSignOut}
+      />
 
       <Show when={claimResult()}>
         {(data) => (
@@ -621,21 +414,6 @@ export default function InvitePage(props: InvitePageProps) {
                 </div>
               </div>
             </div>
-
-            {/* Optional, additive "Link my Pulse account" affordance. Shown only
-                post-claim (it lives inside this claimed-state Show), and never in
-                preview mode (a host previewing isn't a guest seat to link). Wrapped
-                in its own AuthProvider, which reads the cire session cookie from
-                cire-api — the rest of the guest site stays free of any OSN
-                dependency. The component self-hides when linking is disabled (503) or
-                unavailable, so it can never break the core invite. */}
-            <Show when={!data().preview}>
-              <Suspense fallback={null}>
-                <AuthProvider config={{ apiBase: props.apiUrl }}>
-                  <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
-                </AuthProvider>
-              </Suspense>
-            </Show>
           </section>
         )}
       </Show>
@@ -715,19 +493,14 @@ export default function InvitePage(props: InvitePageProps) {
           </Suspense>
         )}
       </Show>
-      {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately.
-          It used to sit next to `PulseAccountLink` inside the events section,
-          which is `<Show when={!preview}>` — so host preview had no toaster at
-          all and every `toast.success` there was silently dropped. Out here it
-          renders in both modes.
-
-          It also used to be trapped by that section: Motion One's reveal leaves
-          an inline `transform` on it, which makes it the containing block AND a
-          stacking context for a `position: fixed` toaster inside it, so the
-          toast painted BELOW the `z-100` RSVP sheet it fires underneath.
-          `@shared/toast` portals its container to <body>, so that half can no
-          longer happen wherever this is mounted — but the preview half still
-          can, which is why this stays at the root.
+      {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately, outside
+          every section: a toaster inside a section renders only when that
+          section does, and host preview must get its confirmations too.
+          Motion One's reveal leaves an inline `transform` on the events
+          section, which makes it the containing block AND a stacking context
+          for anything `position: fixed` inside it; `@shared/toast` portals its
+          container to <body>, so the toast paints above the `z-100` RSVP
+          sheet it fires underneath wherever this is mounted.
 
           `top-center`, not bottom: the toast is raised while the RSVP sheet is
           still open, and that sheet's sticky action bar owns the bottom edge. */}

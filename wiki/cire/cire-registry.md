@@ -9,7 +9,7 @@ related:
   - "[[cire-consent]]"
   - "[[stripe-webhooks]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-26
 ---
 
 # Gift registry
@@ -500,7 +500,7 @@ A guest's note (a claim's `note`, a contribution's `message`) is the one text in
 
 A transport failure that is _not_ the first answer changes nothing at all: a list already on screen stays. `registry` holds the last list the server sent, `outcome` the last real answer, and the two are separate for exactly this.
 
-**The band is its own island.** `InvitePage` owns the code form and reveals the invitation in place after a claim; the band is a separate island mounted after it, and the two share no Solid root. So `CLAIM_SESSION_EVENT` is how the band learns of a claim or a sign-out: a guest who enters their code sees the band appear on the invitation without a reload, and one who signs out sees it go. Only `InvitePage`'s claim and sign-out paths dispatch that event, so the gift page, which has no code form of its own, learns of a claim by being loaded; its listener re-reads both reads if a session ever changes in its own tab.
+**The band is its own island.** `InvitePage` holds the code form (the shared `LoginSection` panel) and reveals the invitation in place after a claim; the band is a separate island mounted after it, and the two share no Solid root. So `CLAIM_SESSION_EVENT` is how the band learns of a claim or a sign-out: a guest who enters their code sees the band appear on the invitation without a reload, and one who signs out sees it go. Only that panel's claim and sign-out paths dispatch that event, so the gift page, which has no code form of its own, learns of a claim by being loaded; its listener re-reads both reads if a session ever changes in its own tab.
 
 **The band is gone for a visitor who has not claimed.** No teaser, no link, no mention — the same silence every other claim-gated section keeps, rather than advertising a page that would only turn them away.
 

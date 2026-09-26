@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1011   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/cire-d1-latency-probe @ 2026-09-25 — after rebasing on main at 1013: two finding tags reworded out of cire/api/tests/index.test.ts comments. No rule was disabled; the new sequential probe loop carries one justified no-await-in-loop suppression.
+1003   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-invite-login-panel @ 2026-09-26 — gala's copy of the claim panel and its finding-tag comments removed in favour of the shared LoginSection. No rule was disabled.

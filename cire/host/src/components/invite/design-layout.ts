@@ -8,7 +8,9 @@
  *
  * This is the missing half. It is deliberately a SKETCH, not a second
  * implementation: the guest packs own their real markup (`cire/invites/src/designs/
- * <id>/`), and duplicating it here would be a copy to drift. What's described
+ * <id>/`, plus the shared claim panel `cire/invites/src/components/LoginSection.tsx`,
+ * whose `layout` prop takes the same `band` / `panel` words as `welcome` below),
+ * and duplicating it here would be a copy to drift. What's described
  * is the handful of structural moves that read at miniature size and that an
  * organiser is choosing between:
  *
@@ -21,12 +23,12 @@
  *
  * Every row is traceable to the pack: gala's hero is `items-start justify-end`
  * against classic's centred block, its story/events columns are `text-left`
- * against classic's `text-center`, its claim panel is a `max-w-[400px]` bordered
- * card (`md:mx-0`) rather than a section band, and its events header closes with
- * a full-width `<hr>`. Adding a pack means adding a row here — {@link
- * designLayout} falls back to the default pack's shape, and the test asserts
- * every catalog id has an entry of its own, so a new design fails loudly rather
- * than silently previewing as Classic.
+ * against classic's `text-center`, its claim panel is `LoginSection`'s `panel`
+ * layout — a 400px bordered card (`md:mx-0`) rather than a section band — and
+ * its events header closes with a full-width `<hr>`. Adding a pack means adding
+ * a row here — {@link designLayout} falls back to the default pack's shape,
+ * and the test asserts every catalog id has an entry of its own, so a new
+ * design fails loudly rather than silently previewing as Classic.
  */
 
 import { DEFAULT_DESIGN_ID, type DesignId } from "@cire/invite-designs";

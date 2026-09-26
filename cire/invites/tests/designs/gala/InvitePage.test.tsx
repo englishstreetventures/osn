@@ -156,10 +156,10 @@ describe("gala InvitePage", () => {
     expect(queryByTestId("events-column")).toBeNull();
   });
 
-  // Drift guard: gala renders its own claim markup rather than reusing
-  // LoginSection, so the code field's contrast contract has to be asserted in
-  // both packs or the two silently diverge. Same values, same reasoning — see
-  // the note in components/LoginSection.tsx.
+  // Both packs draw their claim panel through LoginSection, so the field's
+  // contrast contract lives there — asserted here as well so this pack cannot
+  // quietly stop using the shared panel and draw a field of its own. Same
+  // values, same reasoning — see the note in components/LoginSection.tsx.
   it("draws the code field one step off its surface, like classic", () => {
     const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
     const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
@@ -359,6 +359,65 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(queryByTestId("pulse-account-link-stub")).toBeTruthy(), {
       timeout: 2000,
     });
+  });
+
+  it("puts the Pulse account link in the claim panel, not the events section", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, findByTestId, getByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+
+    const link = await findByTestId("pulse-account-link-stub", {}, { timeout: 2000 });
+    // The household's controls live together in the panel the guest lands on.
+    expect(link.closest("section")).toBe(getByText("Enter Your Code").closest("section"));
+    expect(getByTestId("events-column").closest("section")!.contains(link)).toBe(false);
+  });
+
+  it("signs out for real: POSTs /api/claim/signout and drops the restore hint", async () => {
+    // The same contract classic pins. Only a request can end `cire_session`
+    // (HttpOnly, host-scoped to the API origin), so a sign-out that only reset
+    // the screen would leave a live credential on a shared device.
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(claim), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", noSession(fetchMock));
+
+    const { getByText, getByPlaceholderText } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+    await waitFor(() => expect(getByText(/Dear Priya/)).toBeTruthy(), { timeout: 2000 });
+    // The claim left the restore hint behind.
+    expect(document.cookie).toContain("cire_claimed=1");
+
+    fireEvent.click(getByText(/Sign out/));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/api/claim/signout"));
+      expect(call, "no sign-out request was sent").toBeTruthy();
+      expect((call![1] as RequestInit).method).toBe("POST");
+      expect((call![1] as RequestInit).credentials).toBe("include");
+    });
+    expect(document.cookie).not.toContain("cire_claimed=1");
   });
 
   it("'Sign out' returns to the code form and clears the claimed invite", async () => {
@@ -829,9 +888,9 @@ describe("gala InvitePage", () => {
         closed: false,
       });
 
-      // Asserted here as well as in `classic` because the two packs place this
-      // copy at separate call sites: classic through `LoginSection`, gala in its
-      // own welcome panel. Only the state-to-treatment mapping is shared.
+      // Asserted here as well as in `classic`: each pack hands the panel its
+      // own deadline state, so a pack that stopped passing it would lose this
+      // line with the other pack's test still green.
       const panel = deadlineCopies().find((p) => p.id !== "rsvp-deadline-notice");
       expect(panel?.textContent).toBe("RSVP by Sunday 1 September 2999");
       expect(panel?.textContent).not.toBe(
@@ -1120,10 +1179,10 @@ describe("gala InvitePage", () => {
       );
     });
   });
-  // Ported verbatim from classic: gala renders its own claim markup
-  // instead of reusing `LoginSection`, so `LoginSection.test.tsx`'s swap tests
-  // protect classic only. Without these, reverting BOTH of gala's `revealed`
-  // bindings back to `claimResult()` — undoing the fix entirely — passes.
+  // Ported verbatim from classic. `LoginSection.test.tsx` proves the panel
+  // follows `revealed`; these prove THIS pack drives it from its own reveal
+  // signal. Without them, passing `claimResult()`-derived state instead —
+  // undoing the choreographed swap entirely — passes.
   describe("form/welcome swap", () => {
     async function claimWith(
       sequence: (

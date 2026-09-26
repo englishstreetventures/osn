@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 
 import "../../src/styles/global.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import { noteClaimed } from "../../src/components/claim-session";
 import { SWEEP_DURATION_MS, TOTAL_DURATION_MS } from "../../src/components/rsvp-responded";
@@ -569,5 +570,41 @@ describe.each([
     expect(input.disabled).toBe(false);
     const rect = input.getBoundingClientRect();
     expect(rect.width, "the code field has no box").toBeGreaterThan(0);
+
+    // Focus lands on the field. A real browser drops `focus()` on an element
+    // that is still `display: none`, so this holds only if the page swapped
+    // the form back before the panel moved focus — the order jsdom cannot see.
+    expect(document.activeElement, "focus did not follow the swap back to the form").toBe(input);
+  });
+});
+
+describe("gala InvitePage — the claim panel on a wide screen", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("sits flush with the events column's left edge from md up", async () => {
+    // Gala's panel layout is an inset card: centred on a phone, and from `md`
+    // on aligned with the column of events below it rather than floating in
+    // the middle of the page.
+    await page.viewport(1024, 900);
+    await openByCode(galaInvitePage, []);
+
+    const input = document.querySelector("input[aria-label='Invitation code']") as HTMLElement;
+    const card = [...document.querySelectorAll<HTMLElement>("[style]")].find(
+      (el) =>
+        el.style.getPropertyValue("background-color") === "var(--invite-section-bg)" &&
+        el.contains(input),
+    )!;
+    expect(card, "the claim card is not rendered").toBeTruthy();
+    const events = document.querySelector("[data-testid='events-column']") as HTMLElement;
+
+    const cardBox = card.getBoundingClientRect();
+    const eventsBox = events.getBoundingClientRect();
+    expect(cardBox.width, "the claim card has no box").toBeGreaterThan(0);
+    // Narrower than the page, so "flush left" is not just "full width".
+    expect(cardBox.width).toBeLessThan(eventsBox.width);
+    expect(Math.abs(cardBox.left - eventsBox.left)).toBeLessThanOrEqual(1);
   });
 });

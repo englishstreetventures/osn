@@ -625,6 +625,32 @@ describe("InvitePage", () => {
     });
   });
 
+  it("puts the Pulse account link in the claim panel, not the events section", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, findByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+
+    const link = await findByTestId("pulse-account-link-stub", {}, { timeout: 2000 });
+    // The household's controls live together in the panel the guest lands on.
+    expect(link.closest("section")).toBe(getByText("Enter Your Code").closest("section"));
+    expect(getByText("Your Events").closest("section")!.contains(link)).toBe(false);
+  });
+
   it("'Sign out' returns to the code form and clears the claimed invite", async () => {
     vi.stubGlobal(
       "fetch",
