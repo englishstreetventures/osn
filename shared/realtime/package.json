@@ -1,0 +1,41 @@
+{
+  "name": "@shared/realtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server/index.ts",
+    "./hub": "./src/server/hub.ts",
+    "./client": "./src/client/index.ts",
+    "./solid": "./src/client/solid.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tests/tsconfig.json",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run",
+    "test:d1": "bun test tests/d1/"
+  },
+  "dependencies": {
+    "@shared/observability": "workspace:*",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "@shared/typescript-config": "workspace:*",
+    "happy-dom": "^20.12.2",
+    "miniflare": "^4.20260730.0",
+    "solid-js": "^1.9.15",
+    "vite": "^8.2.2",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.15"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  }
+}
