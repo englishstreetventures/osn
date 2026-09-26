@@ -71,6 +71,10 @@ export const CIRE_METRICS = {
   // Guest RSVP submits refused before any write.
   rsvpBlocked: "cire.rsvp.blocked",
   dietaryPreset: "cire.rsvp.dietary_preset.selected",
+  // Plus-ones: named/renamed/removed, guest writes refused, permission set.
+  plusOneChanged: "cire.plus_one.changed",
+  plusOneBlocked: "cire.plus_one.blocked",
+  plusOnePermissionSet: "cire.plus_one.permission.set",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -303,15 +307,31 @@ export type R2BucketAttr = "sheets" | "assets";
 type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
 /** Who wrote the RSVP — bounded label, never a per-guest/organiser id.
- *  `guest` (self-submitted via the invite) vs `organiser` (phone/paper RSVP
+ *  `guest` (written through the invite — a guest's own reply, or one the
+ *  household typed for their plus-one) vs `organiser` (phone/paper RSVP
  *  recorded on the guest's behalf; `consent_source='organiser_attested'`). */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
  *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
- *  passed; `preview` = the organiser's host-preview family, which never writes. */
-export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent";
+ *  passed; `preview` = the organiser's host-preview family, which never writes;
+ *  `plus_one_dietary` = dietary data on a plus-one's reply, which the invite
+ *  has no attestation wording for yet. */
+export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent" | "plus_one_dietary";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
+/** What happened to a plus-one row. Bounded, one per write path. */
+export type PlusOneAction = "added" | "renamed" | "removed";
+/** Who did it: the household through the invite, or an editor co-host
+ *  revoking permission with the remove flag. */
+export type PlusOneActor = "guest" | "organiser";
+type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
+/** Why a guest plus-one write was refused before any write — one label per
+ *  gate on the guest routes. */
+export type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
+type PlusOneBlockedAttrs = { reason: PlusOneBlockedReason };
+/** Which organiser control set the permission, and to what. */
+export type PlusOnePermissionScope = "guest" | "household";
+type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" | "off" };
 /** The preset key itself — a closed sixteen-value union, so the cardinality
  *  ceiling is the vocabulary and cannot grow with traffic. */
 type DietaryPresetAttrs = { preset: DietaryPreset };
@@ -589,6 +609,24 @@ const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
   unit: "{rsvp}",
 });
 
+const plusOneChanged = createCounter<PlusOneChangedAttrs>({
+  name: CIRE_METRICS.plusOneChanged,
+  description: "Plus-one rows named, renamed or removed, by action and actor",
+  unit: "{plus_one}",
+});
+
+const plusOneBlocked = createCounter<PlusOneBlockedAttrs>({
+  name: CIRE_METRICS.plusOneBlocked,
+  description: "Guest plus-one writes refused before any write, by gate",
+  unit: "{request}",
+});
+
+const plusOnePermissionSet = createCounter<PlusOnePermissionSetAttrs>({
+  name: CIRE_METRICS.plusOnePermissionSet,
+  description: "Organiser plus-one permission writes, by scope and new value",
+  unit: "{write}",
+});
+
 const dietaryPreset = createCounter<DietaryPresetAttrs>({
   name: CIRE_METRICS.dietaryPreset,
   description:
@@ -842,6 +880,15 @@ export const metricRsvpUpserted = (
 ): void => rsvpUpserted.inc({ status, source, result });
 
 export const metricRsvpBlocked = (reason: RsvpBlockedReason): void => rsvpBlocked.inc({ reason });
+
+export const metricPlusOneChanged = (action: PlusOneAction, actor: PlusOneActor, count = 1): void =>
+  plusOneChanged.add(count, { action, actor });
+
+export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
+  plusOneBlocked.inc({ reason });
+
+export const metricPlusOnePermissionSet = (scope: PlusOnePermissionScope, allowed: boolean): void =>
+  plusOnePermissionSet.inc({ scope, allowed: allowed ? "on" : "off" });
 
 export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
   registryItemWrite.inc({ action });

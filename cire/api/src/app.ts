@@ -34,6 +34,7 @@ import {
   createOrganiserHostsReadRoutes,
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
+import { createOrganiserPlusOneRoutes } from "./routes/organiser-plus-one";
 import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
@@ -43,6 +44,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createPlusOneRoutes } from "./routes/plus-one";
 import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
@@ -747,6 +749,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
       .use(createRsvpRoutes(db))
+      // The household's plus-ones: same cookie, same no-Turnstile argument.
+      .use(createPlusOneRoutes(db))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);
@@ -812,6 +816,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'`. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // Plus-one permission, per guest or per household. weddingEditor()-gated.
+      .use(createOrganiserPlusOneRoutes(db, osnAuthOptions))
       // Checklist tasks (platform Phase 1). Reads admit any member role
       // (weddingMember); writes require editor or owner (weddingEditor; viewer
       // gets 403 read_only_role). Split into sibling instances so the read gate

@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { sanitiseCsvCell, serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
+import type { ConsentSource } from "./rsvp";
 import { invitedCountsByEvent } from "./table-export";
 
 // Re-exported for existing importers (tests + `download.ts` docs reference this
@@ -108,11 +109,12 @@ export interface RsvpViewGuest {
    *  these beside whatever they typed under "Other", and the search filter
    *  matches on their labels. */
   dietaryPresets: readonly DietaryPreset[];
-  /** Provenance of this reply (migration 0037): `guest` (self-submitted) vs
+  /** Provenance of this reply (migration 0037): `guest` (self-submitted),
    *  `organiser_attested` (an organiser recorded a phone/paper RSVP on the
-   *  guest's behalf). The dashboard badges organiser-entered answers so an
+   *  guest's behalf) or `inviter_attested` (the household recorded its
+   *  plus-one's reply). The dashboard badges organiser-entered answers so an
    *  overwrite of a guest reply is visible. */
-  consentSource: "guest" | "organiser_attested";
+  consentSource: ConsentSource;
 }
 
 /** An invited guest with no reply yet — the pool an organiser can record a
@@ -443,7 +445,7 @@ export const rsvpExportService = {
             status: "attending" | "declined" | "maybe";
             dietary: string;
             dietaryPresets: string;
-            consentSource: "guest" | "organiser_attested";
+            consentSource: ConsentSource;
           }
         >
       >();
