@@ -5,7 +5,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-09-27
 ---
 # RSVP deadline
 
@@ -72,10 +72,12 @@ Locking guests out of an invite because of a data problem is the worse failure. 
 | `POST /api/rsvp` (guest invite) | **Yes** — 403 `{ "error": "rsvp_closed" }` | The point of the feature. |
 | `PUT …/guests/:guestId/rsvps/:eventId` (organiser-recorded) | **No** | A phone/paper reply arriving after the date is exactly the case the deadline creates. The organiser set the date; they can answer for it. |
 | Host-preview family | Already 403 | Preview sessions never write real RSVP data, deadline or not. |
+| `PUT` / `DELETE /api/plus-one/:guestId` (the household's plus-one) | **Yes** — 403 `rsvp_closed` | Same predicate and instant as the reply: the plus-one prompt locks when the replies do ([[cire-plus-ones]]). |
+| `PUT …/plus-one` permission routes (organiser) | **No** | Same reasoning as the organiser-recorded reply. |
 
 Enforcement lives on the **write**, not only in the UI: a stale tab, or anything talking to the API directly, must not be able to slip a late reply in. The route reads the deadline in the same join it already makes for the family's `kind`, so the gate costs no extra round-trip — and **fails closed on a zero-row join** (S-L1), since both gates read that one result and optional chaining would have made a missing row answer "allow" to each of them.
 
-`cire.rsvp.blocked{reason}` counts refusals — `deadline` or `preview`.
+`cire.rsvp.blocked{reason}` counts refusals — `deadline` or `preview`. The plus-one routes count theirs on `cire.plus_one.blocked{reason}`.
 
 ---
 

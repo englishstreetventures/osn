@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-09-27
 ---
 
 # Cire auth model
@@ -25,7 +25,7 @@ Cire runs **three deliberately separate auth principal classes**. Guests are wed
 | Storage at rest | SHA-256 hash in cire's `sessions` table | SHA-256 hash in cire's `organiser_sessions` table | Same |
 | Transport | `cire_session` HttpOnly cookie (30 days) | `cire_org_session` HttpOnly cookie (7 days) via `@shared/rp-auth` `authFetch` | Same cookie transport |
 | Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` / `weddingEditor()` / `weddingMember()` / `weddingRunSheet()` | `osnAuth()` + `vendorOrgMember()` |
-| Routes | `/api/rsvp`, `GET /api/claim/session` | `/api/organiser/*` | `/api/vendor/*` |
+| Routes | `/api/rsvp`, `/api/plus-one/:guestId` ([[cire-plus-ones]]), `GET /api/claim/session` | `/api/organiser/*` | `/api/vendor/*` |
 
 `osnAuth()` still accepts an `Authorization: Bearer` OSN access token as a second way in, for callers that are not a cire browser — a first-party OSN surface holding a live `aud: "osn-access"` token, and the route tests. No browser uses it any more.
 
