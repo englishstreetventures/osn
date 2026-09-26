@@ -49,6 +49,10 @@ function draftOf(db: TestDb) {
 
 const nameOfEvent = (ev: readonly ParsedEvent[], id: string) => ev.find((e) => e.id === id)!.name;
 
+/** A household with its guest list swapped for `guests`. */
+const withGuests = (family: ParsedFamily, members: ParsedFamily["guests"]): ParsedFamily =>
+  Object.assign({}, family, { guests: members });
+
 describe("diffAgainstDb — plus-ones", () => {
   it("leaves a plus-one alone when an editor draft omits them", async () => {
     const { db, samId, run } = setUp();
@@ -67,13 +71,10 @@ describe("diffAgainstDb — plus-ones", () => {
     // renamed, with no invitations: every one of those is ignored.
     const withPlusOne = fam.map((f) =>
       f.id === bo.familyId
-        ? {
-            ...f,
-            guests: [
-              { id: samId, firstName: "Renamed", lastName: "", nickname: null, eventNames: [] },
-              ...f.guests,
-            ],
-          }
+        ? withGuests(f, [
+            { id: samId, firstName: "Renamed", lastName: "", nickname: null, eventNames: [] },
+            ...f.guests,
+          ])
         : f,
     );
     const plan = await run(diffAgainstDb(ev, withPlusOne, BOOTSTRAP_WEDDING_ID, EDITOR));
@@ -107,7 +108,12 @@ describe("diffAgainstDb — plus-ones", () => {
       })
       .run();
     const { ev, fam } = await draftOf(db);
-    const withoutBo = fam.map((f) => ({ ...f, guests: f.guests.filter((g) => g.id !== bo.id) }));
+    const withoutBo = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.filter((g) => g.id !== bo.id),
+      ),
+    );
 
     const plan = await run(diffAgainstDb(ev, withoutBo, BOOTSTRAP_WEDDING_ID, EDITOR));
     expect(plan.guestRemoves.map((g) => g.id).toSorted()).toEqual([bo.id, samId].toSorted());
@@ -135,12 +141,14 @@ describe("diffAgainstDb — plus-ones", () => {
     // Bo: hindu + reception → reception + mehendi.
     const reception = nameOfEvent(ev, eventsData.reception.id);
     const mehendi = nameOfEvent(ev, eventsData.mehendi.id);
-    const moved = fam.map((f) => ({
-      ...f,
-      guests: f.guests.map((g) =>
-        g.id === bo.id ? { ...g, eventNames: [reception, mehendi] } : g,
+    const moved = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.map((g) =>
+          g.id === bo.id ? Object.assign({}, g, { eventNames: [reception, mehendi] }) : g,
+        ),
       ),
-    }));
+    );
 
     const plan = await run(diffAgainstDb(ev, moved, BOOTSTRAP_WEDDING_ID, EDITOR));
     expect(plan.eventLinkCreates).toContainEqual({
@@ -194,13 +202,10 @@ describe("diffAgainstDb — plus-ones", () => {
     const { ev, fam } = await draftOf(db);
     const oneMore = fam.map((f) =>
       f.id === "fam_fill"
-        ? {
-            ...f,
-            guests: [
-              ...f.guests,
-              { firstName: "Extra", lastName: "", nickname: null, eventNames: [] },
-            ],
-          }
+        ? withGuests(f, [
+            ...f.guests,
+            { firstName: "Extra", lastName: "", nickname: null, eventNames: [] },
+          ])
         : f,
     );
     const plan = await run(diffAgainstDb(ev, oneMore, BOOTSTRAP_WEDDING_ID, EDITOR));
