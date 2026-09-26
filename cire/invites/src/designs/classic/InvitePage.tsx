@@ -439,6 +439,7 @@ export default function InvitePage(props: InvitePageProps) {
             // same measure as the cards above it once the screen is wider than
             // the invite needs.
             bandCap="column-xl"
+            visible={data().closing?.visible}
             message={data().closing?.message}
             imageUrl={data().closing?.imageUrl}
             imageCrop={data().closing?.imageCrop}

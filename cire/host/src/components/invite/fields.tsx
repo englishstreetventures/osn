@@ -1,8 +1,8 @@
 /**
  * The invite builder's shared form primitives: labelled text inputs and
  * textareas (with live character counters against the server caps), closed-set
- * dropdowns, range sliders, the per-section Shown/Hidden badge, and the
- * section-card chrome every builder section shares. `EventTable`'s image field
+ * dropdowns, range sliders, the per-section visibility badge and switch, and
+ * the section-card chrome every builder section shares. `EventTable`'s image field
  * imitates patterns from here — if a primitive grows a second consumer, move
  * it to the shared component library rather than copying it again.
  *
@@ -12,6 +12,7 @@
  * input the organiser is actively filling in.
  */
 
+import type { SectionState } from "@cire/theme";
 import Button from "@cire/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
@@ -173,33 +174,82 @@ export function SliderField(props: {
   );
 }
 
+/** The badge's words for each state — also the wording of the tab clauses. */
+export const SECTION_STATE_LABELS = {
+  shown: "Shown",
+  empty: "Hidden — empty",
+  off: "Hidden — switched off",
+} as const satisfies Record<SectionState, string>;
+
 /**
  * A small per-section status badge telling the organiser whether this section
- * will render on the live guest invite. "Shown" when it has content; "Hidden —
- * empty" when the guest site would hide it (mirrors the guest-side emptiness
- * predicates in `../../lib/invite-emptiness`). It updates live as the fields
- * change, and announces the flip (`role="status"`) so a screen-reader user
- * hears "Hidden — empty" the moment their edit would hide the section.
+ * will render on the live guest invite: "Shown" when it is switched on and has
+ * content, "Hidden — empty" when it is switched on with nothing in it, "Hidden —
+ * switched off" when its switch is off (mirrors the guest-side state functions
+ * in `../../lib/invite-emptiness`). It updates live as the fields and the switch
+ * change, and announces the flip (`role="status"`) so a screen-reader user hears
+ * the new state the moment their edit changes it.
  */
-export function SegmentBadge(props: { shown: boolean }) {
+export function SegmentBadge(props: { state: SectionState }) {
+  const shown = () => props.state === "shown";
   return (
     <span
       data-segment-badge
-      data-shown={props.shown ? "true" : "false"}
+      data-shown={shown() ? "true" : "false"}
+      data-state={props.state}
       role="status"
       class="font-body text-ui-xs tracking-ui-wider inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 uppercase"
       classList={{
-        "border-gold/40 text-gold bg-gold/5": props.shown,
-        "border-border text-text-muted bg-bg/40": !props.shown,
+        "border-gold/40 text-gold bg-gold/5": shown(),
+        "border-border text-text-muted bg-bg/40": !shown(),
       }}
     >
       <span
         aria-hidden
         class="inline-block h-1.5 w-1.5 rounded-full"
-        classList={{ "bg-gold": props.shown, "bg-text-muted/60": !props.shown }}
+        classList={{ "bg-gold": shown(), "bg-text-muted/60": !shown() }}
       />
-      {props.shown ? "Shown" : "Hidden — empty"}
+      {SECTION_STATE_LABELS[props.state]}
     </span>
+  );
+}
+
+/**
+ * What a switchable section's card needs: the state the badge shows, the switch
+ * and its setter, and the words for why a hidden section is hidden.
+ */
+export interface SectionVisibility {
+  state: SectionState;
+  visible: boolean;
+  onChange: (visible: boolean) => void;
+  /** What would give an empty section content, e.g. "a title, a subtitle or an
+   *  image" — named in the line shown while it is switched on but empty. */
+  emptyHint: string;
+  /** Replaces the default switched-off line, for a section whose content is
+   *  also read elsewhere on the invite (the hero's title and photo). */
+  offNote?: string;
+}
+
+// The last sentence is deliberate: the invite stops showing the section, but a
+// photo already uploaded to it keeps serving at its own address, which the
+// builder's thumbnail uses too. Switching off must not read as making it private.
+const DEFAULT_OFF_NOTE =
+  "Switched off. Guests won't see this section on the invite; everything in it is kept for when you switch it back on. Switching off hides the section — it does not make its photo private.";
+
+/**
+ * The reason a switchable section is hidden, in words, under its badge: switched
+ * on but empty says what to add; switched off says the content is kept. Nothing
+ * while the section is shown.
+ */
+function VisibilityReason(props: { visibility: SectionVisibility }) {
+  return (
+    <Show when={props.visibility.state !== "shown"}>
+      <p data-visibility-reason class="font-body text-text-muted text-ui-sm">
+        {props.visibility.state === "empty"
+          ? `Switched on, but guests won't see it until it has content: add ${props.visibility.emptyHint}.`
+          : (props.visibility.offNote ?? DEFAULT_OFF_NOTE)}
+      </p>
+    </Show>
   );
 }
 
@@ -218,16 +268,17 @@ export function InstantBadge() {
  * The chrome every builder section shares: a fieldset that doubles as an ARIA
  * `tabpanel` for the section nav's `id`/`aria-labelledby` pair (`props.id` is
  * both the fieldset's DOM id — the tab's `aria-controls` target — and half of
- * `${id}-tab`, the tab's own id), the micro-caps legend, the optional
- * Shown/Hidden badge + per-section reset, and the optional description
- * paragraph. Keeping this in one place is what keeps eight section cards from
- * drifting apart.
+ * `${id}-tab`, the tab's own id), the micro-caps legend, the optional visibility
+ * badge + switch + reason line, the optional per-section reset, and the optional
+ * description paragraph. Keeping this in one place is what keeps eight section
+ * cards from drifting apart.
  */
 export function SectionCard(props: {
   id: string;
   legend: string;
-  /** Present ⇒ render the Shown/Hidden badge with this state. */
-  shown?: boolean;
+  /** Present ⇒ the section has a visibility switch: render the state badge, the
+   *  "Show on the invite" switch and, while hidden, the reason. */
+  visibility?: SectionVisibility;
   description?: JSX.Element;
   /** Present ⇒ render a "Reset section" action that reverts the section's
    *  saveable fields to their defaults (a draft change — nothing is saved). */
@@ -250,10 +301,27 @@ export function SectionCard(props: {
       <legend class="font-body text-gold-dim text-ui-xs tracking-ui-wider px-2 uppercase">
         {props.legend}
       </legend>
-      <Show when={props.shown !== undefined || props.onReset}>
+      <Show when={props.visibility !== undefined || props.onReset}>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <Show when={props.shown !== undefined} fallback={<span aria-hidden />}>
-            <SegmentBadge shown={props.shown!} />
+          <Show when={props.visibility} fallback={<span aria-hidden />}>
+            {(visibility) => (
+              <span class="flex flex-wrap items-center gap-4">
+                <SegmentBadge state={visibility().state} />
+                {/* A native checkbox, as elsewhere in the portal: the input
+                  itself takes keyboard focus and shows the dashboard's
+                  `:focus-visible` ring. */}
+                <label class="font-body text-text text-ui-sm flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    data-visibility-switch
+                    class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
+                    checked={visibility().visible}
+                    onChange={(e) => visibility().onChange(e.currentTarget.checked)}
+                  />
+                  Show on the invite
+                </label>
+              </span>
+            )}
           </Show>
           <Show when={props.onReset}>
             <Button variant="subtle" size="sm" type="button" onClick={() => props.onReset!()}>
@@ -261,6 +329,9 @@ export function SectionCard(props: {
             </Button>
           </Show>
         </div>
+        <Show when={props.visibility}>
+          {(visibility) => <VisibilityReason visibility={visibility()} />}
+        </Show>
       </Show>
       <Show when={props.description}>
         <p class="font-body text-text-muted text-ui-sm">{props.description}</p>

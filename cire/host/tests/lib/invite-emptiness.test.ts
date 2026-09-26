@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { hasText, isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../../src/lib/invite-emptiness";
+import {
+  footerState,
+  hasText,
+  heroState,
+  isFooterEmpty,
+  isHeroEmpty,
+  isStoryEmpty,
+  storyState,
+} from "../../src/lib/invite-emptiness";
 
 /**
  * T-M2 (web.md). `invite-emptiness.ts` is a hand-maintained mirror of
@@ -103,4 +111,59 @@ describe("isFooterEmpty", () => {
     expect(isFooterEmpty(footer({ message: "With love," }))).toBe(false);
     expect(isFooterEmpty(footer({ imageUrl: "https://cdn.example/motif.svg" }))).toBe(false);
   });
+});
+
+/**
+ * The switch combined with the content check — what the builder's badge, tab
+ * state and preview show. The guest module's copy of these three functions is
+ * held to the same four cases (`cire/invites/tests/components/invite-emptiness.test.ts`).
+ */
+type StateFn = (visible: boolean | null | undefined, content: never) => string;
+
+function stateContract<F extends StateFn>(
+  state: F,
+  filled: Parameters<F>[1],
+  blank: Parameters<F>[1],
+): void {
+  it("is shown when switched on and it has content", () => {
+    expect(state(true, filled as never)).toBe("shown");
+  });
+
+  it("is off when switched off, content or not", () => {
+    expect(state(false, filled as never)).toBe("off");
+    expect(state(false, blank as never)).toBe("off");
+  });
+
+  it("is empty when switched on with no content", () => {
+    expect(state(true, blank as never)).toBe("empty");
+  });
+
+  it("reads a payload without the switch as on", () => {
+    expect(state(undefined, filled as never)).toBe("shown");
+    expect(state(null, blank as never)).toBe("empty");
+  });
+}
+
+describe("heroState", () => {
+  stateContract(
+    heroState,
+    { imageUrl: "https://cdn.example/hero.jpg", title: null, subtitle: null },
+    { imageUrl: null, title: " ", subtitle: null },
+  );
+});
+
+describe("storyState", () => {
+  stateContract(
+    storyState,
+    { heading: "How we met", body: null, imageUrl: null },
+    { heading: null, body: "\n", imageUrl: null },
+  );
+});
+
+describe("footerState", () => {
+  stateContract(
+    footerState,
+    { message: "With love,", imageUrl: null },
+    { message: "  ", imageUrl: null },
+  );
 });

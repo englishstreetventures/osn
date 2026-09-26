@@ -438,6 +438,7 @@ export default function InvitePage(props: InvitePageProps) {
             // along the leading edge of a wider centred container, which a band
             // would read as misalignment rather than as this pack's grid.
             bandCap="column-2xl"
+            visible={data().closing?.visible}
             message={data().closing?.message}
             imageUrl={data().closing?.imageUrl}
             imageCrop={data().closing?.imageCrop}

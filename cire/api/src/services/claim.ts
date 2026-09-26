@@ -174,6 +174,7 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
               message: weddingInviteCustomisations.footerMessage,
               imageKey: weddingInviteCustomisations.footerImageKey,
               imageCrop: weddingInviteCustomisations.footerImageCrop,
+              visible: weddingInviteCustomisations.footerVisible,
               updatedAt: weddingInviteCustomisations.updatedAt,
               imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
             })
@@ -282,12 +283,18 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
     }
     eventList.sort((a, b) => a.sortOrder - b.sortOrder);
 
+    // The closing section's visibility switch (migration 0063); no row reads
+    // as on, the column default. Switched off, the section's content is left
+    // out of the payload — the guest site would not render it, so its words
+    // stay out of the page. The stored content is untouched.
+    const closingVisible = closing?.visible ?? true;
+    const closingContent = closingVisible ? closing : undefined;
     // The image URL's `?v=` is derived from the closing image's own R2 key
     // (WT-P-I1 / P-I1) — a digest of the key, not the row's `updatedAt` — so
     // bumping the hero or story slot never busts this one, and a byte-neutral
     // crop save (same key) never busts it either.
-    const closingImageUrl = closing?.imageKey
-      ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${versionFromKey(closing.imageKey)}`
+    const closingImageUrl = closingContent?.imageKey
+      ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${versionFromKey(closingContent.imageKey)}`
       : null;
     return {
       familyId: family.id,
@@ -315,11 +322,12 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
         new Date(),
       ),
       closing: {
-        message: closing?.message ?? null,
+        visible: closingVisible,
+        message: closingContent?.message ?? null,
         imageUrl: closingImageUrl,
         // Only surface a rectangle when there is an image to crop; `decodeCrop`
         // drops a malformed/legacy value so a bad rect never reaches a style.
-        imageCrop: closing?.imageKey ? decodeCrop(closing.imageCrop) : null,
+        imageCrop: closingContent?.imageKey ? decodeCrop(closingContent.imageCrop) : null,
       },
     };
   }).pipe(Effect.withSpan("cire.claim.buildResponse"));

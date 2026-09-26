@@ -118,6 +118,12 @@ export interface ClaimResult {
    * renders no closing section.
    */
   closing?: {
+    /**
+     * The closing section's visibility switch (migration 0063). Switched off,
+     * the API also leaves the content out. Optional so a payload from an API
+     * older than the switch reads as on.
+     */
+    visible?: boolean;
     message: string | null;
     imageUrl: string | null;
     imageCrop?: ImageCrop | null;

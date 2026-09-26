@@ -6,7 +6,8 @@ related:
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
   - "[[closing-band-width-bound-over-height-clip]]"
-last-reviewed: 2026-09-25
+  - "[[cire-development]]"
+last-reviewed: 2026-09-26
 ---
 # Invite Builder
 
@@ -179,9 +180,8 @@ copy field with **no built-in default**: it exists so a couple can add a closing
 line of their own ("Looking forward to celebrating with you", "No boxed gifts
 please"), and there is no sensible neutral sentence to invent on their behalf.
 So it behaves like the conditional segments below rather than like the fields
-above — blank means the line is simply not rendered, and every existing wedding
-keeps today's footer (couple's title over the legal links) until an organiser
-fills it in. Cap 300 chars, same as the welcome greeting.
+above — blank means the line is simply not rendered. Cap 300 chars, same as the
+welcome greeting.
 
 Image slots: `INVITE_IMAGE_SLOTS = ["hero", "story", "footer"]`. The same union
 bounds the `:slot` route param, the R2 key namespace, and the observability
@@ -206,7 +206,7 @@ A `null` text field (or an all-whitespace value, which the service normalises to
 `null`) means **use the built-in default** — so a partially-filled section still
 renders the original hard-coded copy for the fields the organiser left blank.
 
-## Conditional segments (empty ⇒ hidden)
+## Conditional segments and visibility switches
 
 A section that has **no content at all** is not shown on the guest invite — we
 never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
@@ -214,15 +214,84 @@ means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
 `cire/invites/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
 `isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `hasPinterest`,
-`hasDressCode`).
+`hasDressCode`, and the switch-aware `heroState`, `storyState`, `footerState`).
+
+The hero, Our Story and the closing section also carry a **visibility switch**
+("Show on the invite" in the builder), so an organiser can hide a filled-in
+section and bring it back with its content intact. Such a section renders only
+when it is switched on **and** has content:
+
+| Switch | Content | State (`SectionState`) | Guest sees |
+| --- | --- | --- | --- |
+| on | yes | `shown` | the section |
+| on | none | `empty` | nothing — the builder says why and what to add |
+| off | either | `off` | nothing — the content is kept |
 
 | Segment                       | Rendered when…                                            | Where                                   |
 | ----------------------------- | --------------------------------------------------------- | --------------------------------------- |
-| **Hero** (full-screen)        | it has an image **OR** a title **OR** a subtitle          | `InviteHeader.tsx` (`showHero`)         |
-| **Our Story**                 | it has a heading **OR** a body **OR** a story image        | `InviteHeader.tsx` (`showStory`)        |
+| **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
+| **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
 | **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
-| **Closing section**           | it has a note **OR** an image (whole section), post-claim   | `InviteClosing.tsx` (`isFooterEmpty`)   |
+| **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
+
+Welcome (the code entry) and Events have no switch: a guest needs both to reach
+their invitation. The per-event segments and the gift registry have none either;
+the registry's own publish state decides whether its section appears.
+
+**One vocabulary, in `@cire/theme`.** `VISIBILITY_SECTIONS = ["hero", "story",
+"footer"]`, `SectionState` and `sectionState(visible, empty)` live in
+[`cire/theme/src/sections.ts`](../../cire/theme/src/sections.ts), which the API,
+the builder and the guest site all import. `footer` is the data-layer name of
+the closing section, as on its image slot.
+
+**An absent switch reads as on.** A payload from an API older than the switches
+carries none, and it has to render as it did then, when every section with
+content showed. This is the opposite of the "fail closed" default in
+[[cire-development#Adding a column]]: there, closed is the safe side; here,
+closed would hide every hero on the invite for the deploy window.
+
+**What the switch does not hide.** Switching the hero off hides the hero
+*section*. The couple title still names the page (the tab title and the site
+footer read `hero.title`), and the hero photo still heads the gift-list page.
+The builder's switched-off line for the hero says so.
+
+**Payloads carry no more than a guest will see.** A switched-off section's own
+words stay out of the guest payloads, so they are not in the page source (island
+props are serialised into the SSR HTML):
+
+- `GET /api/invite/:slug`: story off ⇒ every story field is null; hero off ⇒ the
+  subtitle is null (title and image stay, for the reasons above). It sends
+  `visibility: { hero, story }`, never the closing section's switch.
+- The claim response: `closing.visible`, and when it is false the note, image URL
+  and crop are null.
+
+This keeps the payload tidy; it is not access control. The story image keeps
+serving at its public URL, which the builder's own thumbnail loads, so the
+builder's switched-off line says that switching off hides the section but does
+not make its photo private.
+
+**Existing weddings.** Migration `0063_invite_section_visibility.sql` gave each
+existing row the switch its emptiness check gave at the time — content ⇒ on, no
+content ⇒ off — so an existing wedding whose closing section was empty has it
+switched off, and filling it in later shows nothing until the organiser switches
+it on. Rows created afterwards, and a wedding with no customisation row, start
+with every switch on, as does the dev seed (the column default).
+
+**Adding a switchable section** (the FAQ, for instance):
+
+1. Add it to `VISIBILITY_SECTIONS` in `cire/theme/src/sections.ts`.
+2. Add a `<section>_visible integer NOT NULL DEFAULT 1` column on all three DDL
+   surfaces ([[cire-development#Adding a column]]), and decide in the migration
+   what existing rows get.
+3. Add it to `SECTION_VISIBILITY_COLUMNS` and `InviteVisibilityBody` in the API,
+   and decide whether the public read or the claim payload carries it.
+4. Every `Record<VisibilitySection, …>` then fails to compile until it covers the
+   section: the builder's draft and `visibilityFrom`, the API's `EMPTY`.
+5. Give the builder card a `visibility` prop and the guest render a state check.
+
+The write body is partial, so a portal build that predates the new section keeps
+saving the switches it knows.
 
 Image-only or title-only heroes are valid (the neutral "You're Invited" fallback
 title only renders **inside** an otherwise-shown hero). All built-in fallback
@@ -234,12 +303,15 @@ builder (the old values live in the PR #248 description). The Our-Story eyebrow 
 label, not content — it does not keep the section alive on its own.
 
 **Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
-badge — **"Shown"** vs **"Hidden — empty"** — on the Hero, Our Story and Closing
-Section fieldsets,
-driven by the **same** emptiness logic (mirrored in
-`cire/host/src/lib/invite-emptiness.ts`, since the two packages share no
-code). The badge updates **live** as the organiser types, so they know exactly
-what a guest will see before saving. Keep the two predicate files in lockstep.
+badge — **"Shown"**, **"Hidden — empty"** or **"Hidden — switched off"** — on the
+Hero, Our Story and Closing Section fieldsets, beside the section's "Show on the
+invite" switch, and under it a line saying why a hidden section is hidden. The
+badge is driven by the **same** logic as the guest render: the content predicates
+are mirrored in `cire/host/src/lib/invite-emptiness.ts` (a hand-kept copy; keep
+the two in lockstep) and `sectionState` comes from `@cire/theme`. The badge
+updates **live** as the organiser types or flips the switch, so they know exactly
+what a guest will see before saving. The switches save with the copy and theme
+(`PUT /invite/visibility`), and "Reset section" switches the section back on.
 
 ## Required event fields (Name + Start + Timezone)
 
@@ -592,8 +664,11 @@ DEFAULT 0**) — sliders since `0018_hero_display_sliders.sql`, which replaced
 0017's coarse `blurred | regular` and `none | solid` enums. The
 hero-display columns are NOT NULL with defaults that reproduce today's look, so a
 forward-only `ADD COLUMN` needs no backfill and an un-customised wedding renders
-unchanged. Image columns store **R2 object keys**, not URLs (mirrors how `imports`
-stores its CSV keys). The theme + hero-display ride the **same row + same read
+unchanged. The three visibility switches `hero_visible`, `story_visible` and
+`footer_visible` (`0063_invite_section_visibility.sql`) are **NOT NULL DEFAULT 1**
+booleans; 0063 also back-filled each existing row from its emptiness check (see
+[[#Conditional segments and visibility switches]]). Image columns store **R2
+object keys**, not URLs (mirrors how `imports` stores its CSV keys). The theme + hero-display ride the **same row + same read
 query** — no extra table, no extra round-trip. LOCKSTEP DDL mirror lives in
 `cire/api/src/db/setup.ts` (kept in sync with the migration + schema).
 
@@ -615,7 +690,10 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
 `cire/api/src/routes/invite.ts`, two sibling Elysia instances:
 
 - **Public (no auth)** — under `/api/invite`:
-  - `GET /api/invite/:slug` → text + image URL paths for the guest site.
+  - `GET /api/invite/:slug` → text + image URL paths for the guest site, plus the
+    hero and story switches; a switched-off section's own words are left out,
+    and so is the organiser-only `inviteMessage` (`publicView` in
+    `cire/api/src/services/invite.ts`).
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
     immutable`; the URL is cache-busted by `?v=<updatedAt>`).
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
@@ -628,6 +706,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     submits every key). Empty/whitespace ⇒ `null`, which means "use the built-in
     default" for every field except `footerMessage`, where it means "render
     nothing".
+  - `PUT /invite/visibility` → set the section switches the body names
+    (`{ hero?, story?, footer? }`, booleans). **Partial**, unlike `/text` and
+    `/theme`: a key left out keeps its stored switch, and a body naming no known
+    section is a 400. Bumps `updatedAt` only, never the image version. Switching
+    off never touches the section's content.
   - `PUT /invite/theme` → upsert the theme (fonts + the five-seed colour scheme
     + a per-section `tone`) **plus the
     two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
@@ -921,7 +1004,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | --- | --- |
 | `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, section tab state |
 | `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
-| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`) / `SectionCard` (`hidden` prop) / `Disclosure` / `InstantBadge` |
+| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`, three states) / `SectionCard` (`hidden` prop; `visibility` prop renders the badge, the "Show on the invite" switch and the reason line) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
 | `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
@@ -951,8 +1034,9 @@ were never an option — the dashboard routes on `location.hash`, so a real
 it needed to be on every screen, and pinned the composed preview to a fixed
 scroll position an organiser had to scroll back up to see. Now `activeSection`
 (a signal in `InviteBuilder.tsx`) tracks which ONE section is showing; the nav
-pills set it instead of scrolling, and mirror the sections' Shown/Hidden badge
-state as dots, same as before.
+pills set it instead of scrolling, and mirror the sections' badge state as dots:
+gold when shown, muted when hidden for either reason, with the reason in each
+tab's `sr-only` clause ("(hidden — empty)" or "(hidden — switched off)").
 
 **The ARIA tabs contract is complete, not just the roles.** The first cut
 declared `role="tablist"`/`role="tab"`/`aria-selected` on the nav but left the
@@ -1046,9 +1130,9 @@ constant — Tailwind extracts utilities by scanning source **text**, so
 hand-maintained pair, and the drift guard is the checkable half. Same treatment
 `auto-grid` / `page-frame` got.
 
-The trigger's accessible name carries the Shown/Hidden state as a clause
-("…, 3 of 8, hidden — empty. Choose a section") rather than leaving it to the
-dot. The dot is `aria-hidden`, and an `aria-label` overrides subtree content, so
+The trigger's accessible name carries the section state as a clause
+("…, 3 of 8, hidden — empty. Choose a section", or "hidden — switched off")
+rather than leaving it to the dot. The dot is `aria-hidden`, and an `aria-label` overrides subtree content, so
 the `sr-only` span the tabs themselves use would be dropped here — without the
 clause the collapsed trigger tells a sighted organiser three things and a
 screen-reader one only two, which is exactly the claim the design rests on
@@ -1241,17 +1325,19 @@ upload/remove/crop and a `heroBlur` change (the one theme field that alters
 the served bytes), backfilled from `updated_at`, coalesced to it when NULL —
 so copy/colour saves never bust the per-variant transform cache or force
 guests to re-download the hero (WT-P-I1; transforms are the metered resource,
-see the root `[[free-tier-limits]]`). Dirty halves run sequentially (text
-then theme), mutating the loaded data after each success — the API's
-two-endpoint split is an implementation detail the organiser never sees.
+see the root `[[free-tier-limits]]`). Dirty parts run sequentially (text,
+then theme, then the section switches), mutating the loaded data after each
+success — the API's three-endpoint split is an implementation detail the
+organiser never sees.
 (Before the restructure the builder had separate "Save copy" / "Save theme"
 buttons with the hero sliders saved by the distant theme button — the source
 of a "saved but didn't stick" class of confusion.) A text-half failure stops
-before the theme PUT and shows that error; a theme-half failure shows its own.
+before the theme PUT and shows that error; a later part's failure shows its own.
 The builder is wrapped in a real `<form onSubmit>`, so Enter in any field
 saves.
 
-**Two persistence models, marked.** Text/theme wait for Save; images, crops
+**Two persistence models, marked.** Text, theme and the section switches wait
+for Save; images, crops
 and the design selection apply to the LIVE invite immediately. Every
 instant-apply control carries an "applies immediately" badge, image
 **removal is confirm-gated** (the one destructive, undo-less control), and an

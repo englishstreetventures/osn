@@ -21,7 +21,7 @@ const previewProps: PreviewPaneProps = {
   toneSurface: () => "var(--color-bg)",
   design: "classic",
   hero: {
-    shown: true,
+    state: "shown",
     imageUrl: null,
     crop: null,
     cropMobile: null,
@@ -30,10 +30,10 @@ const previewProps: PreviewPaneProps = {
     backdropOpacity: 0,
     backdropBlur: 0,
   },
-  story: { shown: false, eyebrow: "", heading: "", body: "" },
+  story: { state: "empty", eyebrow: "", heading: "", body: "" },
   welcome: { message: "" },
   events: { eyebrow: "", heading: "" },
-  closing: { shown: false, message: "", imageUrl: null, imageCrop: null },
+  closing: { state: "empty", message: "", imageUrl: null, imageCrop: null },
 };
 
 afterEach(() => {
@@ -69,6 +69,23 @@ describe("PreviewModal", () => {
   it("names a catalog pack by its display name, not its id", () => {
     render(() => <PreviewModal {...previewProps} design="gala" open={true} onClose={vi.fn()} />);
     expect(screen.getByTestId("preview-design").textContent).toContain("Gala");
+  });
+
+  // The composed preview says WHY a section is missing, as the badge does.
+  it("labels a hidden section's placeholder by its reason", () => {
+    render(() => (
+      <PreviewModal
+        {...previewProps}
+        story={{ ...previewProps.story, state: "off" }}
+        open={true}
+        onClose={vi.fn()}
+      />
+    ));
+    const strips = [...document.querySelectorAll("[data-hidden-strip]")] as HTMLElement[];
+    expect(strips.map((el) => [el.dataset.hiddenStrip, el.textContent])).toEqual([
+      ["off", "Our Story — switched off"],
+      ["empty", "Closing — hidden until it has content"],
+    ]);
   });
 
   it("Close button calls onClose", () => {

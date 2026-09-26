@@ -13,6 +13,7 @@ import {
   HEADING_SIZE_CHOICES,
   type PalettePresetKey,
   type SectionTone,
+  type VisibilitySection,
 } from "@cire/theme";
 
 import type { ImageCrop } from "../../lib/image-crop";
@@ -124,6 +125,9 @@ export interface InviteCustomisation {
   footer?: { message: string | null; imageUrl?: string | null; imageCrop?: ImageCrop | null };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
+  // Per-section visibility switches (0063). Optional, and each key optional, so a
+  // mid-deploy payload from an older API seeds every switch as on.
+  visibility?: Partial<Record<VisibilitySection, boolean>>;
   // Optional host override for the first line of the copyable invite message
   // (the line above the auto-appended guest-site URL and labelled claim code).
   inviteMessage: string | null;
@@ -218,7 +222,12 @@ export interface InviteDraft {
   heroBlur: number;
   titleBackdropOpacity: number;
   titleBackdropBlur: number;
+  /** Which sections show on the invite — saved with the rest of the draft. */
+  visibility: SectionSwitches;
 }
+
+/** One switch per switchable section; `true` shows the section when it has content. */
+export type SectionSwitches = Record<VisibilitySection, boolean>;
 
 export function emptyDraft(): InviteDraft {
   return {
@@ -244,6 +253,8 @@ export function emptyDraft(): InviteDraft {
     heroBlur: HERO_BLUR_DEFAULT,
     titleBackdropOpacity: 0,
     titleBackdropBlur: 0,
+    // Every section switched on: a new wedding's section shows once it has content.
+    visibility: visibilityFrom(undefined),
   };
 }
 
@@ -286,6 +297,16 @@ export function draftFromCustomisation(d: InviteCustomisation): InviteDraft {
     heroBlur: d.heroDisplay?.blur ?? HERO_BLUR_DEFAULT,
     titleBackdropOpacity: d.heroDisplay?.titleBackdrop?.opacity ?? 0,
     titleBackdropBlur: d.heroDisplay?.titleBackdrop?.blur ?? 0,
+    visibility: visibilityFrom(d.visibility),
+  };
+}
+
+/** The stored switches, a missing one reading as on. */
+function visibilityFrom(stored: InviteCustomisation["visibility"]): InviteDraft["visibility"] {
+  return {
+    hero: stored?.hero ?? true,
+    story: stored?.story ?? true,
+    footer: stored?.footer ?? true,
   };
 }
 
@@ -329,4 +350,12 @@ export function themePayload(draft: InviteDraft) {
     titleBackdropOpacity: draft.titleBackdropOpacity,
     titleBackdropBlur: draft.titleBackdropBlur,
   };
+}
+
+/**
+ * The `/invite/visibility` request body from the draft. The API takes a partial
+ * body, but the builder always sends every section it knows, like the other two.
+ */
+export function visibilityPayload(draft: InviteDraft): InviteDraft["visibility"] {
+  return visibilityFrom(draft.visibility);
 }

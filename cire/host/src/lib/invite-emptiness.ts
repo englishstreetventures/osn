@@ -1,14 +1,21 @@
 /**
- * Organiser-side mirror of the guest invite's "is this segment empty?" logic.
+ * Organiser-side mirror of the guest invite's "does this segment render?" logic.
  *
- * SOURCE OF TRUTH: `cire/invites/src/components/invite-emptiness.ts`. The guest site
- * hides the hero / Our-Story segments when they have no content; the builder uses
- * the SAME predicates here to show a "Shown" vs "Hidden — empty" badge per
- * section, so the organiser knows exactly what a guest will see before they save.
- * The two packages share no code, so keep these byte-for-byte in lockstep.
+ * SOURCE OF TRUTH: `cire/invites/src/components/invite-emptiness.ts`. The guest
+ * site renders the hero, Our Story and the closing section only when the
+ * section's visibility switch is on AND it has content; the builder uses the SAME
+ * logic here for its per-section badge ("Shown", "Hidden — empty", "Hidden —
+ * switched off"), so the organiser knows exactly what a guest will see before
+ * they save.
+ *
+ * The switch vocabulary and `sectionState` come from `@cire/theme`, which both
+ * packages import. The content predicates below are a hand-kept copy of the
+ * guest module's; keep the two in lockstep.
  *
  * "Absent" means null, undefined, empty-string, OR whitespace-only.
  */
+
+import { sectionState, type SectionState } from "@cire/theme";
 
 /** A value is "present" when it is a non-empty, non-whitespace-only string. */
 export function hasText(value: string | null | undefined): boolean {
@@ -16,9 +23,9 @@ export function hasText(value: string | null | undefined): boolean {
 }
 
 /**
- * The hero is HIDDEN on the guest invite when it has no image, no title and no
- * subtitle (it would otherwise paint an empty full-screen section). Image-only or
- * title-only is shown.
+ * The hero is EMPTY when it has no image, no title and no subtitle (it would
+ * otherwise paint an empty full-screen section). Image-only or title-only is
+ * content.
  */
 export function isHeroEmpty(hero: {
   imageUrl: string | null | undefined;
@@ -29,9 +36,9 @@ export function isHeroEmpty(hero: {
 }
 
 /**
- * The footer's personal block is EMPTY with neither a note nor an image. It does
- * not hide the footer itself (the legal links always render) — it means the
- * sign-off area above them is exactly what an untouched wedding shows.
+ * The closing section is EMPTY with neither a note nor an image, and then it
+ * renders nothing. The site footer below it, with the legal links, is separate
+ * and always renders.
  */
 export function isFooterEmpty(footer: {
   message: string | null | undefined;
@@ -41,7 +48,7 @@ export function isFooterEmpty(footer: {
 }
 
 /**
- * The Our-Story section is HIDDEN when its heading, body and image are all absent.
+ * The Our-Story section is EMPTY when its heading, body and image are all absent.
  * (The eyebrow is a label, not content — it does not keep the section alive.)
  */
 export function isStoryEmpty(story: {
@@ -50,4 +57,28 @@ export function isStoryEmpty(story: {
   imageUrl: string | null | undefined;
 }): boolean {
   return !hasText(story.heading) && !hasText(story.body) && !hasText(story.imageUrl);
+}
+
+/** The hero's state from its switch and its content. */
+export function heroState(
+  visible: boolean | null | undefined,
+  hero: Parameters<typeof isHeroEmpty>[0],
+): SectionState {
+  return sectionState(visible, isHeroEmpty(hero));
+}
+
+/** Our Story's state from its switch and its content. */
+export function storyState(
+  visible: boolean | null | undefined,
+  story: Parameters<typeof isStoryEmpty>[0],
+): SectionState {
+  return sectionState(visible, isStoryEmpty(story));
+}
+
+/** The closing section's state from its switch and its content. */
+export function footerState(
+  visible: boolean | null | undefined,
+  footer: Parameters<typeof isFooterEmpty>[0],
+): SectionState {
+  return sectionState(visible, isFooterEmpty(footer));
 }

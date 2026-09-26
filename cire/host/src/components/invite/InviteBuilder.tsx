@@ -20,7 +20,8 @@
  * (phones) a trigger naming the current section that opens the same tabs as a
  * two-column grid — see {@link SECTION_MENU_ID}.
  *
- * Two persistence models coexist deliberately: text/theme wait for Save;
+ * Two persistence models coexist deliberately: text/theme and the section
+ * visibility switches wait for Save;
  * images, crops and the design selection apply immediately (marked with an
  * "applies immediately" badge, and image removal asks first). A draft→publish
  * model that would unify them needs API support — tracked in the cire wiki.
@@ -32,6 +33,7 @@ import {
   fontStack,
   paletteAdjustments,
   SECTION_TONES,
+  type SectionState,
   type SectionTone,
   typographyVars,
 } from "@cire/theme";
@@ -54,7 +56,7 @@ import { createStore } from "solid-js/store";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
 import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
-import { isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../../lib/invite-emptiness";
+import { footerState, heroState, storyState } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
@@ -63,6 +65,7 @@ import DesignPicker from "./DesignPicker";
 import {
   ChoiceField,
   Disclosure,
+  SECTION_STATE_LABELS,
   SectionCard,
   SliderField,
   TextAreaField,
@@ -93,6 +96,7 @@ import {
   textPayload,
   themePayload,
   type ThemeSection,
+  visibilityPayload,
 } from "./model";
 import PreviewModal from "./PreviewModal";
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
@@ -211,6 +215,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // `let` snapshots made an "Unsaved changes" indicator impossible.
   const [savedText, setSavedText] = createSignal("");
   const [savedTheme, setSavedTheme] = createSignal("");
+  const [savedVisibility, setSavedVisibility] = createSignal("");
 
   // Seed the draft once, when the resource first resolves (an effect, not a
   // render-path side effect). Later mutations from image/design saves refresh
@@ -222,6 +227,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setDraft(next);
     setSavedText(JSON.stringify(textPayload(next)));
     setSavedTheme(JSON.stringify(themePayload(next)));
+    setSavedVisibility(JSON.stringify(visibilityPayload(next)));
     setSeeded(true);
   });
 
@@ -237,7 +243,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const themeDirty = createMemo(
     () => seeded() && JSON.stringify(themePayload(draft)) !== savedTheme(),
   );
-  const isDirty = () => textDirty() || themeDirty();
+  const visibilityDirty = createMemo(
+    () => seeded() && JSON.stringify(visibilityPayload(draft)) !== savedVisibility(),
+  );
+  const isDirty = () => textDirty() || themeDirty() || visibilityDirty();
 
   // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
   // switching away (unsaved-guard), and the browser asks on tab close/reload.
@@ -489,72 +498,70 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
-  // Live "what a guest will see" gates, mirroring the guest invite's emptiness
-  // predicates. Driven by the draft buffers (so the badge flips the instant the
-  // organiser types) plus the loaded image URL (image upload/remove refetches
-  // `data`). The hero/story sections are HIDDEN on the live invite when these
-  // report empty — the badges surface that before the organiser saves.
-  const heroShown = () =>
-    !isHeroEmpty({
+  // Live "what a guest will see" states, mirroring the guest invite's state
+  // functions: shown, empty (switched on with no content) or off. Driven by the
+  // draft (so the badge flips the instant the organiser types or flips the
+  // switch) plus the loaded image URL (image upload/remove refetches `data`).
+  // A section renders on the live invite only in the `shown` state — the badges
+  // surface that before the organiser saves.
+  const heroSectionState = () =>
+    heroState(draft.visibility.hero, {
       imageUrl: data()?.hero.imageUrl,
       title: draft.heroTitle,
       subtitle: draft.heroSubtitle,
     });
-  const storyShown = () =>
-    !isStoryEmpty({
+  const storySectionState = () =>
+    storyState(draft.visibility.story, {
       heading: draft.storyHeading,
       body: draft.storyBody,
       imageUrl: data()?.story.imageUrl,
     });
-  // The footer has no defaults, so its badge asks "is there anything personal
-  // here at all?" — a note, an image, or both. Neither ⇒ the guest sees the
-  // plain footer (names over the legal links).
-  const footerShown = () =>
-    !isFooterEmpty({ message: draft.footerMessage, imageUrl: data()?.footer?.imageUrl });
+  // The closing section has no defaults, so its content check asks "is there
+  // anything personal here at all?" — a note, an image, or both.
+  const footerSectionState = () =>
+    footerState(draft.visibility.footer, {
+      message: draft.footerMessage,
+      imageUrl: data()?.footer?.imageUrl,
+    });
 
-  /** Shown-state per nav item, mirroring the section badges in the jump list. */
-  const navShown = (id: string): boolean | undefined => {
+  /** Section state per nav item, mirroring the section badges. `undefined` for
+   *  the sections that cannot be hidden. */
+  const navState = (id: string): SectionState | undefined => {
     switch (id) {
       case "invite-hero":
-        return heroShown();
+        return heroSectionState();
       case "invite-story":
-        return storyShown();
+        return storySectionState();
       case "invite-closing":
-        return footerShown();
+        return footerSectionState();
       default:
         return undefined;
     }
   };
 
-  /** The ACTIVE section's Shown/Hidden state, for the collapsed menu trigger's
-   *  dot. Memoised because the trigger reads it three times (the `Show` plus
-   *  two `classList` entries) and `navShown` funnels into the draft-reading
-   *  emptiness predicates — one subscription per keystroke instead of three.
-   *  Declared here, not beside `activeIndex`/`activeLabel`: `createMemo` runs
-   *  its computation eagerly, so it has to sit below `navShown`. */
-  const activeShown = createMemo(() => navShown(activeSection()));
+  /** The ACTIVE section's state, for the collapsed menu trigger's dot.
+   *  Memoised because the trigger reads it three times (the `Show` plus two
+   *  `classList` entries) and `navState` funnels into the draft-reading state
+   *  functions — one subscription per keystroke instead of three. Declared
+   *  here, not beside `activeIndex`/`activeLabel`: `createMemo` runs its
+   *  computation eagerly, so it has to sit below `navState`. */
+  const activeState = createMemo(() => navState(activeSection()));
 
-  /** The active section's Shown/Hidden state as a clause for the trigger's
-   *  accessible name — empty for the sections that have no such state. */
-  const shownSuffix = () => {
-    switch (activeShown()) {
-      case true:
-        return ", shown";
-      case false:
-        return ", hidden — empty";
-      default:
-        return "";
-    }
+  /** The active section's state as a clause for the trigger's accessible name —
+   *  empty for the sections that have no such state. Wording follows the badge. */
+  const stateSuffix = () => {
+    const state = activeState();
+    return state ? `, ${SECTION_STATE_LABELS[state].toLowerCase()}` : "";
   };
 
   /**
-   * The single save. The API keeps its two endpoints (`/text` + `/theme`) but
-   * the organiser sees ONE action. Dirty halves run sequentially (text then
-   * theme); each successful response refreshes its snapshot and mutates the
-   * loaded data immediately (so a text success followed by a theme failure
-   * leaves the UI consistent with what the server actually saved), and
-   * whichever half fails surfaces its own error. Wired as the form's submit
-   * handler so Enter in any field saves too.
+   * The single save. The API keeps three endpoints (`/text`, `/theme`,
+   * `/visibility`) but the organiser sees ONE action. Dirty parts run
+   * sequentially (text, then theme, then visibility); each successful response
+   * refreshes its snapshot and mutates the loaded data immediately (so a text
+   * success followed by a theme failure leaves the UI consistent with what the
+   * server actually saved), and whichever part fails surfaces its own error.
+   * Wired as the form's submit handler so Enter in any field saves too.
    */
   async function saveInvite(e?: Event) {
     e?.preventDefault();
@@ -563,11 +570,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
     const textBody = JSON.stringify(textPayload(draft));
     const themeBody = JSON.stringify(themePayload(draft));
+    const visibilityBody = JSON.stringify(visibilityPayload(draft));
     const textIsDirty = textBody !== savedText();
     const themeIsDirty = themeBody !== savedTheme();
+    const visibilityIsDirty = visibilityBody !== savedVisibility();
     // Unreachable via the UI (the button disables when clean) — belt & braces
     // against a programmatic submit.
-    if (!textIsDirty && !themeIsDirty) return;
+    if (!textIsDirty && !themeIsDirty && !visibilityIsDirty) return;
 
     setSaving(true);
     try {
@@ -597,6 +606,20 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         }
         setSavedTheme(themeBody);
         mutate((await themeRes.json()) as InviteCustomisation);
+      }
+
+      if (visibilityIsDirty) {
+        const visibilityRes = await authFetch(apiUrl(`${base()}/visibility`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: visibilityBody,
+        });
+        if (!visibilityRes.ok) {
+          const body = (await visibilityRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `Save failed (${visibilityRes.status})`);
+        }
+        setSavedVisibility(visibilityBody);
+        mutate((await visibilityRes.json()) as InviteCustomisation);
       }
       haptic("commit");
       toast.success("Invite saved");
@@ -739,6 +762,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       bodyStyle: "default",
       palette: { preset: null, seeds: {} },
     });
+  // Resetting a switchable section also switches it back on — the default a
+  // section starts with.
   const resetHero = () => {
     setDraft({
       heroTitle: "",
@@ -748,10 +773,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       titleBackdropBlur: 0,
     });
     setDraft("tones", "hero", null);
+    setDraft("visibility", "hero", true);
   };
   const resetStory = () => {
     setDraft({ storyEyebrow: "", storyHeading: "", storyBody: "" });
     setDraft("tones", "story", null);
+    setDraft("visibility", "story", true);
   };
   const resetWelcome = () => {
     setDraft({ welcomeMessage: "" });
@@ -778,7 +805,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // render-prop runs, and never again, so the preview would freeze at
   // whatever the form looked like on first render.
   const heroPreviewProps = (d: () => InviteCustomisation): PreviewPaneProps["hero"] => ({
-    shown: heroShown(),
+    state: heroSectionState(),
     imageUrl: d().hero.imageUrl,
     crop: d().hero.imageCrop,
     cropMobile: d().hero.imageCropMobile ?? null,
@@ -788,7 +815,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     backdropBlur: draft.titleBackdropBlur,
   });
   const storyPreviewProps = (): PreviewPaneProps["story"] => ({
-    shown: storyShown(),
+    state: storySectionState(),
     eyebrow: draft.storyEyebrow,
     heading: draft.storyHeading,
     body: draft.storyBody,
@@ -801,7 +828,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     heading: draft.detailsHeading,
   });
   const closingPreviewProps = (d: () => InviteCustomisation): PreviewPaneProps["closing"] => ({
-    shown: footerShown(),
+    state: footerSectionState(),
     message: draft.footerMessage,
     imageUrl: d().footer?.imageUrl ?? null,
     imageCrop: d().footer?.imageCrop ?? null,
@@ -847,7 +874,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           return (
             <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
               {/* ── Section tabs — sticky, one section shown at a time, dots mirror
-                the Shown/Hidden badges — plus, below `@4xl/builder` (where there's
+                the section state badges — plus, below `@4xl/builder` (where there's
                 no room for the sticky side preview), a button that opens the
                 composed preview in a modal instead. ── */}
               <div class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
@@ -893,7 +920,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     // has to be folded into the label, or the collapsed trigger
                     // tells a sighted organiser three things and a screen-reader
                     // one only two. Wording matches `SegmentBadge`.
-                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${shownSuffix()}. Choose a section`}
+                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${stateSuffix()}. Choose a section`}
                     onClick={() => setSectionMenuOpen(!sectionMenuOpen())}
                     onKeyDown={(e) => {
                       if (e.key !== "Escape" || !sectionMenuOpen()) return;
@@ -903,13 +930,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     class="flex min-h-11 w-full items-center justify-between @3xl/builder:hidden"
                   >
                     <span class="flex min-w-0 items-center gap-2">
-                      <Show when={activeShown() !== undefined}>
+                      <Show when={activeState() !== undefined}>
                         <span
                           aria-hidden
                           class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                           classList={{
-                            "bg-gold": activeShown() === true,
-                            "bg-text-muted/50": activeShown() === false,
+                            "bg-gold": activeState() === "shown",
+                            "bg-text-muted/50":
+                              activeState() !== undefined && activeState() !== "shown",
                           }}
                         />
                       </Show>
@@ -945,7 +973,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
-                        const shown = () => navShown(item.id);
+                        const state = () => navState(item.id);
                         const active = () => activeSection() === item.id;
                         return (
                           <button
@@ -966,19 +994,21 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                                 : "text-text-muted hover:text-text hover:bg-surface/60"
                             }`}
                           >
-                            <Show when={shown() !== undefined}>
+                            <Show when={state() !== undefined}>
                               <span
                                 aria-hidden
                                 class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                                 classList={{
-                                  "bg-gold": shown() === true,
-                                  "bg-text-muted/50": shown() === false,
+                                  "bg-gold": state() === "shown",
+                                  "bg-text-muted/50": state() !== undefined && state() !== "shown",
                                 }}
                               />
                             </Show>
                             <span class="min-w-0 truncate">{item.label}</span>
-                            <Show when={shown() === false}>
-                              <span class="sr-only">(hidden — empty)</span>
+                            <Show when={state() !== undefined && state() !== "shown"}>
+                              <span class="sr-only">
+                                ({SECTION_STATE_LABELS[state()!].toLowerCase()})
+                              </span>
                             </Show>
                           </button>
                         );
@@ -1095,7 +1125,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-hero"
                     legend="Hero"
-                    shown={heroShown()}
+                    visibility={{
+                      state: heroSectionState(),
+                      visible: draft.visibility.hero,
+                      onChange: (v) => setDraft("visibility", "hero", v),
+                      emptyHint: "a title, a subtitle or an image",
+                      offNote:
+                        "Switched off. Guests won't see the hero section; everything in it is kept for when you switch it back on. Your couple title still names the invite in the browser tab and the page footer, and the photo still heads your gift list.",
+                    }}
                     onReset={resetHero}
                     hidden={activeSection() !== "invite-hero"}
                   >
@@ -1187,7 +1224,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-story"
                     legend="Our Story"
-                    shown={storyShown()}
+                    visibility={{
+                      state: storySectionState(),
+                      visible: draft.visibility.story,
+                      onChange: (v) => setDraft("visibility", "story", v),
+                      emptyHint: "a heading, the story or a photo",
+                    }}
                     onReset={resetStory}
                     hidden={activeSection() !== "invite-story"}
                   >
@@ -1320,7 +1362,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-closing"
                     legend="Closing Section"
-                    shown={footerShown()}
+                    visibility={{
+                      state: footerSectionState(),
+                      visible: draft.visibility.footer,
+                      onChange: (v) => setDraft("visibility", "footer", v),
+                      emptyHint: "a closing image or a closing note",
+                    }}
                     hidden={activeSection() !== "invite-closing"}
                     description={
                       'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
@@ -1455,8 +1502,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </span>
                   </Show>
                   <span class="font-body text-text-muted text-ui-sm">
-                    Copy, colours, fonts and hero display save together. Images, crops and the
-                    design apply as soon as you change them.
+                    Copy, colours, fonts, hero display and which sections show save together.
+                    Images, crops and the design apply as soon as you change them.
                   </span>
                 </div>
               </div>

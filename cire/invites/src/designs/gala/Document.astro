@@ -2,6 +2,7 @@
 import '../../styles/global.css'
 import { apiPreconnectHref } from '../../lib/api-origin'
 import { inviteTitle } from '../../lib/invite-title'
+import { heroPreloadHref } from '../../components/invite-images'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
@@ -14,13 +15,10 @@ type Props = InviteDesignProps
 
 const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
 
-// Preload the hero (the LCP element). It is ONE fixed-purpose variant, not a
-// responsive set: `InviteHeader` always renders `?variant=hero-bg` (the
-// server-blurred backdrop) with no srcset. So preload that exact URL — an
-// imagesrcset of thumb/card/hero would make the browser fetch a second,
-// sharp 1600w render at top priority that the page never displays, competing
-// with the real LCP image for the same connection.
-const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
+// Preload the hero (the LCP element) — the exact `hero-bg` URL `InviteHeader`
+// renders, or nothing when the hero has no image or is switched off. See
+// `heroPreloadHref` for why it is one variant and not a responsive set.
+const preloadHeroHref = heroPreloadHref(apiUrl, initialInvite)
 
 // Tab title follows the couple's hero title when they've set one (e.g.
 // "Anita & Ben — You're Invited"); the built-in default otherwise.
@@ -31,10 +29,6 @@ const pageTitle = inviteTitle(initialInvite?.hero.title)
 // payload, the islands' browser-side retry re-applies it (`applyPaletteToRoot`)
 // once the invite arrives.
 const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
-
-const heroSep = heroBase?.includes('?') ? '&' : '?'
-// Must stay in step with HERO_BG_VARIANT in components/invite-images.ts.
-const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
 
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
 // this is separate from the hero preload and why it carries no `crossorigin`.

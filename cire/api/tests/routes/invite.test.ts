@@ -24,6 +24,7 @@ import type {
   OutputFormat,
 } from "../../src/services/invite-image-transform";
 import { appRequest, jsonBody } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -2444,5 +2445,373 @@ describe("PUT /invite/design (organiser)", () => {
 
     const publicRes = await appRequest(app, `/api/invite/${SLUG}`);
     expect(((await publicRes.json()) as { designId: string }).designId).toBe("test-free");
+  });
+});
+
+describe("PUT /invite/visibility (organiser, migration 0063)", () => {
+  type Visibility = { hero: boolean; story: boolean; footer?: boolean };
+  type OrganiserInvite = {
+    visibility: Visibility;
+    hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
+    story: { eyebrow: string | null; heading: string | null; body: string | null };
+    footer: { message: string | null };
+  };
+
+  async function putVisibility(
+    app: ReturnType<typeof buildApp>["app"],
+    body: unknown,
+    profileId = BOOTSTRAP_OWNER,
+  ): Promise<Response> {
+    return appRequest(app, `${orgBase}/visibility`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(profileId)) },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  async function putText(
+    app: ReturnType<typeof buildApp>["app"],
+    fields: Record<string, string | null>,
+  ): Promise<void> {
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...JSON.parse(emptyText), ...fields }),
+    });
+    expect(res.status).toBe(200);
+  }
+
+  async function organiserInvite(app: ReturnType<typeof buildApp>["app"]) {
+    const res = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    expect(res.status).toBe(200);
+    return (await res.json()) as OrganiserInvite;
+  }
+
+  function seedCohost(db: ReturnType<typeof buildApp>["db"], role: "viewer" | "helper") {
+    const profileId = `usr_visibility_${role}`;
+    db.insert(weddingHosts)
+      .values({
+        id: `whost_visibility_${role}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: profileId,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role,
+        createdAt: new Date(),
+      })
+      .run();
+    return profileId;
+  }
+
+  it("reads every switch as on for a wedding that never set one", async () => {
+    const { app } = buildApp();
+    expect((await organiserInvite(app)).visibility).toEqual({
+      hero: true,
+      story: true,
+      footer: true,
+    });
+  });
+
+  it("401s without a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/visibility`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ story: false }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403s a stranger, never 401", async () => {
+    const { app } = buildApp();
+    const res = await putVisibility(app, { story: false }, "usr_someone_else");
+    expect(res.status).toBe(403);
+  });
+
+  it("403s a viewer co-host with read_only_role", async () => {
+    const { app, db } = buildApp();
+    const res = await putVisibility(app, { story: false }, seedCohost(db, "viewer"));
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+  });
+
+  it("403s a helper co-host — the run sheet is all a helper may touch", async () => {
+    const { app, db } = buildApp();
+    const res = await putVisibility(app, { story: false }, seedCohost(db, "helper"));
+    expect(res.status).toBe(403);
+    expect((await organiserInvite(app)).visibility.story).toBe(true);
+  });
+
+  // The builder reaches this route with the organiser session cookie, not a
+  // bearer token, so the cookie path is the one that has to hold.
+  it("saves for an organiser session cookie", async () => {
+    const { app, db } = buildApp();
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+    const res = await appRequest(app, `${orgBase}/visibility`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
+      body: JSON.stringify({ story: false }),
+    });
+    expect(res.status).toBe(200);
+    expect((await organiserInvite(app)).visibility.story).toBe(false);
+  });
+
+  it("401s a dead session cookie or a malformed bearer, and changes nothing", async () => {
+    const { app } = buildApp();
+    const credentials: Record<string, string>[] = [
+      { cookie: "cire_org_session=not-a-live-session-token" },
+      { authorization: "Bearer not-a-jwt" },
+    ];
+    for (const headers of credentials) {
+      const res = await appRequest(app, `${orgBase}/visibility`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ story: false }),
+      });
+      expect(res.status).toBe(401);
+    }
+    expect((await organiserInvite(app)).visibility.story).toBe(true);
+  });
+
+  it("answers a failed write with a plain 500", async () => {
+    const { app, db } = buildApp();
+    // A D1 error reaches the handler as a defect; dropping the table is the
+    // cheapest way to raise one here.
+    db.$client.exec("DROP TABLE wedding_invite_customisations");
+    const res = await putVisibility(app, { story: false });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
+  it("lets an editor co-host switch a section", async () => {
+    const { app, db } = buildApp();
+    const editor = "usr_visibility_editor";
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_visibility_editor",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: editor,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "editor",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await putVisibility(app, { hero: false }, editor);
+    expect(res.status).toBe(200);
+  });
+
+  it("400s a body naming no section, and changes nothing", async () => {
+    const { app } = buildApp();
+    for (const body of [{}, { faq: true }, "not json", null]) {
+      const res = await putVisibility(app, body === null ? "null" : body);
+      expect(res.status).toBe(400);
+    }
+    expect((await organiserInvite(app)).visibility).toEqual({
+      hero: true,
+      story: true,
+      footer: true,
+    });
+  });
+
+  it("400s a switch that is not a boolean", async () => {
+    const { app } = buildApp();
+    for (const value of [null, "false", 0, 1]) {
+      const res = await putVisibility(app, { story: value });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("sets only the switches the body names and returns the customisation", async () => {
+    const { app } = buildApp();
+    const res = await putVisibility(app, { story: false });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as OrganiserInvite).visibility).toEqual({
+      hero: true,
+      story: false,
+      footer: true,
+    });
+
+    const next = await putVisibility(app, { footer: false, hero: false });
+    expect(next.status).toBe(200);
+    expect((await organiserInvite(app)).visibility).toEqual({
+      hero: false,
+      story: false,
+      footer: false,
+    });
+  });
+
+  it("keeps a switched-off section's content, so switching back on restores it", async () => {
+    const { app } = buildApp();
+    await putText(app, {
+      storyEyebrow: "Our Story",
+      storyHeading: "How it began",
+      storyBody: "On a train.",
+      footerMessage: "No boxed gifts please",
+    });
+    await putVisibility(app, { story: false, footer: false });
+
+    const off = await organiserInvite(app);
+    expect(off.story).toMatchObject({ heading: "How it began", body: "On a train." });
+    expect(off.footer.message).toBe("No boxed gifts please");
+
+    await putVisibility(app, { story: true, footer: true });
+    const back = await organiserInvite(app);
+    expect(back.visibility).toEqual({ hero: true, story: true, footer: true });
+    expect(back.story).toMatchObject({
+      eyebrow: "Our Story",
+      heading: "How it began",
+      body: "On a train.",
+    });
+  });
+
+  it("bumps updatedAt but never the image version", async () => {
+    const { app, db } = buildApp();
+    await putText(app, { heroTitle: "A & B" });
+    const before = db
+      .select({
+        updatedAt: weddingInviteCustomisations.updatedAt,
+        imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+      })
+      .from(weddingInviteCustomisations)
+      .all()[0]!;
+    await new Promise((r) => setTimeout(r, 1100));
+    await putVisibility(app, { hero: false });
+    const after = db
+      .select({
+        updatedAt: weddingInviteCustomisations.updatedAt,
+        imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+      })
+      .from(weddingInviteCustomisations)
+      .all()[0]!;
+    expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    expect(after.imagesUpdatedAt).toEqual(before.imagesUpdatedAt);
+  });
+
+  describe("public read", () => {
+    type PublicInvite = OrganiserInvite & { footer: { message: string | null } };
+
+    async function publicInvite(app: ReturnType<typeof buildApp>["app"]) {
+      const res = await appRequest(app, `/api/invite/${SLUG}`);
+      expect(res.status).toBe(200);
+      return (await res.json()) as PublicInvite;
+    }
+
+    // The line an organiser copies to send a household is organiser-only.
+    it("never sends the organiser-only invite message", async () => {
+      const { app } = buildApp();
+      await putText(app, { inviteMessage: "See you in Goa!" });
+      expect(((await organiserInvite(app)) as { inviteMessage?: string }).inviteMessage).toBe(
+        "See you in Goa!",
+      );
+      const body = (await publicInvite(app)) as Record<string, unknown>;
+      expect(Object.keys(body)).not.toContain("inviteMessage");
+    });
+
+    it("sends the hero and story switches, and never the closing section's", async () => {
+      const { app } = buildApp();
+      await putVisibility(app, { footer: false });
+      const body = await publicInvite(app);
+      expect(body.visibility).toEqual({ hero: true, story: true });
+      expect(Object.keys(body.visibility)).not.toContain("footer");
+    });
+
+    it("leaves out a switched-off story's content", async () => {
+      const { app } = buildApp();
+      await uploadSlot(app, "story");
+      await putText(app, {
+        storyEyebrow: "Our Story",
+        storyHeading: "How it began",
+        storyBody: "On a train.",
+      });
+      await putVisibility(app, { story: false });
+
+      const body = (await publicInvite(app)) as PublicInvite & {
+        story: { imageUrl: string | null; imageCrop: unknown };
+      };
+      expect(body.visibility.story).toBe(false);
+      expect(body.story).toEqual({
+        eyebrow: null,
+        heading: null,
+        body: null,
+        imageUrl: null,
+        imageCrop: null,
+      });
+    });
+
+    it("sends a switched-on hero's subtitle, and restores it when switched back on", async () => {
+      const { app } = buildApp();
+      await putText(app, { heroTitle: "Anita & Ben", heroSubtitle: "Save the date" });
+      const on = await publicInvite(app);
+      expect(on.visibility.hero).toBe(true);
+      expect(on.hero.subtitle).toBe("Save the date");
+
+      await putVisibility(app, { hero: false });
+      expect((await publicInvite(app)).hero.subtitle).toBeNull();
+      await putVisibility(app, { hero: true });
+      expect((await publicInvite(app)).hero.subtitle).toBe("Save the date");
+    });
+
+    it("sends a switched-on story's content as before", async () => {
+      const { app } = buildApp();
+      await putText(app, { storyHeading: "How it began" });
+      const body = await publicInvite(app);
+      expect(body.story.heading).toBe("How it began");
+    });
+
+    // The couple's title names the tab and the site footer, and the hero photo
+    // heads the gift-list page — switching the hero off hides the section only.
+    it("keeps a switched-off hero's title and image, and leaves out its subtitle", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await putText(app, { heroTitle: "Anita & Ben", heroSubtitle: "Save the date" });
+      await putVisibility(app, { hero: false });
+
+      const body = await publicInvite(app);
+      expect(body.visibility.hero).toBe(false);
+      expect(body.hero.title).toBe("Anita & Ben");
+      expect(body.hero.imageUrl).toMatch(/\/image\/hero\?v=/);
+      expect(body.hero.subtitle).toBeNull();
+    });
+  });
+
+  describe("claim payload (the closing section)", () => {
+    type Closing = {
+      visible: boolean;
+      message: string | null;
+      imageUrl: string | null;
+      imageCrop: unknown;
+    };
+
+    async function claimClosing(app: ReturnType<typeof buildApp>["app"]): Promise<Closing> {
+      const res = await appRequest(app, "/api/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { closing: Closing }).closing;
+    }
+
+    it("delivers a switched-on closing section with its switch", async () => {
+      const { app } = buildApp();
+      await uploadSlot(app, "footer");
+      await putText(app, { footerMessage: "No boxed gifts please" });
+      const closing = await claimClosing(app);
+      expect(closing.visible).toBe(true);
+      expect(closing.message).toBe("No boxed gifts please");
+      expect(closing.imageUrl).toMatch(/\/image\/footer\?v=/);
+    });
+
+    it("leaves out a switched-off closing section's content", async () => {
+      const { app } = buildApp();
+      await uploadSlot(app, "footer");
+      await putText(app, { footerMessage: "No boxed gifts please" });
+      await putVisibility(app, { footer: false });
+      expect(await claimClosing(app)).toEqual({
+        visible: false,
+        message: null,
+        imageUrl: null,
+        imageCrop: null,
+      });
+    });
   });
 });

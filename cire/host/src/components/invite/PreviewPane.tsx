@@ -7,8 +7,9 @@
  * This is where the tone rhythm down the page — the whole point of the tone
  * system — is actually visible while editing.
  *
- * Sections the guest site would hide (empty hero/story/closing) render as a
- * labelled placeholder strip, mirroring the section cards' Shown/Hidden badges.
+ * Sections the guest site would hide (a hero, story or closing section that is
+ * empty or switched off) render as a labelled placeholder strip saying which,
+ * mirroring the section cards' badges.
  *
  * The pane follows the wedding's DESIGN PACK as well as its scheme: hero
  * anchoring, copy alignment, the code-entry panel and the events rule all come
@@ -17,6 +18,7 @@
  */
 
 import { DESIGNS } from "@cire/invite-designs";
+import type { SectionState } from "@cire/theme";
 import { createSignal, Show } from "solid-js";
 
 import type { ImageCrop } from "../../lib/image-crop";
@@ -30,7 +32,7 @@ export interface PreviewPaneProps {
   /** The wedding's design pack id (`classic` / `gala` / …). */
   design: string;
   hero: {
-    shown: boolean;
+    state: SectionState;
     imageUrl: string | null;
     crop: ImageCrop | null;
     cropMobile: ImageCrop | null;
@@ -39,11 +41,11 @@ export interface PreviewPaneProps {
     backdropOpacity: number;
     backdropBlur: number;
   };
-  story: { shown: boolean; eyebrow: string; heading: string; body: string };
+  story: { state: SectionState; eyebrow: string; heading: string; body: string };
   welcome: { message: string };
   events: { eyebrow: string; heading: string };
   closing: {
-    shown: boolean;
+    state: SectionState;
     message: string;
     imageUrl: string | null;
     imageCrop: ImageCrop | null;
@@ -59,12 +61,13 @@ export default function PreviewPane(props: PreviewPaneProps) {
   const heroCrop = () =>
     device() === "phone" ? (props.hero.cropMobile ?? props.hero.crop) : props.hero.crop;
 
-  const hiddenStrip = (label: string) => (
+  const hiddenStrip = (label: string, state: SectionState) => (
     <div
+      data-hidden-strip={state}
       class="text-ui-xs tracking-ui-wider p-2 text-center uppercase"
       style={{ color: "var(--color-text-muted)", "background-color": "var(--color-bg)" }}
     >
-      {label} — hidden until it has content
+      {label} — {state === "off" ? "switched off" : "hidden until it has content"}
     </div>
   );
 
@@ -89,7 +92,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
         class="overflow-hidden rounded-sm border"
         classList={{ "mx-auto w-48": device() === "phone" }}
       >
-        <Show when={props.hero.shown} fallback={hiddenStrip("Hero")}>
+        <Show when={props.hero.state === "shown"} fallback={hiddenStrip("Hero", props.hero.state)}>
           <HeroSample
             imageUrl={props.hero.imageUrl}
             crop={heroCrop()}
@@ -102,7 +105,10 @@ export default function PreviewPane(props: PreviewPaneProps) {
             class={device() === "phone" ? "h-64" : "h-36"}
           />
         </Show>
-        <Show when={props.story.shown} fallback={hiddenStrip("Our Story")}>
+        <Show
+          when={props.story.state === "shown"}
+          fallback={hiddenStrip("Our Story", props.story.state)}
+        >
           <SectionSample
             surface={props.toneSurface("story")}
             design={props.design}
@@ -132,7 +138,10 @@ export default function PreviewPane(props: PreviewPaneProps) {
         />
         {/* The closing section paints the WELCOME surface — the couple's two
             direct addresses to their guests read as a matched pair. */}
-        <Show when={props.closing.shown} fallback={hiddenStrip("Closing")}>
+        <Show
+          when={props.closing.state === "shown"}
+          fallback={hiddenStrip("Closing", props.closing.state)}
+        >
           <SectionSample
             surface={props.toneSurface("welcome")}
             design={props.design}

@@ -220,7 +220,10 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   registry_eyebrow TEXT,
   registry_heading TEXT,
   registry_body TEXT,
-  registry_tone TEXT
+  registry_tone TEXT,
+  hero_visible INTEGER NOT NULL DEFAULT 1,
+  story_visible INTEGER NOT NULL DEFAULT 1,
+  footer_visible INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS imports (

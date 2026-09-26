@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   directoryVendorCategories,
@@ -13,6 +15,7 @@ import {
   registrySettings,
   rsvps,
   tasks,
+  weddingInviteCustomisations,
   weddings,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
@@ -29,6 +32,7 @@ import { claimService } from "../../src/services/claim";
 import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
+import { inviteService } from "../../src/services/invite";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
@@ -42,6 +46,8 @@ import { tasksService } from "../../src/services/tasks";
 
 // Schema setup and FK-ordered truncation are inherently sequential here.
 /* eslint-disable no-await-in-loop */
+
+const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 
 const PUBLIC_ID = "TESTFAM-AA01";
 const FAMILY_ID = "fam1";
@@ -758,6 +764,116 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(deleted).toBe(2);
       expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
         [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "sets and reads the invite's section switches over async D1",
+    async () => {
+      await db.delete(weddingInviteCustomisations);
+      // No row yet: every switch reads as on (the LEFT JOIN miss).
+      expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
+        hero: true,
+        story: true,
+        footer: true,
+      });
+
+      // First write inserts the row; a section the body leaves out gets the
+      // column default. A second write updates only what it names.
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { story: false }));
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { footer: false }));
+      expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
+        hero: true,
+        story: false,
+        footer: false,
+      });
+
+      // The claim payload carries the closing section's switch.
+      const claim = (await run(claimService.lookup(PUBLIC_ID))) as {
+        closing?: { visible: boolean; message: string | null };
+      };
+      expect(claim.closing).toMatchObject({ visible: false, message: null });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0063's backfill on D1's own SQLite",
+    async () => {
+      // The suite builds its schema from the test DDL, which already has the
+      // three columns, so only the migration's UPDATE statements are replayed
+      // here: what is being proven is that D1 accepts them (`trim(X, char(...))`
+      // included) and that they switch sections the way the emptiness checks do.
+      const migration = readFileSync(
+        join(import.meta.dir, "..", "..", "..", "db", "migrations", MIGRATION_0063),
+        "utf8",
+      );
+      const updates = migration
+        .split("--> statement-breakpoint")
+        .map((chunk) =>
+          chunk
+            .split("\n")
+            .filter((line) => !line.trimStart().startsWith("--"))
+            .join("\n")
+            .trim(),
+        )
+        .filter((stmt) => stmt.startsWith("UPDATE"));
+      expect(updates).toHaveLength(3);
+
+      await db.delete(weddingInviteCustomisations);
+      const stamp = new Date();
+      await db.insert(weddings).values([
+        {
+          id: "wed_d1_blank",
+          slug: "d1-blank",
+          displayName: "Blank",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+        {
+          id: "wed_d1_full",
+          slug: "d1-full",
+          displayName: "Full",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      ]);
+      await db.insert(weddingInviteCustomisations).values([
+        {
+          weddingId: "wed_d1_blank",
+          // Whitespace from both ends of JavaScript's trim set, and a label.
+          heroTitle: " 　 ﻿",
+          storyEyebrow: "Our Story",
+          footerMessage: "\t\n",
+          updatedAt: stamp,
+        },
+        {
+          weddingId: "wed_d1_full",
+          heroImageKey: "assets/wed_d1_full/hero-1",
+          storyBody: " On a train.　",
+          footerMessage: "No boxed gifts please",
+          updatedAt: stamp,
+        },
+      ]);
+
+      for (const stmt of updates) await d1.prepare(stmt).run();
+
+      const rows = await db
+        .select({
+          weddingId: weddingInviteCustomisations.weddingId,
+          hero: weddingInviteCustomisations.heroVisible,
+          story: weddingInviteCustomisations.storyVisible,
+          footer: weddingInviteCustomisations.footerVisible,
+        })
+        .from(weddingInviteCustomisations)
+        .orderBy(asc(weddingInviteCustomisations.weddingId));
+      expect(rows).toEqual([
+        { weddingId: "wed_d1_blank", hero: false, story: false, footer: false },
+        { weddingId: "wed_d1_full", hero: true, story: true, footer: true },
       ]);
     },
     MF_TIMEOUT_MS,

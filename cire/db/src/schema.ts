@@ -1185,6 +1185,16 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   registryHeading: text("registry_heading"),
   registryBody: text("registry_body"),
   registryTone: text("registry_tone"),
+  // Per-section visibility switches (migration 0063), one per section in
+  // `VISIBILITY_SECTIONS` (`@cire/theme`). A section renders on the guest invite
+  // only when its switch is on AND it has content — switched on but empty still
+  // renders nothing. Switching off never touches the content, so switching back
+  // on restores the section as it was. Default on: a section appears as soon as
+  // it has content. 0063 set each existing row's switches to what the emptiness
+  // check gave at the time.
+  heroVisible: integer("hero_visible", { mode: "boolean" }).notNull().default(true),
+  storyVisible: integer("story_visible", { mode: "boolean" }).notNull().default(true),
+  footerVisible: integer("footer_visible", { mode: "boolean" }).notNull().default(true),
   // Optional host override for the FIRST line of the message an organiser copies
   // to send a family their invite (migration 0023). NULL ⇒ the built-in default
   // prose. The copied message is always the same 3-line shape — this line, then

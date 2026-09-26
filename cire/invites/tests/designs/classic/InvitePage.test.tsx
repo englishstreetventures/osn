@@ -1035,6 +1035,40 @@ describe("InvitePage", () => {
   });
 
   // Whitespace-only is not content — same rule as every other invite segment.
+  // The page's own gate on the switch, beside the API leaving the content out:
+  // a switched-off closing section renders nothing even if content arrives.
+  it("omits a switched-off closing section that has a note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              ...claim,
+              preview: true,
+              closing: {
+                visible: false,
+                message: "No boxed gifts please",
+                imageUrl: null,
+                imageCrop: null,
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { container, getByText, queryByText } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+    expect(container.querySelector("[data-invite-closing]")).toBeNull();
+    expect(queryByText("No boxed gifts please")).toBeNull();
+  });
+
   it("omits the closing section for a whitespace-only note", async () => {
     vi.stubGlobal(
       "fetch",

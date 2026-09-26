@@ -8,7 +8,7 @@ import {
   heroImgRevealClass,
   type HeroCropLayers,
 } from "../../components/image-crop";
-import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
+import { heroState, storyState } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
 import { createInviteRetry } from "../../components/invite-retry";
 import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
@@ -103,18 +103,31 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // repaints the WHOLE page (footer included) rather than only this island.
   createEffect(() => applyPaletteToRoot(theme()));
 
-  // Conditional-segment gates. A hero with no image, no title and no subtitle
-  // would paint an empty full-screen section (including the built-in
-  // "You're Invited" fallback title), so we render NOTHING for it. The story hides when its heading,
-  // body and image are all absent. Both mirror the shared emptiness predicates
-  // the organiser builder uses for its Shown/Hidden badges.
+  // Conditional-segment gates. Each section renders only when its visibility
+  // switch is on AND it has content. A hero with no image, no title and no
+  // subtitle would paint an empty full-screen section (including the built-in
+  // "You're Invited" fallback title), so we render NOTHING for it; the story
+  // hides when its heading, body and image are all absent. Both read the same
+  // state functions the organiser builder mirrors for its badges.
   const showHero = () => {
     const h = hero();
-    return !isHeroEmpty({ imageUrl: h?.imageUrl, title: h?.title, subtitle: h?.subtitle });
+    return (
+      heroState(data()?.visibility?.hero, {
+        imageUrl: h?.imageUrl,
+        title: h?.title,
+        subtitle: h?.subtitle,
+      }) === "shown"
+    );
   };
   const showStory = () => {
     const s = story();
-    return !isStoryEmpty({ heading: s?.heading, body: s?.body, imageUrl: s?.imageUrl });
+    return (
+      storyState(data()?.visibility?.story, {
+        heading: s?.heading,
+        body: s?.body,
+        imageUrl: s?.imageUrl,
+      }) === "shown"
+    );
   };
 
   const heroImageUrl = () => {

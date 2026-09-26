@@ -1,3 +1,5 @@
+import { heroState, type HeroContent } from "./invite-emptiness";
+
 /**
  * Responsive variant widths the API can transform an invite image to. Mirrors
  * the bounded `IMAGE_VARIANTS` allowlist in `cire/api` — the API resolves an
@@ -38,4 +40,27 @@ export function buildSrcSet(baseUrl: string, variants: readonly VariantName[]): 
 export function variantSrc(baseUrl: string, variant: VariantName): string {
   const sep = baseUrl.includes("?") ? "&" : "?";
   return `${baseUrl}${sep}variant=${variant}`;
+}
+
+/** The slice of the public invite payload the hero preload reads. */
+interface HeroPreloadSource {
+  hero: HeroContent & { imageUrl: string | null };
+  visibility?: { hero?: boolean };
+}
+
+/**
+ * The `<link rel="preload">` target for the hero backdrop, the page's largest
+ * image, or null when there is nothing to preload: no hero image, or a hero that
+ * will not render (switched off). Preloading an image the page never paints
+ * would spend the guest's first bytes, at top priority, on nothing.
+ *
+ * It is ONE fixed-purpose variant, not a responsive set: `InviteHeader` always
+ * renders `?variant=hero-bg` (the server-blurred backdrop) with no srcset. An
+ * imagesrcset of thumb/card/hero would make the browser fetch a second, sharp
+ * 1600w render at top priority that the page never displays.
+ */
+export function heroPreloadHref(apiUrl: string, invite: HeroPreloadSource | null): string | null {
+  const path = invite?.hero.imageUrl;
+  if (!path || heroState(invite.visibility?.hero, invite.hero) !== "shown") return null;
+  return variantSrc(`${apiUrl}${path}`, HERO_BG_VARIANT);
 }

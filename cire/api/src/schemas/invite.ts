@@ -7,6 +7,7 @@ import {
   PALETTE_PRESET_KEYS,
   PALETTE_SEED_KEYS,
   SECTION_TONES,
+  VISIBILITY_SECTIONS,
 } from "@cire/theme";
 import { Schema, SchemaTransformation } from "effect";
 
@@ -418,6 +419,31 @@ export const InviteThemeBody = Schema.Struct({
   titleBackdropBlur: sliderField(TITLE_BACKDROP_BLUR_MIN, TITLE_BACKDROP_BLUR_MAX),
 });
 export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;
+
+// ── Section visibility switches ───────────────────────────────────────────────
+
+/**
+ * Body for `PUT /invite/visibility` — one boolean per switchable section
+ * (`VISIBILITY_SECTIONS` in `@cire/theme`). PARTIAL, unlike the total text and
+ * theme bodies: a key present sets that section's switch, a key absent leaves it
+ * as stored. That keeps an organiser build older than a newly added section
+ * saving the switches it knows about, instead of failing validation on the key
+ * it does not send. A body naming no known section is rejected (400), so a
+ * request that would change nothing is never mistaken for a save. Unknown keys
+ * are dropped by the decode.
+ */
+export const InviteVisibilityBody = Schema.Struct({
+  hero: Schema.optional(Schema.Boolean),
+  story: Schema.optional(Schema.Boolean),
+  footer: Schema.optional(Schema.Boolean),
+}).check(
+  Schema.makeFilter((body) =>
+    VISIBILITY_SECTIONS.some((section) => body[section] !== undefined)
+      ? undefined
+      : "Name at least one section",
+  ),
+);
+export type InviteVisibilityBody = Schema.Schema.Type<typeof InviteVisibilityBody>;
 
 /**
  * Body for `PUT /invite/design`. Deliberately just "a string" here — catalog

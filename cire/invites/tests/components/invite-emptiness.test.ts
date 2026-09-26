@@ -1,13 +1,16 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  footerState,
   hasDressCode,
   hasFooterMessage,
   hasPinterest,
   hasText,
+  heroState,
   isFooterEmpty,
   isHeroEmpty,
   isStoryEmpty,
+  storyState,
 } from "../../src/components/invite-emptiness";
 
 describe("hasText", () => {
@@ -113,5 +116,65 @@ describe("isFooterEmpty", () => {
   it("is not empty with only a note, or only an image", () => {
     expect(isFooterEmpty({ ...empty, message: "No boxed gifts please" })).toBe(false);
     expect(isFooterEmpty({ ...empty, imageUrl: "/api/invite/x/image/footer?v=1" })).toBe(false);
+  });
+});
+
+/**
+ * The switch combined with the content check — what decides whether the hero,
+ * Our Story and the closing section render. The organiser builder's badge reads
+ * the same three functions in its mirror, so these cases are the ones both
+ * sides must agree on: on with content, off with content, and on but empty.
+ */
+type StateFn = (visible: boolean | null | undefined, content: never) => string;
+
+/** The four cases every switchable section's state function must satisfy. */
+function stateContract<F extends StateFn>(
+  state: F,
+  filled: Parameters<F>[1],
+  blank: Parameters<F>[1],
+): void {
+  it("is shown when switched on and it has content", () => {
+    expect(state(true, filled as never)).toBe("shown");
+  });
+
+  it("is off when switched off, content or not", () => {
+    expect(state(false, filled as never)).toBe("off");
+    expect(state(false, blank as never)).toBe("off");
+  });
+
+  it("is empty when switched on with no content — it still renders nothing", () => {
+    expect(state(true, blank as never)).toBe("empty");
+  });
+
+  it("reads a payload without the switch as on", () => {
+    expect(state(undefined, filled as never)).toBe("shown");
+    expect(state(null, blank as never)).toBe("empty");
+  });
+}
+
+describe("section state (switch + content)", () => {
+  describe("heroState", () => {
+    stateContract(
+      heroState,
+      { imageUrl: null, title: "A & B", subtitle: null },
+      { imageUrl: null, title: "  ", subtitle: null },
+    );
+  });
+
+  describe("storyState", () => {
+    stateContract(
+      storyState,
+      { heading: null, body: "Once upon a time", imageUrl: null },
+      // The eyebrow is a label, so it is not part of the story's content.
+      { heading: " ", body: null, imageUrl: null },
+    );
+  });
+
+  describe("footerState", () => {
+    stateContract(
+      footerState,
+      { message: null, imageUrl: "/api/invite/x/image/footer?v=1" },
+      { message: "\n", imageUrl: null },
+    );
   });
 });

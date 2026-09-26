@@ -18,6 +18,7 @@ import {
   InviteDesignBody,
   InviteTextBody,
   InviteThemeBody,
+  InviteVisibilityBody,
   isInviteImageSlot,
   type InviteImageSlot,
 } from "../schemas/invite";
@@ -285,6 +286,7 @@ export const createInvitePublicRoutes = (
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
  *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
  *   PUT    /weddings/:weddingId/invite/design      → which design pack renders
+ *   PUT    /weddings/:weddingId/invite/visibility  → which sections show (partial body)
  *   POST   /weddings/:weddingId/invite/image/:slot      → upload an image
  *   DELETE /weddings/:weddingId/invite/image/:slot      → reset slot to default
  *   PUT    /weddings/:weddingId/invite/image/:slot/crop → save/reset a crop rect
@@ -461,6 +463,48 @@ export const createInviteOrganiserRoutes = (
                 Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite design save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        // Which sections show on the guest invite. A partial body: each key
+        // present sets that section's switch, and a body naming no section is
+        // a 400. The content of a switched-off section is kept untouched.
+        .put(
+          "/invite/visibility",
+          async ({ request, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(InviteVisibilityBody)(raw);
+                yield* inviteService.setVisibility(weddingId, body);
+                return yield* inviteService.getForWeddingId(weddingId);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite visibility save failed", { weddingId });
                     set.status = 500;
                     return { error: "Internal error" };
                   }),
