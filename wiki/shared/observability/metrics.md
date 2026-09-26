@@ -51,7 +51,7 @@ Declare every metric **exactly once**, in a `metrics.ts` file that sits with its
 | `osn/api/src/metrics.ts` | OSN auth + graph metrics |
 | `shared/crypto/src/arc-metrics.ts` | ARC token metrics |
 | `shared/observability/src/metrics/http.ts` | Shared HTTP RED metrics (used by Elysia plugin) |
-| `shared/realtime/src/server/metrics.ts` | Realtime push: subscribe outcomes, signals published, hub capacity refusals |
+| `shared/realtime/src/server/metrics.ts` | Realtime push: subscribe outcomes, signals published, hub capacity refusals — see [[realtime]] |
 
 Each file exports:
 
