@@ -29,10 +29,10 @@ export class SmallHub extends ObservedHub {
   static override socketCap = 2;
 }
 
-/** Two sockets per topic, and a socket goes stale after 50 ms without a ping. */
+/** Two sockets per topic, and a socket goes stale after 500 ms without a ping. */
 export class StaleHub extends ObservedHub {
   static override socketCap = 2;
-  static override staleAfterMs = 50;
+  static override staleAfterMs = 500;
 }
 
 /** Two sockets per subject. */

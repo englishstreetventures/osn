@@ -46,6 +46,15 @@ const tick = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 const at = (topic: string, action: string, query = "") =>
   `http://hub.example.test/${action}/${encodeURIComponent(topic)}${query}`;
 
+/** Poll in short steps until `frames` holds "pong", or fail after `timeoutMs`. */
+async function waitForPong(frames: readonly string[], timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!frames.includes("pong")) {
+    if (Date.now() > deadline) throw new Error(`no "pong" within ${timeoutMs}ms`);
+    await tick(10);
+  }
+}
+
 async function open(topic: string, subject: string, query = "") {
   const res = await mf.dispatchFetch(at(topic, "subscribe", query), {
     headers: { Upgrade: "websocket", Origin: ORIGIN, "x-test-subject": subject },
@@ -149,9 +158,9 @@ describe("TopicHub", () => {
   it("makes room at the cap by closing a socket that stopped pinging", async () => {
     const quiet = await open("cire:wedding:wed_stale", "usr_quiet", "?hub=stale");
     const pinging = await open("cire:wedding:wed_stale", "usr_pinging", "?hub=stale");
-    await tick(120);
+    await tick(600);
     pinging.ws.send("ping");
-    await tick(20);
+    await waitForPong(pinging.frames);
     const newcomer = await open("cire:wedding:wed_stale", "usr_new", "?hub=stale");
     await tick();
     expect(quiet.closes).toEqual([4002]);
