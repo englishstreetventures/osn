@@ -17,7 +17,8 @@ export const REALTIME_METRICS = {
 
 /**
  * How one subscribe request ended. Every outcome but `accepted` answers with a
- * plain HTTP status and never upgrades.
+ * plain HTTP status and never upgrades. `accepted` means the hub admitted the
+ * socket; the hub may still close it right away if a cap is still exceeded.
  */
 export type SubscribeOutcome =
   | "accepted"
@@ -50,7 +51,8 @@ const signalPublished = createCounter<{
 
 const hubCapacityRefused = createCounter<{ product: RealtimeProduct }>({
   name: REALTIME_METRICS.hubCapacityRefused,
-  description: "Sockets a hub closed because its topic was at the socket cap",
+  description:
+    "Sockets a hub refused at the topic's socket cap, or closed at a member's own subject cap",
   unit: "{socket}",
 });
 

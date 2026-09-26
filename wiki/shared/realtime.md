@@ -36,7 +36,7 @@ One hub instance serves one topic (`getByName(topic)`). It holds sockets through
 1. **Bind the hub** in the product's `wrangler.toml`. Add `[[durable_objects.bindings]]` (name of your choice, `class_name = "TopicHub"`) at the top level **and** under every `[env.*]`, because named environments inherit no bindings. Add one top-level `[[migrations]]` with `new_sqlite_classes = ["TopicHub"]`, which named environments do inherit. Check with `wrangler deploy --dry-run --env <tier>` that the binding table lists the Durable Object. A bound class the entry does not export fails the dry run.
 2. **Export `TopicHub` from the Worker entry** (`export { TopicHub } from "@shared/realtime/hub"`). Keep that export out of any module Bun tests import, because `cloudflare:workers` exists only on workerd.
 3. **Add the subscribe route before the web framework.** Call `subscribe(request, rawTopic, options)` and return its `Response` object as is. An Elysia route cannot do this. Elysia rebuilds a returned `Response` whenever a plugin such as CORS has set headers, and a rebuilt 101 either throws `RangeError` on workerd or loses its socket. Supply the product's session auth, rate limiter and membership check as the options' callbacks, plus an exact `Origin` allow list.
-4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Evict the member whose access changed, so their socket reconnects and is checked again. Publish only when the write changed something, because every publish is a billed Durable Object request.
+4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Evict the member whose access changed, so their socket reconnects and is checked again — each `evictSubjects` entry must be exactly the string the product's `authenticate` callback returned for that member, since the hub tags sockets with it; any other id evicts nobody. Publish only when the write changed something, because every publish is a billed Durable Object request.
 5. **Subscribe in the client** with `useTopic(() => url, onSignal)`, and treat every event as "re-read now".
 6. **Allow `wss:` in the portal's CSP.** Chromium 151 blocks a `wss://api.example` socket when `connect-src` lists only `https://api.example`, and opens it once `wss://api.example` is listed. So did the `ws:`/`http:` pair.
 
@@ -64,7 +64,7 @@ Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[
 - `realtime.signal.published`, by `product`, `kind` and `result`
 - `realtime.hub.capacity_refused`, by `product`
 
-Spans are `realtime.publish` and `realtime.subscribe`. The browser client records no metric. It exposes `onFallback`, which is where a product hooks one once a browser telemetry channel exists.
+Spans are `realtime.publish` and `realtime.subscribe`. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one once that browser telemetry channel exists.
 
 ## Tests
 

@@ -9,7 +9,9 @@ class HubPublishError extends Data.TaggedError("HubPublishError")<{ readonly rea
 export interface PublishOptions {
   /**
    * Subjects whose sockets the hub closes after sending the signal, so each
-   * reconnects and has its membership checked again.
+   * reconnects and has its membership checked again. Each entry must be
+   * exactly the string the product's `authenticate` callback returned for
+   * that member — the hub tags sockets with it — or it evicts nobody.
    */
   readonly evictSubjects?: readonly string[];
   /** Overrides {@link PUBLISH_TIMEOUT_MS}. */
@@ -41,6 +43,9 @@ export const publish = (
       catch: (cause) => new HubPublishError({ reason: String(cause) }),
     }).pipe(
       Effect.timeout(options.timeoutMs ?? PUBLISH_TIMEOUT_MS),
+      Effect.withSpan("realtime.publish", {
+        attributes: { "realtime.product": parsed.product, "realtime.kind": kind },
+      }),
       Effect.andThen(Effect.sync(() => metricSignalPublished(parsed.product, kind, "ok"))),
       Effect.catchCause((cause) =>
         Effect.logError("realtime publish failed", {
@@ -51,8 +56,5 @@ export const publish = (
           Effect.andThen(Effect.sync(() => metricSignalPublished(parsed.product, kind, "error"))),
         ),
       ),
-      Effect.withSpan("realtime.publish", {
-        attributes: { "realtime.product": parsed.product, "realtime.kind": kind },
-      }),
     );
   });

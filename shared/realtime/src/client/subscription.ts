@@ -16,14 +16,17 @@ export type SignalEvent =
 export interface SubscriptionOptions {
   /** How often an open socket sends `ping`. A ping unanswered by the next one marks the socket dead. */
   readonly pingIntervalMs?: number;
-  /** Consecutive attempts that end before the hub has answered anything on the socket, before the subscription gives up. */
+  /** Consecutive failed attempts before the subscription gives up. An attempt fails when its socket closes before the hub has answered anything on it. */
   readonly maxAttempts?: number;
   /** Ceiling of the first retry's delay; each further failure doubles it, up to `maxDelayMs`. */
   readonly baseDelayMs?: number;
   readonly maxDelayMs?: number;
   /** Jitter source in [0, 1). */
   readonly random?: () => number;
-  /** Called once when the subscription gives up for good. */
+  /**
+   * Called once when the subscription gives up for good. The client records
+   * no metric of its own until englishstventures/osn#1242 lands.
+   */
   readonly onFallback?: () => void;
   /** The WebSocket constructor; tests pass a stand-in. */
   readonly WebSocket?: new (url: string) => WebSocket;
@@ -87,7 +90,7 @@ export function createTopicSubscription(
       try {
         current.close(1000, "done");
       } catch {
-        // Already closing: nothing left to release.
+        // Defensive: a browser socket does not throw here; an injected stand-in might.
       }
     }
   }
@@ -164,7 +167,7 @@ export function createTopicSubscription(
           try {
             ws.close();
           } catch {
-            // Closing a dead socket can throw; it is already abandoned.
+            // Defensive: a browser socket does not throw here; an injected stand-in might.
           }
           return;
         }
@@ -172,7 +175,7 @@ export function createTopicSubscription(
         try {
           ws.send(PING);
         } catch {
-          // The close event that follows handles it.
+          // Defensive: a browser socket does not throw here; an injected stand-in might.
         }
       }, pingIntervalMs);
       if (reconnected) emit({ reason: "reconnected" });
