@@ -9,7 +9,11 @@ import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
-import { claimService, InvalidCredentials } from "../../src/services/claim";
+import {
+  claimService,
+  InvalidCredentials,
+  withPlusOnesAfterInviters,
+} from "../../src/services/claim";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -684,5 +688,24 @@ describe("plus-ones in the claim payload and the organiser guest read", () => {
     });
     const ada = rows.find((r) => r.firstName === "Ada")!;
     expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
+});
+
+describe("withPlusOnesAfterInviters", () => {
+  const m = (guestId: string, plusOneOf: string | null = null) => ({ guestId, plusOneOf });
+
+  it("moves each plus-one to sit right after their inviter", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("b"), m("q", "a"), m("p", "b")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "b", "p"]);
+  });
+
+  it("keeps a plus-one whose inviter is not in the list, where it was", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("p", "gone"), m("b"), m("q", "a")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "p", "b"]);
+  });
+
+  it("leaves a household with no plus-one as it is", () => {
+    const members = [m("a"), m("b")];
+    expect(withPlusOnesAfterInviters(members)).toEqual(members);
   });
 });

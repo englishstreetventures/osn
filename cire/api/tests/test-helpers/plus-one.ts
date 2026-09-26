@@ -1,7 +1,8 @@
-import { guestEvents, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guestEvents, guests, weddingEntitlements } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import type { TestDb } from "../../src/db/setup";
+import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 
 /** A seeded guest by first name. The test seed mints fresh ids per run, so
  *  tests find their fixtures by name. */
@@ -71,4 +72,44 @@ export function seedPlusOne(
     db.insert(guestEvents).values({ guestId: id, eventId }).run();
   }
   return id;
+}
+
+/**
+ * Fill the bootstrap wedding to its base guest cap with filler guests in a
+ * household of their own, and drop any capacity entitlement, so the next guest
+ * of any kind is one too many.
+ */
+export function fillToCap(db: TestDb): void {
+  const now = new Date();
+  db.insert(families)
+    .values({
+      id: "fam_fill",
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      publicId: "FILL-0001",
+      familyName: "Filler",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const current = db
+    .select({ id: guests.id })
+    .from(guests)
+    .innerJoin(families, eq(guests.familyId, families.id))
+    .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+    .all().length;
+  for (let i = current; i < BASE_GUEST_CAP; i++) {
+    db.insert(guests)
+      .values({
+        id: `g_fill_${i}`,
+        familyId: "fam_fill",
+        firstName: `Filler${i}`,
+        sortOrder: i,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+  db.delete(weddingEntitlements)
+    .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
+    .run();
 }

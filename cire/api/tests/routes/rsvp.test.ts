@@ -981,4 +981,48 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     }
     expect(plusDb.select().from(rsvps).where(eq(rsvps.guestId, samId)).all()).toEqual([]);
   });
+
+  it("refuses the whole batch when a member's consented reply rides beside it", async () => {
+    const { plusDb, bo, samId, send } = await setUp();
+    const blocked = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" });
+    const res = await send({
+      rsvps: [
+        {
+          guestId: bo.id,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietaryPresets: ["vegetarian"],
+          dietaryConsent: true,
+        },
+        {
+          guestId: samId,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietaryPresets: ["vegetarian"],
+          dietaryConsent: true,
+        },
+      ],
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as unknown).toEqual({ error: "plus_one_dietary_unavailable" });
+    // All or nothing: the member's reply was not written either.
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" })).toBe(
+      blocked + 1,
+    );
+  });
+
+  it("answers the missing-consent refusal first when both apply", async () => {
+    const { plusDb, samId, send } = await setUp();
+    const res = await send({
+      rsvps: [
+        { guestId: samId, eventId: HINDU_ID, status: "attending", dietaryPresets: ["halal"] },
+      ],
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as unknown).toEqual({
+      error: "Dietary requirements need your consent to store",
+    });
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+  });
 });

@@ -212,3 +212,51 @@ describe("diffAgainstDb — plus-ones", () => {
     expect(plan.warnings.some((w) => w.includes(`capped at ${BASE_GUEST_CAP}`))).toBe(true);
   });
 });
+
+describe("diffAgainstDb — plus-ones on the spreadsheet door", () => {
+  it("keeps a manual inviter left off an upload, and their plus-one's invitations still match theirs", async () => {
+    const { db, bo, samId, run } = setUp();
+    db.update(guests).set({ source: "manual" }).where(eq(guests.id, bo.id)).run();
+    const { ev, fam } = await draftOf(db);
+    const withoutBo = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.filter((g) => g.id !== bo.id),
+      ),
+    );
+
+    // The default spreadsheet options: manual rows are kept, names match.
+    const plan = await run(diffAgainstDb(ev, withoutBo, BOOTSTRAP_WEDDING_ID));
+    expect(plan.guestRemoves.map((g) => g.id)).not.toContain(bo.id);
+    expect(plan.guestRemoves.map((g) => g.id)).not.toContain(samId);
+
+    await run(applyImport("chg_manual", plan, BOOTSTRAP_WEDDING_ID));
+    expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toHaveLength(1);
+    expect(eventIdsOf(db, samId)).toEqual(eventIdsOf(db, bo.id));
+  });
+
+  it("treats a sheet row with the plus-one's name as a new organiser guest, never as the plus-one", async () => {
+    const { db, bo, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    // A sheet with no id columns, as an organiser's own spreadsheet has, and a
+    // row in Bo's household that happens to carry the plus-one's first name.
+    const noIds = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.map((g) => Object.assign({}, g, { id: undefined })),
+      ),
+    );
+    const withSam = noIds.map((f) =>
+      f.id === bo.familyId
+        ? withGuests(f, [
+            ...f.guests,
+            { firstName: "Sam", lastName: "", nickname: null, eventNames: [] },
+          ])
+        : f,
+    );
+    const plan = await run(diffAgainstDb(ev, withSam, BOOTSTRAP_WEDDING_ID));
+    expect(plan.guestCreates.map((g) => g.firstName)).toEqual(["Sam"]);
+    expect(plan.guestUpdates.map((g) => g.id)).not.toContain(samId);
+    expect(plan.guestRemoves.map((g) => g.id)).not.toContain(samId);
+  });
+});

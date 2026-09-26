@@ -725,6 +725,25 @@ describe("createGuestEventDraft — discard past the undo limit", () => {
 });
 
 describe("createGuestEventDraft — plus-ones", () => {
+  it("keeps every ordinary guest when the API sends plusOneOf: null, as it does for each", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      const asServed = GUESTS.map((g): OrganiserGuestRow =>
+        Object.assign({}, g, { plusOneAllowed: false, plusOneOf: null }),
+      );
+      const plusOne: OrganiserGuestRow = Object.assign({}, GUESTS[0]!, {
+        guestId: "g_plus",
+        firstName: "Sam",
+        plusOneAllowed: false,
+        plusOneOf: "g_1",
+      });
+      store.load(EVENTS, [...asServed, plusOne], [], REVISION);
+      expect(store.draft.families[0]!.guests.map((g) => g.id)).toEqual(["g_1", "g_2"]);
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+
   it("leaves a plus-one's row out of the draft and the wire", () => {
     createRoot((dispose) => {
       const store = createGuestEventDraft();

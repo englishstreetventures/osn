@@ -17,6 +17,7 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { BASE_GUEST_CAP } from "../../src/services/entitlements";
+import { hostCodeService } from "../../src/services/host-code";
 import { buildCreatePlusOne, plusOneService } from "../../src/services/plus-one";
 import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
@@ -404,5 +405,149 @@ describe("the inviter's removal", () => {
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
     db.delete(guests).where(eq(guests.id, bo.id)).run();
     expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toEqual([]);
+  });
+});
+
+describe("plusOneService — the branches either side of each rule", () => {
+  it("writes nothing for a rename to the same name", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    // An old stamp, so a write in this same second would still show.
+    db.update(guests)
+      .set({ updatedAt: new Date("2020-01-01T00:00:00Z") })
+      .where(eq(guests.id, samId))
+      .run();
+    const stamp = () =>
+      db.select({ at: guests.updatedAt }).from(guests).where(eq(guests.id, samId)).get()?.at;
+    const before = stamp();
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: " Sam ", lastName: "Guest" }),
+    );
+    expect(result).toMatchObject({ created: false, plusOne: { guestId: samId, firstName: "Sam" } });
+    expect(stamp()).toEqual(before);
+  });
+
+  it("deletes nothing when permission goes ON, whatever the remove flag says", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const result = await run(
+      plusOneService.setGuestPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: bo.id,
+        allowed: true,
+        removePlusOne: true,
+      }),
+    );
+    expect(result.plusOneRemoved).toBe(false);
+    expect(plusOnesOf(bo.id)).toHaveLength(1);
+
+    const household = await run(
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: bo.familyId,
+        allowed: true,
+        removePlusOnes: true,
+      }),
+    );
+    expect(household.plusOnesRemoved).toBe(0);
+    expect(plusOnesOf(bo.id)).toHaveLength(1);
+  });
+
+  it("turns a household off without the flag when no plus-one is named", async () => {
+    const bo = guestNamed(db, "Bo");
+    const result = await run(
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: bo.familyId,
+        allowed: false,
+        removePlusOnes: false,
+      }),
+    );
+    expect(result).toMatchObject({ plusOneAllowed: false, guestsUpdated: 3, plusOnesRemoved: 0 });
+  });
+
+  it("sets an empty household without complaint", async () => {
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_empty",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "EMPTY-0001",
+        familyName: "Empty",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const result = await run(
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: "fam_empty",
+        allowed: true,
+        removePlusOnes: false,
+      }),
+    );
+    expect(result).toEqual({
+      familyId: "fam_empty",
+      plusOneAllowed: true,
+      guestsUpdated: 0,
+      plusOnesRemoved: 0,
+    });
+  });
+
+  it("lets a household take its plus-one back after permission is gone", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    db.update(guests).set({ plusOneAllowed: false }).where(eq(guests.id, bo.id)).run();
+    expect(await run(plusOneService.remove(bo.familyId, bo.id))).toEqual({ removed: true });
+  });
+
+  it("refuses to remove another household's plus-one", async () => {
+    const ada = guestNamed(db, "Ada");
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, ada.id, { firstName: "Sam" });
+    expect(await tagOf(plusOneService.remove(bo.familyId, ada.id))).toBe("PlusOneGuestNotFound");
+    expect(plusOnesOf(ada.id)).toHaveLength(1);
+  });
+});
+
+describe("plusOneService — the host-preview household", () => {
+  it("is outside both organiser writes", async () => {
+    await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const [host] = db
+      .select({ familyId: families.id, guestId: guests.id })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(eq(families.kind, "host"))
+      .all();
+    expect(
+      await tagOf(
+        plusOneService.setGuestPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: host!.guestId,
+          allowed: true,
+          removePlusOne: false,
+        }),
+      ),
+    ).toBe("PlusOneGuestNotFound");
+    expect(
+      await tagOf(
+        plusOneService.setHouseholdPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: host!.familyId,
+          allowed: true,
+          removePlusOnes: false,
+        }),
+      ),
+    ).toBe("PlusOneFamilyNotFound");
+    const row = db
+      .select({ allowed: guests.plusOneAllowed })
+      .from(guests)
+      .where(eq(guests.id, host!.guestId))
+      .get();
+    expect(row?.allowed).toBe(false);
   });
 });

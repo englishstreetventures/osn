@@ -1,11 +1,18 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
+import { hostCodeService } from "../../src/services/host-code";
 import { appRequest, jsonBody } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -61,6 +68,35 @@ async function put(app: App, path: string, profileId: string | undefined, body: 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
   return appRequest(app, path, { method: "PUT", headers, body: JSON.stringify(body) });
+}
+
+/** A request carrying the given raw headers and no bearer token of ours. */
+function putWith(app: App, path: string, headers: Record<string, string>, body: unknown) {
+  return appRequest(app, path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+const allowedOf = (db: TestDb, guestId: string) =>
+  db.select({ a: guests.plusOneAllowed }).from(guests).where(eq(guests.id, guestId)).get()?.a;
+
+/** The host-preview household and its one guest, created the way the portal does. */
+async function hostHousehold(db: TestDb): Promise<{ familyId: string; guestId: string }> {
+  await Effect.runPromise(
+    hostCodeService
+      .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
+      .pipe(Effect.provideService(DbService, db)),
+  );
+  const [row] = db
+    .select({ familyId: families.id, guestId: guests.id })
+    .from(guests)
+    .innerJoin(families, eq(guests.familyId, families.id))
+    .where(eq(families.kind, "host"))
+    .all();
+  if (!row) throw new Error("no host household");
+  return row;
 }
 
 const guestPath = (guestId: string, weddingId = BOOTSTRAP_WEDDING_ID) =>
@@ -189,5 +225,94 @@ describe("PUT …/families/:familyId/plus-one", () => {
     });
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual({ error: "family_not_found" });
+  });
+});
+
+describe("the organiser plus-one routes — credentials", () => {
+  for (const [name, path] of [
+    ["guest", (db: TestDb) => guestPath(guestNamed(db, "Bo").id)],
+    ["household", (db: TestDb) => familyPath(guestNamed(db, "Bo").familyId)],
+  ] as const) {
+    it(`${name}: an editor's session cookie is accepted`, async () => {
+      const { db, app } = buildApp();
+      const token = await seedOrganiserSession(db, EDITOR);
+      const res = await putWith(
+        app,
+        path(db),
+        { cookie: `cire_org_session=${token}` },
+        {
+          allowed: true,
+        },
+      );
+      expect(res.status).toBe(200);
+      expect(allowedOf(db, guestNamed(db, "Bo").id)).toBe(true);
+    });
+
+    it(`${name}: refuses no credential, a dead cookie, a malformed bearer and a stranger`, async () => {
+      const { db, app } = buildApp();
+      const target = path(db);
+      expect((await putWith(app, target, {}, { allowed: true })).status).toBe(401);
+      expect(
+        (
+          await putWith(
+            app,
+            target,
+            { cookie: "cire_org_session=not-a-live-session-token" },
+            {
+              allowed: true,
+            },
+          )
+        ).status,
+      ).toBe(401);
+      expect(
+        (await putWith(app, target, { authorization: "Bearer not-a-jwt" }, { allowed: true }))
+          .status,
+      ).toBe(401);
+      expect((await put(app, target, STRANGER, { allowed: true })).status).toBe(403);
+      expect(allowedOf(db, guestNamed(db, "Bo").id)).toBe(false);
+    });
+  }
+});
+
+describe("the organiser plus-one routes — the host-preview household", () => {
+  it("404s both routes for the preview household, and changes nothing", async () => {
+    const { db, app } = buildApp();
+    const host = await hostHousehold(db);
+
+    const one = await put(app, guestPath(host.guestId), OWNER, { allowed: true });
+    expect(one.status).toBe(404);
+    expect(await jsonBody(one)).toEqual({ error: "guest_not_found" });
+
+    const all = await put(app, familyPath(host.familyId), OWNER, { allowed: true });
+    expect(all.status).toBe(404);
+    expect(await jsonBody(all)).toEqual({ error: "family_not_found" });
+
+    expect(allowedOf(db, host.guestId)).toBe(false);
+  });
+});
+
+describe("the organiser plus-one routes — metrics", () => {
+  it("counts each permission write by scope and value, and each plus-one removed", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const set = (scope: string, allowed: string) =>
+      counterValue(CIRE_METRICS.plusOnePermissionSet, { scope, allowed });
+    const removed = () =>
+      counterValue(CIRE_METRICS.plusOneChanged, { action: "removed", actor: "organiser" });
+
+    const guestOn = await set("guest", "on");
+    await put(app, guestPath(bo.id), OWNER, { allowed: true });
+    expect(await set("guest", "on")).toBe(guestOn + 1);
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    seedPlusOne(db, guestNamed(db, "Dot").id, { firstName: "Pat" });
+    const householdOff = await set("household", "off");
+    const removedBefore = await removed();
+    // The refused call counts nothing.
+    await put(app, familyPath(bo.familyId), OWNER, { allowed: false });
+    expect(await set("household", "off")).toBe(householdOff);
+    await put(app, familyPath(bo.familyId), OWNER, { allowed: false, removePlusOnes: true });
+    expect(await set("household", "off")).toBe(householdOff + 1);
+    expect(await removed()).toBe(removedBefore + 2);
   });
 });
