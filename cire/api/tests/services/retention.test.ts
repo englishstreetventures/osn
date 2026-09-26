@@ -279,6 +279,41 @@ describe("retentionService.sweepExpiredGuestData", () => {
     ),
   );
 
+  it(
+    "sweeps a plus-one with their household and counts them exactly",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { familyId, guestId } = yield* makeWedding({ eventDates: ["2025-04-01"] });
+        // A plus-one inserted AFTER their inviter, so the guests delete meets
+        // the inviter first and the foreign key's cascade takes the plus-one.
+        // The count must still hold each of them exactly once.
+        const at = new Date();
+        yield* dbQuery(() =>
+          db
+            .insert(guests)
+            .values({
+              id: `${guestId}_plus`,
+              familyId,
+              firstName: "Sam",
+              source: "manual",
+              plusOneOfGuestId: guestId,
+              createdAt: at,
+              updatedAt: at,
+            })
+            .run(),
+        );
+
+        expect(yield* retentionService.sweepExpiredGuestData(now)).toBe(2);
+        const left = yield* dbQuery(() =>
+          db.select().from(guests).where(eq(guests.familyId, familyId)).all(),
+        );
+        expect(left).toEqual([]);
+      }),
+    ),
+  );
+
   it("takes the longest-overdue weddings first when the cohort is over the per-run cap", async () => {
     // A fresh database: swept weddings keep their events, so any wedding an
     // earlier test swept would still be in the cohort and crowd the cap.

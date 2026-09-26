@@ -36,6 +36,7 @@ import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
+import { plusOneService } from "../../src/services/plus-one";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
@@ -789,6 +790,57 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
         [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
       ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a double submit over D1 names one plus-one and copies the inviter's invitations once",
+    async () => {
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      // Both calls may read "no plus-one yet" before either writes: the loser's
+      // guest insert is skipped by the one-per-guest index, and its invitation
+      // copy — which reaches the new id only through that row — copies nothing
+      // instead of failing the batch on a foreign key.
+      const results = await Promise.all([
+        run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" })),
+        run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" })),
+      ]);
+      const rows = await db.select().from(guests).where(eq(guests.plusOneOfGuestId, GUEST_1));
+      expect(rows).toHaveLength(1);
+      expect(results.map((r) => r.plusOne.guestId)).toEqual([rows[0]!.id, rows[0]!.id]);
+      expect(results.filter((r) => r.created)).toHaveLength(1);
+      const links = await db
+        .select({ eventId: guestEvents.eventId })
+        .from(guestEvents)
+        .where(eq(guestEvents.guestId, rows[0]!.id));
+      expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep counts a plus-one once, cascade or not",
+    async () => {
+      await db
+        .update(events)
+        .set({ startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" });
+      const now = new Date();
+      await db.insert(guests).values({
+        id: "g_plus",
+        familyId: FAMILY_ID,
+        firstName: "Sam",
+        sortOrder: 0,
+        source: "manual",
+        plusOneOfGuestId: GUEST_1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deleted = await run(
+        retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z")),
+      );
+      expect(deleted).toBe(3);
+      expect(await db.select().from(guests)).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
