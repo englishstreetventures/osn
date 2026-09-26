@@ -1654,11 +1654,12 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     expect(trigger().textContent).toContain("Design");
     expect(trigger().textContent).toContain("1/9");
 
-    // The Shown/Hidden state rides the LABEL, not just the dot: the dot is
-    // `aria-hidden` and an `aria-label` overrides subtree content, so an
-    // `sr-only` span in the button would be dropped. Without this clause the
-    // collapsed trigger conveys three things visually and two to a screen
-    // reader — and "you can read it instead of opening it" stops being true.
+    // The Shown/Hidden state rides the accessible NAME, not only the fade and
+    // the `aria-hidden` icon, which say nothing to a screen reader; an `aria-label`
+    // overrides subtree content, so an `sr-only` span in the button would be
+    // dropped. Without this clause the collapsed trigger conveys three things
+    // visually and two to a screen reader — and "you can read it instead of
+    // opening it" stops being true.
     await openSection(/^Closing/);
     expect(trigger().getAttribute("aria-label")).toBe(
       "Invite section: Closing, 8 of 9, hidden — empty. Choose a section",
@@ -1674,21 +1675,78 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     );
   });
 
-  it("mirrors the active section's Shown/Hidden dot on the trigger, live", async () => {
+  it("fades the trigger's label and marks it with an eye-off icon while the section is hidden, live", async () => {
     await renderBuilder();
-    const dot = () => trigger().querySelector(".rounded-full");
+    // The label and its icon sit in one span, which carries the fade.
+    const label = () => within(trigger()).getByText(/^(Design|Hero)$/).parentElement!;
+    const faded = () => label().classList.contains("text-text-faint");
+    const icon = () => trigger().querySelector("[data-hidden-icon]");
 
-    // Design has no Shown/Hidden state at all — no dot to mislead with.
-    expect(dot()).toBeNull();
+    // No dot anywhere on the trigger.
+    expect(trigger().querySelector(".rounded-full")).toBeNull();
+
+    // Design has no Shown/Hidden state at all — no fade, no icon.
+    expect(faded()).toBe(false);
+    expect(icon()).toBeNull();
 
     // Hero starts empty on `EMPTY_CUSTOMISATION`, so the guest invite hides it.
     await openSection(/^Hero/);
-    expect(dot()!.className).toContain("bg-text-muted/50");
+    expect(faded()).toBe(true);
+    expect(icon()).not.toBeNull();
+    // Decoration only: the trigger's `aria-label` carries the state.
+    expect(icon()!.getAttribute("aria-hidden")).toBe("true");
+    expect(trigger().querySelector(".rounded-full")).toBeNull();
 
-    // The dot flips the instant an edit gives the section content — it's the
-    // whole reason the trigger can be read instead of opened.
+    // Both lift the instant an edit gives the section content — it's the whole
+    // reason the trigger can be read instead of opened.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
-    await waitFor(() => expect(dot()!.className).toContain("bg-gold"));
+    await waitFor(() => expect(faded()).toBe(false));
+    expect(icon()).toBeNull();
+  });
+
+  it("fades a hidden section's tab and marks it with an eye-off icon, apart from 'not selected'", async () => {
+    await renderBuilder();
+    const tab = (name: string | RegExp) => screen.getByRole("tab", { name });
+    const icon = (name: string | RegExp) => tab(name).querySelector("[data-hidden-icon]");
+    const has = (el: HTMLElement, cls: string) => el.classList.contains(cls);
+
+    // No dot in any tab.
+    expect(tablist().querySelector(".rounded-full")).toBeNull();
+
+    // Not selected, and hidden: faded, NOT the plain unselected ink, and marked
+    // with the icon — the cue that is not colour — so "hidden" never reads as
+    // "not selected".
+    for (const name of [/^Hero/, /^Our Story/, /^Closing/]) {
+      expect(has(tab(name), "text-text-faint")).toBe(true);
+      expect(has(tab(name), "text-text-muted")).toBe(false);
+      expect(icon(name)).not.toBeNull();
+      expect(icon(name)!.getAttribute("aria-hidden")).toBe("true");
+    }
+    // Not selected, and no state to hide: the plain unselected ink, no icon.
+    expect(has(tab("Welcome"), "text-text-muted")).toBe(true);
+    expect(has(tab("Welcome"), "text-text-faint")).toBe(false);
+    expect(icon("Welcome")).toBeNull();
+
+    // Selected, no state: the gold wash and the readable gold ink.
+    expect(has(tab("Design"), "bg-gold/12")).toBe(true);
+    expect(has(tab("Design"), "text-gold-ink")).toBe(true);
+    expect(has(tab("Design"), "text-gold-ink/80")).toBe(false);
+    expect(icon("Design")).toBeNull();
+
+    // Selected, and hidden: the wash and the gold hue stay (that is what says
+    // "selected"), the ink fades, and the icon stays.
+    await openSection(/^Hero/);
+    expect(has(tab(/^Hero/), "bg-gold/12")).toBe(true);
+    expect(has(tab(/^Hero/), "text-gold-ink/80")).toBe(true);
+    expect(has(tab(/^Hero/), "text-gold-ink")).toBe(false);
+    expect(icon(/^Hero/)).not.toBeNull();
+
+    // Giving Hero content lifts the fade and the icon, and its name loses the
+    // hidden clause: a tab with no clause is one whose section is on the invite.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
+    await waitFor(() => expect(has(tab("Hero"), "text-gold-ink")).toBe(true));
+    expect(has(tab("Hero"), "text-gold-ink/80")).toBe(false);
+    expect(icon("Hero")).toBeNull();
   });
 
   it("collapses the tablist behind the trigger and toggles it", async () => {
@@ -2297,9 +2355,41 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     screen.getByRole("tab", { name: "Hero" });
 
     await openSection(/^Closing/);
-    expect(
-      screen.getByRole("button", { name: /Choose a section/ }).getAttribute("aria-label"),
-    ).toBe("Invite section: Closing, 8 of 9, hidden — switched off. Choose a section");
+    const trigger = screen.getByRole("button", { name: /Choose a section/ });
+    expect(trigger.getAttribute("aria-label")).toBe(
+      "Invite section: Closing, 8 of 9, hidden — switched off. Choose a section",
+    );
+    // Switched off marks the label the same way switched on but empty does, on
+    // the trigger and on the selected tab alike.
+    const triggerLabel = within(trigger).getByText("Closing").parentElement!;
+    expect(triggerLabel.classList.contains("text-text-faint")).toBe(true);
+    expect(triggerLabel.querySelector("[data-hidden-icon]")).not.toBeNull();
+    const closingTab = screen.getByRole("tab", { name: /^Closing/ });
+    expect(closingTab.getAttribute("aria-selected")).toBe("true");
+    expect(closingTab.classList.contains("text-gold-ink/80")).toBe(true);
+    expect(closingTab.querySelector("[data-hidden-icon]")).not.toBeNull();
+  });
+
+  it("fades and marks a switched-off tab that has content, and lifts both when switched back on", async () => {
+    await renderWith({ ...FILLED, visibility: { hero: true, story: false, footer: true } });
+    const hidden = (tab: HTMLElement) =>
+      tab.classList.contains("text-text-faint") && tab.querySelector("[data-hidden-icon]") !== null;
+    const storyTab = () => screen.getByRole("tab", { name: /^Our Story/ });
+
+    // Switched off with content in it: faded and marked, the same as switched
+    // on but empty — both mean "guests will not see this section", and the
+    // name says which reason.
+    expect(hidden(storyTab())).toBe(true);
+    expect(storyTab().getAttribute("aria-selected")).toBe("false");
+    // Switched on with content: neither.
+    const heroTab = screen.getByRole("tab", { name: "Hero" });
+    expect(heroTab.classList.contains("text-text-faint")).toBe(false);
+    expect(heroTab.querySelector("[data-hidden-icon]")).toBeNull();
+
+    fireEvent.click(switchIn("invite-story"));
+    await waitFor(() => expect(storyTab().classList.contains("text-text-faint")).toBe(false));
+    expect(storyTab().querySelector("[data-hidden-icon]")).toBeNull();
+    screen.getByRole("tab", { name: "Our Story" });
   });
 });
 

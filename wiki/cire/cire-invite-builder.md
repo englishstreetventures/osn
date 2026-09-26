@@ -8,7 +8,7 @@ related:
   - "[[closing-band-width-bound-over-height-clip]]"
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-09-27
 ---
 # Invite Builder
 
@@ -1148,9 +1148,52 @@ were never an option — the dashboard routes on `location.hash`, so a real
 it needed to be on every screen, and pinned the composed preview to a fixed
 scroll position an organiser had to scroll back up to see. Now `activeSection`
 (a signal in `InviteBuilder.tsx`) tracks which ONE section is showing; the nav
-pills set it instead of scrolling, and mirror the sections' badge state as dots:
-gold when shown, muted when hidden for either reason, with the reason in each
-tab's `sr-only` clause ("(hidden — empty)" or "(hidden — switched off)").
+pills set it instead of scrolling.
+
+**A hidden section's label is faded and marked with an eye-off icon; the nav
+has no dots.** Together they mean "guests will not see this section", for
+either reason — switched on but empty, or switched off. The reason is in words:
+each tab's `sr-only` clause ("(hidden — empty)" or "(hidden — switched off)"),
+the menu trigger's accessible name, and the section's own badge and reason line.
+A tab with no clause is one whose section is on the invite. The colours come
+from `sectionTabTone` and `FADED_LABEL` in `fields.tsx`; the icon is
+`HiddenSectionIcon`, lucide's `eye-off` at `size-3.5`, drawn in the label's ink
+and `aria-hidden`:
+
+| | Shown, or no switch | Hidden |
+|---|---|---|
+| Selected | `bg-gold/12` wash, `text-gold-ink` | wash, `text-gold-ink/80`, icon |
+| Not selected | `text-text-muted` | `text-text-faint`, icon |
+
+The wash and the gold hue say "selected"; the fade and the icon say "hidden", so
+a hidden tab never reads as merely not selected. The selected ink is `gold-ink`,
+not `gold`: gold is metal with no contrast contract, 2.2:1 on the wash in the
+light theme, where a faded gold would read stronger than a shown one.
+
+**The fade sits under 4.5:1 by the owner's choice.** WCAG 1.4.3 asks 4.5:1 of
+text this small, and no fade can meet it and still be seen: the idle
+`text-muted` paints only 5.6–6.0:1, so an ink that keeps 4.5:1 is at most
+1.25–1.32 times dimmer, and the selected tab's `gold-ink` (4.68:1 in the light
+theme) has no room at all. The owner chose the fade with an icon over a
+strike-through in full ink: the icon is the cue that is not colour (WCAG 1.4.1),
+and the accessible name carries the state, so the faded ink is not the only
+thing that says a section is hidden. The floor that choice rests on is 3:1 —
+what the icon, drawn in the same ink, needs as a graphic (WCAG 1.4.11).
+`InviteBuilder.tabs.browser.test.tsx` pins it in real Chromium, in both themes,
+on the tab row, the menu's panel, the gold wash and the trigger, and checks the
+icon paints at a real size.
+
+| Painted, dark / light | Ratio |
+|---|---|
+| Faded tab, not selected (tab row) | 3.39 / 3.28 |
+| Faded tab, not selected (menu panel) | 3.40 / 3.29 |
+| Faded tab, selected (on the wash) | 6.70 / 3.26 |
+| Faded tab, selected (wash over the menu panel) | 6.70 / 3.27 |
+| Faded menu-trigger label | 3.43 / 3.36 |
+| Idle tab | 5.96 / 5.62 |
+| Selected tab, shown | 9.74 / 4.68 |
+
+*Measured 2026-09-27 — `bun run --cwd cire/host test:browser`, the floors in `InviteBuilder.tabs.browser.test.tsx` raised to 99 so each assertion prints its ratio*
 
 **The ARIA tabs contract is complete, not just the roles.** The first cut
 declared `role="tablist"`/`role="tab"`/`aria-selected` on the nav but left the
@@ -1183,8 +1226,8 @@ horizontally: Closing and Message sat off the right edge with nothing to say so
 — the exact failure `ModuleSidebar` had already fixed for the module strip, on
 the surface where an organiser is least likely to go hunting. Below that
 threshold the tabs now collapse behind a **trigger naming the current section**
-— its label, its `n/9` position, and its Shown/Hidden dot, so the menu only has
-to be opened to MOVE, never to orient — which opens them as a **two-column
+— its label, its `n/9` position, and, while the section is hidden, the faded
+label and eye-off icon the tabs use, so the menu only has to be opened to MOVE, never to orient — which opens them as a **two-column
 grid**: every tab on screen at once, 44px touch targets, absolutely positioned
 against the sticky bar so opening it overlays the form rather than shoving it
 down. From `@3xl/builder` up the trigger is `display: none` and the tabs are
@@ -1252,7 +1295,8 @@ hand-maintained pair, and the drift guard is the checkable half. Same treatment
 
 The trigger's accessible name carries the section state as a clause
 ("…, 3 of 9, hidden — empty. Choose a section", or "hidden — switched off")
-rather than leaving it to the dot. The dot is `aria-hidden`, and an `aria-label` overrides subtree content, so
+rather than leaving it to the fade and the icon. The icon is `aria-hidden`, a fade
+says nothing to a screen reader, and an `aria-label` overrides subtree content, so
 the `sr-only` span the tabs themselves use would be dropped here — without the
 clause the collapsed trigger tells a sighted organiser three things and a
 screen-reader one only two, which is exactly the claim the design rests on

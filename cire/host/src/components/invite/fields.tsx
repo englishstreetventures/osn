@@ -17,6 +17,7 @@ import Button from "@cire/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
+import EyeOff from "lucide-solid/icons/eye-off";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
 const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
@@ -180,6 +181,62 @@ export const SECTION_STATE_LABELS = {
   empty: "Hidden — empty",
   off: "Hidden — switched off",
 } as const satisfies Record<SectionState, string>;
+
+/** Whether guests will not see the section, for either reason. `undefined` is
+ *  a section with no switch and no emptiness rule, which always shows. */
+export function isHiddenState(state: SectionState | undefined): boolean {
+  return state === "empty" || state === "off";
+}
+
+/**
+ * The ink of a hidden section's label in the section nav, beside
+ * {@link HiddenSectionIcon}. One look for both reasons a section is hidden; the
+ * reason is in words (the tab's `sr-only` clause, the menu trigger's
+ * `aria-label`, the section's badge).
+ *
+ * `text-faint` paints 3.3–3.4:1, under the 4.5:1 WCAG 1.4.3 asks of text this
+ * small — a trade the owner chose over a strike-through. It is not a gap in
+ * what the organiser can tell: the eye-off icon is the cue that is not colour
+ * (WCAG 1.4.1) and the accessible name carries the state in words. No fade can
+ * both hold 4.5:1 and be seen, since the idle tab's `text-muted` paints only
+ * 5.6–6.0:1. `text-faint`, not `opacity` on `text-muted`: both ink tokens are
+ * already translucent, so an opacity multiplies the two and lands below every
+ * token on the ramp. The 3:1 floor, which the icon needs as a graphic (WCAG
+ * 1.4.11), is pinned by `InviteBuilder.tabs.browser.test.tsx`.
+ */
+export const FADED_LABEL = "text-text-faint";
+
+/**
+ * A section tab's colours. The gold wash and the gold hue say "selected"; the
+ * fade (with the icon) says "hidden", so hidden never reads as merely not
+ * selected:
+ *
+ *  - selected, shown:      wash + `gold-ink`
+ *  - selected, hidden:     wash + `gold-ink` at 80% — the hue stays, the ink fades
+ *  - not selected, shown:  `text-muted`, brightening on hover
+ *  - not selected, hidden: {@link FADED_LABEL}, brightening to `text-muted` on
+ *    hover, so it still answers the pointer but never looks shown
+ *
+ * `gold-ink`, not `gold`: gold is metal and carries no contrast contract (2.2:1
+ * on this wash in the light theme), so a faded gold would read stronger than a
+ * shown one there. Whole class strings, because Tailwind finds a utility by
+ * scanning source text and a built-up class name emits no CSS.
+ */
+export function sectionTabTone(selected: boolean, hidden: boolean): string {
+  if (selected) return hidden ? "bg-gold/12 text-gold-ink/80" : "bg-gold/12 text-gold-ink";
+  return hidden
+    ? "text-text-faint hover:text-text-muted hover:bg-surface/60"
+    : "text-text-muted hover:text-text hover:bg-surface/60";
+}
+
+/** The eye-off mark beside a hidden section's label in the section nav. Drawn
+ *  in the label's own ink (`currentColor`), and hidden from assistive tech: the
+ *  accessible name already says the section is hidden, and why. */
+export function HiddenSectionIcon() {
+  return (
+    <EyeOff data-hidden-icon aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
+  );
+}
 
 /**
  * A small per-section status badge telling the organiser whether this section

@@ -68,8 +68,12 @@ import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
   Disclosure,
+  FADED_LABEL,
+  HiddenSectionIcon,
+  isHiddenState,
   SECTION_STATE_LABELS,
   SectionCard,
+  sectionTabTone,
   SliderField,
   TextAreaField,
   TextField,
@@ -594,12 +598,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
-  /** The ACTIVE section's state, for the collapsed menu trigger's dot.
-   *  Memoised because the trigger reads it three times (the `Show` plus two
-   *  `classList` entries) and `navState` funnels into the draft-reading state
-   *  functions — one subscription per keystroke instead of three. Declared
-   *  here, not beside `activeIndex`/`activeLabel`: `createMemo` runs its
-   *  computation eagerly, so it has to sit below `navState`. */
+  /** The ACTIVE section's state, for the collapsed menu trigger's faded label
+   *  and its accessible name. Memoised because the trigger reads it twice and
+   *  `navState` funnels into the draft-reading state functions — one
+   *  subscription per keystroke instead of two. Declared here, not beside
+   *  `activeIndex`/`activeLabel`: `createMemo` runs its computation eagerly, so
+   *  it has to sit below `navState`. */
   const activeState = createMemo(() => navState(activeSection()));
 
   /** The active section's state as a clause for the trigger's accessible name —
@@ -933,10 +937,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
           return (
             <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
-              {/* ── Section tabs — sticky, one section shown at a time, dots mirror
-                the section state badges — plus, below `@4xl/builder` (where there's
-                no room for the sticky side preview), a button that opens the
-                composed preview in a modal instead. ── */}
+              {/* ── Section tabs — sticky, one section shown at a time, a hidden
+                section's label faded with an eye-off icon (`sectionTabTone`) — plus,
+                below `@4xl/builder` (where there's no room for the sticky side
+                preview), a button that opens the composed preview in a modal
+                instead. ── */}
               <div class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
                 {/* No `relative` here on purpose: the open menu positions
                   against the STICKY BAR (already a positioned element, so it is
@@ -965,21 +970,23 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 >
                   {/* Narrow containers only: the current section as a menu
                     trigger. It names where the organiser IS (label, position,
-                    Shown/Hidden dot) so the menu only has to be opened to move,
-                    never to orient — the thing the scrolling strip could not do
-                    for the sections parked off its right edge. */}
+                    and the label faded, with an eye-off icon, while it is hidden) so the menu
+                    only has to be opened to move, never to orient — the thing
+                    the scrolling strip could not do for the sections parked off
+                    its right edge. */}
                   <Button
                     variant="tile"
                     type="button"
                     ref={(el) => (sectionMenuTrigger = el)}
                     aria-expanded={sectionMenuOpen()}
                     aria-controls={SECTION_MENU_ID}
-                    // The dot is `aria-hidden`, and an `aria-label` overrides
-                    // subtree content — so an `sr-only` span inside the button
-                    // (what the tabs themselves use) would be dropped. The state
-                    // has to be folded into the label, or the collapsed trigger
-                    // tells a sighted organiser three things and a screen-reader
-                    // one only two. Wording matches `SegmentBadge`.
+                    // The icon is `aria-hidden`, a fade says nothing to a
+                    // screen reader, and an `aria-label` overrides subtree
+                    // content — so an `sr-only` span inside the button (what
+                    // the tabs themselves use) would be dropped. The state has
+                    // to be folded into the label, or the collapsed trigger
+                    // tells a sighted organiser three things and a
+                    // screen-reader one only two. Wording matches `SegmentBadge`.
                     aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${stateSuffix()}. Choose a section`}
                     onClick={() => setSectionMenuOpen(!sectionMenuOpen())}
                     onKeyDown={(e) => {
@@ -989,17 +996,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     }}
                     class="flex min-h-11 w-full items-center justify-between @3xl/builder:hidden"
                   >
-                    <span class="flex min-w-0 items-center gap-2">
-                      <Show when={activeState() !== undefined}>
-                        <span
-                          aria-hidden
-                          class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                          classList={{
-                            "bg-gold": activeState() === "shown",
-                            "bg-text-muted/50":
-                              activeState() !== undefined && activeState() !== "shown",
-                          }}
-                        />
+                    <span
+                      class="flex min-w-0 items-center gap-2"
+                      classList={{ [FADED_LABEL]: isHiddenState(activeState()) }}
+                    >
+                      <Show when={isHiddenState(activeState())}>
+                        <HiddenSectionIcon />
                       </Show>
                       <span class="min-w-0 truncate">{activeLabel()}</span>
                     </span>
@@ -1048,24 +1050,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
                             // `min-h-11` is a 44px touch target in the menu; the
                             // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${
-                              active()
-                                ? "bg-gold/12 text-gold"
-                                : "text-text-muted hover:text-text hover:bg-surface/60"
-                            }`}
+                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
+                              active(),
+                              isHiddenState(state()),
+                            )}`}
                           >
-                            <Show when={state() !== undefined}>
-                              <span
-                                aria-hidden
-                                class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                                classList={{
-                                  "bg-gold": state() === "shown",
-                                  "bg-text-muted/50": state() !== undefined && state() !== "shown",
-                                }}
-                              />
+                            <Show when={isHiddenState(state())}>
+                              <HiddenSectionIcon />
                             </Show>
                             <span class="min-w-0 truncate">{item.label}</span>
-                            <Show when={state() !== undefined && state() !== "shown"}>
+                            <Show when={isHiddenState(state())}>
                               <span class="sr-only">
                                 ({SECTION_STATE_LABELS[state()!].toLowerCase()})
                               </span>
