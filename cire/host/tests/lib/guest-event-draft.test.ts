@@ -723,3 +723,24 @@ describe("createGuestEventDraft — discard past the undo limit", () => {
     });
   });
 });
+
+describe("createGuestEventDraft — plus-ones", () => {
+  it("leaves a plus-one's row out of the draft and the wire", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      const plusOne: OrganiserGuestRow = {
+        ...GUESTS[0]!,
+        guestId: "g_plus",
+        firstName: "Sam",
+        plusOneAllowed: false,
+        plusOneOf: "g_1",
+      };
+      store.load(EVENTS, [GUESTS[0]!, plusOne, GUESTS[1]!], [], REVISION);
+      expect(store.draft.families[0]!.guests.map((g) => g.id)).toEqual(["g_1", "g_2"]);
+      const wire = store.toWire();
+      expect(wire.families.flatMap((f) => f.guests.map((g) => g.id))).not.toContain("g_plus");
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+});
