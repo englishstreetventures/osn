@@ -1190,8 +1190,8 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // only when its switch is on AND it has content — switched on but empty still
   // renders nothing. Switching off never touches the content, so switching back
   // on restores the section as it was. Default on: a section appears as soon as
-  // it has content. 0063 set each existing row's switches to what the emptiness
-  // check gave at the time.
+  // it has content, and a switch reads off only because an organiser switched
+  // it off; migration 0065 makes that hold for rows older than the switches.
   heroVisible: integer("hero_visible", { mode: "boolean" }).notNull().default(true),
   storyVisible: integer("story_visible", { mode: "boolean" }).notNull().default(true),
   footerVisible: integer("footer_visible", { mode: "boolean" }).notNull().default(true),

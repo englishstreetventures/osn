@@ -52,6 +52,7 @@ import { tasksService } from "../../src/services/tasks";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
+const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -899,6 +900,66 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(rows).toEqual([
         { weddingId: "wed_d1_blank", hero: false, story: false, footer: false },
         { weddingId: "wed_d1_full", hero: true, story: true, footer: true },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0065 on D1's own SQLite: every section on, the FAQ switch kept",
+    async () => {
+      const statements = migrationStatements(MIGRATION_0065);
+      expect(statements).toHaveLength(1);
+
+      await db.delete(weddingInviteCustomisations);
+      const stamp = new Date();
+      await db.insert(weddings).values([
+        {
+          id: "wed_d1_off",
+          slug: "d1-off",
+          displayName: "Off",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+        {
+          id: "wed_d1_on",
+          slug: "d1-on",
+          displayName: "On",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      ]);
+      await db.insert(weddingInviteCustomisations).values([
+        {
+          weddingId: "wed_d1_off",
+          heroVisible: false,
+          storyVisible: false,
+          footerVisible: false,
+          faqVisible: false,
+          updatedAt: stamp,
+        },
+        { weddingId: "wed_d1_on", faqVisible: false, updatedAt: stamp },
+      ]);
+
+      const result = await d1.prepare(statements[0]!).run();
+      // Only the row with a switch off is written.
+      expect(result.meta.changes).toBe(1);
+
+      const rows = await db
+        .select({
+          weddingId: weddingInviteCustomisations.weddingId,
+          hero: weddingInviteCustomisations.heroVisible,
+          story: weddingInviteCustomisations.storyVisible,
+          footer: weddingInviteCustomisations.footerVisible,
+          faq: weddingInviteCustomisations.faqVisible,
+        })
+        .from(weddingInviteCustomisations)
+        .orderBy(asc(weddingInviteCustomisations.weddingId));
+      expect(rows).toEqual([
+        { weddingId: "wed_d1_off", hero: true, story: true, footer: true, faq: false },
+        { weddingId: "wed_d1_on", hero: true, story: true, footer: true, faq: false },
       ]);
     },
     MF_TIMEOUT_MS,
