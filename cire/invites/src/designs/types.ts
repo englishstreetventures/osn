@@ -63,10 +63,10 @@ export interface InviteCustomisation {
    * The hero and Our Story visibility switches (migration 0063). A switched-off
    * section renders nothing even with content. Optional, and each key optional,
    * so a payload from an API older than the switches reads every section as on
-   * (`sectionState` in `@cire/theme`). The closing section's switch is not here:
-   * it rides the claim response with the rest of the closing section.
+   * (`sectionState` in `@cire/theme`). The closing section's and the FAQ's
+   * switches are not here: they ride the claim response with those sections.
    */
-  visibility?: Partial<Record<Exclude<VisibilitySection, "footer">, boolean>>;
+  visibility?: Partial<Record<Exclude<VisibilitySection, "footer" | "faq">, boolean>>;
   /** Which design pack renders this invite (0045). Optional so payloads from
    *  an older API deploy still parse; resolve through `resolveDesignId`. */
   designId?: string;

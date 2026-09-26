@@ -270,7 +270,7 @@ export function InstantBadge() {
  * both the fieldset's DOM id — the tab's `aria-controls` target — and half of
  * `${id}-tab`, the tab's own id), the micro-caps legend, the optional visibility
  * badge + switch + reason line, the optional per-section reset, and the optional
- * description paragraph. Keeping this in one place is what keeps eight section
+ * description paragraph. Keeping this in one place is what keeps the section
  * cards from drifting apart.
  */
 export function SectionCard(props: {

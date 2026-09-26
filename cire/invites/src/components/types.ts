@@ -99,6 +99,13 @@ export interface RsvpDeadline {
   closed: boolean;
 }
 
+/** One entry of the invite's FAQ section. Mirrors `GuestFaqEntry` in cire/api:
+ *  the text alone, since the page keys nothing on an id. */
+export interface FaqEntry {
+  question: string;
+  answer: string;
+}
+
 export interface ClaimResult {
   publicId: string;
   familyName: string;
@@ -127,6 +134,19 @@ export interface ClaimResult {
     message: string | null;
     imageUrl: string | null;
     imageCrop?: ImageCrop | null;
+  };
+  /**
+   * The invite's FAQ section, shown under the events. Delivered here rather
+   * than in the public invite payload because it is written for the invited
+   * household, like the events. Switched off, the API sends no entries.
+   * Optional on the wire, and each field optional, so a payload from an API
+   * older than the FAQ simply renders no FAQ section; the page keeps only
+   * well-formed entries (`faqEntries`), so a malformed one is dropped rather
+   * than failing the claim.
+   */
+  faq?: {
+    visible?: boolean;
+    entries?: FaqEntry[];
   };
   /**
    * The wedding's RSVP-by date, or null when the organiser hasn't set one.

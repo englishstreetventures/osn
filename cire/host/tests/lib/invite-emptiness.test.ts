@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  faqState,
   footerState,
   hasText,
   heroState,
+  isFaqEmpty,
   isFooterEmpty,
   isHeroEmpty,
   isStoryEmpty,
@@ -165,5 +167,34 @@ describe("footerState", () => {
     footerState,
     { message: "With love,", imageUrl: null },
     { message: "  ", imageUrl: null },
+  );
+});
+
+describe("isFaqEmpty", () => {
+  it("is empty with no entries, or none with both a question and an answer", () => {
+    expect(isFaqEmpty([])).toBe(true);
+    expect(isFaqEmpty(null)).toBe(true);
+    expect(isFaqEmpty(undefined)).toBe(true);
+    for (const value of ABSENT) {
+      expect(isFaqEmpty([{ question: value, answer: "Yes." }])).toBe(true);
+      expect(isFaqEmpty([{ question: "Parking?", answer: value }])).toBe(true);
+    }
+  });
+
+  it("has content once any one entry has both", () => {
+    expect(
+      isFaqEmpty([
+        { question: " ", answer: "Yes." },
+        { question: "Parking?", answer: "Yes." },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("faqState", () => {
+  stateContract(
+    faqState,
+    [{ question: "Parking?", answer: "Yes." }],
+    [{ question: "Parking?", answer: " " }],
   );
 });

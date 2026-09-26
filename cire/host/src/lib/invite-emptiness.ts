@@ -2,8 +2,8 @@
  * Organiser-side mirror of the guest invite's "does this segment render?" logic.
  *
  * SOURCE OF TRUTH: `cire/invites/src/components/invite-emptiness.ts`. The guest
- * site renders the hero, Our Story and the closing section only when the
- * section's visibility switch is on AND it has content; the builder uses the SAME
+ * site renders the hero, Our Story, the FAQ and the closing section only when
+ * the section's visibility switch is on AND it has content; the builder uses the SAME
  * logic here for its per-section badge ("Shown", "Hidden — empty", "Hidden —
  * switched off"), so the organiser knows exactly what a guest will see before
  * they save.
@@ -81,4 +81,27 @@ export function footerState(
   footer: Parameters<typeof isFooterEmpty>[0],
 ): SectionState {
   return sectionState(visible, isFooterEmpty(footer));
+}
+
+/** One FAQ entry, as far as emptiness is concerned. */
+export interface FaqContent {
+  question: string | null | undefined;
+  answer: string | null | undefined;
+}
+
+/**
+ * The FAQ is EMPTY when no entry has both a question and an answer. The API
+ * refuses a blank field, so in practice this is "has no entries"; the check
+ * matches the guest site's, which also has to cope with a malformed payload.
+ */
+export function isFaqEmpty(entries: readonly FaqContent[] | null | undefined): boolean {
+  return !(entries ?? []).some((e) => hasText(e.question) && hasText(e.answer));
+}
+
+/** The FAQ's state from its switch and its entries. */
+export function faqState(
+  visible: boolean | null | undefined,
+  entries: readonly FaqContent[] | null | undefined,
+): SectionState {
+  return sectionState(visible, isFaqEmpty(entries));
 }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -15,11 +15,12 @@ import {
   registrySettings,
   rsvps,
   tasks,
+  weddingFaqs,
   weddingInviteCustomisations,
   weddings,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -28,11 +29,13 @@ import { createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
+import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { claimService } from "../../src/services/claim";
 import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
+import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
@@ -47,7 +50,26 @@ import { tasksService } from "../../src/services/tasks";
 // Schema setup and FK-ordered truncation are inherently sequential here.
 /* eslint-disable no-await-in-loop */
 
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
+
+/**
+ * A migration file as the statements wrangler would send: split on drizzle's
+ * breakpoint marker, comment lines dropped. Every chunk in the chain holds one
+ * statement, and D1's `prepare` takes exactly one.
+ */
+function migrationStatements(file: string): string[] {
+  return readFileSync(join(MIGRATIONS_DIR, file), "utf8")
+    .split("--> statement-breakpoint")
+    .map((chunk) =>
+      chunk
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean);
+}
 
 const PUBLIC_ID = "TESTFAM-AA01";
 const FAMILY_ID = "fam1";
@@ -195,6 +217,7 @@ beforeEach(async () => {
     events,
     tasks,
     registrySettings,
+    weddingFaqs,
     weddings,
   ]) {
     await db.delete(table);
@@ -777,6 +800,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
         hero: true,
         story: true,
+        faq: true,
         footer: true,
       });
 
@@ -787,6 +811,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
         hero: true,
         story: false,
+        faq: true,
         footer: false,
       });
 
@@ -875,6 +900,185 @@ describe("cire/api over real D1 (Miniflare)", () => {
         { weddingId: "wed_d1_blank", hero: false, story: false, footer: false },
         { weddingId: "wed_d1_full", hero: true, story: true, footer: true },
       ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "adds, caps, changes, orders and deletes FAQ entries over async D1, and the claim carries them",
+    async () => {
+      await db.delete(weddingInviteCustomisations);
+      const a = await run(
+        inviteFaqService.create(BOOTSTRAP_WEDDING_ID, { question: " Parking? ", answer: "Yes." }),
+      );
+      const b = await run(
+        inviteFaqService.create(BOOTSTRAP_WEDDING_ID, {
+          question: "Children?",
+          answer: "Ceremony.",
+        }),
+      );
+      expect(a.question).toBe("Parking?");
+
+      // The single-statement INSERT … SELECT … RETURNING binds its timestamps
+      // itself; on D1 they must land in epoch seconds too.
+      const [raw] = await db.all<{ created_at: number }>(
+        sql`SELECT created_at FROM wedding_faqs WHERE id = ${a.id}`,
+      );
+      expect(Math.abs(raw!.created_at - Date.now() / 1000)).toBeLessThan(60);
+
+      await run(
+        inviteFaqService.update(BOOTSTRAP_WEDDING_ID, b.id, {
+          question: "Are children invited?",
+          answer: "To the ceremony.",
+        }),
+      );
+      await run(inviteFaqService.reorder(BOOTSTRAP_WEDDING_ID, [b.id, a.id]));
+      expect((await run(inviteFaqService.list(BOOTSTRAP_WEDDING_ID))).map((e) => e.id)).toEqual([
+        b.id,
+        a.id,
+      ]);
+
+      // The claim carries them in order while the switch is on (no row ⇒ on)…
+      const on = await run(claimService.lookup(PUBLIC_ID));
+      expect(on.faq).toEqual({
+        visible: true,
+        entries: [
+          { question: "Are children invited?", answer: "To the ceremony." },
+          { question: "Parking?", answer: "Yes." },
+        ],
+      });
+
+      // …and none once it is off, with the entries kept.
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { faq: false }));
+      expect((await run(claimService.lookup(PUBLIC_ID))).faq).toEqual({
+        visible: false,
+        entries: [],
+      });
+      expect(await run(inviteFaqService.list(BOOTSTRAP_WEDDING_ID))).toHaveLength(2);
+
+      await run(inviteFaqService.remove(BOOTSTRAP_WEDDING_ID, a.id));
+      expect((await run(inviteFaqService.list(BOOTSTRAP_WEDDING_ID))).map((e) => e.id)).toEqual([
+        b.id,
+      ]);
+
+      // The cap is enforced by the INSERT itself, on D1 as on bun:sqlite.
+      for (let i = 1; i < FAQ_LIMITS.maxEntries; i++) {
+        await run(
+          inviteFaqService.create(BOOTSTRAP_WEDDING_ID, { question: `Q${i}`, answer: "A" }),
+        );
+      }
+      const refused = await Effect.runPromiseExit(
+        inviteFaqService
+          .create(BOOTSTRAP_WEDDING_ID, { question: "One more", answer: "No." })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(refused)).toBe(true);
+      if (Exit.isFailure(refused)) {
+        expect(Option.getOrUndefined(Cause.findErrorOption(refused.cause))).toBeInstanceOf(
+          FaqLimitReached,
+        );
+      }
+      expect(await run(inviteFaqService.list(BOOTSTRAP_WEDDING_ID))).toHaveLength(
+        FAQ_LIMITS.maxEntries,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "holds the FAQ cap when two adds race for the last place over async D1",
+    async () => {
+      for (let i = 0; i < FAQ_LIMITS.maxEntries - 1; i++) {
+        await run(
+          inviteFaqService.create(BOOTSTRAP_WEDDING_ID, { question: `Q${i}`, answer: "A" }),
+        );
+      }
+      // Both in flight at once: a read-then-insert would let both counts see
+      // 29 before either wrote. The count lives inside the INSERT, so one wins.
+      const [first, second] = await Effect.runPromise(
+        Effect.all(
+          [
+            Effect.exit(
+              inviteFaqService.create(BOOTSTRAP_WEDDING_ID, { question: "Last A", answer: "A" }),
+            ),
+            Effect.exit(
+              inviteFaqService.create(BOOTSTRAP_WEDDING_ID, { question: "Last B", answer: "B" }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(Effect.provideService(DbService, db)),
+      );
+      const failures = [first, second].filter(Exit.isFailure);
+      expect(failures).toHaveLength(1);
+      expect(Option.getOrUndefined(Cause.findErrorOption(failures[0]!.cause))).toBeInstanceOf(
+        FaqLimitReached,
+      );
+      expect(await run(inviteFaqService.list(BOOTSTRAP_WEDDING_ID))).toHaveLength(
+        FAQ_LIMITS.maxEntries,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "builds the schema from the migration chain, 0064 included, on D1's own SQLite",
+    async () => {
+      // Its own instance: the suite's shared database is built from the test
+      // DDL, and replaying a migration into it would mean dropping a table every
+      // later test needs. Here the whole chain runs from empty, in order, the
+      // way `wrangler d1 migrations apply` runs it.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = readdirSync(MIGRATIONS_DIR)
+          .filter((f) => f.endsWith(".sql"))
+          .toSorted();
+        expect(files).toContain("0064_invite_faq.sql");
+        for (const file of files) {
+          for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
+        }
+
+        const columns = await chainD1
+          .prepare("PRAGMA table_info(wedding_invite_customisations)")
+          .all<{ name: string; notnull: number; dflt_value: string | null }>();
+        expect(columns.results.find((c) => c.name === "faq_visible")).toMatchObject({
+          notnull: 1,
+          dflt_value: "1",
+        });
+
+        // The service over the migrated database: an entry in, read back for
+        // guests while the switch is at its default.
+        const chainDb = createD1Db(createSessionRoutedClient(chainD1, "fetch"));
+        const stamp = new Date();
+        await chainDb.insert(weddings).values({
+          id: "wed_chain",
+          slug: "chain",
+          displayName: "Chain",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await chainDb
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId: "wed_chain", updatedAt: stamp });
+        const created = await Effect.runPromise(
+          inviteFaqService
+            .create("wed_chain", { question: "Parking?", answer: "Yes." })
+            .pipe(Effect.provideService(DbService, chainDb)),
+        );
+        const forGuests = await Effect.runPromise(
+          inviteFaqService
+            .listForGuests("wed_chain")
+            .pipe(Effect.provideService(DbService, chainDb)),
+        );
+        expect(forGuests).toEqual([{ question: created.question, answer: created.answer }]);
+      } finally {
+        await chainMf.dispose();
+      }
     },
     MF_TIMEOUT_MS,
   );

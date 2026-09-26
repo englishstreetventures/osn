@@ -7,6 +7,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[closing-band-width-bound-over-height-clip]]"
   - "[[cire-development]]"
+  - "[[drag-and-drop]]"
 last-reviewed: 2026-09-26
 ---
 # Invite Builder
@@ -29,6 +30,8 @@ Single source of truth: `cire/api/src/schemas/invite.ts`.
 | Our Story            | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`  |
 | Code Entry & Welcome | —          | `welcomeMessage` (post-claim greeting line)   |
 | Events ("details")   | —          | `detailsEyebrow`, `detailsHeading`            |
+| FAQ (`faq`)          | —          | none — its content is the `wedding_faqs` entries |
+|   ↳ post-claim only, fixed header copy, and reuses the events tone | | |
 | Closing (`footer`)   | `footer`   | `footerMessage` (closing note, **no default**) |
 |   ↳ post-claim only, and reuses the welcome tone | | |
 
@@ -206,6 +209,50 @@ A `null` text field (or an all-whitespace value, which the service normalises to
 `null`) means **use the built-in default** — so a partially-filled section still
 renders the original hard-coded copy for the fields the organiser left blank.
 
+### The FAQ section
+
+Questions the couple answers for their guests — parking, the dress code in more
+detail, children, timing — shown **under the events**, once a household has
+entered its code. Migration `0064_invite_faq.sql` added the `wedding_faqs` table
+and the section's `faq_visible` switch together.
+
+| | |
+|---|---|
+| Content | Ordered entries, each a question and an answer (`wedding_faqs`) |
+| Limits | 30 entries per wedding; question ≤ 200 characters, answer ≤ 1000; both required and not blank; stored trimmed. `FAQ_LIMITS` in `cire/api/src/schemas/invite-faq.ts`, mirrored as `FAQ_CAPS` in the builder's `model.ts` |
+| Delivered | In the claim response (`faq: { visible, entries }`), never the public invite read — it is written for invited households. Unlike the events, it is not filtered per household: every household that enters its code sees every entry, and the builder's card says so, so an organiser does not mention an event only some guests are invited to |
+| Header | Fixed copy in both packs: eyebrow "Good to Know", heading "Questions & Answers" (an `<h2>`, sibling of the events heading). Not an organiser field |
+| Surface | The events section's tone — the two read as one block |
+| Guest markup | One native `<details>` per entry: the question is the `<summary>`, the answer opens under it. Keyboard-operable with no script. The question is not a heading, since a heading inside a `<summary>` loses its role in several screen readers |
+| Builder | Entries apply at once (like images); the switch waits for Save (like the other switches) |
+
+**Why 30.** Every entry rides the claim response a household loads on each
+visit, and an invite FAQ past a couple of dozen questions stops being read. The
+cap is enforced inside the INSERT itself (`INSERT … SELECT … WHERE (count) <
+30`), so two co-hosts adding at the same moment cannot pass it together, and the
+reorder body is bounded by the same number, so a full list always fits.
+
+**The text is the organiser's, rendered as text.** Both packs render question and
+answer as text nodes (Solid escapes them); nothing parses markup or makes links.
+The answer keeps its line breaks (`whitespace-pre-line`). The guest page keeps
+only well-formed entries (`faqEntries` in
+`cire/invites/src/components/faq-entries.ts`), because the claim guard does not
+check the FAQ — a malformed entry is dropped rather than signing the household
+out. The claim carries each entry's question and answer only; the id is the
+builder's, and the guest page keys nothing on it.
+
+**Each pack draws its own section around one shared list.** `FaqList` is the
+disclosure list; `classic` centres its header on the events column, `gala` puts
+it on its leading-edge column and closes it with the same hairline rule as its
+events header. Each pack's section (`designs/<pack>/FaqSection.tsx`) is loaded
+with `lazy()`, like the event cards, and is not warmed at idle: an invite with
+no FAQ never downloads it, and one with a FAQ asks for it only once the claim
+says there is something to show. The entry guard and the state check stay in
+the first-load chunk, since they decide whether to ask. The page memoises the
+claim's `faq` on its own before mapping it, so an RSVP save — which replaces
+the claim result but keeps `faq` at the same reference — leaves the list's rows
+in place and an open answer open.
+
 ## Conditional segments and visibility switches
 
 A section that has **no content at all** is not shown on the guest invite — we
@@ -213,10 +260,11 @@ never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
 means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
 `cire/invites/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
-`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `hasPinterest`,
-`hasDressCode`, and the switch-aware `heroState`, `storyState`, `footerState`).
+`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `isFaqEmpty`, `hasPinterest`,
+`hasDressCode`, and the switch-aware `heroState`, `storyState`, `faqState`,
+`footerState`).
 
-The hero, Our Story and the closing section also carry a **visibility switch**
+The hero, Our Story, the FAQ and the closing section also carry a **visibility switch**
 ("Show on the invite" in the builder), so an organiser can hide a filled-in
 section and bring it back with its content intact. Such a section renders only
 when it is switched on **and** has content:
@@ -231,6 +279,7 @@ when it is switched on **and** has content:
 | ----------------------------- | --------------------------------------------------------- | --------------------------------------- |
 | **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
 | **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
+| **FAQ**                       | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`) |
 | **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
 | **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
@@ -240,7 +289,7 @@ their invitation. The per-event segments and the gift registry have none either;
 the registry's own publish state decides whether its section appears.
 
 **One vocabulary, in `@cire/theme`.** `VISIBILITY_SECTIONS = ["hero", "story",
-"footer"]`, `SectionState` and `sectionState(visible, empty)` live in
+"faq", "footer"]`, `SectionState` and `sectionState(visible, empty)` live in
 [`cire/theme/src/sections.ts`](../../cire/theme/src/sections.ts), which the API,
 the builder and the guest site all import. `footer` is the data-layer name of
 the closing section, as on its image slot.
@@ -262,9 +311,11 @@ props are serialised into the SSR HTML):
 
 - `GET /api/invite/:slug`: story off ⇒ every story field is null; hero off ⇒ the
   subtitle is null (title and image stay, for the reasons above). It sends
-  `visibility: { hero, story }`, never the closing section's switch.
+  `visibility: { hero, story }`, never the closing section's or the FAQ's switch.
 - The claim response: `closing.visible`, and when it is false the note, image URL
-  and crop are null.
+  and crop are null; `faq.visible`, and when it is false `faq.entries` is empty.
+  The FAQ read checks the switch inside its one statement, so a switched-off
+  FAQ reads no entry rows.
 
 This keeps the payload tidy; it is not access control. The story image keeps
 serving at its public URL, which the builder's own thumbnail loads, so the
@@ -275,10 +326,13 @@ not make its photo private.
 existing row the switch its emptiness check gave at the time — content ⇒ on, no
 content ⇒ off — so an existing wedding whose closing section was empty has it
 switched off, and filling it in later shows nothing until the organiser switches
-it on. Rows created afterwards, and a wedding with no customisation row, start
-with every switch on, as does the dev seed (the column default).
+it on. The FAQ's switch (`0064`) has no backfill and defaults on: no wedding had
+entries when it landed, so every invite read "switched on, empty" and rendered
+as before, and a couple's first question shows without a second step. Rows
+created afterwards, and a wedding with no customisation row, start with every
+switch on, as does the dev seed (the column default).
 
-**Adding a switchable section** (the FAQ, for instance):
+**Adding a switchable section** (the FAQ followed these steps):
 
 1. Add it to `VISIBILITY_SECTIONS` in `cire/theme/src/sections.ts`.
 2. Add a `<section>_visible integer NOT NULL DEFAULT 1` column on all three DDL
@@ -304,7 +358,7 @@ label, not content — it does not keep the section alive on its own.
 
 **Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
 badge — **"Shown"**, **"Hidden — empty"** or **"Hidden — switched off"** — on the
-Hero, Our Story and Closing Section fieldsets, beside the section's "Show on the
+Hero, Our Story, FAQ and Closing Section fieldsets, beside the section's "Show on the
 invite" switch, and under it a line saying why a hidden section is hidden. The
 badge is driven by the **same** logic as the guest render: the content predicates
 are mirrored in `cire/host/src/lib/invite-emptiness.ts` (a hand-kept copy; keep
@@ -312,6 +366,9 @@ the two in lockstep) and `sectionState` comes from `@cire/theme`. The badge
 updates **live** as the organiser types or flips the switch, so they know exactly
 what a guest will see before saving. The switches save with the copy and theme
 (`PUT /invite/visibility`), and "Reset section" switches the section back on.
+The FAQ's badge reads its switch from the draft and its content from the live
+entry list, since entries save as they are made; `faqState` and `isFaqEmpty` are
+mirrored in the host module like the other predicates.
 
 ## Required event fields (Name + Start + Timezone)
 
@@ -667,10 +724,21 @@ forward-only `ADD COLUMN` needs no backfill and an un-customised wedding renders
 unchanged. The three visibility switches `hero_visible`, `story_visible` and
 `footer_visible` (`0063_invite_section_visibility.sql`) are **NOT NULL DEFAULT 1**
 booleans; 0063 also back-filled each existing row from its emptiness check (see
-[[#Conditional segments and visibility switches]]). Image columns store **R2
+[[#Conditional segments and visibility switches]]). The FAQ's switch
+`faq_visible` (`0064_invite_faq.sql`) is the same kind of column, with no
+backfill. Image columns store **R2
 object keys**, not URLs (mirrors how `imports` stores its CSV keys). The theme + hero-display ride the **same row + same read
 query** — no extra table, no extra round-trip. LOCKSTEP DDL mirror lives in
 `cire/api/src/db/setup.ts` (kept in sync with the migration + schema).
+
+The FAQ entries are their own table, `wedding_faqs` (`0064_invite_faq.sql`):
+`id` (`faq_<uuid>`), `wedding_id` (cascade FK), `question`, `answer`,
+`sort_order`, `created_at`, `updated_at`. It follows `registry_items`: the same
+`sort_order` convention, and a `(wedding_id, sort_order, id)` index, so every
+read — `WHERE wedding_id = ? ORDER BY sort_order, id` — walks the index without
+a sort. A delete leaves a gap in `sort_order`; the next reorder writes it dense
+again. Mirrored in `cire/api/src/db/setup.ts` and `cire/db/seed/dev-reset.sql`
+(generated); the dev seed carries three entries.
 
 Images live in a dedicated **`cire-assets`** R2 bucket (binding `ASSETS`),
 separate from the text-only CSV-import `SHEETS` bucket — different lifecycle
@@ -699,9 +767,14 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
     a guest with no OSN token can render the invite.
 - **Organiser (authed)** — under `/api/organiser/weddings/:weddingId/invite`,
-  behind `osnAuth()` + `weddingOwner()`:
+  behind `osnAuth()`; the read behind `weddingMember()` (every role but helper),
+  the writes behind `weddingEditor()` (owner or editor co-host; a viewer gets 403
+  `read_only_role`):
   - `GET /invite` → current customisation (text + image URLs + theme +
-    `heroDisplay`).
+    `heroDisplay`). With `?include=faqs` it also carries `faqs`, the FAQ entries
+    in order, read concurrently with the customisation. Only the builder's first
+    load asks; the getting-started checklist, the guest table and every write's
+    read-back leave it out.
   - `PUT /invite/text` → upsert the copy fields (total body — the builder always
     submits every key). Empty/whitespace ⇒ `null`, which means "use the built-in
     default" for every field except `footerMessage`, where it means "render
@@ -717,6 +790,22 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
     unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
     nothing persisted).
+  - `POST /invite/faqs` → add an entry at the end (`{ question, answer }`,
+    both required). The 31st is a 409 `faq_limit_reached`, decided inside the
+    INSERT. Returns `{ faq }`.
+  - `PUT /invite/faqs/:faqId` → replace an entry's question and answer (total
+    body). Another wedding's id, or an unknown one, is a 404 `faq_not_found`.
+  - `PUT /invite/faqs/order` → `{ orderedIds }`, the new order (at most 30 ids);
+    each id gets its index as `sort_order`, scoped to the wedding, so a foreign id
+    is a no-op, and only a row whose position changes is written (`sort_order`
+    is in the list index, so a rewrite of an unchanged row costs an index write
+    too). The builder sends nothing when the order it holds is the one last
+    saved.
+  - `DELETE /invite/faqs/:faqId` → delete an entry.
+  - The FAQ routes live in `cire/api/src/routes/invite-faq.ts` and share the
+    invite builder's per-IP write limiter. They use PUT rather than PATCH: the
+    API's CORS allow-list (`cire/api/src/app.ts`) does not list PATCH, so a
+    browser refuses a PATCH preflight.
   - `POST /invite/image/:slot` → upload an image.
   - `DELETE /invite/image/:slot` → reset slot to default.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
@@ -910,7 +999,9 @@ design pack's islands call:
   `welcomeMessage` props threaded from the pack's `Document.astro`, and retries
   through the same primitive only when `inviteMissing` is set. Unlike the header
   it **maps** the response down to the three fields it renders. With no `slug`
-  (e.g. unit tests) nothing is fetched.
+  (e.g. unit tests) nothing is fetched. After the claim it also renders, from
+  the claim response, the FAQ section under the events and the closing section
+  under that.
 
 Net effect: **invite customisation (hero image + theme) is read per request — no
 site rebuild needed, no baked-in wedding slug, and one invite request per
@@ -1014,6 +1105,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
 | `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
+| `invite/FaqEditor.tsx` | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard |
 | `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
 
 **Structure: one card per guest-page section, in the order guests scroll
@@ -1025,9 +1117,9 @@ mirrors of the `@cire/theme` enums — behind a "Fine-tune typography"
 disclosure), then **Hero** (preview at the TOP of the card so the sliders
 below act on something visible; image + two crops, title/subtitle, tone, and
 the three hero-display sliders behind a "Hero display" disclosure), **Our
-Story**, **Code Entry & Welcome**, **Events Section**, **Closing Section**,
-and finally the copyable **Invite message** (explicitly flagged as not part
-of the guest page).
+Story**, **Code Entry & Welcome**, **Events Section**, **FAQ**, **Closing
+Section**, and finally the copyable **Invite message** (explicitly flagged as
+not part of the guest page).
 
 **The Message section points at the other two places the message comes
 from.** A household's message has three parts, set in three places: its first
@@ -1049,7 +1141,7 @@ Focus moves to the new view's heading, since the link that was clicked
 unmounts with the view it sat in.
 
 **The section nav is a real tab switcher (2026-07-30), not a scroll-jump
-list.** The builder used to stack all eight cards in one long vertical page
+list.** The builder used to stack every card in one long vertical page
 with a sticky pill row that called `scrollIntoView` on click (`#hash` anchors
 were never an option — the dashboard routes on `location.hash`, so a real
 `#invite-hero` link would clobber it). That made the builder page longer than
@@ -1077,7 +1169,7 @@ PR relies on, for a widget this codebase already hand-rolls elsewhere — see
   DOM id — already the fieldset's `id` prop), `tabIndex={active() ? 0 : -1}`.
 - Each panel (`SectionCard`'s `<fieldset>`): `role="tabpanel"`,
   `aria-labelledby={`${props.id}-tab`}` — unconditional, since `SectionCard`
-  has exactly one consumer (the eight tab sections), so there's no case where
+  has exactly one consumer (the tab sections), so there's no case where
   the tabpanel semantics would be wrong.
 - Keyboard: `ArrowRight`/`ArrowLeft` step (wrapping), `Home`/`End` jump to the
   first/last tab — the APG "automatic activation" model, where moving focus
@@ -1085,20 +1177,24 @@ PR relies on, for a widget this codebase already hand-rolls elsewhere — see
   selection). `sectionTabRefs` (a `Map<string, HTMLButtonElement>`) is the
   imperative-focus mechanism, since Solid has no roving-tabindex primitive.
 
-**The tabs collapse into a menu on phones (2026-07-30).** Eight tabs cannot
+**The tabs collapse into a menu on phones (2026-07-30).** The nine tabs cannot
 share a line below `@3xl/builder` (48rem), and the first cut let the row scroll
 horizontally: Closing and Message sat off the right edge with nothing to say so
 — the exact failure `ModuleSidebar` had already fixed for the module strip, on
 the surface where an organiser is least likely to go hunting. Below that
 threshold the tabs now collapse behind a **trigger naming the current section**
-— its label, its `n/8` position, and its Shown/Hidden dot, so the menu only has
+— its label, its `n/9` position, and its Shown/Hidden dot, so the menu only has
 to be opened to MOVE, never to orient — which opens them as a **two-column
-grid**: all eight on screen at once (≈206px tall on a 390px phone, so nothing
-scrolls), 44px touch targets, absolutely positioned against the sticky bar so
-opening it overlays the form rather than shoving it down. From `@3xl/builder`
-up the trigger is `display: none` and the tabs are the static row they have
-always been — measured: at the crossover the eight pills plus the "Preview"
-button fit one line with room to spare.
+grid**: every tab on screen at once, 44px touch targets, absolutely positioned
+against the sticky bar so opening it overlays the form rather than shoving it
+down. From `@3xl/builder` up the trigger is `display: none` and the tabs are
+the static row they have always been, with `flex-wrap`, so a row that no longer
+fits wraps rather than scrolls.
+
+*Unverified for nine tabs. Measured with eight (four rows, no FAQ tab): the open
+grid was ≈206px tall on a 390px phone, and at the crossover the eight pills plus
+"Preview" fitted one line with room to spare. The FAQ tab adds a fifth grid row
+and one short pill; neither number has been re-measured.*
 
 **One tablist, two presentations — not two tablists.** The narrow surface
 re-lays-out the SAME `role="tablist"` rather than rendering a second copy of the
@@ -1141,7 +1237,9 @@ handling them there swallowed page scroll from a focused tab (**SM-C-L1**) — a
 open, they step by `SECTION_MENU_COLUMNS`, not by one: in a row-major two-column
 grid the next item is to the right and the one below is two along, so aliasing
 Down to Right would make the arrows disagree with what the organiser can see
-(**SM-C-L2**). Two columns are kept deliberately over a spatially-simpler single
+(**SM-C-L2**). At the ends they wrap **within the column** (`stepSectionRow`):
+with nine tabs the last row is a single cell, and a plain modulo step would carry
+Down from Closing (right column) to Design (left). Two columns are kept deliberately over a spatially-simpler single
 column, which at ≈396px would overflow the `max-h-[60vh]` cap on a landscape
 phone and re-introduce the very scrolling this replaced.
 
@@ -1153,7 +1251,7 @@ hand-maintained pair, and the drift guard is the checkable half. Same treatment
 `auto-grid` / `page-frame` got.
 
 The trigger's accessible name carries the section state as a clause
-("…, 3 of 8, hidden — empty. Choose a section", or "hidden — switched off")
+("…, 3 of 9, hidden — empty. Choose a section", or "hidden — switched off")
 rather than leaving it to the dot. The dot is `aria-hidden`, and an `aria-label` overrides subtree content, so
 the `sr-only` span the tabs themselves use would be dropped here — without the
 clause the collapsed trigger tells a sighted organiser three things and a
@@ -1359,15 +1457,31 @@ The builder is wrapped in a real `<form onSubmit>`, so Enter in any field
 saves.
 
 **Two persistence models, marked.** Text, theme and the section switches wait
-for Save; images, crops
-and the design selection apply to the LIVE invite immediately. Every
-instant-apply control carries an "applies immediately" badge, image
-**removal is confirm-gated** (the one destructive, undo-less control), and an
+for Save; images, crops, the design selection and the FAQ entries apply to the
+LIVE invite immediately. Every
+instant-apply control carries an "applies immediately" badge, image and FAQ-entry
+**removal is confirm-gated** (the destructive, undo-less controls), and an
 upload/remove failure surfaces **inside its own section card**
 (`role="alert"` next to the control), not in the distant save bar — only save
 failures live there. Copy fields enforce the server caps client-side
 (`maxlength` + live counters from `COPY_CAPS`, kept in lockstep with
 `InviteTextBody`), so the 300-char closing-note limit is a counter, not a 400.
+**The FAQ editor inside a form.** The builder is one `<form>` whose submit saves
+the invite, so Enter in the FAQ's question input would save the invite. The
+entry form's container takes Enter from a single-line input, cancels it (which
+stops the implicit submission) and saves the entry; Enter in the answer still
+makes a new line. A half-typed entry, or a moved entry whose new order has not
+saved yet, feeds the unsaved-changes guard and `beforeunload` (`faqPending`), but
+not the save bar, which cannot save either.
+
+**FAQ moves are saved together.** A move shows at once; one `PUT /invite/faqs/order`
+with the whole list follows a 400ms pause after the last move, with one request
+in flight at a time. The invite's write routes share a per-IP limit of 30 a
+minute, and a keyboard walk moves a row once per key press, so a save per move
+would run into it. A failed save puts back the last order the server
+acknowledged, clears the move announcement, and says so in the card. Leaving the
+builder inside the pause still sends the order.
+
 A true draft→publish model that would unify the two persistence models needs
 API/schema support — tracked as an open issue in `englishstventures/osn`, along
 with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
@@ -1470,13 +1584,18 @@ redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWedding,getForWeddingId,getForSlug,
   imageKeyForSlug,upsertText,upsertTheme,setImage,removeImage}` +
-  `cire.invite.{storeAsset,fetchAsset,deleteAsset}`.
-- **Logs**: `Effect.logInfo` on save / upload / remove; `Effect.logWarning` on
+  `cire.invite.{storeAsset,fetchAsset,deleteAsset}` +
+  `cire.invite.faq.{list,listForGuests,create,update,remove,reorder}` (the
+  guests' read runs inside `cire.claim.buildResponse`).
+- **Logs**: `Effect.logInfo` on save / upload / remove (FAQ writes log
+  `invite faq saved` with the action, never the question or answer); `Effect.logWarning` on
   best-effort image cleanup failure; `Effect.logError` on every storage / DB
   defect path before returning the generic error body. All runs go through
   `runCire` so annotations are redaction-scrubbed. No `console.*`. No PII in
   logs (only `weddingId`).
-- **Metrics**: `cire.invite.saved`, `cire.invite.asset.uploaded`, and the
+- **Metrics**: `cire.invite.saved`, `cire.invite.asset.uploaded`, the
+  `cire.invite.faq.write` counter (`action`: create / update / remove / reorder;
+  `result`: ok / limit_reached / not_found), and the
   `cire.invite.asset.size` histogram (bytes), defined in
   `cire/api/src/metrics.ts`. No-op until a workerd exporter is wired (see
   `[[cire-workerd]]` → Deferred).
@@ -1486,3 +1605,9 @@ redacting logger, and metrics:
 Uploaded images are personal data (wedding photos) and inherit the existing cire
 retention gap. Tracked alongside the other cire entries — see
 `gh issue list --repo englishstventures/osn --label product:cire`.
+
+The FAQ entries are organiser-written free text that may name people or places
+(a venue address, who to call on the day). They live in `wedding_faqs`, go with
+the wedding (`ON DELETE CASCADE`), and reach guests only through the claim
+response; `wiki/compliance/data-map.md` and `wiki/compliance/retention.md` carry
+the row.

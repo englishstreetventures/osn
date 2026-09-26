@@ -2448,8 +2448,8 @@ describe("PUT /invite/design (organiser)", () => {
   });
 });
 
-describe("PUT /invite/visibility (organiser, migration 0063)", () => {
-  type Visibility = { hero: boolean; story: boolean; footer?: boolean };
+describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
+  type Visibility = { hero: boolean; story: boolean; faq?: boolean; footer?: boolean };
   type OrganiserInvite = {
     visibility: Visibility;
     hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
@@ -2507,6 +2507,7 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
     expect((await organiserInvite(app)).visibility).toEqual({
       hero: true,
       story: true,
+      faq: true,
       footer: true,
     });
   });
@@ -2601,13 +2602,26 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
 
   it("400s a body naming no section, and changes nothing", async () => {
     const { app } = buildApp();
-    for (const body of [{}, { faq: true }, "not json", null]) {
+    for (const body of [{}, { closing: false }, "not json", null]) {
       const res = await putVisibility(app, body === null ? "null" : body);
       expect(res.status).toBe(400);
     }
     expect((await organiserInvite(app)).visibility).toEqual({
       hero: true,
       story: true,
+      faq: true,
+      footer: true,
+    });
+  });
+
+  it("switches the FAQ on its own", async () => {
+    const { app } = buildApp();
+    const res = await putVisibility(app, { faq: false });
+    expect(res.status).toBe(200);
+    expect((await organiserInvite(app)).visibility).toEqual({
+      hero: true,
+      story: true,
+      faq: false,
       footer: true,
     });
   });
@@ -2627,6 +2641,7 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
     expect(((await res.json()) as OrganiserInvite).visibility).toEqual({
       hero: true,
       story: false,
+      faq: true,
       footer: true,
     });
 
@@ -2635,6 +2650,7 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
     expect((await organiserInvite(app)).visibility).toEqual({
       hero: false,
       story: false,
+      faq: true,
       footer: false,
     });
   });
@@ -2655,7 +2671,7 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
 
     await putVisibility(app, { story: true, footer: true });
     const back = await organiserInvite(app);
-    expect(back.visibility).toEqual({ hero: true, story: true, footer: true });
+    expect(back.visibility).toEqual({ hero: true, story: true, faq: true, footer: true });
     expect(back.story).toMatchObject({
       eyebrow: "Our Story",
       heading: "How it began",
@@ -2706,12 +2722,13 @@ describe("PUT /invite/visibility (organiser, migration 0063)", () => {
       expect(Object.keys(body)).not.toContain("inviteMessage");
     });
 
-    it("sends the hero and story switches, and never the closing section's", async () => {
+    it("sends the hero and story switches, and never the closing section's or the FAQ's", async () => {
       const { app } = buildApp();
-      await putVisibility(app, { footer: false });
+      await putVisibility(app, { footer: false, faq: false });
       const body = await publicInvite(app);
       expect(body.visibility).toEqual({ hero: true, story: true });
       expect(Object.keys(body.visibility)).not.toContain("footer");
+      expect(Object.keys(body.visibility)).not.toContain("faq");
     });
 
     it("leaves out a switched-off story's content", async () => {

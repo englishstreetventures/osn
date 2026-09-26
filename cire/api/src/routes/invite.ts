@@ -27,6 +27,7 @@ import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
 import { AssetsR2Service, detectImageType, MAX_IMAGE_BYTES } from "../services/invite-assets";
 import type { AssetsBucket } from "../services/invite-assets";
+import { inviteFaqService } from "../services/invite-faq";
 import {
   negotiateFormat,
   resolveVariant,
@@ -283,10 +284,12 @@ export const createInvitePublicRoutes = (
  * limited to deleting the wedding and managing the co-host list.
  *
  *   GET    /weddings/:weddingId/invite             → current customisation
+ *                                                     (`?include=faqs` adds the FAQ entries)
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
  *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
  *   PUT    /weddings/:weddingId/invite/design      → which design pack renders
  *   PUT    /weddings/:weddingId/invite/visibility  → which sections show (partial body)
+ *   …/invite/faqs                                   → the FAQ entries (`routes/invite-faq.ts`)
  *   POST   /weddings/:weddingId/invite/image/:slot      → upload an image
  *   DELETE /weddings/:weddingId/invite/image/:slot      → reset slot to default
  *   PUT    /weddings/:weddingId/invite/image/:slot/crop → save/reset a crop rect
@@ -307,13 +310,29 @@ export const createInviteOrganiserRoutes = (
     .use(rateLimitMiddleware(limiter))
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/invite", ({ weddingId, set }) => {
+      group.use(weddingMember(db)).get("/invite", ({ weddingId, query, set }) => {
         if (!weddingId) {
           set.status = 500;
           return { error: "Internal error" };
         }
+        // `?include=faqs` adds the FAQ entries, read beside the customisation.
+        // Only the builder's first load asks for them; the other readers of this
+        // route (the getting-started checklist, the guest table) and every
+        // write's read-back leave them out, so they pay nothing for a list they
+        // never show.
+        const withFaqs = query.include === "faqs";
         return runCire(
-          inviteService.getForWeddingId(weddingId).pipe(
+          Effect.gen(function* () {
+            if (!withFaqs) return yield* inviteService.getForWeddingId(weddingId);
+            const { customisation, faqs } = yield* Effect.all(
+              {
+                customisation: inviteService.getForWeddingId(weddingId),
+                faqs: inviteFaqService.list(weddingId),
+              },
+              { concurrency: "unbounded" },
+            );
+            return { ...customisation, faqs };
+          }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("WeddingNotFound", () =>
               Effect.sync(() => {

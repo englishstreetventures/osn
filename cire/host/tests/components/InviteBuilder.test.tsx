@@ -827,23 +827,25 @@ describe("InviteBuilder shown/hidden badges", () => {
     vi.restoreAllMocks();
   });
 
-  /** All segment badges, in DOM order: [hero, story, footer]. */
+  /** All segment badges, in DOM order: [hero, story, faq, footer]. */
   const badges = (container: HTMLElement) =>
     [...container.querySelectorAll("[data-segment-badge]")] as HTMLElement[];
 
-  it("marks hero, story and footer 'Hidden — empty' for a blank invite", async () => {
+  it("marks hero, story, FAQ and footer 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => (
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(3));
-    const [hero, story, footer] = badges(container);
+    await waitFor(() => expect(badges(container)).toHaveLength(4));
+    const [hero, story, faq, footer] = badges(container);
     expect(hero.dataset.shown).toBe("false");
     expect(story.dataset.shown).toBe("false");
+    expect(faq.dataset.shown).toBe("false");
     expect(footer.dataset.shown).toBe("false");
     expect(hero.textContent).toContain("Hidden — empty");
     expect(story.textContent).toContain("Hidden — empty");
+    expect(faq.textContent).toContain("Hidden — empty");
     expect(footer.textContent).toContain("Hidden — empty");
   });
 
@@ -854,16 +856,18 @@ describe("InviteBuilder shown/hidden badges", () => {
         hero: { title: "Vera & Ravi", subtitle: null, imageUrl: null },
         story: { eyebrow: null, heading: "How It Began", body: null, imageUrl: null },
         footer: { message: "No boxed gifts please" },
+        faqs: [{ id: "faq_1", question: "Is there parking?", answer: "Yes." }],
       }),
     );
     const { container } = render(() => (
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(3));
-    const [hero, story, footer] = badges(container);
+    await waitFor(() => expect(badges(container)).toHaveLength(4));
+    const [hero, story, faq, footer] = badges(container);
     expect(hero.dataset.shown).toBe("true");
     expect(story.dataset.shown).toBe("true");
+    expect(faq.dataset.shown).toBe("true");
     expect(footer.dataset.shown).toBe("true");
     expect(hero.textContent).toContain("Shown");
   });
@@ -874,7 +878,7 @@ describe("InviteBuilder shown/hidden badges", () => {
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(3));
+    await waitFor(() => expect(badges(container)).toHaveLength(4));
     expect(badges(container)[0].dataset.shown).toBe("false");
 
     // Typing a couple title flips the hero badge without any save.
@@ -899,8 +903,8 @@ describe("InviteBuilder shown/hidden badges", () => {
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(3));
-    expect(badges(container)[2].dataset.shown).toBe("true");
+    await waitFor(() => expect(badges(container)).toHaveLength(4));
+    expect(badges(container)[3].dataset.shown).toBe("true");
     // …and the note field really is empty — the badge came from the image.
     expect((screen.getByLabelText("Closing note (optional)") as HTMLTextAreaElement).value).toBe(
       "",
@@ -913,8 +917,8 @@ describe("InviteBuilder shown/hidden badges", () => {
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(3));
-    const footerBadge = () => badges(container)[2];
+    await waitFor(() => expect(badges(container)).toHaveLength(4));
+    const footerBadge = () => badges(container)[3];
     expect(footerBadge().dataset.shown).toBe("false");
 
     const field = screen.getByLabelText("Closing note (optional)");
@@ -1612,10 +1616,10 @@ describe("InviteBuilder UX guards", () => {
 
 /**
  * The narrow-container section menu (2026-07-30). Below `@3xl/builder` the
- * eight tabs can't share a line, and the row used to be a horizontally
- * scrolling strip with Closing and Message parked off the right edge. They now
- * collapse behind a trigger naming the current section and open as a grid that
- * shows all eight at once.
+ * tabs can't share a line, and the row used to be a horizontally scrolling
+ * strip with Closing and Message parked off the right edge. They now collapse
+ * behind a trigger naming the current section and open as a grid that shows
+ * every tab at once.
  *
  * ONE tablist serves both surfaces (a per-surface copy would give every panel
  * two `aria-labelledby` candidates), so what these tests assert is the
@@ -1645,10 +1649,10 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     // Where the organiser IS, without opening anything — the one thing the
     // scrolling strip couldn't tell them about an off-screen section.
     expect(trigger().getAttribute("aria-label")).toBe(
-      "Invite section: Design, 1 of 8. Choose a section",
+      "Invite section: Design, 1 of 9. Choose a section",
     );
     expect(trigger().textContent).toContain("Design");
-    expect(trigger().textContent).toContain("1/8");
+    expect(trigger().textContent).toContain("1/9");
 
     // The Shown/Hidden state rides the LABEL, not just the dot: the dot is
     // `aria-hidden` and an `aria-label` overrides subtree content, so an
@@ -1657,15 +1661,15 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     // reader — and "you can read it instead of opening it" stops being true.
     await openSection(/^Closing/);
     expect(trigger().getAttribute("aria-label")).toBe(
-      "Invite section: Closing, 7 of 8, hidden — empty. Choose a section",
+      "Invite section: Closing, 8 of 9, hidden — empty. Choose a section",
     );
-    expect(trigger().textContent).toContain("7/8");
+    expect(trigger().textContent).toContain("8/9");
 
     await openSection(/^Hero/);
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
     await waitFor(() =>
       expect(trigger().getAttribute("aria-label")).toBe(
-        "Invite section: Hero, 3 of 8, shown. Choose a section",
+        "Invite section: Hero, 3 of 9, shown. Choose a section",
       ),
     );
   });
@@ -1698,8 +1702,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
     expect(tablist().classList.contains("hidden")).toBe(false);
 
-    // All eight reachable in one screen — the point of replacing the strip.
-    expect(within(tablist()).getAllByRole("tab")).toHaveLength(8);
+    // Every tab reachable in one screen — the point of replacing the strip.
+    expect(within(tablist()).getAllByRole("tab")).toHaveLength(9);
 
     fireEvent.click(trigger());
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
@@ -1806,7 +1810,7 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     // second copy: a duplicate would give every panel two `aria-labelledby`
     // candidates and assistive tech two tabs widgets for one set of panels.
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(screen.getAllByRole("tab")).toHaveLength(9);
 
     // Collapsed, the tabs are `display: none` — but they must remain IN the
     // document, because each panel's accessible name is computed from its tab
@@ -1842,6 +1846,27 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     // Stepping keeps the menu open — only Escape, a selection, an outside press
     // or focus leaving the nav dismisses it.
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("wraps DOWN and UP within a column when the last row has one cell", async () => {
+    await renderBuilder();
+    fireEvent.click(trigger());
+
+    // Nine tabs in two columns: the right column ends on Closing (row 4), the
+    // left on Message (row 5, alone). A modulo step of two would cross columns
+    // at the wrap; each column wraps into itself instead.
+    const tab = (name: string | RegExp) => screen.getByRole("tab", { name });
+    fireEvent.keyDown(tab(/^Closing/), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(tab("Look"));
+
+    fireEvent.keyDown(tab("Look"), { key: "ArrowUp" });
+    expect(document.activeElement).toBe(tab(/^Closing/));
+
+    fireEvent.keyDown(tab("Message"), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(tab("Design"));
+
+    fireEvent.keyDown(tab("Design"), { key: "ArrowUp" });
+    expect(document.activeElement).toBe(tab("Message"));
   });
 
   it("leaves ArrowDown/ArrowUp to the browser on the wide static row", async () => {
@@ -2161,7 +2186,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(String(authFetchMock.mock.calls[1][0])).toMatch(/\/invite\/visibility$/);
     expect(authFetchMock.mock.calls[1][1].method).toBe("PUT");
-    expect(sentBody("/visibility")).toEqual({ hero: true, story: false, footer: true });
+    expect(sentBody("/visibility")).toEqual({ hero: true, story: false, faq: true, footer: true });
     // Copy and theme were untouched, so neither was sent.
     expect(sentBody("/text")).toBeNull();
     expect(sentBody("/theme")).toBeNull();
@@ -2256,7 +2281,12 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     fireEvent.click(save);
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(4));
     expect(String(authFetchMock.mock.calls[3][0])).toMatch(/\/invite\/visibility$/);
-    expect(lastSentBody("/visibility")).toEqual({ hero: true, story: false, footer: true });
+    expect(lastSentBody("/visibility")).toEqual({
+      hero: true,
+      story: false,
+      faq: true,
+      footer: true,
+    });
     await waitFor(() => expect(save.disabled).toBe(true));
   });
 
@@ -2269,6 +2299,165 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     await openSection(/^Closing/);
     expect(
       screen.getByRole("button", { name: /Choose a section/ }).getAttribute("aria-label"),
-    ).toBe("Invite section: Closing, 7 of 8, hidden — switched off. Choose a section");
+    ).toBe("Invite section: Closing, 8 of 9, hidden — switched off. Choose a section");
+  });
+});
+
+describe("InviteBuilder FAQ section (migration 0064)", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const FAQS = [
+    { id: "faq_a", question: "Is there parking?", answer: "Yes." },
+    { id: "faq_b", question: "Are children invited?", answer: "Ceremony only." },
+  ];
+  const panel = () => document.getElementById("invite-faq")!;
+  const badge = () => panel().querySelector("[data-segment-badge]") as HTMLElement;
+
+  async function renderWith(customisation: unknown) {
+    authFetchMock.mockResolvedValueOnce(json(customisation));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => expect(badge()).toBeTruthy());
+  }
+
+  it("asks for the entries with its first load", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS });
+    expect(String(authFetchMock.mock.calls[0]![0])).toBe(
+      "https://api.test/api/organiser/weddings/wed_1/invite?include=faqs",
+    );
+  });
+
+  it("sits between Events and Closing, and shows 'Shown' once it has an entry", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS });
+    const tabs = screen.getAllByRole("tab").map((t) => t.textContent);
+    expect(tabs.indexOf("FAQ")).toBe(tabs.indexOf("Events") + 1);
+    expect(tabs.findIndex((t) => t?.startsWith("Closing"))).toBe(tabs.indexOf("FAQ") + 1);
+
+    expect(badge().dataset.state).toBe("shown");
+    expect(within(panel()).getByText("Is there parking?")).toBeInTheDocument();
+  });
+
+  it("explains a FAQ switched on with no entries", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
+    expect(badge().dataset.state).toBe("empty");
+    expect(panel().querySelector("[data-visibility-reason]")?.textContent).toBe(
+      "Switched on, but guests won't see it until it has content: add a question and its answer.",
+    );
+  });
+
+  it("says a switched-off FAQ keeps its questions", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS, visibility: { faq: false } });
+    expect(badge().dataset.state).toBe("off");
+    screen.getByRole("tab", { name: "FAQ (hidden — switched off)" });
+    expect(panel().querySelector("[data-visibility-reason]")?.textContent).toMatch(
+      /they are all kept/,
+    );
+  });
+
+  it("saves the FAQ switch with PUT /visibility alone", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS });
+    authFetchMock.mockResolvedValueOnce(
+      json({ ...EMPTY_CUSTOMISATION, visibility: { faq: false } }),
+    );
+
+    fireEvent.click(within(panel()).getByLabelText("Show on the invite"));
+    expect(badge().dataset.state).toBe("off");
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(String(authFetchMock.mock.calls[1]![0])).toMatch(/\/invite\/visibility$/);
+    expect(sentBody("/visibility")).toEqual({ hero: true, story: true, faq: false, footer: true });
+  });
+
+  it("keeps its entries when a save replaces the loaded customisation", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS });
+    // A write route's response carries no entries.
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+    fireEvent.click(screen.getByText("Save invite"));
+    await waitFor(() => screen.getByText("All changes saved"));
+
+    expect(badge().dataset.state).toBe("shown");
+    expect(within(panel()).getByText("Are children invited?")).toBeInTheDocument();
+  });
+
+  it("keeps its entries when an image upload reloads the customisation", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, faqs: FAQS })); // first load
+    authFetchMock.mockResolvedValueOnce(json({ ok: true })); // upload
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // reload, no entries
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => expect(badge()).toBeTruthy());
+
+    const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "hero.jpg", { type: "image/jpeg" })],
+    });
+    fireEvent.change(input);
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    // The reload asks for the customisation alone.
+    expect(String(authFetchMock.mock.calls[2]![0])).toBe(
+      "https://api.test/api/organiser/weddings/wed_1/invite",
+    );
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(within(panel()).getByText("Is there parking?")).toBeInTheDocument();
+    expect(badge().dataset.state).toBe("shown");
+  });
+
+  it("guards a tab close while a question is half-typed, and stops once it is cancelled", async () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    const count = (spy: typeof add) => spy.mock.calls.filter((c) => c[0] === "beforeunload").length;
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
+    expect(count(add)).toBe(0);
+
+    fireEvent.click(within(panel()).getByText("Add a question"));
+    fireEvent.input(within(panel()).getByLabelText("Question"), { target: { value: "Parking?" } });
+    await waitFor(() => expect(count(add)).toBe(1));
+
+    fireEvent.click(within(panel()).getByText("Cancel"));
+    await waitFor(() => expect(count(remove)).toBe(1));
+  });
+
+  it("says the FAQ is not available yet on a payload from an older API", async () => {
+    await renderWith(EMPTY_CUSTOMISATION);
+    expect(within(panel()).getByText(/Questions can't be edited yet/)).toBeInTheDocument();
+  });
+
+  it("guards navigation while a question is half-typed, without lighting the save bar", async () => {
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
+
+    fireEvent.click(within(panel()).getByText("Add a question"));
+    fireEvent.input(within(panel()).getByLabelText("Question"), { target: { value: "Parking?" } });
+
+    // Nothing the save bar can save…
+    expect(screen.getByText("All changes saved")).toBeInTheDocument();
+    expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(true);
+    // …but leaving would lose the typing, so navigation asks.
+    expect(confirmNavigation()).toBe(false);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds an entry and the section's badge follows", async () => {
+    await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
+    authFetchMock.mockResolvedValueOnce(json({ faq: FAQS[0] }));
+
+    fireEvent.click(within(panel()).getByText("Add a question"));
+    fireEvent.input(within(panel()).getByLabelText("Question"), {
+      target: { value: "Is there parking?" },
+    });
+    fireEvent.input(within(panel()).getByLabelText("Answer"), { target: { value: "Yes." } });
+    fireEvent.click(within(panel()).getByText("Add question"));
+
+    await waitFor(() => expect(badge().dataset.state).toBe("shown"));
+    screen.getByRole("tab", { name: "FAQ" });
   });
 });

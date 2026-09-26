@@ -435,6 +435,7 @@ export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;
 export const InviteVisibilityBody = Schema.Struct({
   hero: Schema.optional(Schema.Boolean),
   story: Schema.optional(Schema.Boolean),
+  faq: Schema.optional(Schema.Boolean),
   footer: Schema.optional(Schema.Boolean),
 }).check(
   Schema.makeFilter((body) =>

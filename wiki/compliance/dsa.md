@@ -7,13 +7,16 @@ related:
   - "[[event-access]]"
   - "[[social-graph]]"
   - "[[connection-recommender]]"
-last-reviewed: 2026-09-09
+  - "[[cire-invite-builder]]"
+last-reviewed: 2026-09-26
 ---
 
 # Digital Services Act
 
 The DSA classifies us as a **hosting service** (we host UGC: Pulse events,
-Pulse RSVPs, Zap messages, Zap org-chat transcripts, profile content) and
+Pulse RSVPs, Zap messages, Zap org-chat transcripts, profile content, and
+cire's organiser-written invite text — Our Story, the closing note and the FAQ
+entries, shown to the guests who open the invite) and
 an **online platform** (we connect recipients of the service for events).
 We are below the Tier-3 VLOP threshold (45M EU MAU) and below the
 medium-platform threshold (50 employees / €10M turnover) — the **micro /
@@ -37,7 +40,7 @@ language is narrower than most summaries suggest.
 | Art. 13 | Designated EU legal representative if not established in EU | **Conditional** | Required if we end up incorporated outside the EU. Decision deferred. |
 | Art. 14 | ToS in clear, plain language; explain content moderation rules, recourse, algorithmic recommendation criteria | **Gap** | Draft ToS lives at `wiki/compliance/legal-drafts/tos.md`; published copy at `musubi/landing/src/pages/legal/tos.astro`. |
 | Art. 15 | Annual transparency report (content moderation actions, response times, resources) | **SME-exempt scope to confirm** — Art. 19 exempts Section 3 (Arts. 20–28) but the Art. 15 hosting-services report is in Section 2 and may still apply. | Confirm with counsel pre-launch. Collect the data either way (see C-L10). |
-| Art. 16 | Notice-and-action mechanism — anyone can report illegal content with the prescribed minimum information; we must process timely + diligently | **Gap** | Build `POST /reports` (Pulse + Zap) with the Art. 16 schema. |
+| Art. 16 | Notice-and-action mechanism — anyone can report illegal content with the prescribed minimum information; we must process timely + diligently | **Gap** | Build `POST /reports` (Pulse + Zap + cire invite text) with the Art. 16 schema. |
 | Art. 17 | Statement of reasons — for every restriction (post removal, account suspension, demotion, RSVP rejection by host, etc.), we provide a structured explanation to the affected user | **Gap** | Build `moderation_actions` table + email template. |
 | Art. 18 | Notification of suspicions of criminal offences threatening life / safety to law enforcement | **Gap** | Add to [[breach-response]] with named legal contact. |
 | Art. 20 | Internal complaint-handling system — appeal mechanism free of charge for at least 6 months | **Gap** | Build `POST /moderation/appeals`; route to a human reviewer. |

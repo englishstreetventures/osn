@@ -1,14 +1,14 @@
 /**
  * The persistent composed preview: the whole guest invite as one continuous
- * column — hero, Our Story, Code Entry & Welcome, Events, Closing — in guest
+ * column — hero, Our Story, Code Entry & Welcome, Events, FAQ, Closing — in guest
  * scroll order, on their tone surfaces, styled with the same derived tokens
  * the guest site consumes. Shown as a sticky side pane at the builder's wide
  * breakpoint (the inline per-section previews take over on narrow layouts).
  * This is where the tone rhythm down the page — the whole point of the tone
  * system — is actually visible while editing.
  *
- * Sections the guest site would hide (a hero, story or closing section that is
- * empty or switched off) render as a labelled placeholder strip saying which,
+ * Sections the guest site would hide (a hero, story, FAQ or closing section
+ * that is empty or switched off) render as a labelled placeholder strip saying which,
  * mirroring the section cards' badges.
  *
  * The pane follows the wedding's DESIGN PACK as well as its scheme: hero
@@ -23,7 +23,7 @@ import { createSignal, Show } from "solid-js";
 
 import type { ImageCrop } from "../../lib/image-crop";
 import { designLayout } from "./design-layout";
-import { DEFAULTS, sampleCopy, type ThemeSection } from "./model";
+import { DEFAULTS, faqSampleBody, sampleCopy, type ThemeSection } from "./model";
 import { DeviceToggle, HeroSample, type PreviewDevice, SectionSample } from "./previews";
 
 export interface PreviewPaneProps {
@@ -44,6 +44,8 @@ export interface PreviewPaneProps {
   story: { state: SectionState; eyebrow: string; heading: string; body: string };
   welcome: { message: string };
   events: { eyebrow: string; heading: string };
+  /** The FAQ's state and its questions, in order. */
+  faq: { state: SectionState; questions: string[] };
   closing: {
     state: SectionState;
     message: string;
@@ -136,6 +138,16 @@ export default function PreviewPane(props: PreviewPaneProps) {
           body="Your events, from the spreadsheet import."
           card={{ name: "Ceremony", meta: "Saturday, 4pm · St Mary's" }}
         />
+        {/* The FAQ sits under the events on the events section's surface. */}
+        <Show when={props.faq.state === "shown"} fallback={hiddenStrip("FAQ", props.faq.state)}>
+          <SectionSample
+            surface={props.toneSurface("details")}
+            design={props.design}
+            eyebrow={DEFAULTS.faqEyebrow}
+            heading={DEFAULTS.faqHeading}
+            body={faqSampleBody(props.faq.questions)}
+          />
+        </Show>
         {/* The closing section paints the WELCOME surface — the couple's two
             direct addresses to their guests read as a matched pair. */}
         <Show

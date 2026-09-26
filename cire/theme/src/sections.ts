@@ -6,7 +6,8 @@
  * means.
  *
  * `footer` is the data-layer name of the closing section, as on the image slot
- * and the `footer_*` columns; the builder calls it "Closing".
+ * and the `footer_*` columns; the builder calls it "Closing". `faq` is the
+ * questions-and-answers section under the events.
  *
  * Adding a section here is a schema change: a `<section>_visible` column on
  * `wedding_invite_customisations` in all three DDL surfaces, and an entry in the
@@ -15,7 +16,7 @@
  */
 
 /** The switchable sections, in the order a guest scrolls them. */
-export const VISIBILITY_SECTIONS = ["hero", "story", "footer"] as const;
+export const VISIBILITY_SECTIONS = ["hero", "story", "faq", "footer"] as const;
 export type VisibilitySection = (typeof VISIBILITY_SECTIONS)[number];
 
 export function isVisibilitySection(value: string): value is VisibilitySection {

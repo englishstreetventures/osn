@@ -15,6 +15,8 @@ import {
 import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
+import { faqEntries } from "../../components/faq-entries";
+import { faqState } from "../../components/invite-emptiness";
 import {
   createInviteRetry,
   type DetailsCopy,
@@ -57,6 +59,10 @@ const DetailsModal = lazy(() =>
 const EventCard = lazy(() =>
   import("../../components/EventCard").then((m) => ({ default: m.EventCard })),
 );
+// The FAQ section, split out the same way — and deliberately NOT warmed at
+// idle: most invites have no FAQ, and one that does asks for this chunk only
+// once the claim has said there is something to show.
+const FaqSection = lazy(() => import("./FaqSection").then((m) => ({ default: m.FaqSection })));
 
 /** The slice of the invite customisation this island renders. */
 interface LiveInvite {
@@ -416,6 +422,30 @@ export default function InvitePage(props: InvitePageProps) {
             </div>
           </section>
         )}
+      </Show>
+
+      {/* The FAQ, under the events and on their surface, in the same
+          leading-edge column and closed by the same hairline rule. Its entries
+          arrive in the claim response, like the events, and only there. Not
+          `opacity-0`, for the reason the closing section below gives: it sits
+          under every event card, off-screen while the reveal plays.
+
+          `faq` is memoised on its own first: an RSVP save replaces
+          `claimResult` with a spread that keeps `faq` at the same reference, so
+          the memo stops there, and the list keeps its rows — an answer the
+          guest has open stays open. */}
+      <Show when={claimResult()}>
+        {(data) => {
+          const faq = createMemo(() => data().faq);
+          const entries = createMemo(() => faqEntries(faq()?.entries));
+          return (
+            <Show when={faqState(faq()?.visible, entries()) === "shown"}>
+              <Suspense fallback={null}>
+                <FaqSection entries={entries()} themeVars={filterThemeVars(detailsVars())} />
+              </Suspense>
+            </Show>
+          );
+        }}
       </Show>
 
       {/* The couple's sign-off — their motif and closing note, the invite's last

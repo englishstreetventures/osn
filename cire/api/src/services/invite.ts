@@ -207,14 +207,14 @@ const EMPTY: InviteCustomisation = {
   footer: { message: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
-  visibility: { hero: true, story: true, footer: true },
+  visibility: { hero: true, story: true, faq: true, footer: true },
   inviteMessage: null,
   designId: "classic",
 };
 
 /**
- * What the public `GET /api/invite/:slug` returns. The closing section's switch
- * is left out with the rest of the closing section, which rides the claim
+ * What the public `GET /api/invite/:slug` returns. The closing section's and
+ * the FAQ's switches are left out with those sections, which ride the claim
  * payload instead (see `getForSlug`), and the organiser-only invite message is
  * left out entirely: it is the line an organiser copies to send a household,
  * and the guest site never reads it.
@@ -223,7 +223,7 @@ export type PublicInviteCustomisation = Omit<
   InviteCustomisation,
   "visibility" | "inviteMessage"
 > & {
-  visibility: Omit<InviteCustomisation["visibility"], "footer">;
+  visibility: Omit<InviteCustomisation["visibility"], "footer" | "faq">;
 };
 
 /**
@@ -235,6 +235,7 @@ export type PublicInviteCustomisation = Omit<
 const SECTION_VISIBILITY_COLUMNS = {
   hero: "heroVisible",
   story: "storyVisible",
+  faq: "faqVisible",
   footer: "footerVisible",
 } as const satisfies Record<
   VisibilitySection,
@@ -354,6 +355,7 @@ function toCustomisation(
     // coalesced to on below, the column default.
     heroVisible: boolean | null;
     storyVisible: boolean | null;
+    faqVisible: boolean | null;
     footerVisible: boolean | null;
     inviteMessage: string | null;
     // NOT NULL column, but a LEFT JOIN miss (no customisation row) yields null.
@@ -469,8 +471,8 @@ function visibilityOf(
  * This keeps the payload tidy; it is not access control. The story image stays
  * reachable at its public image URL, which the organiser builder's own thumbnail
  * loads, and the hero and story copy were public before they were switched off.
- * The closing section and its switch are left out entirely: they ride the claim
- * payload. So is the organiser-only invite message.
+ * The closing section, the FAQ's switch and the organiser-only invite message
+ * are left out entirely; the first two ride the claim payload.
  */
 function publicView(full: InviteCustomisation): PublicInviteCustomisation {
   const { visibility, inviteMessage: _organiserOnly, ...rest } = full;
@@ -570,6 +572,7 @@ export const inviteService = {
             heroVisible: weddingInviteCustomisations.heroVisible,
             storyVisible: weddingInviteCustomisations.storyVisible,
             footerVisible: weddingInviteCustomisations.footerVisible,
+            faqVisible: weddingInviteCustomisations.faqVisible,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             designId: weddingInviteCustomisations.designId,
             updatedAt: weddingInviteCustomisations.updatedAt,

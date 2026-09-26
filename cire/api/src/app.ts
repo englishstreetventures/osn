@@ -26,6 +26,7 @@ import {
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
+import { createInviteFaqRoutes } from "./routes/invite-faq";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
@@ -893,6 +894,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))
       .use(createInviteOrganiserRoutes(db, assets, osnAuthOptions, inviteLimiter, inviteDesigns))
+      // The invite FAQ's writes. Same limiter instance as the builder's other
+      // writes, so an organiser's invite edits share one per-IP budget.
+      .use(createInviteFaqRoutes(db, osnAuthOptions, inviteLimiter))
       // Account linking. Two sibling instances on the same prefix: GET/DELETE
       // need only the guest session; the POST link additionally requires an OSN
       // token. Splitting them is what method-gates `osnAuth` to POST without

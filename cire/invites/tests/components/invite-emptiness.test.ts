@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  faqState,
   footerState,
   hasDressCode,
   hasFooterMessage,
   hasPinterest,
   hasText,
   heroState,
+  isFaqEmpty,
   isFooterEmpty,
   isHeroEmpty,
   isStoryEmpty,
@@ -176,5 +178,35 @@ describe("section state (switch + content)", () => {
       { message: null, imageUrl: "/api/invite/x/image/footer?v=1" },
       { message: "\n", imageUrl: null },
     );
+  });
+
+  describe("faqState", () => {
+    stateContract(
+      faqState,
+      [{ question: "Parking?", answer: "Yes." }],
+      // Half an entry is not content: it would paint an empty disclosure.
+      [{ question: "Parking?", answer: " " }],
+    );
+  });
+});
+
+describe("isFaqEmpty", () => {
+  it("is empty with no entries, or none with both a question and an answer", () => {
+    expect(isFaqEmpty([])).toBe(true);
+    expect(isFaqEmpty(null)).toBe(true);
+    expect(isFaqEmpty(undefined)).toBe(true);
+    for (const value of [null, undefined, "", "  ", "\n\t"]) {
+      expect(isFaqEmpty([{ question: value, answer: "Yes." }])).toBe(true);
+      expect(isFaqEmpty([{ question: "Parking?", answer: value }])).toBe(true);
+    }
+  });
+
+  it("has content once any one entry has both", () => {
+    expect(
+      isFaqEmpty([
+        { question: " ", answer: "Yes." },
+        { question: "Parking?", answer: "Yes." },
+      ]),
+    ).toBe(false);
   });
 });

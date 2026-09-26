@@ -112,6 +112,14 @@ export const ClaimResponse = Schema.Struct({
   // because it only means anything once a household is looking at its own
   // events — the same reasoning as the closing section beside it.
   rsvpDeadline: Schema.NullOr(RsvpDeadline),
+  // The invite's FAQ section, shown under the events. Here rather than on the
+  // public read for the same reason as the events: it is written for the
+  // invited household. Switched off, `entries` is empty — the stored entries
+  // are kept, but a guest page that will not show them does not receive them.
+  faq: Schema.Struct({
+    visible: Schema.Boolean,
+    entries: Schema.Array(Schema.Struct({ question: Schema.String, answer: Schema.String })),
+  }),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
