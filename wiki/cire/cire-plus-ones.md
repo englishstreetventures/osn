@@ -31,7 +31,7 @@ Every plus-one:
 
 - is in the **same household** (`family_id`) as the guest who brought them;
 - is invited to **exactly that guest's events** — copied when they are named, and kept equal afterwards (see [[#The change pipeline]]);
-- is **one per guest, per wedding** — the unique index on `plus_one_of_guest_id` enforces it, and doubles as the probe the cascade runs on every guest delete;
+- is **one per guest, per wedding** — the unique index on `plus_one_of_guest_id` enforces it, and doubles as the probe the cascade runs on every guest delete. The index is **partial** (`WHERE plus_one_of_guest_id IS NOT NULL`): the column is NULL on almost every row, and as a full index the planner took it for `plus_one_of_guest_id IS NULL` filters and walked every wedding's guests. `tests/db/plus-one-index.test.ts` pins both halves;
 - carries `source = 'manual'`, and is told apart by `plus_one_of_guest_id`, never by `source`;
 - **cannot bring a plus-one** of their own.
 
@@ -82,7 +82,9 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 
 Names are trimmed and at most 100 characters each. They may not contain control, format or separator characters (Unicode `Cc`, `Cf`, `Zl`, `Zp` — zero-width spaces, direction marks and overrides among them — save the zero-width joiner and non-joiner some scripts need) or the letters that render blank. A first name must contain a letter or digit, so it cannot look blank.
 
-**Naming is one D1 batch.** The guest insert is skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
+**Each guest write reads its whole context in one statement** — the household, the deadline, the inviter, their plus-one with invitations, and the wedding's capacity entitlements — so naming costs that read, the guest count and one batch; renaming or removing costs the read and one write.
+
+**Naming is one D1 batch.** The guest insert is skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`, untargeted, since a conflict target cannot name a partial index; the row's id is a fresh UUID, so that index is the only thing it can meet), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
 
 ### The reply
 

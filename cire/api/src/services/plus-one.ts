@@ -23,9 +23,10 @@
  * organiser half re-checks, in wedding scope, that the guest or household
  * belongs to `weddingId` and is not the host-preview family.
  */
-import { families, guestEvents, guests, weddings } from "@cire/db";
+import { families, guestEvents, guests, weddingEntitlements, weddings } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
@@ -35,7 +36,7 @@ import { DbService, commitBatch, commitGroupedBatchesReturning, dbQuery } from "
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet } from "../metrics";
 import type { CapacityExceeded } from "./entitlements";
-import { entitlementService } from "./entitlements";
+import { CAPACITY_ENTITLEMENT_KEYS, entitlementService } from "./entitlements";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -122,9 +123,11 @@ function toRecord(rows: readonly PlusOneRow[], inviterGuestId: string): PlusOneR
  * The statements that name a new plus-one, as ONE group so they commit in one
  * D1 batch:
  *
- *  1. The guest row, skipped (`ON CONFLICT DO NOTHING` on the one-per-guest
- *     index) when a plus-one of this inviter already exists — a double submit
- *     that raced past the caller's read.
+ *  1. The guest row, skipped (`ON CONFLICT DO NOTHING`) when a plus-one of this
+ *     inviter already exists — a double submit that raced past the caller's
+ *     read. The id is a fresh UUID, so the one-per-guest index is the only
+ *     constraint it can meet; the conflict takes no target because a target
+ *     cannot name a partial index.
  *  2. The inviter's invitations, copied by reading them in the same batch. The
  *     select reaches the new id only through a JOIN on the row statement 1 just
  *     wrote, so when statement 1 was skipped this copies nothing, rather than
@@ -161,7 +164,7 @@ export function buildCreatePlusOne(
         createdAt: input.now,
         updatedAt: input.now,
       })
-      .onConflictDoNothing({ target: guests.plusOneOfGuestId }),
+      .onConflictDoNothing(),
     db.insert(guestEvents).select(
       db
         .select({ guestId: plusOne.id, eventId: guestEvents.eventId })
@@ -182,50 +185,48 @@ function cleanName(name: PlusOneName): PlusOneName {
 }
 
 /**
- * The household's own row plus its wedding's deadline, and the inviter with
- * their current plus-one — the two reads every guest write needs, run
- * together. Both are keyed on the session's `familyId`; the inviter read also
- * on the path's guest id, which is only trusted once it is found IN that
- * household.
+ * Everything a guest write needs, in ONE statement keyed on the session's
+ * `familyId`: the household, its wedding's deadline, the inviter (only when
+ * they are IN that household — the path's guest id is trusted no further), the
+ * inviter's current plus-one with their invitations (one row per invitation),
+ * and whether the wedding holds either capacity entitlement. Every join is by
+ * primary key or a unique index, so folding them costs nothing, and a
+ * guest-facing write pays one round trip for its context instead of four.
  */
 function readGuestContext(familyId: string, inviterGuestId: string) {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const plusOne = alias(guests, "plus_one");
-    const [[household], [inviter]] = yield* Effect.all(
-      [
-        dbQuery(() =>
-          db
-            .select({
-              kind: families.kind,
-              weddingId: families.weddingId,
-              rsvpDeadline: weddings.rsvpDeadline,
-              rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
-            })
-            .from(families)
-            .innerJoin(weddings, eq(weddings.id, families.weddingId))
-            .where(eq(families.id, familyId))
-            .all(),
-        ),
-        dbQuery(() =>
-          db
-            .select({
-              id: guests.id,
-              sortOrder: guests.sortOrder,
-              plusOneAllowed: guests.plusOneAllowed,
-              plusOneOf: guests.plusOneOfGuestId,
-              plusOneId: plusOne.id,
-              plusOneFirstName: plusOne.firstName,
-              plusOneLastName: plusOne.lastName,
-            })
-            .from(guests)
-            .leftJoin(plusOne, eq(plusOne.plusOneOfGuestId, guests.id))
-            .where(and(eq(guests.id, inviterGuestId), eq(guests.familyId, familyId)))
-            .all(),
-        ),
-      ],
-      { concurrency: "unbounded" },
+    const inviter = alias(guests, "inviter");
+    const plusOneRow = alias(guests, "plus_one");
+    const holds = (key: (typeof CAPACITY_ENTITLEMENT_KEYS)[number]) =>
+      sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${families.weddingId} AND ${weddingEntitlements.entitlement} = ${key})`;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({
+          kind: families.kind,
+          weddingId: families.weddingId,
+          rsvpDeadline: weddings.rsvpDeadline,
+          rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+          inviterId: inviter.id,
+          inviterSortOrder: inviter.sortOrder,
+          inviterAllowed: inviter.plusOneAllowed,
+          inviterPlusOneOf: inviter.plusOneOfGuestId,
+          plusOneId: plusOneRow.id,
+          plusOneFirstName: plusOneRow.firstName,
+          plusOneLastName: plusOneRow.lastName,
+          plusOneEventId: guestEvents.eventId,
+          capacity500: holds("capacity_500"),
+          capacity1000: holds("capacity_1000"),
+        })
+        .from(families)
+        .innerJoin(weddings, eq(weddings.id, families.weddingId))
+        .leftJoin(inviter, and(eq(inviter.id, inviterGuestId), eq(inviter.familyId, families.id)))
+        .leftJoin(plusOneRow, eq(plusOneRow.plusOneOfGuestId, inviter.id))
+        .leftJoin(guestEvents, eq(guestEvents.guestId, plusOneRow.id))
+        .where(eq(families.id, familyId))
+        .all(),
     );
+    const [household] = rows;
 
     // Fail closed on a missing household, as the RSVP write does: both gates
     // below read it, and a missing row must not answer "allow" to either.
@@ -240,9 +241,60 @@ function readGuestContext(familyId: string, inviterGuestId: string) {
       yield* Effect.sync(() => metricPlusOneBlocked("deadline"));
       return yield* Effect.fail(new PlusOneRsvpClosed());
     }
-    if (!inviter) return yield* Effect.fail(new PlusOneGuestNotFound());
-    if (inviter.plusOneOf !== null) return yield* Effect.fail(new PlusOneCannotInvite());
-    return { weddingId: household.weddingId, inviter };
+    if (household.inviterId === null) return yield* Effect.fail(new PlusOneGuestNotFound());
+    if (household.inviterPlusOneOf !== null) return yield* Effect.fail(new PlusOneCannotInvite());
+
+    const plusOne: PlusOneRecord | null =
+      household.plusOneId === null
+        ? null
+        : {
+            guestId: household.plusOneId,
+            firstName: household.plusOneFirstName ?? "",
+            lastName: household.plusOneLastName ?? "",
+            plusOneOf: inviterGuestId,
+            eventIds: rows.flatMap((r) => (r.plusOneEventId === null ? [] : [r.plusOneEventId])),
+          };
+    const capKeys = [
+      ...(household.capacity500 ? ["capacity_500"] : []),
+      ...(household.capacity1000 ? ["capacity_1000"] : []),
+    ];
+    return {
+      weddingId: household.weddingId,
+      inviter: {
+        sortOrder: household.inviterSortOrder ?? 0,
+        plusOneAllowed: household.inviterAllowed === true,
+      },
+      plusOne,
+      cap: entitlementService.deriveCap(capKeys),
+    };
+  });
+}
+
+/**
+ * Write a new name onto an existing plus-one, and answer with the record as
+ * the caller already read it. The UPDATE is scoped by the plus-one's own id and
+ * checked by its change count: a plus-one removed since the read changes no row,
+ * and answers {@link PlusOneNotFound}.
+ */
+function writeName(
+  plusOne: PlusOneRecord,
+  scope: SQL | undefined,
+  clean: PlusOneName,
+): Effect.Effect<{ plusOne: PlusOneRecord; changed: boolean }, PlusOneNotFound, DbService> {
+  return Effect.gen(function* () {
+    if (plusOne.firstName === clean.firstName && plusOne.lastName === clean.lastName) {
+      return { plusOne, changed: false };
+    }
+    const db = yield* DbService;
+    const result = yield* dbQuery(() =>
+      db
+        .update(guests)
+        .set({ firstName: clean.firstName, lastName: clean.lastName, updatedAt: new Date() })
+        .where(and(eq(guests.id, plusOne.guestId), scope))
+        .run(),
+    );
+    if (rowsChanged(result) === 0) return yield* Effect.fail(new PlusOneNotFound());
+    return { plusOne: { ...plusOne, ...clean }, changed: true };
   });
 }
 
@@ -269,51 +321,29 @@ export const plusOneService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { weddingId, inviter } = yield* readGuestContext(familyId, inviterGuestId);
-      if (!inviter.plusOneAllowed) {
+      const context = yield* readGuestContext(familyId, inviterGuestId);
+      if (!context.inviter.plusOneAllowed) {
         yield* Effect.sync(() => metricPlusOneBlocked("not_allowed"));
         return yield* Effect.fail(new PlusOneNotAllowed());
       }
       const clean = cleanName(name);
-      const now = new Date();
-      const tail = buildPlusOneReadBack(db, inviterGuestId) as ReturningTail<PlusOneRow>;
 
-      if (inviter.plusOneId !== null) {
-        // Rename. An unchanged name writes nothing.
-        const unchanged =
-          inviter.plusOneFirstName === clean.firstName &&
-          inviter.plusOneLastName === clean.lastName;
-        const rows = yield* dbQuery(() =>
-          commitGroupedBatchesReturning<PlusOneRow>(
-            db,
-            unchanged
-              ? []
-              : [
-                  [
-                    db
-                      .update(guests)
-                      .set({ firstName: clean.firstName, lastName: clean.lastName, updatedAt: now })
-                      .where(
-                        and(
-                          eq(guests.plusOneOfGuestId, inviterGuestId),
-                          eq(guests.familyId, familyId),
-                        ),
-                      ),
-                  ],
-                ],
-            tail,
-          ),
-        );
-        const plusOne = toRecord(rows, inviterGuestId);
-        // Removed between the read and the write: nothing to rename.
-        if (!plusOne) return yield* Effect.fail(new PlusOneGuestNotFound());
-        if (!unchanged) yield* Effect.sync(() => metricPlusOneChanged("renamed", "guest"));
-        return { plusOne, created: false };
+      if (context.plusOne !== null) {
+        // Rename. An unchanged name writes nothing. Removed since the read:
+        // nothing left to rename.
+        const renamed = yield* writeName(
+          context.plusOne,
+          eq(guests.familyId, familyId),
+          clean,
+        ).pipe(Effect.catchTag("PlusOneNotFound", () => Effect.fail(new PlusOneGuestNotFound())));
+        if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "guest"));
+        return { plusOne: renamed.plusOne, created: false };
       }
 
       // A new guest row: it counts against the wedding's cap like any other.
+      // The cap comes from the context read, so only the count is a new query.
       yield* entitlementService
-        .assertGuestCapacity(weddingId, 1)
+        .assertGuestCapacity(context.weddingId, 1, context.cap)
         .pipe(Effect.tapError(() => Effect.sync(() => metricPlusOneBlocked("capacity"))));
 
       const newId = crypto.randomUUID();
@@ -325,12 +355,12 @@ export const plusOneService = {
               newId,
               inviterGuestId,
               familyId,
-              sortOrder: inviter.sortOrder,
+              sortOrder: context.inviter.sortOrder,
               name: clean,
-              now,
+              now: new Date(),
             }),
           ],
-          tail,
+          buildPlusOneReadBack(db, inviterGuestId) as ReturningTail<PlusOneRow>,
         ),
       );
       const plusOne = toRecord(rows, inviterGuestId);
@@ -362,7 +392,10 @@ export const plusOneService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* readGuestContext(familyId, inviterGuestId);
+      const context = yield* readGuestContext(familyId, inviterGuestId);
+      // Nothing named: the read already says so, and the DELETE would match
+      // nothing.
+      if (context.plusOne === null) return { removed: false };
       const result = yield* dbQuery(() =>
         db
           .delete(guests)
@@ -390,12 +423,20 @@ export const plusOneService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const clean = cleanName(input.name);
-      // The plus-one of this guest, in one of this wedding's guest households.
-      const [row] = yield* dbQuery(() =>
+      // The plus-one of this guest, with their invitations, in one of this
+      // wedding's guest households.
+      const rows: PlusOneRow[] = yield* dbQuery(() =>
         db
-          .select({ id: guests.id, firstName: guests.firstName, lastName: guests.lastName })
+          .select({
+            guestId: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            plusOneOf: guests.plusOneOfGuestId,
+            eventId: guestEvents.eventId,
+          })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
+          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
           .where(
             and(
               eq(guests.plusOneOfGuestId, inviterGuestId),
@@ -405,32 +446,11 @@ export const plusOneService = {
           )
           .all(),
       );
-      if (!row) return yield* Effect.fail(new PlusOneNotFound());
-      const unchanged = row.firstName === clean.firstName && row.lastName === clean.lastName;
-      const rows = yield* dbQuery(() =>
-        commitGroupedBatchesReturning<PlusOneRow>(
-          db,
-          unchanged
-            ? []
-            : [
-                [
-                  db
-                    .update(guests)
-                    .set({
-                      firstName: clean.firstName,
-                      lastName: clean.lastName,
-                      updatedAt: new Date(),
-                    })
-                    .where(eq(guests.id, row.id)),
-                ],
-              ],
-          buildPlusOneReadBack(db, inviterGuestId) as ReturningTail<PlusOneRow>,
-        ),
-      );
-      const plusOne = toRecord(rows, inviterGuestId);
-      if (!plusOne) return yield* Effect.fail(new PlusOneNotFound());
-      if (!unchanged) yield* Effect.sync(() => metricPlusOneChanged("renamed", "organiser"));
-      return { plusOne };
+      const current = toRecord(rows, inviterGuestId);
+      if (!current) return yield* Effect.fail(new PlusOneNotFound());
+      const renamed = yield* writeName(current, undefined, clean);
+      if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "organiser"));
+      return { plusOne: renamed.plusOne };
     }).pipe(Effect.withSpan("cire.plus_one.renameAsOrganiser"));
   },
 
@@ -512,32 +532,25 @@ export const plusOneService = {
     const { weddingId, familyId, allowed, removePlusOnes } = input;
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [[household], members] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({ id: families.id })
-              .from(families)
-              .where(
-                and(
-                  eq(families.id, familyId),
-                  eq(families.weddingId, weddingId),
-                  ne(families.kind, "host"),
-                ),
-              )
-              .all(),
-          ),
-          dbQuery(() =>
-            db
-              .select({ id: guests.id, plusOneOf: guests.plusOneOfGuestId })
-              .from(guests)
-              .where(eq(guests.familyId, familyId))
-              .all(),
-          ),
-        ],
-        { concurrency: "unbounded" },
+      // The household, in wedding scope and not the host preview, with its
+      // members — one statement. A household with no members still answers
+      // once, with a NULL member.
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ memberId: guests.id, plusOneOf: guests.plusOneOfGuestId })
+          .from(families)
+          .leftJoin(guests, eq(guests.familyId, families.id))
+          .where(
+            and(
+              eq(families.id, familyId),
+              eq(families.weddingId, weddingId),
+              ne(families.kind, "host"),
+            ),
+          )
+          .all(),
       );
-      if (!household) return yield* Effect.fail(new PlusOneFamilyNotFound());
+      if (rows.length === 0) return yield* Effect.fail(new PlusOneFamilyNotFound());
+      const members = rows.filter((r) => r.memberId !== null);
 
       const guestsUpdated = members.filter((m) => m.plusOneOf === null).length;
       const named = members.length - guestsUpdated;

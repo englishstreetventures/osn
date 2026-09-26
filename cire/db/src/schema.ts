@@ -291,7 +291,14 @@ export const guests = sqliteTable(
     index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder),
     // One plus-one per guest. Also the probe the FK cascade runs on every
     // guest delete — without an index there, each delete scans `guests`.
-    uniqueIndex("guests_plus_one_of_uniq").on(t.plusOneOfGuestId),
+    // PARTIAL: almost every row is NULL here. A full index costs NULL as a
+    // near-unique lookup, so the planner took it for `plus_one_of_guest_id IS
+    // NULL` and walked every tenant's guests instead of this wedding's. With the
+    // NULLs out of the index an `IS NULL` filter cannot use it, and every
+    // `= ?` probe (the cascade's included) still can.
+    uniqueIndex("guests_plus_one_of_uniq")
+      .on(t.plusOneOfGuestId)
+      .where(sql`plus_one_of_guest_id IS NOT NULL`),
   ],
 );
 

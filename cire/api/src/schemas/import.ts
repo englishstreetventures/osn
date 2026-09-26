@@ -186,6 +186,10 @@ export type GuestUpdate = Schema.Schema.Type<typeof GuestUpdate>;
 export const GuestRemove = Schema.Struct({
   id: Schema.String,
   firstName: Schema.String,
+  /** A plus-one removed because their inviter is: counted and warned about
+   *  like any removal, but deleted by the inviter's cascade, not by a
+   *  statement of their own. */
+  cascaded: Schema.optional(Schema.Boolean),
 });
 export type GuestRemove = Schema.Schema.Type<typeof GuestRemove>;
 

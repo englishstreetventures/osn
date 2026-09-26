@@ -14,6 +14,7 @@ import type { DiffOptions } from "../../src/services/import";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
+import { recordStatements } from "../test-helpers";
 import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 // A plus-one is the household's, not the organiser's: the change pipeline never
@@ -258,5 +259,42 @@ describe("diffAgainstDb — plus-ones on the spreadsheet door", () => {
     expect(plan.guestCreates.map((g) => g.firstName)).toEqual(["Sam"]);
     expect(plan.guestUpdates.map((g) => g.id)).not.toContain(samId);
     expect(plan.guestRemoves.map((g) => g.id)).not.toContain(samId);
+  });
+});
+
+describe("diffAgainstDb + applyImport — statement shape with plus-ones", () => {
+  it("binds the RSVP-loss read's guest ids as one parameter, however many are removed", async () => {
+    const { db, bo, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    const withoutBo = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.filter((g) => g.id !== bo.id),
+      ),
+    );
+    const recorded = recordStatements(db);
+    await run(diffAgainstDb(ev, withoutBo, BOOTSTRAP_WEDDING_ID, EDITOR));
+    const rsvpRead = recorded.find((r) => /from "rsvps"/i.test(r.sql));
+    expect(rsvpRead?.sql).toContain("json_each");
+    expect(rsvpRead?.sql.match(/\?/g)).toHaveLength(1);
+  });
+
+  it("issues no delete of its own for a plus-one the inviter's delete cascades", async () => {
+    const { db, bo, samId, run } = setUp();
+    const { ev, fam } = await draftOf(db);
+    const withoutBo = fam.map((f) =>
+      withGuests(
+        f,
+        f.guests.filter((g) => g.id !== bo.id),
+      ),
+    );
+    const plan = await run(diffAgainstDb(ev, withoutBo, BOOTSTRAP_WEDDING_ID, EDITOR));
+    expect(plan.guestRemoves.find((g) => g.id === samId)?.cascaded).toBe(true);
+
+    const recorded = recordStatements(db);
+    const summary = await run(applyImport("chg_cascade", plan, BOOTSTRAP_WEDDING_ID));
+    expect(recorded.filter((r) => /^delete from "guests"/i.test(r.sql))).toHaveLength(1);
+    expect(summary.guestsRemoved).toBe(2);
+    expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toEqual([]);
   });
 });

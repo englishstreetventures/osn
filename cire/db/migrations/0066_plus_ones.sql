@@ -6,9 +6,11 @@
 --   plus_one_of_guest_id  set on a plus-one's row: the guest who brought them.
 --                         Deleting that guest deletes the plus-one.
 --
--- The unique index allows one plus-one per guest (SQLite admits any number of
--- NULLs under a unique index, so ordinary guests are unaffected). It is also
--- the probe the ON DELETE CASCADE runs on every guest delete.
+-- The unique index allows one plus-one per guest, and is the probe the
+-- ON DELETE CASCADE runs on every guest delete. It is PARTIAL, holding only
+-- the plus-ones: almost every row is NULL here, and a full index let the
+-- planner take it for a `plus_one_of_guest_id IS NULL` filter and walk every
+-- wedding's guests. Every `= ?` probe, the cascade's included, still uses it.
 --
 -- Both columns are appended with ALTER TABLE ADD, never a table rebuild:
 -- dropping `guests` under D1's always-on foreign keys would cascade into
@@ -26,4 +28,4 @@
 
 ALTER TABLE `guests` ADD `plus_one_allowed` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `guests` ADD `plus_one_of_guest_id` text REFERENCES guests(id) ON DELETE cascade;--> statement-breakpoint
-CREATE UNIQUE INDEX `guests_plus_one_of_uniq` ON `guests` (`plus_one_of_guest_id`);
+CREATE UNIQUE INDEX `guests_plus_one_of_uniq` ON `guests` (`plus_one_of_guest_id`) WHERE plus_one_of_guest_id IS NOT NULL;

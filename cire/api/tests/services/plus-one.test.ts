@@ -19,6 +19,7 @@ import type { TestDb } from "../../src/db/setup";
 import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import { hostCodeService } from "../../src/services/host-code";
 import { buildCreatePlusOne, plusOneService } from "../../src/services/plus-one";
+import { recordStatements } from "../test-helpers";
 import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 let db: TestDb;
@@ -549,5 +550,47 @@ describe("plusOneService — the host-preview household", () => {
       .where(eq(guests.id, host!.guestId))
       .get();
     expect(row?.allowed).toBe(false);
+  });
+});
+
+describe("plusOneService — statements per write", () => {
+  // Every guest write reads its whole context in ONE statement. Naming adds
+  // only the guest count (the cap comes from that context read) before a
+  // three-statement batch; a rename or a remove is one write; a remove with
+  // nothing named writes nothing.
+  it("names in five statements, renames and removes in two, and a repeat remove in one", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    const recorded = recordStatements(db);
+    const count = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
+      const before = recorded.length;
+      await run(eff);
+      return recorded.length - before;
+    };
+    expect(
+      await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
+    ).toBe(5);
+    expect(
+      await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
+    ).toBe(2);
+    expect(
+      await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
+    ).toBe(1);
+    expect(await count(plusOneService.remove(bo.familyId, bo.id))).toBe(2);
+    expect(await count(plusOneService.remove(bo.familyId, bo.id))).toBe(1);
+  });
+
+  it("sets a household's permission from one read", async () => {
+    const bo = guestNamed(db, "Bo");
+    const recorded = recordStatements(db);
+    await run(
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: bo.familyId,
+        allowed: true,
+        removePlusOnes: false,
+      }),
+    );
+    expect(recorded).toHaveLength(2);
   });
 });

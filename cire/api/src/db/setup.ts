@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS guests (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
-CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id);
+CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id) WHERE plus_one_of_guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,

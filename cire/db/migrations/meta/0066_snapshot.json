@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "06e93279-f9d7-4cc3-b3ef-dbf914650896",
+  "id": "19906114-7871-4c41-8d3d-4cc8f76467e7",
   "prevId": "74a6d881-acbd-4309-a709-84123ef20b9a",
   "tables": {
     "budget_items": {
@@ -913,7 +913,8 @@
           "columns": [
             "plus_one_of_guest_id"
           ],
-          "isUnique": true
+          "isUnique": true,
+          "where": "plus_one_of_guest_id IS NOT NULL"
         }
       },
       "foreignKeys": {

@@ -8,6 +8,7 @@ import {
   weddingEntitlements,
 } from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
@@ -632,7 +633,7 @@ export function diffAgainstDb(
     const inviterFirstName = new Map(existingGuests.map((g) => [g.id, g.firstName]));
     for (const plusOne of existingPlusOnes) {
       if (!removingGuestIds.has(plusOne.plusOneOf) || removingGuestIds.has(plusOne.id)) continue;
-      guestRemoves.push({ id: plusOne.id, firstName: plusOne.firstName });
+      guestRemoves.push({ id: plusOne.id, firstName: plusOne.firstName, cascaded: true });
       removingGuestIds.add(plusOne.id);
       plusOneWarnings.push(
         `Removing guest ${inviterFirstName.get(plusOne.plusOneOf) ?? "(unknown)"} also removes their plus-one ${plusOne.firstName}.`,
@@ -791,8 +792,15 @@ export function diffAgainstDb(
 
     if (guestsBeingLost.length > 0) {
       const ids = guestsBeingLost.map((g) => g.id);
+      // The ids ride as ONE bound parameter (`json_each`): D1 allows 100 per
+      // statement, and a change that removes households with plus-ones lists
+      // two guests for each inviter.
       const rsvpRows = yield* dbQuery(() =>
-        db.select().from(rsvps).where(inArray(rsvps.guestId, ids)).all(),
+        db
+          .select()
+          .from(rsvps)
+          .where(inArray(rsvps.guestId, jsonEachIn(ids)))
+          .all(),
       );
       const lostFirst = new Map(guestsBeingLost.map((g) => [g.id, g.firstName]));
       // Every row here is an explicit response — `rsvps.status` is a required
@@ -1120,8 +1128,11 @@ export function applyImport(
       );
     }
 
-    // 6. guest removes (cascade rsvps + guest_events for that guest)
+    // 6. guest removes (cascade rsvps + guest_events for that guest). A
+    // plus-one removed with their inviter needs no statement of its own: the
+    // inviter's delete above it cascades them, so theirs would match nothing.
     for (const gr of plan.guestRemoves) {
+      if (gr.cascaded === true) continue;
       statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
     }
 
