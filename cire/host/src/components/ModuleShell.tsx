@@ -1,4 +1,14 @@
-import { type Component, createMemo, For, lazy, Show, Suspense } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  on,
+  Show,
+  Suspense,
+} from "solid-js";
 
 import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
@@ -11,6 +21,11 @@ import EditWorkspace from "./EditWorkspace";
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
+// Type only, and as a whole `import type` statement: under
+// `verbatimModuleSyntax` an inline `type` specifier leaves a bare import of the
+// module behind, which would pull the lazy builder into this eager chunk.
+import type { InviteSectionId } from "./invite/InviteBuilder";
+import InviteMessageLinks, { type InviteMessagePlace } from "./InviteMessageLinks";
 import ModuleSidebar from "./ModuleSidebar";
 import Overview from "./Overview";
 import PanelLoading from "./PanelLoading";
@@ -148,9 +163,10 @@ interface ModuleShellProps {
   module: Module;
   /** Active sub-view within the module — controlled by the parent. */
   sub: string;
-  /** Report a module switch up so the parent updates the hash (resets to the
-   *  module's default sub). */
-  onModule: (module: Module) => void;
+  /** Report a module switch up so the parent updates the hash — onto `sub`
+   *  when given and the module has it, else the module's default sub. One
+   *  call, one route write. */
+  onModule: (module: Module, sub?: string) => void;
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
@@ -215,6 +231,20 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
   ],
 };
 
+/** Where each of the invite message's places lives. `section` is the invite
+ *  builder section to open on arrival — builder state that is not in the URL. */
+interface InviteMessageRoute {
+  module: Module;
+  sub: string;
+  section?: InviteSectionId;
+}
+
+const INVITE_MESSAGE_ROUTES = {
+  message: { module: "invite", sub: "design", section: "invite-message" },
+  codes: { module: "invite", sub: "codes" },
+  households: { module: "guests", sub: "list" },
+} satisfies Readonly<Record<InviteMessagePlace, InviteMessageRoute>>;
+
 /** Tab and panel ids are derived from the module so the pair can never point at
  *  a stale partner: switching module re-mints both in the same render. */
 const tabId = (module: Module, sub: string) => `subtab-${module}-${sub}`;
@@ -275,6 +305,49 @@ export default function ModuleShell(props: ModuleShellProps) {
   };
 
   const active = () => resolveSub();
+
+  // The builder section an invite-message link asked for, handed to the
+  // builder as it mounts. Cleared as soon as the view is anything other than
+  // Invite → Design, so a later visit by the rail or a tab opens on the first
+  // section as usual. Tracks the view only: setting it never clears it.
+  const [builderSection, setBuilderSection] = createSignal<InviteSectionId>();
+  createEffect(
+    on([module, active], ([m, sub]) => {
+      if (m !== "invite" || sub !== "design") setBuilderSection(undefined);
+    }),
+  );
+
+  let heading: HTMLHeadingElement | undefined;
+
+  /**
+   * Follow one of the invite-message links. One route write: a module change
+   * carries its sub, so the move never passes through the module's default
+   * view, and a refused move (the builder's unsaved-changes prompt) is not
+   * asked about twice.
+   *
+   * The parent writes the route synchronously, so straight after the call the
+   * view is either the target or — refused — unchanged. Only a move that
+   * landed takes focus to the new view's heading; the link that was clicked
+   * has just unmounted with the view it sat in.
+   */
+  function openInviteMessagePlace(place: InviteMessagePlace) {
+    const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
+    setBuilderSection(to.section);
+    if (to.module !== module()) props.onModule(to.module, to.sub);
+    else if (to.sub !== active()) props.onSub(to.sub);
+    if (module() === to.module && active() === to.sub) heading?.focus();
+  }
+
+  /** The invite-message line for one place, wired to this shell's roles and
+   *  navigation. A fresh element per call — each leaf renders its own. */
+  const inviteMessageLinks = (here: InviteMessagePlace) => (
+    <InviteMessageLinks
+      here={here}
+      canEdit={props.canEdit}
+      canManage={props.canManage}
+      onNavigate={openInviteMessagePlace}
+    />
+  );
 
   // Roving tabindex: only the selected tab is in the tab order, and the arrow
   // keys move focus between the rest. Refs are indexed by position in the
@@ -344,7 +417,11 @@ export default function ModuleShell(props: ModuleShellProps) {
           <header class="mb-6 flex flex-col gap-4">
             <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
               <div class="flex min-w-0 flex-col gap-1">
-                <h2 class="font-display text-text text-ui-lg leading-none font-light">
+                <h2
+                  ref={heading}
+                  tabindex="-1"
+                  class="font-display text-text text-ui-lg leading-none font-light"
+                >
                   {moduleDef(module()).label}
                 </h2>
                 <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
@@ -427,10 +504,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                 <Overview
                   weddingId={props.weddingId}
                   entitlements={props.entitlements}
-                  onNavigate={(target, sub) => {
-                    props.onModule(target);
-                    if (sub) props.onSub(sub);
-                  }}
+                  onNavigate={props.onModule}
                 />
               </Show>
 
@@ -539,6 +613,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     canManage={props.canManage}
                     weddingName={props.weddingName}
                     weddingSlug={props.weddingSlug}
+                    inviteMessageLinks={inviteMessageLinks("households")}
                   />
                 </Show>
                 {/* Edit = the on-page editor OR a guests CSV import, behind one
@@ -581,12 +656,17 @@ export default function ModuleShell(props: ModuleShellProps) {
                         weddingId={props.weddingId}
                         weddingSlug={props.weddingSlug}
                         entitlements={props.entitlements}
+                        initialSection={builderSection()}
+                        inviteMessageLinks={inviteMessageLinks("message")}
                       />
                     </Suspense>
                   </Show>
                 </Show>
                 <Show when={active() === "codes" && props.canManage}>
-                  <RemintPanel weddingId={props.weddingId} />
+                  <RemintPanel
+                    weddingId={props.weddingId}
+                    inviteMessageLinks={inviteMessageLinks("codes")}
+                  />
                 </Show>
               </Show>
 

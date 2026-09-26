@@ -99,7 +99,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       canEdit: boolean;
       module: string;
       sub: string;
-      onModule: (m: string) => void;
+      onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
     }) => {
@@ -118,6 +118,8 @@ vi.mock("../../src/components/ModuleShell", async () => {
           {props.weddingId}
           <button onClick={() => props.onModule("guests")}>go-guests</button>
           <button onClick={() => props.onSub("rsvps")}>go-rsvps</button>
+          <button onClick={() => props.onModule("invite", "codes")}>go-invite-codes</button>
+          <button onClick={() => props.onModule("guests", "codes")}>go-guests-codes</button>
           <button
             onClick={() =>
               void authFetch(`https://api.test/api/organiser/weddings/${props.weddingId}/vendors`)
@@ -433,6 +435,31 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
     expect(screen.getByTestId("wedding-list")).toBeTruthy();
     expect(window.location.hash).toBe("#/weddings");
+  });
+
+  it("moves to another module's sub in one history entry, never through its default sub", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+
+    const pushState = vi.spyOn(history, "pushState");
+    const replaceState = vi.spyOn(history, "replaceState");
+    fireEvent.click(screen.getByText("go-invite-codes"));
+
+    expect(window.location.hash).toBe("#/w/wed_a/invite/codes");
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("invite");
+    expect(screen.getByTestId("module-shell").getAttribute("data-sub")).toBe("codes");
+    // One write: a stop at invite/design first would mount the invite builder
+    // for nothing and leave a second history write behind it.
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(replaceState).not.toHaveBeenCalled();
+
+    // A sub the module does not have lands on its default sub.
+    fireEvent.click(screen.getByText("go-guests-codes"));
+    expect(window.location.hash).toBe("#/w/wed_a/guests");
   });
 
   // ── Unsaved-changes navigation veto (lib/unsaved-guard) ─────────────────────

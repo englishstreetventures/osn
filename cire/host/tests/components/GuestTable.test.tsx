@@ -101,6 +101,22 @@ describe("GuestTable", () => {
     __resetEventsCache();
   });
 
+  /** Mount once and unmount, leaving the guest and event caches warm the way
+   *  a switch away from Households and back does. */
+  async function mountAndLeave() {
+    primeLoad();
+    const { unmount } = render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    unmount();
+  }
+
   function withClipboard() {
     writeText.mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
@@ -176,6 +192,79 @@ describe("GuestTable", () => {
         "https://guests.test/nadia-sam-abc123\n" +
         "Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM",
     );
+  });
+
+  it("holds Copy until the custom message has loaded when the rows come from the cache", async () => {
+    withClipboard();
+    // A remount: the rows are already cached, so they paint at once while the
+    // invite read that carries the custom first line is still in flight.
+    await mountAndLeave();
+    let answerInvite: (res: Response) => void = () => {};
+    authFetchMock.mockImplementation((url: string) =>
+      url.endsWith("/invite")
+        ? new Promise<Response>((resolve) => {
+            answerInvite = resolve;
+          })
+        : Promise.resolve(json({ familyId: "fam_a", codeSharedAt: 1 })),
+    );
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+
+    const copy = () => screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    expect((copy() as HTMLButtonElement).disabled).toBe(true);
+
+    answerInvite(json({ inviteMessage: "Come celebrate with us in Goa!" }));
+    await waitFor(() => expect((copy() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(copy());
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0].split("\n")[0]).toBe("Come celebrate with us in Goa!");
+  });
+
+  it("frees Copy with the default line when the custom message cannot be read", async () => {
+    withClipboard();
+    await mountAndLeave();
+    authFetchMock.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/invite") ? json({}, 500) : json({})),
+    );
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+
+    const copy = () => screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    await waitFor(() => expect((copy() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(copy());
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0]).toContain("You're invited to Nadia & Sam!");
+  });
+
+  it("shows the invite-message links it is given under the introduction", async () => {
+    primeLoad();
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+        inviteMessageLinks={<p data-testid="invite-message-links" />}
+      />
+    ));
+
+    expect(screen.getAllByTestId("invite-message-links")).toHaveLength(1);
   });
 
   it("downloads the RSVP CSV when the export button is clicked", async () => {

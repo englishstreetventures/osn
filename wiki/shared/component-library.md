@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-09-22
+last-reviewed: 2026-09-26
 ---
 
 # Component Library (Zaidan)
@@ -652,7 +652,7 @@ grouped by the job rather than by the look:
 | Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
 | Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
-| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last belongs to `@cire/invites`, which is read on a phone — there is no hover there to reveal one                                                                    |
+| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 

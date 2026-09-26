@@ -22,6 +22,7 @@ import {
   type DashboardRoute,
   DEFAULT_MODULE,
   defaultSub,
+  isSubOf,
   LIST_ROUTE,
   type Module,
   parseRoute,
@@ -148,7 +149,7 @@ function WeddingDashboard(props: {
    *  even while the same wedding object stays selected. */
   module: () => Module;
   sub: () => string;
-  onModule: (module: Module) => void;
+  onModule: (module: Module, sub?: string) => void;
   onSub: (sub: string) => void;
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and the top bar's switcher) reflect it without a refetch. */
@@ -464,12 +465,16 @@ function Dashboard() {
     setRoute(LIST_ROUTE, "push");
   }
 
-  /** Switch module — resets the sub to that module's default (push, so the
-   *  module change is a Back-able history entry). */
-  function selectModule(module: Module) {
+  /** Switch module — onto `sub` when the module has it, else the module's
+   *  default sub (push, so the module change is a Back-able history entry).
+   *  Module and sub are written together: landing on the default sub first
+   *  would mount its view for nothing, and after a declined unsaved-changes
+   *  prompt a second write would ask again. */
+  function selectModule(module: Module, sub?: string) {
     const r = route();
     if (r.view !== "weddings" || r.weddingId === null) return;
-    setRoute({ view: "weddings", weddingId: r.weddingId, module, sub: defaultSub(module) }, "push");
+    const target = sub !== undefined && isSubOf(module, sub) ? sub : defaultSub(module);
+    setRoute({ view: "weddings", weddingId: r.weddingId, module, sub: target }, "push");
   }
 
   /** Switch sub within the current module (replace — a sub flip shouldn't pile

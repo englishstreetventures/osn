@@ -929,12 +929,15 @@ resolves to):
   returns `{ publicId, slug }`.
 - **Copy invite message** (`cire/host/.../invite-message.ts`, used by
   `GuestTable`): links to `${CIRE_WEB_URL}/<slug>`. The slug is threaded
-  `OrganiserApp → DashboardTabs → GuestTable → buildInviteMessage`. Three lines
+  `OrganiserApp → ModuleShell → GuestTable → buildInviteMessage`. Three lines
   — the host's line, that link, then `Your invitation code: <code>`. The label
   is composed around the code rather than written into the default prose, so a
   host who replaces line 1 still sends a code a first-time guest can place; the
   words match the guest site's own field (`Invitation code`), not the
-  organiser-facing `Family Code` column.
+  organiser-facing `Family Code` column. The host's line comes from a
+  `GET /invite` read made each time the table mounts, and "Copy message" stays
+  disabled until that read settles: on a remount the cached rows paint at once,
+  and a copy before the read lands would send the default line.
 
 **Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
 `Cache-Control: no-store`, and the route's fetch and the islands' retry both
@@ -1025,6 +1028,25 @@ the three hero-display sliders behind a "Hero display" disclosure), **Our
 Story**, **Code Entry & Welcome**, **Events Section**, **Closing Section**,
 and finally the copyable **Invite message** (explicitly flagged as not part
 of the guest page).
+
+**The Message section points at the other two places the message comes
+from.** A household's message has three parts, set in three places: its first
+line here; the code on its last line, whose style is chosen when the wedding is
+created and changed by the owner in Invite → Codes; and the copy action in
+Guests → Households. Each of the three carries one line naming the other two
+(`InviteMessageLinks.tsx`), which `ModuleShell` renders into a slot on
+`InviteBuilder`, `RemintPanel` and `GuestTable`. A place the reader's role
+cannot open — Codes for a co-host, the builder for a viewer — is named as text
+with the role that can. The links are buttons that call the shell's route
+callbacks, not `#/w/…` anchors: a hash change reaches `OrganiserApp` through
+`onHashChange`, which skips the unsaved-changes check. A link that crosses
+modules passes its sub with the module (`onModule(module, sub)`), so the move is
+one route write and never mounts the module's default view on the way. A link
+to the message editor opens the builder on its Message section: the shell hands
+the builder an `initialSection`, read once as it mounts and cleared as soon as
+the view leaves Invite → Design, so a later visit opens on the first section.
+Focus moves to the new view's heading, since the link that was clicked
+unmounts with the view it sat in.
 
 **The section nav is a real tab switcher (2026-07-30), not a scroll-jump
 list.** The builder used to stack all eight cards in one long vertical page

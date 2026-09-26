@@ -2,7 +2,7 @@ import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Fieldset } from "@shared/ui/ui/field";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
@@ -10,6 +10,9 @@ import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
 interface RemintPanelProps {
   weddingId: string;
+  /** The line pointing at the other places that shape the invite message, shown
+   *  under the panel's introduction. */
+  inviteMessageLinks?: JSX.Element;
 }
 
 interface GuestRow {
@@ -114,6 +117,7 @@ export default function RemintPanel(props: RemintPanelProps) {
         title="Change the code style"
         description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
       />
+      {props.inviteMessageLinks}
 
       <Fieldset legend="New code style">
         <div class="flex flex-col gap-2 @lg/panel:flex-row">

@@ -80,6 +80,18 @@ describe("RemintPanel", () => {
     resetOrganiserMocks();
   });
 
+  it("shows the invite-message links it is given, once", () => {
+    authFetchMock.mockResolvedValueOnce(json(GUESTS));
+    render(() => (
+      <RemintPanel
+        weddingId="wed_a"
+        inviteMessageLinks={<p data-testid="invite-message-links" />}
+      />
+    ));
+
+    expect(screen.getAllByTestId("invite-message-links")).toHaveLength(1);
+  });
+
   it("warns about already-sent families and re-mints on confirm", async () => {
     authFetchMock.mockResolvedValueOnce(json(GUESTS)); // onMount guest-count load
     render(() => <RemintPanel weddingId="wed_a" />);
