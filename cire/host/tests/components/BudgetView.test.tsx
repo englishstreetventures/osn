@@ -637,6 +637,9 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       fireEvent.submit(formOf(amount));
       await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
       expect(sentBody(0)).toEqual({ label: "Deposit", amountMinor: minor, dueAt: null });
+      // Accepted, so the form is ready for the next payment.
+      expect(screen.getByLabelText("Payment label")).toHaveValue("");
+      expect(amount).toHaveValue(null);
     });
 
     it("opens the budget total at its stored figure and saves what is typed", async () => {
@@ -652,6 +655,29 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
       expect(sentBody(0)).toEqual({ budgetTotalMinor: minor });
     });
+  });
+
+  it("rounds an amount typed with more decimals than the currency has", async () => {
+    const stored = line({ quotedMinor: 1 });
+    authFetch.mockImplementation(async (_url: string, init: RequestInit) =>
+      json({ item: { ...stored, ...JSON.parse(String(init.body)) } }),
+    );
+    for (const [currency, typed, minor] of [
+      ["JPY", "1.5", 2],
+      ["AUD", "12.345", 1_235],
+      ["KWD", "1.2345", 1_235],
+    ] as const) {
+      __resetBudgetCache();
+      authFetch.mockClear();
+      setCachedBudget("wed_1", snap({ currency, items: [stored] }));
+      const { unmount } = render(() => (
+        <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />
+      ));
+      fireEvent.change(await screen.findByLabelText("Quote"), { target: { value: typed } });
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ quotedMinor: minor });
+      unmount();
+    }
   });
 
   it("lets every money input take as many decimals as the currency has", async () => {
@@ -729,6 +755,50 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       );
       expect(authFetch).not.toHaveBeenCalled();
       expect(label).toHaveValue("Deposit");
+    });
+
+    it("refuses a payment with no label, keeping the amount", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "100" } });
+      fireEvent.submit(formOf(amount));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A payment needs a label and a positive amount.",
+      );
+      expect(authFetch).not.toHaveBeenCalled();
+      expect(amount).toHaveValue(100);
+    });
+  });
+
+  describe("a payment the server refuses", () => {
+    const submitPayment = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      fireEvent.input(screen.getByLabelText("Payment label"), { target: { value: "Deposit" } });
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "100" } });
+      fireEvent.submit(formOf(amount));
+    };
+
+    it("says so and reloads the budget", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      authFetch
+        .mockResolvedValueOnce(new Response("fail", { status: 500 }))
+        .mockResolvedValueOnce(json(snap({ items: [line()] })));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await submitPayment();
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+      expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/budget$/);
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't add that payment.");
+    });
+
+    it("sends the organiser to sign in on a 401", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      authFetch.mockResolvedValueOnce(new Response("", { status: 401 }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await submitPayment();
+      await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
     });
   });
 });

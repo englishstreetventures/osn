@@ -135,4 +135,31 @@ describe("Overview budget widget", () => {
     expect(await screen.findByText(/450,000/)).toBeInTheDocument();
     expect(screen.getByText(/170,000/)).toBeInTheDocument();
   });
+
+  it("reads what is tracked before a total is set in the wedding's own minor unit", async () => {
+    setCachedBudget(
+      "wed_1",
+      snap({
+        currency: "JPY",
+        budgetTotalMinor: null,
+        items: [
+          {
+            id: "a",
+            weddingId: "wed_1",
+            category: "venue",
+            name: "Venue",
+            estimateMinor: null,
+            quotedMinor: null,
+            actualMinor: 170_000,
+            notes: null,
+            sortOrder: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      }),
+    );
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    expect(await screen.findByText(/170,000 tracked — set a total/)).toBeInTheDocument();
+  });
 });
