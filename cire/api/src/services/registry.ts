@@ -41,8 +41,8 @@ import {
 } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatches, DbService, dbQuery } from "../db";
-import { entitlementService } from "./entitlements";
+import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
+import { entitlementPresent } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
 // Nothing at runtime crosses between them, so no import cycle.
@@ -2898,12 +2898,25 @@ const toPublicItemDto = (
  * same 404 — so an unentitled wedding, an unpublished one and a slug nobody
  * registered are indistinguishable from outside.
  *
+ * Given an `imageName`, a third: an item of this wedding still names the image
+ * `assets/<weddingId>/<imageName>`. The public image route asks it, so a gift
+ * the couple deleted, or a picture they replaced, stops serving by its name at
+ * once — including from the Worker's own cache, whose every lookup runs after
+ * this gate.
+ *
+ * ONE statement, whatever the answer: the slug read, the entitlement, the
+ * settings row and the item check are keyed on the id the slug read produces,
+ * so each is folded into it rather than run after it. Every guest route pays
+ * this gate, and the image route pays it per image.
+ *
  * The settings row travels back with the id because every caller that needs the
  * gate also needs the settings, and re-reading it per route would be a second
- * round trip for a row already in hand.
+ * round trip for a row already in hand. So does the wedding's currency, which
+ * saves `contributionContext` a second read of the same row.
  */
 function resolveVisibleRegistry(
   slug: string,
+  imageName?: string,
 ): Effect.Effect<
   { weddingId: string; settings: RegistrySettingsRecord; currency: string },
   RegistryNotVisible,
@@ -2911,41 +2924,81 @@ function resolveVisibleRegistry(
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    // The CURRENCY rides along: SQLite reads the whole row for the slug
-    // lookup regardless, so the extra column is free — and it saves
-    // `primaryCurrency` a second read of the same row, one round trip down, on
-    // the read a guest waits on to reach a payment page.
-    const [weddingRow] = yield* dbQuery(() =>
+    const [found] = yield* dbQuery(() =>
       db
-        .select({ id: weddings.id, currency: weddings.currency })
+        .select({
+          id: weddings.id,
+          currency: weddings.currency,
+          entitled: entitlementPresent(weddings.id, "registry").as("entitled"),
+          // For every caller but the image route there is no image to check,
+          // and the constant keeps the row one shape.
+          imageListed: (imageName === undefined
+            ? sql<number>`1`
+            : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
+          ).as("image_listed"),
+          // NULL exactly when the wedding has no settings row: the LEFT JOIN
+          // leaves every settings column NULL then, and this one is the key.
+          settingsWeddingId: registrySettings.weddingId,
+          published: registrySettings.published,
+          headline: registrySettings.headline,
+          message: registrySettings.message,
+          cashGiftsEnabled: registrySettings.cashGiftsEnabled,
+          shippingAddress: registrySettings.shippingAddress,
+          shippingVisibleFrom: registrySettings.shippingVisibleFrom,
+          stripeAccountId: registrySettings.stripeAccountId,
+          stripeChargesEnabled: registrySettings.stripeChargesEnabled,
+          stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
+          updatedAt: registrySettings.updatedAt,
+        })
         .from(weddings)
+        .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
         .where(eq(weddings.slug, slug))
         .all(),
     );
-    const wedding = weddingRow as { id: string; currency: string } | undefined;
-    const weddingId = wedding?.id;
-    if (!weddingId) return yield* Effect.fail(new RegistryNotVisible());
-
-    // Both gates read together: neither answer depends on the other, and the
-    // common case (locked feature, no settings row) pays one round trip's
-    // latency rather than two.
-    const { entitled, settingsRows } = yield* Effect.all(
-      {
-        entitled: entitlementService.has(weddingId, "registry"),
-        settingsRows: dbQuery(() =>
-          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
-        ),
-      },
-      { concurrency: "unbounded" },
-    );
-    const settings = settingsRows[0]
-      ? toSettingsRecord(settingsRows[0] as SettingsRow)
-      : defaultSettings(weddingId);
-    if (!entitled || !settings.published) return yield* Effect.fail(new RegistryNotVisible());
+    const row = found as GateRow | undefined;
+    if (!row) return yield* Effect.fail(new RegistryNotVisible());
+    const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
+    if (!row.entitled || !settings.published || !row.imageListed) {
+      return yield* Effect.fail(new RegistryNotVisible());
+    }
     // Same fallback `primaryCurrency` has always used.
-    return { weddingId, settings, currency: wedding?.currency ?? "AUD" };
+    return { weddingId: row.id, settings, currency: row.currency ?? "AUD" };
   });
 }
+
+/** The one row the guest gate reads — see {@link resolveVisibleRegistry}. */
+interface GateRow {
+  id: string;
+  currency: string | null;
+  entitled: number;
+  imageListed: number;
+  settingsWeddingId: string | null;
+  published: boolean | null;
+  headline: string | null;
+  message: string | null;
+  cashGiftsEnabled: boolean | null;
+  shippingAddress: string | null;
+  shippingVisibleFrom: string | null;
+  stripeAccountId: string | null;
+  stripeChargesEnabled: boolean | null;
+  stripePayoutsEnabled: boolean | null;
+  updatedAt: Date | null;
+}
+
+/** The settings half of a gate row whose wedding HAS a settings row. */
+const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
+  weddingId: r.id,
+  published: r.published === true,
+  headline: r.headline,
+  message: r.message,
+  cashGiftsEnabled: r.cashGiftsEnabled === true,
+  shippingAddress: r.shippingAddress,
+  shippingVisibleFrom: r.shippingVisibleFrom,
+  stripeAccountId: r.stripeAccountId,
+  stripeChargesEnabled: r.stripeChargesEnabled === true,
+  stripePayoutsEnabled: r.stripePayoutsEnabled === true,
+  updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
+});
 
 export const registryGuestService = {
   /**
@@ -2961,6 +3014,26 @@ export const registryGuestService = {
     return resolveVisibleRegistry(slug).pipe(
       Effect.map((r) => r.weddingId),
       Effect.withSpan("cire.registry.visibleWeddingId"),
+    );
+  },
+
+  /**
+   * The R2 key of a gift image a guest may fetch, or `RegistryNotVisible`.
+   *
+   * The list must be visible AND an item of this wedding must still name the
+   * image, so withdrawing one gift — deleting it, or saving a new picture over
+   * it — closes its image URL without unpublishing the list. The key is rebuilt
+   * from the wedding the SLUG resolves to and a `name` the caller has already
+   * matched against `REGISTRY_IMAGE_NAME`, so no request can name another
+   * wedding's object or climb out of the prefix.
+   */
+  visibleImageKey(
+    slug: string,
+    name: string,
+  ): Effect.Effect<string, RegistryNotVisible, DbService> {
+    return resolveVisibleRegistry(slug, name).pipe(
+      Effect.map((r) => `assets/${r.weddingId}/${name}`),
+      Effect.withSpan("cire.registry.visibleImageKey"),
     );
   },
 

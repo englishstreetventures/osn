@@ -261,6 +261,21 @@ describe("the couple must be taking money", () => {
     expect(res.status).toBe(404);
     expect(stripe.sessions).toHaveLength(0);
   });
+
+  it("refuses a registry that was never opened as the same 404", async () => {
+    // No settings row at all is the state of every entitled wedding until the
+    // couple first saves the registry. It reads as the defaults — unpublished,
+    // no cash gifts — never as a fault and never as `cash_gifts_unavailable`,
+    // which would tell a guest the list exists.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    db.delete(registrySettings).where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID)).run();
+    const cookie = await guestCookie(app);
+    const res = await contribute(app, cookie, { amountMinor: 5000 });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+    expect(stripe.sessions).toHaveLength(0);
+  });
 });
 
 describe("what reaches Stripe, and what does not", () => {

@@ -133,14 +133,16 @@ export const createRegistryGuestListRoutes = (db: Db) =>
  * the route to move, and `visibility: "public"` below is the line to change
  * with it.
  *
- * So an image URL is a bearer credential while the list is published: whoever
- * holds it can fetch the bytes, whether or not their household still has an
- * invite. What the couple keep is withdrawal of the whole list. The publish and
- * entitlement gate runs on every request that reaches the Worker, and browsers
- * and proxies hold the bytes for an hour (`lifetime: "revocable"`), not a year,
- * so unpublishing the list or losing the entitlement reaches every copy within
- * the hour. Withdrawing ONE gift does not: the gate checks the list, not the
- * item, and the Worker's own cache keeps a deleted gift's bytes under its name.
+ * So an image URL is a bearer credential while its gift is on a published list:
+ * whoever holds it can fetch the bytes, whether or not their household still
+ * has an invite. What the couple keep is withdrawal — of the whole list, or of
+ * one gift. The gate runs on every request that reaches the Worker and checks
+ * the entitlement, the publish flag AND that an item still names the image, so
+ * unpublishing, losing the entitlement, deleting the gift or saving a new
+ * picture over it closes the URL at the Worker at once, its own cache included.
+ * Browsers and proxies hold the bytes for an hour (`lifetime: "revocable"`), not
+ * a year, so the same withdrawal reaches every copy outside the Worker within
+ * the hour.
  */
 export const createRegistryGuestImageRoutes = (
   db: Db,
@@ -160,13 +162,13 @@ export const createRegistryGuestImageRoutes = (
         Effect.gen(function* () {
           // The gate runs BEFORE any R2 or Images work: an unpublished or
           // unentitled wedding must not be able to spend a transform call, and
-          // its image bytes must not be reachable by anyone who guesses a name.
-          const weddingId = yield* registryGuestService.visibleWeddingId(params.slug);
-          // The key is rebuilt server-side from the resolved wedding id and a
-          // `:name` that must match `registry-<uuid>` — so no request can name
-          // another wedding's object, climb out of the prefix, or reach the
-          // invite builder's slots, however it spells the path.
-          const key = `assets/${weddingId}/${params.name}`;
+          // an image no gift shows must not be reachable by anyone holding or
+          // guessing its name. The key comes back rebuilt server-side from the
+          // resolved wedding id and a `:name` already matched against
+          // `registry-<uuid>` — so no request can name another wedding's object,
+          // climb out of the prefix, or reach the invite builder's slots,
+          // however it spells the path.
+          const key = yield* registryGuestService.visibleImageKey(params.slug, params.name);
           return yield* serveTransformedImage({
             request,
             key,
