@@ -106,4 +106,33 @@ describe("Overview budget widget", () => {
     // The text may be split across elements; use getAllByText with a broad regex.
     expect(await screen.findByText(/45,000/)).toBeInTheDocument();
   });
+
+  it("reads the budget in the wedding's own minor unit", async () => {
+    // JPY has no minor unit: 450,000 minor units are ¥450,000, not ¥4,500.
+    setCachedBudget(
+      "wed_1",
+      snap({
+        currency: "JPY",
+        budgetTotalMinor: 450_000,
+        items: [
+          {
+            id: "a",
+            weddingId: "wed_1",
+            category: "venue",
+            name: "Venue",
+            estimateMinor: null,
+            quotedMinor: null,
+            actualMinor: 170_000,
+            notes: null,
+            sortOrder: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      }),
+    );
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    expect(await screen.findByText(/450,000/)).toBeInTheDocument();
+    expect(screen.getByText(/170,000/)).toBeInTheDocument();
+  });
 });
