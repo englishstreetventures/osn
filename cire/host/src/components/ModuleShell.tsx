@@ -611,6 +611,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <GuestTable
                     weddingId={props.weddingId}
                     canManage={props.canManage}
+                    canEdit={props.canEdit}
                     weddingName={props.weddingName}
                     weddingSlug={props.weddingSlug}
                     inviteMessageLinks={inviteMessageLinks("households")}

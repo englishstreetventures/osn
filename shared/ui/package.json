@@ -29,6 +29,7 @@
     "./ui/radio-group": "./src/ui/radio-group.tsx",
     "./ui/select": "./src/ui/select.tsx",
     "./ui/stat": "./src/ui/stat.tsx",
+    "./ui/switch": "./src/ui/switch.tsx",
     "./ui/table": "./src/ui/table.tsx",
     "./ui/tabs": "./src/ui/tabs.tsx",
     "./ui/textarea": "./src/ui/textarea.tsx",

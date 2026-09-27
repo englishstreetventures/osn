@@ -30,6 +30,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
 import { Stat } from "@shared/ui/ui/stat";
+import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -61,6 +62,7 @@ function Entry(props: { name: string; from: string; children: JSX.Element }) {
  */
 export const Everything = () => {
   const [checked, setChecked] = createSignal(true);
+  const [switchedOn, setSwitchedOn] = createSignal(true);
   const [visibility, setVisibility] = createSignal("friends");
   const [handle, setHandle] = createSignal("ada");
   const [code, setCode] = createSignal("1234");
@@ -130,6 +132,10 @@ export const Everything = () => {
 
       <Entry name="Checkbox" from="@shared/ui/ui/checkbox">
         <Checkbox checked={checked()} onChange={setChecked} label="Email me about replies" />
+      </Entry>
+
+      <Entry name="Switch" from="@shared/ui/ui/switch">
+        <Switch checked={switchedOn()} onChange={setSwitchedOn} label="May bring a plus-one" />
       </Entry>
 
       <Entry name="RadioGroup" from="@shared/ui/ui/radio-group">

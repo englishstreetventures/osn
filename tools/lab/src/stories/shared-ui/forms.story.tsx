@@ -5,6 +5,7 @@ import { Label } from "@shared/ui/ui/label";
 import { OtpInput, type OtpStatus } from "@shared/ui/ui/otp-input";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
+import { Switch } from "@shared/ui/ui/switch";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { UsernameInput, type UsernameInputStatus } from "@shared/ui/ui/username-input";
 import { createSignal } from "solid-js";
@@ -40,6 +41,7 @@ export const TextFields = () => (
 export const Choices = () => {
   const [subscribed, setSubscribed] = createSignal(true);
   const [visibility, setVisibility] = createSignal("friends");
+  const [allowed, setAllowed] = createSignal(false);
 
   return (
     <div class="flex flex-col gap-6">
@@ -48,6 +50,16 @@ export const Choices = () => {
         <Checkbox checked={subscribed()} onChange={setSubscribed} label="Email me about replies" />
         <Checkbox checked={false} label="Unchecked" />
         <p class="text-meta text-subtle">checked: {String(subscribed())}</p>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <span class="text-meta text-subtle tracking-wide uppercase">Switch</span>
+        <Switch checked={allowed()} onChange={setAllowed} label="May bring a plus-one" />
+        <Switch checked readOnly label="Read-only, on" />
+        <Switch checked={false} readOnly label="Read-only, off" />
+        <Switch checked busy label="Saving" />
+        <Switch checked={false} disabled label="Disabled" />
+        <p class="text-meta text-subtle">checked: {String(allowed())}</p>
       </div>
 
       <div class="flex flex-col gap-2">

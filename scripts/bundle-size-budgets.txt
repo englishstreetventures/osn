@@ -26,13 +26,16 @@
 # A re-measure is not automatically a re-baseline, and the two cases below are
 # why the distinction matters.
 #
-# All four cire apps joined the token contract with their thresholds unchanged,
-# so their headroom TIGHTENED — ~7.4 KB (host), ~4.3 KB (vendor), ~8.5 KB
-# (invites, whose two modal conversions moved it a little in each direction and
-# left it ~0.3 KB below where it started) — rather than the ~11.7 KB default.
-# That is the right direction: the rule caps headroom (it must stay smaller than
-# the smallest mistake the guard exists to catch) and does not require any, so
+# cire/vendor and cire/invites joined the token contract with their thresholds
+# unchanged, so their headroom TIGHTENED — ~4.3 KB (vendor), ~8.5 KB (invites,
+# whose two modal conversions moved it a little in each direction and left it
+# ~0.3 KB below where it started) — rather than the ~11.7 KB default. That is
+# the right direction: the rule caps headroom (it must stay smaller than the
+# smallest mistake the guard exists to catch) and does not require any, so
 # raising a ceiling to restore the default would only make the guard looser.
+# A threshold moves up only for an intentional change that no longer fits, as
+# cire/host's did for the plus-one controls (wiki/conventions/bundle-size-guards.md
+# has the before-and-after build).
 #
 # `cire/landing` went the other way and so its threshold moved. Converting its
 # demo sheet to `@shared/ui`'s `Modal` deleted the one module importing `motion`,
@@ -44,7 +47,7 @@
 # Blank lines and lines starting with # are ignored.
 
 cire/invites   worker  175000   # measured 166510
-cire/host      static  252653   # measured 240953
+cire/host      static  267959   # measured 256259
 cire/vendor    static  81644    # measured 77305
 cire/landing   static  176547   # measured 164847
 musubi/landing static  26865    # measured 15206

@@ -8,6 +8,7 @@ related:
   - "[[cire-guest-event-editor]]"
   - "[[cire-entitlements]]"
   - "[[dpia/cire-guest-data]]"
+  - "[[component-library]]"
 last-reviewed: 2026-09-27
 ---
 # Plus-ones
@@ -56,7 +57,7 @@ Editor-gated (`weddingEditor()`; a viewer gets `403 read_only_role`), like every
 - The household route writes every member's flag and skips the household's plus-ones.
 - **Turning permission off deletes only plus-ones the organiser confirmed.** `removePlusOnes` lists the plus-ones the organiser was shown and agreed to remove, each as `{ guestId, firstName, lastName }` exactly as `GET …/guests` served them (default: none). The write goes through only if **every** plus-one in scope is on that list; they are then deleted, with their replies and invitations, in the same batch as the switch. Otherwise nothing is written and the answer is `409 { error: "plus_one_named", named }`, `named` being how many plus-ones are in scope now. So a plain `allowed: false` over a named plus-one is refused, and so is a confirmation that has gone stale — a plus-one named since, or renamed, since a household can replace its plus-one by renaming the row it has. A confirmed plus-one the household has already taken back does not block the write: everything deleted is still someone the organiser agreed to.
   - The check runs **inside the write batch**, which D1 commits as one transaction: the UPDATE and the DELETE each carry it, and a read of the plus-ones still in scope ends the batch and decides the answer. A plus-one named or renamed while the organiser confirms cannot slip between the check and the delete, and a plain turn-off cannot commit over a plus-one named before it.
-  - Why a list and not a flag: this delete sits outside the change history — no preview, no revert — so it must never reach someone the organiser did not see.
+  - Why a list and not a flag: this delete sits outside the change history — no preview, no revert — so it must never reach someone the organiser did not see. The portal sends the plus-ones its confirmation showed — see [[#The portal]].
   - The body refuses any key it does not know with a `400`, so a misspelled confirmation is an error rather than "confirms nobody", refused as `plus_one_named` on every retry.
 - `404 guest_not_found` / `family_not_found` for a row outside the wedding or in the host-preview household; `409 plus_one_cannot_invite` on a plus-one's own row.
 - The name route corrects the name of the plus-one `:guestId` brought (`404 plus_one_not_found` if none). It is the one organiser write to a plus-one's own row, there so a name can be put right after the deadline has locked the household out (Art. 16).
@@ -94,6 +95,27 @@ Names are trimmed and at most 100 characters each. They may not contain control,
 `POST /api/rsvp` stamps a plus-one's rows `consent_source = 'inviter_attested'`: the household typed them, and a plus-one never holds the household's code or sees the invite. **Both write paths refuse dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`) — the invite's, and the organiser's recording route, whose rows the household reads back — until the invite shows wording for the household's attestation and a consent version to go with it — see the inviter-attested variant in [[dpia/cire-guest-data]]. A status-only reply is accepted.
 
 The couple sees a plus-one's change the way they see any edited reply: in the RSVP table and the guest list. There is no separate notice.
+
+---
+
+## The portal
+
+The organiser portal sets the permission on the **Households** tab (`GuestTable`), not in the guest editor. The permission routes write at once, while the editor stages every edit behind undo, discard and a preview, which an immediate switch would bypass; and a viewer co-host sees the Households tab but not the editor.
+
+| Who | Sees |
+|---|---|
+| Owner or editor | A **Plus-one** column with a switch per guest, and per household "Plus-ones: N of M" with **Allow everyone** and **Allow no one** |
+| Viewer | The same switches, read-only (focusable and announced as read-only, at full contrast); no household buttons |
+
+- A plus-one's row sits straight after the guest who brought them (the organiser list arrives in `sort_order`, so the portal places them by the link), marked "Plus-one of <inviter's full name>", with no switch.
+- The column is hidden when the API sends no `plusOneAllowed`: the portal can reach a tier before the API that serves the field.
+- **One write at a time across the table.** While a permission write, or a reload that goes with it, is in flight, any other switch or household button pressed does nothing and stays as it was, so a reload never paints over a newer write and a household write never races one of its members'. Only the switches the write covers show it (read-only and busy), so a write re-renders those rows and not the whole roster.
+- **Turning permission off over a named plus-one** opens a confirmation naming each plus-one it removes and whose they are, taken from the whole list rather than the rows a search shows. It opens on Cancel. On yes the portal sends `removePlusOnes` as the confirmation's own snapshot — each plus-one's id and stored first and last name, captured when it opened — never a list read again at that moment, which would echo whatever is current and defeat the API's check.
+- A `409 plus_one_named` — to a plain turn-off over a plus-one named since the list loaded, or to a confirmation gone stale because the household named, swapped or renamed a plus-one meanwhile — reloads the list and opens the confirmation again, noting that the household changed its plus-ones.
+- A confirmed plus-one the household has already taken back is not an error: the API removes the rest and reports how many it removed.
+- The rows are reconciled into a store keyed by household code and guest id, so a write updates a row in place and focus stays on the switch that was pressed.
+
+The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 
 ---
 
@@ -163,3 +185,4 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Reads | `cire/api/src/services/claim.ts`, `cire/api/src/services/rsvp-export.ts` |
 | Pipeline | `cire/api/src/services/import.ts`, `state-export.ts`, `revert.ts` |
 | Editor draft | `cire/host/src/lib/guest-event-draft.ts` |
+| Portal controls | `cire/host/src/components/GuestTable.tsx`, `cire/host/src/lib/plus-one-permission.ts` |
