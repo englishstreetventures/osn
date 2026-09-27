@@ -54,6 +54,45 @@ export interface FamilyMember {
   /** Optional informal name for the single-guest greeting; null ⇒ use firstName. */
   nickname: string | null;
   eventIds: string[];
+  /**
+   * Whether this member may bring a plus-one — what the invite's plus-one
+   * prompt asks about. Always false on a plus-one. Optional on the wire, since
+   * the guest site can deploy before the API that sends it; absent reads as
+   * not allowed, so no prompt appears.
+   */
+  plusOneAllowed?: boolean;
+  /**
+   * Set on a plus-one: the guest id of the member who brought them, who is
+   * listed just before them. `null` (or absent, from an older API) on everyone
+   * else.
+   */
+  plusOneOf?: string | null;
+}
+
+/**
+ * A plus-one as `PUT /api/plus-one/:guestId` answers with it: the person named,
+ * and the events they are invited to (their inviter's).
+ */
+export interface PlusOneRecord {
+  guestId: string;
+  firstName: string;
+  lastName: string;
+  plusOneOf: string;
+  eventIds: string[];
+}
+
+/** The body of a 200 from `PUT /api/plus-one/:guestId`. */
+export interface PlusOneSaved {
+  plusOne: PlusOneRecord;
+  /** False for a rename, including the one that happens when another device
+   *  named a plus-one first. */
+  created: boolean;
+  /**
+   * The rename cleared the plus-one's dietary answers and consent record,
+   * which were about the person before. Absent from an API that predates it,
+   * which clears nothing — so absent reads as false.
+   */
+  dietaryCleared?: boolean;
 }
 
 export interface RsvpSummary {

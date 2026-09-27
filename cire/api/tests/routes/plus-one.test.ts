@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddings } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -144,8 +145,41 @@ describe("PUT /api/plus-one/:guestId", () => {
     expect(renamed.status).toBe(200);
     expect(await jsonBody(renamed)).toMatchObject({
       created: false,
+      dietaryCleared: false,
       plusOne: { guestId: body.plusOne.guestId, firstName: "Samira", lastName: "" },
     });
+  });
+
+  it("says when a rename cleared the plus-one's dietary answers", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: "halal",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: "inviter-2026-09-27",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const cookie = await cookieFor(SAMPLETON);
+
+    const res = await put(bo.id, cookie, { firstName: "Alex" });
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toMatchObject({ created: false, dietaryCleared: true });
+    expect(
+      db
+        .select({ presets: rsvps.dietaryPresets })
+        .from(rsvps)
+        .where(eq(rsvps.guestId, samId))
+        .get(),
+    ).toEqual({ presets: "" });
   });
 
   it("400s a blank, oversized or control-character name", async () => {

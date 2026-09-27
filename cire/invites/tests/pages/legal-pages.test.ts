@@ -115,6 +115,26 @@ describe("privacy.astro", () => {
    * published to guests on a legal page. The context they carried now lives in
    * `lib/consent/categories.ts`, next to the flag itself.
    */
+  /**
+   * A plus-one's details come from the guest who brings them, and the plus-one
+   * never sees the invite — the household is asked to pass this notice on.
+   * GDPR Art. 14 then needs the notice itself to tell them where their details
+   * came from, on what basis they are held, and how to have them withdrawn,
+   * corrected or erased without an invitation code of their own.
+   */
+  it("tells a person a guest brings where their details came from and what they can do", () => {
+    expect(body).toContain("If a guest is bringing you");
+    expect(body).toMatch(/the guest who is\s+bringing you gave us your name/);
+    // The basis for their dietary requirements, and whose word it rests on.
+    expect(body).toMatch(/confirmation of the guest who is\s+bringing you that you agreed/);
+    // Their rights, without a code of their own.
+    expect(body).toMatch(/do not need a code to\s+use them/);
+    expect(body).toMatch(/remove you until RSVPs close/);
+    expect(body).not.toContain(
+      "You only ever fill in details for the members of your own household.",
+    );
+  });
+
   it("publishes no notes addressed to the site owner", () => {
     expect(body).not.toContain("Note for the site owner");
     expect(body).not.toContain("owner-note");

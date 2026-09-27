@@ -1,5 +1,10 @@
 import { rsvps, guests } from "@cire/db";
-import { parsePresets, serialisePresets, type DietaryPreset } from "@cire/dietary";
+import {
+  parsePresets,
+  PLUS_ONE_DIETARY_ATTESTATION,
+  serialisePresets,
+  type DietaryPreset,
+} from "@cire/dietary";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
@@ -19,6 +24,42 @@ import type { RsvpRecord } from "../schemas/rsvp";
  *  of the plus-one it brought (migration 0066). Defaults to `guest` for the
  *  invite write path. Read off the column, so the enum has one home. */
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
+
+/**
+ * The consent version a reply is stamped with, chosen by who recorded it: the
+ * household's attestation for its plus-one carries the attestation wording's
+ * own version; a guest's own reply and an organiser's recording carry the
+ * guest's own-consent version. The one place a version is chosen.
+ */
+export function dietaryConsentVersionFor(source: ConsentSource): string {
+  return source === "inviter_attested"
+    ? PLUS_ONE_DIETARY_ATTESTATION.version
+    : DIETARY_CONSENT_VERSION;
+}
+
+/**
+ * Whether a stored consent record may open the invite's box for this person
+ * already ticked: it must have been made by the writer that box speaks for,
+ * against the words the box shows now. A member's box is their own consent
+ * (`guest`, the own-consent version); a plus-one's is the household's
+ * attestation (`inviter_attested`, the attestation version). A record anyone
+ * else made — an organiser's phone reply — never pre-ticks either box: a
+ * pre-ticked box is not consent (Art. 4(11)), and the person ticking it did not
+ * make that record. The claim payload and the RSVP read-back both answer
+ * through this, so the two cannot disagree.
+ */
+export function isDietaryConsentCurrent(row: {
+  version: string | null;
+  source: ConsentSource;
+  isPlusOne: boolean;
+}): boolean {
+  if (row.isPlusOne) {
+    return (
+      row.source === "inviter_attested" && row.version === PLUS_ONE_DIETARY_ATTESTATION.version
+    );
+  }
+  return row.source === "guest" && row.version === DIETARY_CONSENT_VERSION;
+}
 
 /** Which writer class a provenance value belongs to, for the upsert counter:
  *  only an organiser's attestation is an organiser write. */
@@ -60,9 +101,11 @@ function buildRsvpUpsertStatements(
   now: Date,
 ): BatchItem<"sqlite">[] {
   return inputs.map((input) => {
-    const dietaryConsentAt = input.dietaryConsent ? now : null;
-    const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
     const consentSource: ConsentSource = input.consentSource ?? "guest";
+    const dietaryConsentAt = input.dietaryConsent ? now : null;
+    const dietaryConsentVersion = input.dietaryConsent
+      ? dietaryConsentVersionFor(consentSource)
+      : null;
     // Serialised once: the insert and the conflict-update store the same value.
     const dietaryPresets = serialisePresets(input.dietaryPresets);
     return db
@@ -108,14 +151,23 @@ function buildRsvpUpsertStatements(
 type RsvpRow = Omit<RsvpRecord, "dietaryPresets" | "dietaryConsentCurrent"> & {
   dietaryPresets: string;
   dietaryConsentVersion: string | null;
+  consentSource: ConsentSource;
+  plusOneOf: string | null;
 };
 
+/** The stored row as the invite reads it. The consent version, its writer and
+ *  the plus-one link are read only to answer `dietaryConsentCurrent`, and are
+ *  taken off here so none of them reaches the response. */
 function toRsvpRecord(row: RsvpRow): RsvpRecord {
-  const { dietaryConsentVersion, ...rest } = row;
+  const { dietaryConsentVersion, consentSource, plusOneOf, ...rest } = row;
   return {
     ...rest,
     dietaryPresets: parsePresets(row.dietaryPresets),
-    dietaryConsentCurrent: dietaryConsentVersion === DIETARY_CONSENT_VERSION,
+    dietaryConsentCurrent: isDietaryConsentCurrent({
+      version: dietaryConsentVersion,
+      source: consentSource,
+      isPlusOne: plusOneOf !== null,
+    }),
   };
 }
 
@@ -136,6 +188,8 @@ function buildFamilyRsvpsQuery(db: Db, familyId: string) {
       dietary: rsvps.dietary,
       dietaryPresets: rsvps.dietaryPresets,
       dietaryConsentVersion: rsvps.dietaryConsentVersion,
+      consentSource: rsvps.consentSource,
+      plusOneOf: guests.plusOneOfGuestId,
     })
     .from(rsvps)
     .innerJoin(guests, eq(rsvps.guestId, guests.id))

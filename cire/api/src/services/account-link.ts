@@ -10,6 +10,14 @@ export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
 }> {}
 
 /**
+ * The guest is a plus-one. Their row was typed in by the member who brought
+ * them, not by anyone holding the household's code, so no account may be
+ * bound to it: the link would record someone else's seat as the signed-in
+ * account's own.
+ */
+export class PlusOneSeatNotLinkable extends Data.TaggedError("PlusOneSeatNotLinkable") {}
+
+/**
  * The link would violate a uniqueness invariant.
  *
  * AL-S-L2: the conflicting index is deliberately NOT distinguished. Two
@@ -86,7 +94,7 @@ export const accountLinkService = {
     osnProfileId: string;
   }): Effect.Effect<
     CreatedAccountLink,
-    GuestNotInFamily | AccountLinkConflict | AccountLinkWriteError,
+    GuestNotInFamily | PlusOneSeatNotLinkable | AccountLinkConflict | AccountLinkWriteError,
     DbService
   > {
     return Effect.gen(function* () {
@@ -96,7 +104,7 @@ export const accountLinkService = {
       // wedding id for the tenant-scope column in one query.
       const [scope] = yield* dbQuery(() =>
         db
-          .select({ weddingId: families.weddingId })
+          .select({ weddingId: families.weddingId, plusOneOf: guests.plusOneOfGuestId })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
           .where(and(eq(guests.id, input.guestId), eq(guests.familyId, input.familyId)))
@@ -105,6 +113,7 @@ export const accountLinkService = {
       if (!scope) {
         return yield* Effect.fail(new GuestNotInFamily({ reason: "unknown_guest" }));
       }
+      if (scope.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeatNotLinkable());
 
       const now = new Date();
       yield* Effect.tryPromise({
