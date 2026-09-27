@@ -845,6 +845,131 @@ describe("cire/api over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
 
+  /** A plus-one of `inviterId` in the test household, invited to the inviter's
+   *  events and with a reply, so a delete of them has a cascade to take. */
+  async function seedPlusOneOnD1(
+    id: string,
+    inviterId: string,
+    name: { firstName: string; lastName: string },
+  ): Promise<void> {
+    const now = new Date();
+    await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, inviterId));
+    await db.insert(guests).values({
+      id,
+      familyId: FAMILY_ID,
+      ...name,
+      sortOrder: 0,
+      source: "manual",
+      plusOneOfGuestId: inviterId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(guestEvents).values({ guestId: id, eventId: EVENT_A });
+    await db.insert(rsvps).values({
+      id: `r_${id}`,
+      guestId: id,
+      eventId: EVENT_A,
+      status: "attending",
+      consentSource: "inviter_attested",
+      createdAt: now,
+    });
+  }
+
+  const householdOff = (
+    removePlusOnes: { guestId: string; firstName: string; lastName: string }[],
+  ) =>
+    plusOneService.setHouseholdPermission({
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      familyId: FAMILY_ID,
+      allowed: false,
+      removePlusOnes,
+    });
+
+  it(
+    "a confirmed household removal over D1 deletes the plus-ones and counts them, not their cascade",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+
+      const result = await run(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+        ]),
+      );
+      expect(result).toEqual({
+        familyId: FAMILY_ID,
+        plusOneAllowed: false,
+        guestsUpdated: 2,
+        plusOnesRemoved: 2,
+      });
+      const left = await db.select({ id: guests.id, allowed: guests.plusOneAllowed }).from(guests);
+      expect(left.toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: GUEST_1, allowed: false },
+        { id: GUEST_2, allowed: false },
+      ]);
+      expect(await db.select().from(rsvps)).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a household removal over D1 whose plus-one was renamed since writes nothing",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+      await db.update(guests).set({ firstName: "Kit" }).where(eq(guests.id, "g_pat"));
+
+      const exit = await Effect.runPromiseExit(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+        ]).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause)),
+      ).toMatchObject({ _tag: "PlusOneNamed", named: 2 });
+      const rows = await db
+        .select({ id: guests.id, allowed: guests.plusOneAllowed })
+        .from(guests)
+        .where(eq(guests.familyId, FAMILY_ID));
+      expect(rows.map((r) => r.id).toSorted()).toEqual(
+        [GUEST_1, GUEST_2, "g_pat", "g_sam"].toSorted(),
+      );
+      expect(rows.filter((r) => r.id === GUEST_1 || r.id === GUEST_2).every((r) => r.allowed)).toBe(
+        true,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "turning one guest off over D1 is refused inside the write while their plus-one is named",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      const exit = await Effect.runPromiseExit(
+        plusOneService
+          .setGuestPermission({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            guestId: GUEST_1,
+            allowed: false,
+            removePlusOnes: [],
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause)),
+      ).toMatchObject({ _tag: "PlusOneNamed", named: 1 });
+      const [inviter] = await db
+        .select({ allowed: guests.plusOneAllowed })
+        .from(guests)
+        .where(eq(guests.id, GUEST_1));
+      expect(inviter?.allowed).toBe(true);
+      expect(await db.select().from(guests).where(eq(guests.id, "g_sam"))).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   it(
     "sets and reads the invite's section switches over async D1",
     async () => {
