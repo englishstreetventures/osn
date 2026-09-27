@@ -139,7 +139,7 @@ The table lists replies before the guests who have not answered, so a plus-one a
 |---|---|
 | Claim payload `members[]` (`claim.ts`) | `plusOneAllowed`, `plusOneOf`; a plus-one is listed straight after the member who brought them, placed by the link rather than by `sort_order` |
 | `GET …/guests` (`OrganiserGuestRow`) | `plusOneAllowed`, `plusOneOf` |
-| `GET …/rsvps` (per-event view) | `plusOneOf` and `plusOneOfName` (the inviter's full name) on responded and unresponded entries; within each list a plus-one sits straight after their inviter. The name is joined from the inviter's own row, so a reply kept after the household was dropped from the event still names them |
+| `GET …/rsvps` (per-event view) | `plusOneOf` and `plusOneOfName` (the inviter's full name) on responded and unresponded entries; within each list a plus-one sits straight after their inviter. The name is joined from the inviter's own row, held to the plus-one's household, so a reply kept after the household was dropped from the event still names them and a link outside the household names no one |
 | `GET …/rsvps.csv` | One row per guest, a plus-one's straight after their inviter's. **Plus-one Of** (the inviter's full name, blank otherwise) is the last column, after **Recorded By**, which says **Household** when any of the plus-one's replies is the household's (**Organiser** still outranks it) |
 | `GET …/guests.csv` (the roster report, not the round-trip export) | A plus-one's row straight after their inviter's, with **Plus-one Of** appended after **Code Status** |
 
