@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  metricClientFallback,
   metricHubCapacityRefused,
   metricSignalPublished,
   metricSubscribe,
@@ -15,6 +16,10 @@ describe("REALTIME_METRICS naming", () => {
     }
   });
 
+  it("names the client-fallback counter", () => {
+    expect(REALTIME_METRICS.clientFallbacks).toBe("realtime.client.fallbacks");
+  });
+
   it("every metric name is unique", () => {
     const values = Object.values(REALTIME_METRICS);
     expect(new Set(values).size).toBe(values.length);
@@ -26,5 +31,7 @@ describe("metric wrappers", () => {
     expect(() => metricSubscribe("cire", "accepted")).not.toThrow();
     expect(() => metricSignalPublished("cire", "members-changed", "ok")).not.toThrow();
     expect(() => metricHubCapacityRefused("cire")).not.toThrow();
+    expect(() => metricClientFallback("cire", "refused")).not.toThrow();
+    expect(() => metricClientFallback("cire", "exhausted")).not.toThrow();
   });
 });

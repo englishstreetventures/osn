@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 
 import { weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import type { HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -727,5 +728,146 @@ describe("co-host dashboard access (weddingMember)", () => {
         guestCap: 100,
       },
     ]);
+  });
+});
+
+describe("co-host writes publish members-changed", () => {
+  function recordingHub(rejects = false) {
+    const publishes: { name: string; evict: readonly string[] }[] = [];
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (_signal, evict) => {
+          publishes.push({ name, evict });
+          if (rejects) throw new Error("hub down");
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    return { hub, publishes };
+  }
+
+  function seedCohost(db: Db, role: AssignableHostRole = "editor") {
+    seedHostSeat(db, COHOST, role);
+  }
+
+  /** Make every delete from `wedding_hosts` throw, as a failed D1 statement does. */
+  function failHostDeletes(db: ReturnType<typeof createDb>) {
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    client.prepare = ((sql: string) => {
+      const statement = prepare(sql);
+      if (!sql.startsWith('delete from "wedding_hosts"')) return statement;
+      const fail = () => {
+        throw new Error("D1_ERROR: delete failed");
+      };
+      return new Proxy(statement, {
+        get: (target, key) =>
+          key === "all" || key === "values" || key === "get" || key === "run"
+            ? fail
+            : Reflect.get(target, key),
+      });
+    }) as typeof client.prepare;
+  }
+
+  // Its own limiter: the file's earlier cases spend the owner's share of the
+  // module-level default (`defaultHostLimiter` in src/app.ts, 20 a minute per
+  // organiser), and without this every case here answers 429.
+  const buildPublishingApp = (hub: HubNamespace) =>
+    buildApp({
+      realtimeHub: hub,
+      hostLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+    });
+
+  const topic = `cire:wedding:${WEDDING_ID}`;
+
+  it("after an add, evicting nobody", async () => {
+    const { hub, publishes } = recordingHub();
+    const { app } = buildPublishingApp(hub);
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(201);
+    expect(publishes).toEqual([{ name: topic, evict: [] }]);
+  });
+
+  it.each([
+    ["editor", "helper"],
+    ["viewer", "helper"],
+  ] as const)(
+    "after a change from %s to %s, evicting the co-host, whose seat loses the dashboard",
+    async (from, to) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildPublishingApp(hub);
+      seedCohost(db, from);
+      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
+      expect(res.status).toBe(200);
+      expect(publishes).toEqual([{ name: topic, evict: [COHOST] }]);
+    },
+  );
+
+  it.each([
+    ["editor", "viewer"],
+    ["viewer", "editor"],
+    ["helper", "editor"],
+  ] as const)(
+    "after a change from %s to %s, evicting nobody, since the new seat reads the dashboard",
+    async (from, to) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildPublishingApp(hub);
+      seedCohost(db, from);
+      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
+      expect(res.status).toBe(200);
+      expect(publishes).toEqual([{ name: topic, evict: [] }]);
+    },
+  );
+
+  it("after a removal, evicting the removed co-host", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildPublishingApp(hub);
+    seedCohost(db);
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(200);
+    expect(publishes).toEqual([{ name: topic, evict: [COHOST] }]);
+  });
+
+  it("never for a refused write", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildPublishingApp(hub);
+    seedCohost(db);
+    expect((await req(app, "POST", hostsPath, OWNER, { handle: "bob" })).status).toBe(409);
+    expect((await req(app, "POST", hostsPath, OWNER, { handle: "nobody" })).status).toBe(404);
+    expect(
+      (await req(app, "PUT", `${hostsPath}/usr_ghost/role`, OWNER, { role: "viewer" })).status,
+    ).toBe(404);
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, STRANGER)).status).toBe(403);
+    expect(publishes).toEqual([]);
+  });
+
+  it("not for removing someone who holds no seat, such as the owner", async () => {
+    const { hub, publishes } = recordingHub();
+    const { app } = buildPublishingApp(hub);
+    const res = await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER);
+    expect(res.status).toBe(200);
+    expect(publishes).toEqual([]);
+  });
+
+  it("not for a removal the database fails, which answers 500", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildPublishingApp(hub);
+    seedCohost(db);
+    failHostDeletes(db);
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not remove host" });
+    expect(publishes).toEqual([]);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+  });
+
+  it("does not fail the write when the hub rejects", async () => {
+    const { hub } = recordingHub(true);
+    const { db, app } = buildPublishingApp(hub);
+    seedCohost(db);
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(200);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
   });
 });

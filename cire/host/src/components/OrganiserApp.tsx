@@ -1,3 +1,4 @@
+import { useTopic } from "@shared/realtime/solid";
 import { AuthContext, AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { toast, Toaster } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -30,6 +31,7 @@ import {
 } from "../lib/dashboard-route";
 import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
+import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { initTheme } from "../lib/theme";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { fetchPurchase } from "../lib/upgrade-api";
@@ -261,23 +263,25 @@ function Dashboard() {
    * drops its rows. A role that keeps the dashboard only changes what the
    * dashboard offers; its rows are still the organiser's to read.
    *
-   * Runs on any 403 from a wedding route, and — at most once a minute — when
-   * the tab comes back into view or the organiser moves within the
-   * dashboard. Concurrent triggers share one request, except a refusal of a
-   * request sent after that one started: its answer may predate the change
-   * the refusal reports, so a new request is sent. An answer is thrown away
-   * if the list was written locally while it was in flight (a created
-   * wedding, a rename), and then asked for once more; an answer overtaken by
-   * a newer request is thrown away too.
+   * Runs on any 403 from a wedding route, on a push signal for the open
+   * wedding, and — at most once a minute — when the tab comes back into view
+   * or the organiser moves within the dashboard. Concurrent triggers share one
+   * request, except one that reports a change after that request started: its
+   * answer may predate the change, so a new request is sent. An answer is
+   * thrown away if the list was written locally while it was in flight (a
+   * created wedding, a rename), and then asked for once more; an answer
+   * overtaken by a newer request is thrown away too.
    *
-   * `refusedAt` is when the refused request was sent, for a 403 trigger.
+   * `changedAt` is when the change is known to have happened by: for a 403,
+   * when the refused request was sent; for a push signal, a reconnect or a
+   * stop, when it arrived. A dropped socket passes none.
    */
-  function recheckWeddings(refusedAt?: number, retry = true): Promise<void> {
+  function recheckWeddings(changedAt?: number, retry = true): Promise<void> {
     if (untrack(weddings) === null) return Promise.resolve();
     if (
       recheck &&
       Date.now() - recheck.startedAt < RECHECK_ABANDONED_AFTER_MS &&
-      !(refusedAt !== undefined && refusedAt > recheck.startedAt)
+      !(changedAt !== undefined && changedAt > recheck.startedAt)
     ) {
       return recheck.done;
     }
@@ -519,6 +523,32 @@ function Dashboard() {
     if (r.view !== "weddings" || r.weddingId === null) return null;
     return weddings()?.find((w) => w.id === r.weddingId) ?? null;
   };
+
+  // While a wedding's dashboard is open, its topic tells this tab the moment
+  // the wedding's hosts change — the organiser removed, or narrowed to a role
+  // without the dashboard — so the re-read above runs at once instead of on
+  // the next refusal or return to the tab. A signal only says "ask again"; the
+  // answer is what drops the rows. A socket that cannot be held changes
+  // nothing: the other triggers still run. When the socket gives up, the tab
+  // also tells cire-api why. A helper's seat holds no rows, so it does not
+  // listen.
+  //
+  // A message, a reconnect and a stop each pass the time they arrived, so one
+  // that lands after a re-read started sends a fresh one. A dropped socket
+  // passes none and joins a re-read in flight: it reports no change of its
+  // own, and when it is an eviction, the signal just before it already started
+  // a read that postdates the change. A change missed while the socket was down
+  // is caught by the reconnect's fresh read, or by the stop's.
+  useTopic(
+    () => {
+      const wedding = selected();
+      return wedding && surfacesFor(wedding.role).canOpenDashboard
+        ? weddingTopicUrl(wedding.id)
+        : null;
+    },
+    (event) => void recheckWeddings(event.reason === "dropped" ? undefined : Date.now()),
+    { onFallback: reportRealtimeFallback },
+  );
 
   // Graceful fallback: once the list is loaded, if the route names a wedding
   // that isn't in it, drop back to the list (replace — a dead link shouldn't

@@ -9,6 +9,8 @@ import {
   reduceBlockedUri,
   reduceDocumentPath,
 } from "../../src/routes/csp-report";
+import { counterValue } from "../test-helpers/metrics-harness";
+import { countedStream, streamedInit } from "../test-helpers/streamed-body";
 
 // The collector is keyed per-IP and fail-closed on an unresolved IP, so every
 // request needs a resolvable `cf-connecting-ip` (simulates the CF edge).
@@ -250,6 +252,35 @@ describe("POST /api/csp-report", () => {
     const big = JSON.stringify({ "csp-report": { "blocked-uri": "x".repeat(20 * 1024) } });
     const res = await post(app, { contentType: "application/csp-report", body: big });
     expect(res.status).toBe(204);
+  });
+
+  it("stops reading a streamed body with no declared length once it passes the cap", async () => {
+    // 1,000 chunks of 1 KiB against a 16 KiB cap: a route that buffered the
+    // body before checking its size would pull all of them. The whitespace
+    // leads a real report, so the whole body is valid JSON that only the cap
+    // keeps from being counted.
+    const encode = (text: string) => new TextEncoder().encode(text);
+    const { body, seen } = countedStream(
+      encode(" ".repeat(1024)),
+      1_000,
+      encode(JSON.stringify({ "csp-report": { "effective-directive": "img-src" } })),
+    );
+    const app = buildApp();
+    const before = await counterValue("cire.csp.report", { effectiveDirective: "img-src" });
+    const res = await app.fetch(
+      new Request(
+        "http://localhost/api/csp-report",
+        streamedInit(body, {
+          "Content-Type": "application/csp-report",
+          "cf-connecting-ip": TEST_CF_IP,
+        }),
+      ),
+    );
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe("");
+    expect(seen.cancelled).toBe(true);
+    expect(seen.pulled).toBeLessThanOrEqual(18);
+    expect(await counterValue("cire.csp.report", { effectiveDirective: "img-src" })).toBe(before);
   });
 
   it("is reachable cross-origin / Origin-less (the CSRF guard does not gate it)", async () => {

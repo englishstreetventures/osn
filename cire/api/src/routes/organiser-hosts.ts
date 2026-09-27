@@ -16,11 +16,13 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { decideCapability } from "../middleware/wedding-role";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
 import type { HostRole } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
 
@@ -161,12 +163,19 @@ export const createOrganiserHostsReadRoutes = (
  * That asymmetry is the whole safety argument: the worst an editor can do is add
  * someone unwanted, and the owner can always undo it. Same shape as the
  * account-linking route — additive, not a privilege ladder.
+ *
+ * Each successful write then tells the wedding's open tabs
+ * (`signals.membersChanged`). A removal, and a role change to one without the
+ * dashboard (`member`), also evict that co-host's sockets so their access is
+ * checked again; a change that keeps the dashboard leaves their sockets open,
+ * since the check could only admit them again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
+  signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
@@ -226,6 +235,7 @@ export const createOrganiserHostsWriteRoutes = (
                   ownerOsnProfileId: ownerProfileId,
                   role: body.role,
                 });
+                yield* signals.membersChanged(scopedWeddingId, undefined, request);
 
                 yield* Effect.sync(() => metricHostAdded("ok"));
                 set.status = 201;
@@ -317,6 +327,12 @@ export const createOrganiserHostsWriteRoutes = (
                   osnProfileId: params.osnProfileId,
                   role: body.role,
                 });
+                // Every open tab hears of it; the co-host's own sockets close
+                // only when the new role no longer reads the dashboard.
+                const evict = decideCapability(body.role, "member").allowed
+                  ? undefined
+                  : params.osnProfileId;
+                yield* signals.membersChanged(weddingId, evict, request);
                 yield* Effect.sync(() => metricHostRoleChanged("ok"));
                 return {
                   host: {
@@ -360,7 +376,7 @@ export const createOrganiserHostsWriteRoutes = (
           // parses it by hand — malformed JSON degrades to the schema's 400.
           { parse: () => ({}) },
         )
-        .delete("/hosts/:osnProfileId", ({ weddingId, params, set }) => {
+        .delete("/hosts/:osnProfileId", ({ request, weddingId, params, set }) => {
           if (!weddingId) {
             set.status = 500;
             return { error: "Internal error" };
@@ -369,6 +385,13 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok"))),
+              // Only when a seat went: removing someone who holds none (or the
+              // owner, who is never rowed in) changes nobody's access.
+              Effect.tap((removed) =>
+                removed
+                  ? signals.membersChanged(weddingId, params.osnProfileId, request)
+                  : Effect.void,
+              ),
               Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
               Effect.catchTag("HostWriteError", () =>
                 Effect.sync(() => {

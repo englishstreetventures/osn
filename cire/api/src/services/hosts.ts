@@ -614,14 +614,16 @@ export const hostsService = {
    * Remove a co-host. Scoped to `(weddingId, osnProfileId)` so an owner can only
    * remove a host from their own wedding (the route's `weddingOwner()` proved
    * ownership). Idempotent: removing a host that isn't there succeeds.
+   * Answers whether a seat was actually removed, from the same statement
+   * (RETURNING), so a caller can act only on a real change.
    */
   remove(input: {
     weddingId: string;
     osnProfileId: string;
-  }): Effect.Effect<void, HostWriteError, DbService> {
+  }): Effect.Effect<boolean, HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* Effect.tryPromise({
+      const removed = yield* Effect.tryPromise({
         try: () =>
           Promise.resolve(
             db
@@ -632,12 +634,14 @@ export const hostsService = {
                   eq(weddingHosts.osnProfileId, input.osnProfileId),
                 ),
               )
-              .run(),
+              .returning({ id: weddingHosts.id })
+              .all(),
           ),
         catch: (e) => new HostWriteError({ op: "delete", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("host delete failed", { reason: err.reason })),
       );
+      return removed.length > 0;
     }).pipe(Effect.withSpan("cire.host.remove"));
   },
 

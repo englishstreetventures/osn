@@ -7,6 +7,7 @@ import type { FeatureFlags } from "@shared/feature-flags";
 import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import type { HubNamespace } from "@shared/realtime/server";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 import { Elysia } from "elysia";
@@ -14,6 +15,7 @@ import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
 import { originGuard } from "./lib/origin-guard";
+import type { OsnAuthOptions } from "./middleware/osn-auth";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
@@ -43,6 +45,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createRealtimeFallbackRoutes } from "./routes/realtime-fallback";
 import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
@@ -85,6 +88,7 @@ import type {
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
+import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
 import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
 import { createUpgradeService } from "./services/upgrades";
@@ -179,6 +183,13 @@ const defaultVendorPortalLimiter = createRateLimiter({ maxRequests: 20, windowMs
  */
 const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
+ * Default per-IP limiter for the public realtime fallback beacon. In memory,
+ * per isolate, like the CSP collector's. A tab sends at most one beacon per
+ * subscription, so 10/min is far above real use. Beacons past it are dropped;
+ * each one within it costs one log line and one count.
+ */
+const defaultRealtimeFallbackLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
  * Default per-USER limiter for the vendor directory browse route. 60 reads/min
  * is generous for a paginated listing UI while capping the D1 query amplifier
  * from a scripted caller with a valid organiser token.
@@ -270,9 +281,12 @@ export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
   /**
-   * Organiser portal origin (`host.cireweddings.com`) — base for the enquiry
-   * thread deep-link vendors/couples receive. Distinct from `webOrigin` (the
-   * guest invite site). Defaults to the prod organiser origin.
+   * Organiser portal origin (`host.cireweddings.com`). Two readers, two
+   * defaults: `createApp` builds enquiry deep-links on it and falls back to
+   * the production portal when it is unset; the realtime subscribe route
+   * (`routes/realtime.ts`) admits it as the only `Origin` and, unset, admits
+   * none — a tier that names no portal (the top-level `wrangler.toml` block,
+   * local `wrangler dev`) must not accept sockets on production's behalf.
    */
   organiserOrigin?: string;
   /**
@@ -292,6 +306,18 @@ export interface AppOptions {
   accountLinkLimiter?: RateLimiterBackend;
   /** Override the CSV + JSON RSVP export per-user rate limiter (useful for testing). */
   exportLimiter?: RateLimiterBackend;
+  /**
+   * The realtime hub binding (`REALTIME_HUB`). Absent ⇒ host changes publish
+   * nothing, and the Worker's `/realtime/*` answers 503. Most tests run that
+   * way; tests of push inject a stand-in. The local Bun dev server
+   * (`src/local.ts`) builds this app without the Worker entry, so there
+   * `/realtime/*` never reaches the realtime route and answers 404.
+   */
+  realtimeHub?: HubNamespace;
+  /** Override the realtime subscribe per-organiser limiter (useful for testing). */
+  realtimeLimiter?: RateLimiterBackend;
+  /** Override the public realtime fallback-beacon rate limiter (useful for testing). */
+  realtimeFallbackLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
   /** Test seam: override the invite design catalog (e.g. to add a premium fixture). */
@@ -516,6 +542,21 @@ export interface AppOptions {
   flags?: FeatureFlags;
 }
 
+/**
+ * How every organiser surface authenticates — the Elysia routes and the
+ * realtime subscribe route alike. The defaults are the local issuer, matching
+ * osn-api's own local defaults (`osn/api/src/build-deps.ts`).
+ */
+export function organiserAuthOptions(db: Db, options: AppOptions): OsnAuthOptions {
+  return {
+    jwksUrl: options.osnJwksUrl ?? "http://localhost:4000/.well-known/jwks.json",
+    issuer: options.osnIssuerUrl ?? "http://localhost:4000",
+    audience: options.osnAudience ?? "osn-access",
+    _testKey: options.osnTestKey,
+    db,
+  };
+}
+
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
@@ -539,11 +580,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
     r2,
     assets,
     images,
-    osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
-    // Matches osn-api's own local default (`osn/api/src/build-deps.ts`).
-    osnIssuerUrl = "http://localhost:4000",
-    osnAudience = "osn-access",
-    osnTestKey,
     oidc = null,
     oidcStartLimiter = defaultOidcStartLimiter,
     oidcSessionLimiter = defaultOidcSessionLimiter,
@@ -574,6 +610,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     upgradeLimiter = defaultUpgradeLimiter,
     upgradePrices = {},
     registryLinkPreviewOptions,
+    realtimeHub,
+    realtimeFallbackLimiter = defaultRealtimeFallbackLimiter,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
     // it did before flags existed.
@@ -628,13 +666,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // `db` turns on the organiser session cookie path in `osnAuth` — the way every
   // browser authenticates now that the passkey ceremony lives on musubi.social.
-  const osnAuthOptions = {
-    jwksUrl: osnJwksUrl,
-    issuer: osnIssuerUrl,
-    audience: osnAudience,
-    _testKey: osnTestKey,
-    db,
-  };
+  const osnAuthOptions = organiserAuthOptions(db, options);
+
+  // One publisher for the co-host writes. No hub bound ⇒ every signal is a
+  // counted no-op and the writes behave exactly as they did before push.
+  const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -786,7 +822,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // sibling instances so the read isn't gated by the write limiter.
       .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
-        createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
+        createOrganiserHostsWriteRoutes(
+          db,
+          osnAuthOptions,
+          hostLimiter,
+          resolveOsnProfileByHandle,
+          weddingSignals,
+        ),
       )
       // Co-host autocomplete, sourced from the caller's OSN connections first
       // and the global handle search second. osnAuth-only (not wedding-scoped) —
@@ -961,11 +1003,17 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
+  // Past the widening, like every mount below, so the typed chain above does not grow.
+  const withRealtimeFallback: AnyElysia = rootApp.use(
+    createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }),
+  );
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
-    ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
-    : rootApp;
+    ? withRealtimeFallback.use(
+        createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }),
+      )
+    : withRealtimeFallback;
   // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
   // than inside the organiser chain above: that chain is already at
   // TypeScript's instantiation-depth limit (see the comment on `rootApp`), and

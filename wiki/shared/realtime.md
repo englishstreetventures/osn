@@ -7,6 +7,8 @@ related:
   - "[[backend-patterns]]"
   - "[[frontend-patterns]]"
   - "[[metrics]]"
+  - "[[cire-auth]]"
+  - "[[cire-host-portal-layout]]"
 packages: ["@shared/realtime"]
 last-reviewed: 2026-09-27
 ---
@@ -37,7 +39,7 @@ One hub instance serves one topic (`getByName(topic)`). It holds sockets through
 2. **Export `TopicHub` from the Worker entry** (`export { TopicHub } from "@shared/realtime/hub"`). Keep that export out of any module Bun tests import, because `cloudflare:workers` exists only on workerd.
 3. **Add the subscribe route before the web framework.** Call `subscribe(request, rawTopic, options)` and return its `Response` object as is. An Elysia route cannot do this. Elysia rebuilds a returned `Response` whenever a plugin such as CORS has set headers, and a rebuilt 101 either throws `RangeError` on workerd or loses its socket. Supply the product's session auth, rate limiter and membership check as the options' callbacks, plus an exact `Origin` allow list.
 4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Evict the member whose access changed, so their socket reconnects and is checked again — each `evictSubjects` entry must be exactly the string the product's `authenticate` callback returned for that member, since the hub tags sockets with it; any other id evicts nobody. Publish only when the write changed something, because every publish is a billed Durable Object request.
-5. **Subscribe in the client** with `useTopic(() => url, onSignal)`, and treat every event as "re-read now".
+5. **Subscribe in the client** with `useTopic(() => url, onSignal, { onFallback: (outcome) => sendFallbackBeacon(endpoint, outcome) })`, and treat every event as "re-read now". Add the beacon route at `endpoint`: it checks the declared length, limits per IP, and reads the body bounded as it arrives — counting bytes and cancelling the stream once they pass `MAX_FALLBACK_BEACON_BYTES`, as cire's `readBoundedText` ([webhook-body.ts](../../cire/api/src/lib/webhook-body.ts)) does. Never `request.text()` followed by a length check: a body sent with no declared length would be buffered whole first, on a public route. It then hands the text to `readFallbackOutcome` (which refuses anything over `MAX_FALLBACK_BEACON_BYTES` or other than one outcome), counts the outcome with `recordClientFallback`, and answers 204 whatever it was sent. cire's [realtime-fallback.ts](../../cire/api/src/routes/realtime-fallback.ts) is the model.
 6. **Allow `wss:` in the portal's CSP.** Chromium 151 blocks a `wss://api.example` socket when `connect-src` lists only `https://api.example`, and opens it once `wss://api.example` is listed. So did the `ws:`/`http:` pair.
 
    *Measured 2026-09-26 — Playwright's Chromium 151.0.7922.34 against a local page and socket server, one run per policy.*
@@ -54,7 +56,11 @@ One hub instance serves one topic (`getByName(topic)`). It holds sockets through
 
 Nothing about access control depends on a signal arriving.
 
-A member whose seat changed gets three signals for one change: the message, the eviction's `dropped`, and `reconnected`. Each prompts a re-read. The others on the topic get one.
+A member evicted by a change gets three signals for it: the message, the eviction's `dropped`, and `reconnected`. The others on the topic get one. The message needs a fresh re-read, since a read already in flight may predate the change, and so does the reconnect, since a signal can be lost while the socket is down. The `dropped` carries no time of change, so a product can let it join a re-read already in flight: after an eviction, that is the message's re-read, which already postdates the change. cire does this.
+
+## Adopters
+
+- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`); route `GET /realtime/:topic`; publishes `members-changed` on `cire:wedding:<id>` after a co-host add, role change or removal (a removal only when a seat went), in the request's `waitUntil` ([realtime.ts](../../cire/api/src/services/realtime.ts)); a removal, or a role change to one without the dashboard (`helper`), evicts the co-host whose seat changed, while a change between `editor` and `viewer` evicts nobody, since their socket's access still holds; the host portal's `Dashboard` listens on the open wedding. The portal passes `onFallback` and reports the outcome to `POST /api/realtime/fallback`. See [[cire-auth]] and [[cire-host-portal-layout]].
 
 ## Observability
 
@@ -63,8 +69,18 @@ Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[
 - `realtime.subscribe.attempts`, by `product` and `outcome`
 - `realtime.signal.published`, by `product`, `kind` and `result`
 - `realtime.hub.capacity_refused`, by `product`
+- `realtime.client.fallbacks`, by `product` and `outcome` (`refused` | `exhausted`)
 
-Spans are `realtime.publish` and `realtime.subscribe`. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one once that browser telemetry channel exists.
+Spans are `realtime.publish` and `realtime.subscribe`.
+
+The browser client records nothing itself. When a subscription gives up, it calls `onFallback` with the outcome. A product passes that to `sendFallbackBeacon` ([beacon.ts](../../shared/realtime/src/client/beacon.ts)), which POSTs the outcome word to the product's beacon route. The route counts it with `recordClientFallback` ([fallback.ts](../../shared/realtime/src/server/fallback.ts)).
+
+What that count can and cannot show:
+
+- Counters are no-ops on workerd today, so on a deployed Worker the record is the `realtime client fell back` warning in Workers Logs, which keeps 7 days.
+- `refused` is the hub's 1008 close.
+- `exhausted` merges every refused subscribe (401, 403, 429, 503), a CSP block and a missing hub: the client sees each as a socket that failed to open.
+- A dead network stops the beacon too, so the count undercounts.
 
 ## Tests
 

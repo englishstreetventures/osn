@@ -321,10 +321,14 @@ describe("hostsService.remove", () => {
         role: "editor",
       }),
     );
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      true,
+    );
     expect(db.select().from(weddingHosts).all()).toHaveLength(0);
-    // Idempotent — removing again succeeds.
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    // Idempotent — removing again succeeds, and says nothing was removed.
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      false,
+    );
   });
 
   it("does not remove a host from a different wedding (cross-tenant guard)", async () => {
@@ -349,11 +353,34 @@ describe("hostsService.remove", () => {
         createdAt: now,
       })
       .run();
-    // Removing ALICE scoped to WEDDING_ID must NOT touch wed_b's row.
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    // Removing ALICE scoped to WEDDING_ID must NOT touch wed_b's row, and must
+    // say nothing was removed.
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      false,
+    );
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.weddingId, "wed_b")).all(),
     ).toHaveLength(1);
+  });
+
+  it("fails HostWriteError when the delete throws", async () => {
+    const db = buildDb();
+    // The real database for everything but the delete, which throws as a
+    // failed D1 statement does.
+    const failingDeletes = new Proxy(db, {
+      get: (target, key) =>
+        key === "delete"
+          ? () => {
+              throw new Error("D1_ERROR: delete failed");
+            }
+          : Reflect.get(target, key, target),
+    });
+    const err = await run(
+      failingDeletes,
+      hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }).pipe(Effect.flip),
+    );
+    expect(err._tag).toBe("HostWriteError");
+    expect(err.op).toBe("delete");
   });
 });
 

@@ -43,15 +43,16 @@ last-reviewed: 2026-09-27
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
-| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
+| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter), `REALTIME_RATE_LIMITER` (realtime subscribe) | osn-api (uses Upstash) |
+| **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]) | osn-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
-> **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its only
-> rate limiter is the native Cloudflare Workers Rate Limiting binding
-> (`CLAIM_RATE_LIMITER` in `cire/api/wrangler.toml`), and its state lives in
-> D1. So an **Upstash outage does not touch cire** — it degrades **osn-api**
-> auth + (via osn-api) any downstream that needs an osn access token. Keep the
-> two apart.
+> **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its rate
+> limiters are native Cloudflare Workers Rate Limiting bindings, declared per
+> tier in `cire/api/wrangler.toml`, and in-memory counters per isolate for
+> every route without a binding. Its state lives in D1. So an **Upstash outage
+> does not touch cire** — it degrades **osn-api** auth + (via osn-api) any
+> downstream that needs an osn access token. Keep the two apart.
 
 ---
 

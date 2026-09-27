@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-27
 ---
 # Host Portal Layout System
 
@@ -376,6 +376,11 @@ applies the answer. A wedding missing from the answer sends the route back to
 the list. A `helper` role swaps in its seat. Either way the scope unmounts and
 drops the rows. The re-read runs on:
 
+- **a push signal for the open wedding.** `Dashboard` listens on
+  `cire:wedding:<id>` with `useTopic` (`@shared/realtime/solid`) while a
+  wedding's dashboard is open, and not for a helper's seat. A signal, a
+  dropped socket, a reconnect and a stop each re-read the list at once,
+  outside the once-a-minute limit. See [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -386,15 +391,25 @@ drops the rows. The re-read runs on:
   module to module and never be refused. A 401 on the re-read signs the tab
   out, and that full page load discards the heap.
 
-Concurrent triggers share one request. The exception is a 403 on a request
-sent after the shared request started: the answer may predate the change the
-403 reports, so a new request goes out. A request unanswered after 30 s is
+Concurrent triggers share one request. The exceptions are a 403 on a request
+sent after the shared request started, and a push signal, reconnect or stop
+that arrives after it started: the answer may predate the change they report,
+so a new request goes out. A dropped socket reports no change of its own, so
+it joins a request in flight. After an eviction, that request is the one the
+signal just before the drop started. A request unanswered after 30 s is
 abandoned, and only the newest request's answer is applied. A failed answer,
 or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
 that arrives after one of those local writes is thrown away and the list is
-asked for once more. Nothing pushes a change to a tab left untouched. It
-waits for the tab's next request, move or return to view.
+asked for once more.
+
+Push stops in a tab when no hub is bound on the tier, when the socket is
+blocked, after six failed attempts, or when the hub closes the socket with
+1008 (for example at the member's socket cap). It stays stopped in that tab
+until the open wedding changes or the page reloads. Until then, a tab left
+untouched waits for its next request, move or return to view. Each time push
+stops, the tab reports it to `POST /api/realtime/fallback`
+([realtime.ts](../../cire/host/src/lib/realtime.ts)).
 
 ## Testing
 

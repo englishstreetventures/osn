@@ -82,10 +82,33 @@ export const PONG = "pong";
  * other close as a loss to recover from.
  */
 export const CLOSE_CODES = {
-  /** The topic is full, or the client sent a frame the protocol does not allow. */
+  /**
+   * The topic is full, the member's least recently seen socket was closed at
+   * their cap, or the client sent a frame the protocol does not allow.
+   */
   policy: 1008,
   /** The subject's membership changed: reconnect so it is checked again. */
   evicted: 4001,
   /** The hub needed room and this socket had not pinged lately: reconnect if still wanted. */
   stale: 4002,
 } as const;
+
+/**
+ * Why a browser subscription gave up, leaving the product's own refetch
+ * triggers as the only ones:
+ *
+ * - `refused` — the hub closed the socket with 1008 (`CLOSE_CODES.policy`):
+ *   the topic is full, the member's least recently seen socket was closed at
+ *   the member cap, or the client sent a frame the protocol does not allow.
+ * - `exhausted` — `maxAttempts` consecutive attempts failed. This covers every
+ *   subscribe the API refused (401, 403, 429, 503), which the browser sees
+ *   only as a failed connection, a socket blocked by the page's
+ *   Content-Security-Policy, and a network that is down.
+ */
+export const FALLBACK_OUTCOMES = ["refused", "exhausted"] as const;
+export type FallbackOutcome = (typeof FALLBACK_OUTCOMES)[number];
+
+/** True when `value` is exactly one of the fallback outcomes. */
+export function isFallbackOutcome(value: unknown): value is FallbackOutcome {
+  return typeof value === "string" && (FALLBACK_OUTCOMES as readonly string[]).includes(value);
+}

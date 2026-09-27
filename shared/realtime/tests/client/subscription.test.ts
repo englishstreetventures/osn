@@ -138,7 +138,7 @@ describe("createTopicSubscription", () => {
     expect(FakeWebSocket.instances).toHaveLength(3);
 
     latest().serverClose(1006); // attempt 3 = maxAttempts
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["exhausted"]]);
     expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(60_000);
     expect(FakeWebSocket.instances).toHaveLength(3);
@@ -154,15 +154,29 @@ describe("createTopicSubscription", () => {
     }
   });
 
-  it("stops at once on 1008 — the topic is full or a frame was refused", () => {
+  it("stops at once on 1008 — the topic is full, the member's least recently seen socket was closed at their cap, or a frame was refused", () => {
     const onFallback = vi.fn();
     createTopicSubscription(URL, onSignal, { ...base, onFallback });
     latest().serverOpen();
     latest().serverClose(1008);
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["refused"]]);
     expect(events).toEqual([{ reason: "stopped" }]);
     vi.advanceTimersByTime(60_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("says refused, not exhausted, when a 1008 cuts short a run of failed attempts", () => {
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, random: () => 0.999, onFallback });
+    latest().serverClose(1006); // failure 1: never opened
+    vi.advanceTimersByTime(99);
+    latest().serverClose(1006); // failure 2 of maxAttempts (3)
+    vi.advanceTimersByTime(199);
+    latest().serverOpen();
+    latest().serverClose(1008);
+    expect(onFallback.mock.calls).toEqual([["refused"]]);
+    expect(events).toEqual([{ reason: "stopped" }]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("prompts one last re-read when it gives up after having been open", () => {
@@ -175,7 +189,7 @@ describe("createTopicSubscription", () => {
       latest().serverClose(1006); // every reconnect refused
     }
     expect(events).toEqual([{ reason: "dropped" }, { reason: "stopped" }]);
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["exhausted"]]);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -208,7 +222,7 @@ describe("createTopicSubscription", () => {
     FakeWebSocket.throwOnConstruct = true;
     createTopicSubscription(URL, onSignal, { ...base, onFallback });
     vi.advanceTimersByTime(10_000);
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["exhausted"]]);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -249,7 +263,7 @@ describe("createTopicSubscription", () => {
 
     latest().serverOpen();
     latest().serverClose(1006); // attempt 3 = maxAttempts: opened, never answered
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["exhausted"]]);
     expect(events).toEqual([
       { reason: "dropped" },
       { reason: "reconnected" },
@@ -302,7 +316,7 @@ describe("createTopicSubscription", () => {
 
     latest().serverOpen();
     latest().serverClose(1006); // failure 3 post-reset = maxAttempts
-    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback.mock.calls).toEqual([["exhausted"]]);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

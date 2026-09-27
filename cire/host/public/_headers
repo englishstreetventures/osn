@@ -4,7 +4,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com https:; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com https:; connect-src 'self' https://api.cireweddings.com wss://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
   Content-Security-Policy-Report-Only: img-src 'self' data: blob: https://api.cireweddings.com; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
@@ -23,8 +23,9 @@
 #
 # THIS FILE IS THE PRODUCTION POLICY. The build rewrites the copy in `dist/`
 # (`src/lib/tier-headers.ts`): every `https://api.cireweddings.com` above
-# becomes the origin of the `PUBLIC_CIRE_API_URL` the bundle was built with, so
-# the dev tier allows and reports to its own API, and a local
+# becomes the origin of the `PUBLIC_CIRE_API_URL` the bundle was built with,
+# and every `wss://api.cireweddings.com` its `ws(s)://` twin, so the dev tier
+# allows and reports to its own API, and a local
 # `wrangler pages dev dist` build allows the local one. Write only the
 # production origin here; the build fails if this file stops naming it, or if
 # the origin it writes appears in no client script.
@@ -87,7 +88,10 @@
 #                               populates it. A set avatar loads and files a
 #                               report-only report until its host is listed
 #                               there: englishstventures/osn#1207.
-#   connect-src                 cire-api only. Sign-in is a TOP-LEVEL redirect
+#   connect-src                 cire-api only: `https:` for fetches and `wss:`
+#                               for the realtime socket (`src/lib/realtime.ts`).
+#                               An `https:` source does not admit a `wss:` URL,
+#                               so both are listed. Sign-in is a TOP-LEVEL redirect
 #                               to musubi, not a fetch, and a navigation is not
 #                               a connect-src subject — so the OSN origin is
 #                               deliberately absent.
