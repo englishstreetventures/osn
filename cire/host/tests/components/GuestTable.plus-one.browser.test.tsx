@@ -108,7 +108,7 @@ describe("GuestTable — plus-one removal focus", () => {
     const toggle = await openRemoval();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(document.activeElement).toBe(toggle));
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.checked).toBe(true);
   });
 
   it("sends nothing and hands focus back when the dialog is closed with Escape", async () => {
@@ -117,14 +117,14 @@ describe("GuestTable — plus-one removal focus", () => {
     await waitFor(() => expect(document.activeElement).toBe(toggle));
     expect(document.querySelector("dialog")?.open).toBe(false);
     expect(authFetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.checked).toBe(true);
   });
 
   it("hands focus back to the same switch once the removal has been written", async () => {
     const toggle = await openRemoval();
     await userEvent.click(screen.getByRole("button", { name: "Remove Sam Lee" }));
 
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(toggle.checked).toBe(false));
     expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull();
     expect(toggle.isConnected).toBe(true);
     // The dialog closes once its exit has played; focus comes back then.

@@ -15,12 +15,13 @@ import { Switch } from "../../src/ui/switch";
 
 afterEach(() => cleanup());
 
-const control = () => screen.getByRole("switch");
+const control = () => screen.getByRole("switch") as HTMLInputElement;
 
 describe("Switch", () => {
   it("is a named switch carrying its state", () => {
     render(() => <Switch checked label="Allow plus-ones" />);
     expect(control().getAttribute("aria-checked")).toBe("true");
+    expect(control().checked).toBe(true);
     expect(screen.getByRole("switch", { name: "Allow plus-ones" })).toBe(control());
   });
 
@@ -46,7 +47,7 @@ describe("Switch", () => {
     ));
     fireEvent.click(control());
     expect(onChange).toHaveBeenLastCalledWith(true);
-    expect(control().getAttribute("aria-checked")).toBe("true");
+    expect(control().checked).toBe(true);
   });
 
   it("snaps back when the caller does not change `checked`", () => {
@@ -54,16 +55,14 @@ describe("Switch", () => {
     render(() => <Switch checked={false} label="Allow" onChange={onChange} />);
     fireEvent.click(control());
     expect(onChange).toHaveBeenCalledWith(true);
+    expect(control().checked).toBe(false);
     expect(control().getAttribute("aria-checked")).toBe("false");
-    expect((control() as HTMLInputElement).checked).toBe(false);
   });
 
   it("toggles from the track as well as the hidden input", () => {
     const onChange = vi.fn();
-    const { container } = render(() => (
-      <Switch checked={false} label="Allow" onChange={onChange} />
-    ));
-    const track = container.querySelector("[id$='-control']") as HTMLElement;
+    render(() => <Switch checked={false} label="Allow" onChange={onChange} />);
+    const track = control().nextElementSibling as HTMLElement;
     fireEvent.click(track);
     expect(onChange).toHaveBeenCalledWith(true);
   });
@@ -76,7 +75,7 @@ describe("Switch", () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(input.getAttribute("aria-readonly")).toBe("true");
     expect(input.disabled).toBe(false);
-    expect(input.getAttribute("aria-checked")).toBe("true");
+    expect(input.checked).toBe(true);
   });
 
   it("busy: announces it and refuses a second change while the first is saving", () => {

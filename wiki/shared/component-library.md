@@ -102,7 +102,7 @@ shared/ui/src/
     ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (Kobalte)
     ├── select.tsx          ← Select (native <select>, Input's box)
     ├── stat.tsx            ← Stat
-    ├── switch.tsx          ← Switch — an on/off change that takes effect at once (Kobalte)
+    ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
     ├── table.tsx           ← Table and its parts
     ├── tabs.tsx            ← Tabs, TabsList, TabsTrigger (Kobalte)
     ├── textarea.tsx        ← Textarea
@@ -395,7 +395,7 @@ Key behaviours you get by default:
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
 - **RadioGroup** — grouped `role="radiogroup"`, single selection, keyboard navigation
 - **Checkbox** — `role="checkbox"`, indeterminate support
-- **Switch** — a visually hidden `<input type="checkbox" role="switch">` beside a painted track, so Space toggles it and it is announced as a switch. Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
+- **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 

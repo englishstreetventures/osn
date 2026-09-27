@@ -207,9 +207,9 @@ const guestRowNames = () =>
 describe("GuestTable — plus-one permission", () => {
   it("shows each guest's stored permission, as read from the list", async () => {
     await mount();
-    expect(switchFor("Ada Sharma").getAttribute("aria-checked")).toBe("true");
-    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
-    expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("true");
+    expect(switchFor("Ada Sharma").checked).toBe(true);
+    expect(switchFor("Bo Sharma").checked).toBe(false);
+    expect(switchFor("Cy Jones").checked).toBe(true);
     expect(screen.getByRole("columnheader", { name: "Plus-one" })).toBeTruthy();
   });
 
@@ -228,7 +228,7 @@ describe("GuestTable — plus-one permission", () => {
     before.focus();
     fireEvent.click(before);
 
-    await waitFor(() => expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(switchFor("Bo Sharma").checked).toBe(true));
     expect(puts()).toEqual([
       {
         url: "https://api.test/api/organiser/weddings/wed_a/guests/g_bo/plus-one",
@@ -243,7 +243,7 @@ describe("GuestTable — plus-one permission", () => {
   it("turns a guest off without asking when they have named no one", async () => {
     await mount();
     fireEvent.click(switchFor("Cy Jones"));
-    await waitFor(() => expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(switchFor("Cy Jones").checked).toBe(false));
     expect(puts()).toEqual([
       {
         url: "https://api.test/api/organiser/weddings/wed_a/guests/g_cy/plus-one",
@@ -264,7 +264,7 @@ describe("GuestTable — plus-one permission", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(puts()).toEqual([]);
-    expect(switchFor("Ada Sharma").getAttribute("aria-checked")).toBe("true");
+    expect(switchFor("Ada Sharma").checked).toBe(true);
     expect(screen.getByText(/Plus-one of Ada Sharma/)).toBeTruthy();
   });
 
@@ -292,7 +292,7 @@ describe("GuestTable — plus-one permission", () => {
         body: { allowed: false, removePlusOne: true },
       },
     ]);
-    expect(switchFor("Ada Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Ada Sharma").checked).toBe(false);
     expect(toastSuccess).toHaveBeenCalledWith("Removed Sam Lee");
   });
 
@@ -331,7 +331,7 @@ describe("GuestTable — plus-one permission", () => {
 
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]!.body).toEqual({ allowed: false });
-    await waitFor(() => expect(switchFor("Ada Sharma").getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(switchFor("Ada Sharma").checked).toBe(false));
   });
 
   it("when the API says a plus-one was named since the list loaded, reloads and asks", async () => {
@@ -385,7 +385,7 @@ describe("GuestTable — plus-one permission", () => {
     expect(within(group).getByText("Plus-ones: 1 of 2")).toBeTruthy();
     fireEvent.click(within(group).getByRole("button", { name: "Allow everyone" }));
 
-    await waitFor(() => expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(switchFor("Bo Sharma").checked).toBe(true));
     expect(puts()).toEqual([
       {
         url: "https://api.test/api/organiser/weddings/wed_a/families/fam_a/plus-one",
@@ -409,7 +409,7 @@ describe("GuestTable — plus-one permission", () => {
     ).toBe("true");
     fireEvent.click(within(group).getByRole("button", { name: "Allow no one" }));
 
-    await waitFor(() => expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(switchFor("Cy Jones").checked).toBe(false));
     expect(puts()).toEqual([
       {
         url: "https://api.test/api/organiser/weddings/wed_a/families/fam_b/plus-one",
@@ -453,7 +453,7 @@ describe("GuestTable — plus-one permission", () => {
       url: "https://api.test/api/organiser/weddings/wed_a/families/fam_a/plus-one",
       body: { allowed: false, removePlusOnes: true },
     });
-    await waitFor(() => expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(switchFor("Bo Sharma").checked).toBe(false));
   });
 
   it("reloads and warns when the API removed a different number than was confirmed", async () => {
@@ -512,7 +512,7 @@ describe("GuestTable — plus-one permission", () => {
     fireEvent.click(within(householdGroup("Jones")).getByRole("button", { name: "Allow no one" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(puts()).toHaveLength(1);
-    expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("true");
+    expect(switchFor("Cy Jones").checked).toBe(true);
 
     finish(json({ guestId: "g_bo", plusOneAllowed: true, plusOneRemoved: false }));
     await waitFor(() => expect(switchFor("Bo Sharma").hasAttribute("aria-busy")).toBe(false));
@@ -530,12 +530,12 @@ describe("GuestTable — plus-one permission", () => {
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("Could not change the plus-one setting. Try again."),
     );
-    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Bo Sharma").checked).toBe(false);
     expect(switchFor("Bo Sharma").hasAttribute("aria-busy")).toBe(false);
 
     answerPut = applyPut;
     fireEvent.click(switchFor("Bo Sharma"));
-    await waitFor(() => expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(switchFor("Bo Sharma").checked).toBe(true));
   });
 
   it("sends a signed-out organiser to sign in", async () => {
@@ -543,7 +543,7 @@ describe("GuestTable — plus-one permission", () => {
     answerPut = () => new Response("", { status: 401 });
     fireEvent.click(switchFor("Bo Sharma"));
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
-    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Bo Sharma").checked).toBe(false);
   });
 
   it("reloads the list when the guest has gone, and says so", async () => {
@@ -566,7 +566,7 @@ describe("GuestTable — plus-one permission", () => {
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("Could not change the plus-one setting. Try again."),
     );
-    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Bo Sharma").checked).toBe(false);
   });
 
   it("tells a demoted organiser the write was refused and leaves the switch as it was", async () => {
@@ -576,7 +576,7 @@ describe("GuestTable — plus-one permission", () => {
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("Only the owner and editors can change plus-ones."),
     );
-    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Bo Sharma").checked).toBe(false);
   });
 
   it("gives a viewer read-only switches, no household controls, and sends nothing", async () => {
@@ -591,7 +591,7 @@ describe("GuestTable — plus-one permission", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(puts()).toEqual([]);
     expect(screen.queryByText("Remove Sam Lee?")).toBeNull();
-    expect(adaSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(adaSwitch.checked).toBe(true);
   });
 
   it("reads a missing `canEdit` as read-only", async () => {
