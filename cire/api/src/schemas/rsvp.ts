@@ -8,11 +8,14 @@ import { Effect, Schema } from "effect";
 const MAX_DIETARY_CHARS = 500;
 const MAX_RSVP_BATCH = 200;
 
-// Privacy-notice / consent-copy version the dietary opt-in agrees to. The
-// server stamps THIS value (never a client-supplied one) into
-// `rsvps.dietary_consent_version`, so the stored Art. 9(2)(a) evidence always
-// pins the copy actually shown. Bump (date-stamped, matching the wiki
-// `last-reviewed` convention) whenever the consent wording materially changes.
+// Privacy-notice / consent-copy version the guest's own dietary opt-in agrees
+// to. The server stamps THIS value (never a client-supplied one) into
+// `rsvps.dietary_consent_version` on a guest's own reply, so the stored
+// Art. 9(2)(a) evidence always pins the copy actually shown. A plus-one's reply
+// carries the household's attestation instead, whose version lives with its
+// wording in `@cire/dietary` (`PLUS_ONE_DIETARY_ATTESTATION`). Bump
+// (date-stamped, matching the wiki `last-reviewed` convention) whenever the
+// consent wording materially changes.
 //
 // Three other places hold this value and move with it in the same commit:
 // `cire/db/seed/data/rsvps.ts`, the generated `cire/db/seed/dev-seed.sql`
@@ -42,6 +45,13 @@ const DietaryPresets = Schema.Array(Schema.Literals(DIETARY_PRESETS)).check(
 // free text alike; the route rejects (422) any request carrying either without
 // it. A preset is not the safe half of the pair: `halal` and `kosher` reveal
 // religious belief, `nuts` and `shellfish` reveal health.
+//
+// `dietaryAttestation` matters only on a plus-one's reply: the version of the
+// household's attestation wording the sheet showed
+// (`PLUS_ONE_DIETARY_ATTESTATION.version` in `@cire/dietary`). The route
+// refuses a plus-one's dietary data unless it is the version this API stamps,
+// and stamps its own constant, never this string. Bounded because it is
+// compared, not stored.
 const RsvpItem = Schema.Struct({
   guestId: Schema.NonEmptyString,
   eventId: Schema.NonEmptyString,
@@ -49,6 +59,9 @@ const RsvpItem = Schema.Struct({
   dietary: DietaryText.pipe(Schema.withDecodingDefaultType(Effect.succeed(""))),
   dietaryPresets: DietaryPresets.pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
+  dietaryAttestation: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("")),
+  ),
 });
 
 export const RsvpBody = RsvpItem;

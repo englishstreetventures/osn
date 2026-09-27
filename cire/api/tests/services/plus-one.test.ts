@@ -199,6 +199,138 @@ describe("plusOneService.save", () => {
   });
 });
 
+/**
+ * A household rename can name a different person — or a second device, still
+ * showing no plus-one, "adds" one and so renames whoever is there. The dietary
+ * answers and the household's attestation on file were about the person before,
+ * so they go with the old name; the replies' status stays, since the household
+ * sees and can change it.
+ */
+describe("plusOneService.save — a household rename", () => {
+  const giveDietary = (guestId: string) =>
+    db
+      .insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        dietary: "No sesame",
+        dietaryPresets: "nuts,other",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: "inviter-2026-09-27",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+  const replyOf = (guestId: string) =>
+    db
+      .select({
+        status: rsvps.status,
+        dietary: rsvps.dietary,
+        dietaryPresets: rsvps.dietaryPresets,
+        dietaryConsentAt: rsvps.dietaryConsentAt,
+        dietaryConsentVersion: rsvps.dietaryConsentVersion,
+      })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, guestId))
+      .get();
+
+  it("clears the plus-one's dietary answers and consent record, and keeps the status", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }),
+    );
+
+    expect(result).toMatchObject({ created: false, dietaryCleared: true });
+    expect(plusOnesOf(bo.id)[0]).toMatchObject({ firstName: "Alex" });
+    expect(replyOf(samId)).toEqual({
+      status: "attending",
+      dietary: "",
+      dietaryPresets: "",
+      dietaryConsentAt: null,
+      dietaryConsentVersion: null,
+    });
+  });
+
+  it("clears nothing, and says so, when the name does not change", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    giveDietary(samId);
+
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: " Sam ", lastName: "Guest" }),
+    );
+
+    expect(result.dietaryCleared).toBe(false);
+    expect(replyOf(samId)?.dietary).toBe("No sesame");
+  });
+
+  it("says nothing was cleared when there was nothing to clear", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }),
+    );
+    expect(result).toMatchObject({ created: false, dietaryCleared: false });
+  });
+
+  it("leaves another guest's dietary answers alone", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    giveDietary(bo.id);
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(replyOf(bo.id)?.dietary).toBe("No sesame");
+  });
+
+  it("clears nothing on naming a new plus-one", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" }),
+    );
+    expect(result).toMatchObject({ created: true, dietaryCleared: false });
+  });
+
+  it("renames over dietary answers in one read and one batch of three", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    const recorded = recordStatements(db);
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+    // The context read, then the clear, the name write and its read-back.
+    expect(recorded).toHaveLength(4);
+  });
+
+  /**
+   * The organiser's route is the Art. 16 correction of a misspelt name, made on
+   * the controller's own knowledge; it is not the household swapping one person
+   * for another, so the answers stay.
+   */
+  it("keeps the answers when an organiser corrects the name", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sma" });
+    giveDietary(samId);
+
+    await run(
+      plusOneService.renameAsOrganiser({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        inviterGuestId: bo.id,
+        name: { firstName: "Sam", lastName: "" },
+      }),
+    );
+
+    expect(replyOf(samId)?.dietaryConsentVersion).toBe("inviter-2026-09-27");
+    expect(replyOf(samId)?.dietary).toBe("No sesame");
+  });
+});
+
 describe("buildCreatePlusOne — the double submit", () => {
   it("writes nothing and copies no invitation when the inviter already has a plus-one", async () => {
     const bo = guestNamed(db, "Bo");

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, rsvps, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -897,9 +898,11 @@ describe("POST /api/rsvp — RSVP deadline", () => {
 
 /**
  * A plus-one's reply is written by the household that brought them. It is
- * stamped `inviter_attested`, counted as a guest write, and — until the invite
- * carries wording for the household's attestation — may not carry dietary data.
- * Its own database, so the plus-one rows never reach the suite above.
+ * stamped `inviter_attested` and counted as a guest write. It may carry dietary
+ * data only with the household's attestation that the plus-one agreed — the
+ * version of the attestation wording the sheet showed, which must be the one
+ * this API stamps. Its own database, so the plus-one rows never reach the suite
+ * above.
  */
 describe("POST /api/rsvp — a plus-one's reply", () => {
   const setUp = async () => {
@@ -967,11 +970,20 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     ).toBe(guestWrites + 2);
   });
 
-  it("refuses dietary data on the plus-one's reply, and writes nothing", async () => {
+  it("refuses dietary data on the plus-one's reply without the attestation, and writes nothing", async () => {
     const { plusDb, samId, send } = await setUp();
     for (const reply of [
       { dietary: "Vegetarian", dietaryConsent: true },
       { dietaryPresets: ["halal"], dietaryConsent: true },
+      // Another version of the wording: the sheet showed words this API does
+      // not stamp, so the stored evidence would name the wrong copy.
+      { dietaryPresets: ["halal"], dietaryConsent: true, dietaryAttestation: "inviter-2000-01-01" },
+      // The guest's own-consent version is not the attestation.
+      {
+        dietaryPresets: ["halal"],
+        dietaryConsent: true,
+        dietaryAttestation: DIETARY_CONSENT_VERSION,
+      },
     ]) {
       const res = await send({
         rsvps: [{ guestId: samId, eventId: HINDU_ID, status: "attending", ...reply }],
@@ -1009,6 +1021,72 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     expect(plusDb.select().from(rsvps).all()).toEqual([]);
     expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" })).toBe(
       blocked + 1,
+    );
+  });
+
+  it("stores dietary data on the plus-one's reply with the attestation, stamped as the household's", async () => {
+    const { plusDb, bo, samId, send } = await setUp();
+    const res = await send({
+      rsvps: [
+        {
+          guestId: samId,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietary: "No sesame",
+          dietaryPresets: ["halal"],
+          dietaryConsent: true,
+          dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+        },
+        {
+          guestId: bo.id,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietaryPresets: ["vegetarian"],
+          dietaryConsent: true,
+          // Ignored on a member's own row: their consent is their own.
+          dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const stored = plusDb
+      .select({
+        guestId: rsvps.guestId,
+        source: rsvps.consentSource,
+        version: rsvps.dietaryConsentVersion,
+        at: rsvps.dietaryConsentAt,
+        presets: rsvps.dietaryPresets,
+      })
+      .from(rsvps)
+      .all();
+    const sam = stored.find((r) => r.guestId === samId);
+    const boRow = stored.find((r) => r.guestId === bo.id);
+    expect(sam).toMatchObject({
+      source: "inviter_attested",
+      version: PLUS_ONE_DIETARY_ATTESTATION.version,
+      presets: "halal,other",
+    });
+    expect(sam?.at).toBeInstanceOf(Date);
+    expect(boRow).toMatchObject({ source: "guest", version: DIETARY_CONSENT_VERSION });
+
+    // Both read back as current, each against its own copy — and the answer
+    // carries only the fields the invite reads.
+    const body = (await res.json()) as {
+      rsvps: Array<Record<string, unknown> & { guestId: string }>;
+    };
+    const samBack = body.rsvps.find((r) => r.guestId === samId);
+    expect(samBack?.dietaryConsentCurrent).toBe(true);
+    expect(body.rsvps.find((r) => r.guestId === bo.id)?.dietaryConsentCurrent).toBe(true);
+    expect(Object.keys(samBack ?? {}).toSorted()).toEqual(
+      [
+        "dietary",
+        "dietaryConsentCurrent",
+        "dietaryPresets",
+        "eventId",
+        "guestId",
+        "status",
+      ].toSorted(),
     );
   });
 

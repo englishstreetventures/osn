@@ -1,5 +1,5 @@
 import { families, guests, guestEvents, weddings } from "@cire/db";
-import type { DietaryPreset } from "@cire/dietary";
+import { PLUS_ONE_DIETARY_ATTESTATION, type DietaryPreset } from "@cire/dietary";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -234,17 +234,24 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
             }
 
             // A plus-one's reply is typed by the household that brought them,
-            // so its dietary data would rest on the household's attestation,
-            // not the plus-one's own consent — and the invite has no wording
-            // for that attestation yet. Refuse it rather than stamp a consent
-            // version whose copy says something else. Status-only replies for a
-            // plus-one are accepted. See [[wiki/compliance/dpia/cire-guest-data]]
-            // → inviter-attested variant.
+            // so its dietary data rests on the household's attestation that the
+            // plus-one agreed, not on the plus-one's own consent. It is stored
+            // only when the sheet showed the attestation wording this API
+            // stamps: the reply names that wording's version, and anything else
+            // — no attestation, or words from another build of the invite — is
+            // refused rather than stamped with a version whose copy was not on
+            // screen. Status-only replies for a plus-one need none. See
+            // [[wiki/compliance/dpia/cire-guest-data]] → inviter-attested
+            // variant.
             const plusOneIds = new Set(
               familyGuestEvents.filter((row) => row.plusOneOf !== null).map((row) => row.guestId),
             );
             for (const rsvp of body.rsvps) {
-              if (plusOneIds.has(rsvp.guestId) && hasDietaryData(rsvp)) {
+              if (
+                plusOneIds.has(rsvp.guestId) &&
+                hasDietaryData(rsvp) &&
+                rsvp.dietaryAttestation !== PLUS_ONE_DIETARY_ATTESTATION.version
+              ) {
                 set.status = 422;
                 yield* Effect.sync(() => metricRsvpBlocked("plus_one_dietary"));
                 return { error: "plus_one_dietary_unavailable" };
