@@ -14,6 +14,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createDirectoryService } from "../../src/services/directory";
 import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -472,6 +473,33 @@ describe("vendor directory write routes (add-from-directory)", () => {
     // The unique index would also turn a second insert into a 409; this
     // proves the route stopped before reaching it.
     expect(statements.some((s) => /^insert into "vendors"/i.test(s.sql))).toBe(false);
+  });
+
+  // The organiser portal reaches this route with the session cookie; other
+  // callers send a bearer. Each way in is tested on the allow and deny side.
+  it("adds on a live session cookie and refuses a dead cookie, no credential or a foreign token", async () => {
+    const { app, db } = buildWriteFixture();
+    const url = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/directory/${LA}/add`;
+    const body = JSON.stringify({ category: "venue" });
+    const post = (headers: Record<string, string>) =>
+      appRequest(app, url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body,
+      });
+
+    expect((await post({})).status).toBe(401);
+    expect((await post({ cookie: "cire_org_session=not-a-live-session-token" })).status).toBe(401);
+    const foreign = await makeOsnTestAuth();
+    expect((await post({ Authorization: `Bearer ${await foreign.sign(EDITOR)}` })).status).toBe(
+      401,
+    );
+
+    const token = await seedOrganiserSession(db, EDITOR);
+    const ok = await post({ cookie: `cire_org_session=${token}` });
+    expect(ok.status).toBe(201);
+    const { vendor } = (await ok.json()) as { vendor: { directoryVendorId: string } };
+    expect(vendor.directoryVendorId).toBe(LA);
   });
 
   it("checks the category before the duplicate (400, not 409)", async () => {

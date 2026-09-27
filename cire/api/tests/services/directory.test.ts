@@ -172,6 +172,30 @@ describe("directoryService.upsertListingForOrg", () => {
     expect(res.value.categories).toEqual(["cake", "venue"]);
   });
 
+  // Answering from the body is correct only because a duplicate category
+  // fails the replace batch on the (directory_vendor_id, category) key. That
+  // the stored set survives the failure is D1's batch atomicity, tested in
+  // tests/db/d1-integration.test.ts; bun:sqlite runs the batch unwrapped.
+  it("fails a save that repeats a category, first save or update", async () => {
+    const db = db0();
+    const dup = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["venue", "venue"])),
+    );
+    expect(Exit.isFailure(dup)).toBe(true);
+
+    const saved = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["cake"])),
+    );
+    expect(Exit.isSuccess(saved)).toBe(true);
+    const again = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["florals", "florals"])),
+    );
+    expect(Exit.isFailure(again)).toBe(true);
+  });
+
   it("answers an update from the UPDATE itself, reading nothing back", async () => {
     const db = db0();
     const first = await run(

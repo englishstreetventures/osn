@@ -981,6 +981,20 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(directoryVendorCategories)
         .where(eq(directoryVendorCategories.directoryVendorId, second.id));
       expect(stored.map((r) => r.category).toSorted()).toEqual(second.categories);
+
+      // A repeated category fails the replace batch on its primary key, and
+      // the batch commits nothing: the stored set is the one saved above.
+      const dup = await Effect.runPromiseExit(
+        directory
+          .upsertListingForOrg("org_upsert", { ...body, categories: ["florals", "florals"] })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(dup)).toBe(true);
+      const after = await db
+        .select({ category: directoryVendorCategories.category })
+        .from(directoryVendorCategories)
+        .where(eq(directoryVendorCategories.directoryVendorId, second.id));
+      expect(after.map((r) => r.category).toSorted()).toEqual(["cake", "venue"]);
     },
     MF_TIMEOUT_MS,
   );
