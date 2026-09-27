@@ -20,7 +20,7 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import RsvpView from "../../src/components/RsvpView";
-import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -144,6 +144,38 @@ describe("RsvpView — New badges", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await screen.findByRole("heading", { name: "Reception" });
     expect(screen.queryByText("New")).toBeNull();
+    expect(seenCalls()).toEqual([]);
+  });
+
+  it("marks nothing seen when the RSVPs themselves fail to load", async () => {
+    let feedAnswered = false;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/rsvp-changes")) {
+        feedAnswered = true;
+        return Promise.resolve(json(feed([{ guestId: "g1", eventId: "evt_1" }], 9)));
+      }
+      if (url.endsWith("/rsvps")) return Promise.resolve(json({ error: "boom" }, 500));
+      return Promise.resolve(json({ seenSeq: 9 }));
+    });
+    render(() => <RsvpView weddingId="wed_a" />);
+    expect(await screen.findByText(/Could not load RSVPs/)).toBeInTheDocument();
+    await waitFor(() => expect(feedAnswered).toBe(true));
+    // Let the feed's promise chain settle before looking for the POST.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seenCalls()).toEqual([]);
+  });
+
+  it("marks nothing seen when the organiser is signed out", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/rsvp-changes")) {
+        return Promise.resolve(json(feed([{ guestId: "g1", eventId: "evt_1" }], 9)));
+      }
+      if (url.endsWith("/rsvps")) return Promise.resolve(json({ error: "unauthorised" }, 401));
+      return Promise.resolve(json({ seenSeq: 9 }));
+    });
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(seenCalls()).toEqual([]);
   });
 });

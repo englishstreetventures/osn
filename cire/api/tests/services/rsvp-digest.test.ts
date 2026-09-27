@@ -11,18 +11,20 @@ import {
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import {
   RSVP_DIGEST_LOOKBACK_MS,
   rsvpDigestService,
   type RsvpDigestResult,
 } from "../../src/services/rsvp-digest";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_digest_editor";
@@ -304,5 +306,121 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     await run(db, layer, lookupOf({ ...ADDRESSES, usr_other_owner: "other@example.test" }).lookup);
     expect(recipients(sent)).toEqual(["other@example.test"]);
     expect(sent[0]!.data).toEqual(expect.objectContaining({ weddingName: "Other" }));
+  });
+
+  it("counts each outcome under its own label", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const counts = async () =>
+      Object.fromEntries(
+        await Promise.all(
+          (["sent", "failed", "no_address", "lookup_failed", "deferred"] as const).map(
+            async (outcome) =>
+              [outcome, await counterValue(CIRE_METRICS.rsvpDigestEmails, { outcome })] as const,
+          ),
+        ),
+      );
+    const before = await counts();
+    const { [LEGACY_HOST]: _legacy, ...withoutLegacy } = ADDRESSES;
+    // Owner sent, editor failed, legacy seat has no address; cap 3 of 3.
+    await run(db, transport(["editor@example.test"]).layer, lookupOf(withoutLegacy).lookup);
+    const mid = await counts();
+    expect(mid.sent - before.sent).toBe(1);
+    expect(mid.failed - before.failed).toBe(1);
+    expect(mid.no_address - before.no_address).toBe(1);
+    // Then osn-api down, with a cap of one: one looked up and failed, none deferred.
+    change(db, ada, "reply_edited");
+    await run(db, transport().layer, async () => new Map(), { maxEmails: 1 });
+    const after = await counts();
+    expect(after.lookup_failed - mid.lookup_failed).toBe(1);
+    expect(after.deferred - mid.deferred).toBe(2);
+  });
+
+  it("fails as RsvpDigestError when the database cannot be read", async () => {
+    const { db } = fixture();
+    db.run(sql`DROP TABLE rsvp_changes`);
+    const error = await Effect.runPromise(
+      rsvpDigestService
+        .sendDailyDigests({ now: NOW, organiserOrigin: ORIGIN, lookup: lookupOf(ADDRESSES).lookup })
+        .pipe(Effect.flip, Effect.provideService(DbService, db), Effect.provide(transport().layer)),
+    );
+    expect(error._tag).toBe("RsvpDigestError");
+  });
+
+  it("serves the recipient who has waited longest first", async () => {
+    const { db, ada, bo } = fixture();
+    change(db, ada, "reply_new");
+    // Two of three are mailed; the third (the legacy seat) is deferred and
+    // its marker stays behind the other two.
+    const first = transport();
+    await run(db, first.layer, lookupOf(ADDRESSES).lookup, { maxEmails: 2 });
+    expect(recipients(first.sent)).toEqual(["editor@example.test", "owner@example.test"]);
+    change(db, bo, "reply_new");
+    const { sent, layer } = transport();
+    await run(db, layer, lookupOf(ADDRESSES).lookup, { maxEmails: 1 });
+    expect(sent.map((s) => s.to)).toEqual(["legacy@example.test"]);
+  });
+
+  it("builds the RSVP link on an origin given with a trailing slash", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const { sent, layer } = transport();
+    await Effect.runPromise(
+      rsvpDigestService
+        .sendDailyDigests({
+          now: NOW,
+          organiserOrigin: `${ORIGIN}/`,
+          lookup: lookupOf({ [OWNER]: ADDRESSES[OWNER]! }).lookup,
+        })
+        .pipe(Effect.provideService(DbService, db), Effect.provide(layer)),
+    );
+    expect(sent[0]!.data).toEqual(
+      expect.objectContaining({ rsvpUrl: `${ORIGIN}/#/w/${BOOTSTRAP_WEDDING_ID}/guests/rsvps` }),
+    );
+  });
+
+  it("asks osn-api about an organiser of two weddings once", async () => {
+    const { db, ada } = fixture();
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_digest_second",
+        slug: "digest-second",
+        displayName: "Second",
+        ownerOsnProfileId: OWNER,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    change(db, ada, "reply_new");
+    change(db, ada, "reply_new", undefined, "wed_digest_second");
+    const { lookup, calls } = lookupOf({ [OWNER]: ADDRESSES[OWNER]! });
+    const { sent, layer } = transport();
+    await run(db, layer, lookup);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.filter((id) => id === OWNER)).toHaveLength(1);
+    expect(sent.filter((s) => s.to === ADDRESSES[OWNER])).toHaveLength(2);
+  });
+
+  it("leaves a digest switched off mid-run off", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const lookup = async (ids: readonly string[]) => {
+      // The editor turns the digest off while the run is between its reads
+      // and its marker upsert.
+      await Effect.runPromise(
+        rsvpChangeService
+          .setDigest(BOOTSTRAP_WEDDING_ID, EDITOR, false)
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      return lookupOf(ADDRESSES).lookup(ids);
+    };
+    await run(db, transport().layer, lookup);
+    const [notice] = db
+      .select({ enabled: hostRsvpNotices.digestEnabled })
+      .from(hostRsvpNotices)
+      .where(eq(hostRsvpNotices.osnProfileId, EDITOR))
+      .all();
+    expect(notice?.enabled).toBe(false);
   });
 });

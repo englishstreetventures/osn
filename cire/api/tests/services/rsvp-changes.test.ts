@@ -9,12 +9,13 @@ import {
   weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit } from "effect";
 
 import { commitBatch, DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import {
   buildRecordStatement,
   buildUnseenQuery,
@@ -26,6 +27,7 @@ import {
   UNSEEN_ROW_LIMIT,
   type PriorReply,
 } from "../../src/services/rsvp-changes";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_changes_editor";
@@ -439,5 +441,76 @@ describe("rsvp_changes cascade", () => {
     expect(db.select({ familyId: rsvpChanges.familyId }).from(rsvpChanges).all()).toEqual([
       { familyId: bo.familyId },
     ]);
+  });
+});
+
+describe("typed failures", () => {
+  const flip = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>) =>
+    Effect.runPromise(effect.pipe(Effect.flip, Effect.provideService(DbService, db)));
+
+  it("fails markSeen, setDigest and sweepExpired as RsvpChangeError, never a defect", async () => {
+    const { db } = fixture();
+    db.run(sql`DROP TABLE host_rsvp_notices`);
+    expect(
+      await flip(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, 1)),
+    ).toMatchObject({ _tag: "RsvpChangeError", op: "seen" });
+    expect(
+      await flip(db, rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, OWNER, false)),
+    ).toMatchObject({ _tag: "RsvpChangeError", op: "digest" });
+
+    db.run(sql`DROP TABLE rsvp_changes`);
+    const before = await counterValue(CIRE_METRICS.rsvpChangeSwept, { result: "error" });
+    expect(await flip(db, rsvpChangeService.sweepExpired(new Date()))).toMatchObject({
+      _tag: "RsvpChangeError",
+      op: "sweep",
+    });
+    expect(await counterValue(CIRE_METRICS.rsvpChangeSwept, { result: "error" })).toBe(before + 1);
+  });
+
+  it("counts the rows a sweep deletes", async () => {
+    const { db, ada } = fixture();
+    const now = new Date("2026-09-27T04:00:00Z");
+    const old = new Date(now.getTime() - RSVP_CHANGE_RETENTION_MS - 1000);
+    await record(
+      db,
+      ada.familyId,
+      [
+        { guestId: ada.id, eventId: HINDU, kind: "reply_new" },
+        { guestId: ada.id, eventId: RECEPTION, kind: "reply_new" },
+      ],
+      old,
+    );
+    const before = await counterValue(CIRE_METRICS.rsvpChangeSwept, { result: "ok" });
+    await ok(db, rsvpChangeService.sweepExpired(now));
+    expect(await counterValue(CIRE_METRICS.rsvpChangeSwept, { result: "ok" })).toBe(before + 2);
+  });
+});
+
+describe("markSeen on a wedding with no changes", () => {
+  it("stores 0 whatever is sent", async () => {
+    const { db } = fixture();
+    expect(await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, 42))).toBe(0);
+  });
+});
+
+describe("the feed's row limit", () => {
+  it("reads exactly the limit without calling it truncated, and one more as truncated", async () => {
+    const { db, ada } = fixture();
+    const changes = Array.from({ length: UNSEEN_ROW_LIMIT }, (_, i) => ({
+      guestId: `${ada.id}-${i}`,
+      eventId: HINDU,
+      kind: "reply_new" as const,
+    }));
+    await record(db, ada.familyId, changes);
+    const full = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(full.truncated).toBe(false);
+    expect(full.rows).toHaveLength(UNSEEN_ROW_LIMIT);
+
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: RECEPTION, kind: "reply_new" }]);
+    const over = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(over.truncated).toBe(true);
+    expect(over.rows).toHaveLength(UNSEEN_ROW_LIMIT);
+    // The newest change is the one kept, and it is the marker.
+    expect(over.rows[0]).toEqual({ guestId: ada.id, eventId: RECEPTION });
   });
 });

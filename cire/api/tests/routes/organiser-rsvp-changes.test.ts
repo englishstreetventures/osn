@@ -2,11 +2,12 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, rsvpChanges, weddingHosts, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { appRequest, jsonBody } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -198,5 +199,98 @@ describe("PUT /rsvp-changes/digest", () => {
     for (const body of [{ enabled: "no" }, {}, "nope"]) {
       expect((await req(app, "PUT", `${base}/digest`, OWNER, body)).status).toBe(400);
     }
+  });
+});
+
+describe("credentials", () => {
+  const routes = [
+    { method: "GET", path: base, body: undefined },
+    { method: "POST", path: `${base}/seen`, body: { seq: 1 } },
+    { method: "PUT", path: `${base}/digest`, body: { enabled: false } },
+  ] as const;
+
+  const send = (
+    app: App,
+    route: (typeof routes)[number],
+    headers: Record<string, string>,
+  ): Promise<Response> =>
+    appRequest(app, route.path, {
+      method: route.method,
+      headers: { "Content-Type": "application/json", ...headers },
+      body: route.body === undefined ? undefined : JSON.stringify(route.body),
+    });
+
+  // The portal reaches every one of these with the organiser session cookie.
+  it("admits an organiser session cookie on every route", async () => {
+    const { app, db } = buildApp();
+    const token = await seedOrganiserSession(db, OWNER);
+    for (const route of routes) {
+      const res = await send(app, route, { cookie: `cire_org_session=${token}` });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("401s no credential, a dead cookie, an expired bearer and a malformed bearer on every route", async () => {
+    const { app } = buildApp();
+    const expired = await auth.sign(OWNER, { expiresIn: "-120s" });
+    for (const route of routes) {
+      const credentials: Record<string, string>[] = [
+        {},
+        { cookie: "cire_org_session=not-a-live-session-token" },
+        { authorization: `Bearer ${expired}` },
+        { authorization: "Bearer not-a-jwt" },
+      ];
+      for (const headers of credentials) {
+        expect((await send(app, route, headers)).status).toBe(401);
+      }
+    }
+  });
+
+  it("403s a live cookie sent from a foreign origin on the two writes", async () => {
+    const { app, db } = buildApp();
+    const token = await seedOrganiserSession(db, OWNER);
+    for (const route of routes.filter((r) => r.method !== "GET")) {
+      const res = await send(app, route, {
+        cookie: `cire_org_session=${token}`,
+        origin: "https://evil.example",
+      });
+      expect(res.status).toBe(403);
+    }
+    expect((await feed(app, OWNER)).digest.enabled).toBe(true);
+    expect((await feed(app, OWNER)).households).toBe(1);
+  });
+});
+
+describe("a failed read or write", () => {
+  it("answers 500 with the documented body on every route", async () => {
+    const { app, db } = buildApp();
+    db.run(sql`DROP TABLE rsvp_changes`);
+    for (const [method, path, body] of [
+      ["GET", base, undefined],
+      ["POST", `${base}/seen`, { seq: 1 }],
+    ] as const) {
+      const res = await req(app, method, path, OWNER, body);
+      expect(res.status).toBe(500);
+      expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    }
+    db.run(sql`DROP TABLE host_rsvp_notices`);
+    const put = await req(app, "PUT", `${base}/digest`, OWNER, { enabled: false });
+    expect(put.status).toBe(500);
+    expect(await jsonBody(put)).toEqual({ error: "Internal error" });
+  });
+});
+
+describe("POST /rsvp-changes/seen bounds", () => {
+  it("takes 0 and the largest safe integer, and refuses one past it", async () => {
+    const { app } = buildApp();
+    expect((await req(app, "POST", `${base}/seen`, OWNER, { seq: 0 })).status).toBe(200);
+    const max = await req(app, "POST", `${base}/seen`, OWNER, { seq: Number.MAX_SAFE_INTEGER });
+    expect(max.status).toBe(200);
+    // Clamped to the wedding's newest change, not stored as sent.
+    expect(((await max.json()) as { seenSeq: number }).seenSeq).toBeLessThan(1000);
+    const past = await req(app, "POST", `${base}/seen`, OWNER, {
+      seq: Number.MAX_SAFE_INTEGER + 2,
+    });
+    expect(past.status).toBe(400);
   });
 });

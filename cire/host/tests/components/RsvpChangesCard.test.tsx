@@ -99,10 +99,39 @@ describe("RsvpChangesCard", () => {
   });
 
   it("renders nothing when the feed cannot be read", async () => {
-    routeFetch({ error: "boom" }, 500);
+    // A positive control first, so an empty container below means the failure
+    // was handled, not that the answer had not arrived yet.
+    routeFetch(FEED);
+    const good = render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    await screen.findByText("Sharma");
+    good.unmount();
+
+    let answered = false;
+    authFetchMock.mockImplementation(async () => {
+      answered = true;
+      return json({ error: "boom" }, 500);
+    });
     const { container } = render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(answered).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("uses the singular for one household, and can turn the digest back on", async () => {
+    routeFetch({
+      ...FEED,
+      households: 1,
+      items: [FEED.items[0]],
+      digest: { available: true, enabled: false },
+    });
+    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    expect(await screen.findByText("household changed their RSVP")).toBeInTheDocument();
+    const box = screen.getByRole("checkbox", { name: "Email me a daily summary" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(box).toBeChecked());
+    const put = authFetchMock.mock.calls.find(([url]) => String(url).endsWith("/digest"));
+    expect(put?.[1]).toMatchObject({ body: JSON.stringify({ enabled: true }) });
   });
 
   it("offers the digest switch only when the API says this organiser gets one", async () => {

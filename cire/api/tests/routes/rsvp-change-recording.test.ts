@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, rsvpChanges, rsvps } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvpChanges, rsvps, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { asc, eq } from "drizzle-orm";
@@ -191,6 +191,61 @@ describe("POST /api/rsvp → change log", () => {
     const res = await submit(cookie, [{ guestId: hostGuest, eventId: HINDU, status: "attending" }]);
     expect(res.status).toBe(403);
     expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing for a submit refused after the deadline", async () => {
+    db.update(weddings)
+      .set({ rsvpDeadline: "2020-01-01", rsvpDeadlineTimezone: "UTC" })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const cookie = await cookieFor(TESTONE_CODE);
+    const res = await submit(cookie, [{ guestId: ADA, eventId: HINDU, status: "attending" }]);
+    expect(res.status).toBe(403);
+    expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing for a submit naming another household's guest", async () => {
+    const cookie = await cookieFor(TESTONE_CODE);
+    const res = await submit(cookie, [
+      { guestId: ADA, eventId: HINDU, status: "attending" },
+      { guestId: BO, eventId: HINDU, status: "attending" },
+    ]);
+    expect(res.status).toBe(403);
+    expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing for dietary data sent without consent", async () => {
+    const cookie = await cookieFor(TESTONE_CODE);
+    const res = await submit(cookie, [
+      { guestId: ADA, eventId: HINDU, status: "attending", dietary: "no nuts" },
+    ]);
+    expect(res.status).toBe(422);
+    expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing when the same dietary answer is sent again", async () => {
+    const cookie = await cookieFor(TESTONE_CODE);
+    const body = {
+      rsvps: [
+        {
+          guestId: ADA,
+          eventId: HINDU,
+          status: "attending",
+          dietary: "no shellfish please",
+          dietaryPresets: ["nuts", "vegetarian"],
+          dietaryConsent: true,
+        },
+      ],
+    };
+    const send = () =>
+      appRequest(app, "/api/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: ORIGIN, Cookie: cookie },
+        body: JSON.stringify(body),
+      });
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect(logged().map((r) => r.kind)).toEqual(["reply_new"]);
   });
 
   it("never logs a reply an organiser records", async () => {
