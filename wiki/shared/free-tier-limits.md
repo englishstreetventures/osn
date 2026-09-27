@@ -43,7 +43,8 @@ last-reviewed: 2026-09-27
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
-| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
+| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter), `REALTIME_RATE_LIMITER` (realtime subscribe) | osn-api (uses Upstash) |
+| **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]) | osn-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
 > **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its only

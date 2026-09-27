@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-27
 ---
 
 # Dev environment (cire + OSN identity)
@@ -54,7 +54,8 @@ Backing resources:
 | D1 | `osn-db-dev` `1c1425e1-bb9f-4760-b090-763ccf61eb83` | `osn-db-prod` `767a9ac1-…` |
 | R2 | `cire-sheets-dev`, `cire-assets-dev` | `cire-sheets`, `cire-assets` |
 | Redis | second Upstash database (**paid** — see below) | `osn-redis` (Sydney) |
-| Rate-limit namespaces | cire `1101`/`1102`, osn `2101`–`2105` | cire `1001`/`1002`, osn `2001`–`2005` |
+| Rate-limit namespaces | cire `1101`–`1106`, osn `2101`–`2105` | cire `1001`–`1006`, osn `2001`–`2005` |
+| Durable Object namespace | the dev Worker's own `TopicHub` namespace | the production Worker's |
 
 > [!warning] The dev tier costs $10/month, and Upstash is the whole bill
 > Planning assumed the Upstash free plan allowed 10 databases. It allows **one**,

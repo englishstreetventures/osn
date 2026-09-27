@@ -7,6 +7,8 @@ related:
   - "[[backend-patterns]]"
   - "[[frontend-patterns]]"
   - "[[metrics]]"
+  - "[[cire-auth]]"
+  - "[[cire-host-portal-layout]]"
 packages: ["@shared/realtime"]
 last-reviewed: 2026-09-27
 ---
@@ -56,6 +58,10 @@ Nothing about access control depends on a signal arriving.
 
 A member whose seat changed gets three signals for one change: the message, the eviction's `dropped`, and `reconnected`. Each prompts a re-read. The others on the topic get one.
 
+## Adopters
+
+- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`); route `GET /realtime/:topic`; publishes `members-changed` on `cire:wedding:<id>` after a co-host add, role change or removal (a removal only when a seat went), in the request's `waitUntil` ([realtime.ts](../../cire/api/src/services/realtime.ts)); a role change or removal evicts the co-host whose seat changed; the host portal's `Dashboard` listens on the open wedding. The portal passes `onFallback` and reports the outcome to `POST /api/realtime/fallback`. See [[cire-auth]] and [[cire-host-portal-layout]].
+
 ## Observability
 
 Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[metrics]]. On workerd these are recorded into a no-op meter until a workerd metric reader exists:
@@ -63,8 +69,18 @@ Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[
 - `realtime.subscribe.attempts`, by `product` and `outcome`
 - `realtime.signal.published`, by `product`, `kind` and `result`
 - `realtime.hub.capacity_refused`, by `product`
+- `realtime.client.fallbacks`, by `product` and `outcome` (`refused` | `exhausted`)
 
-Spans are `realtime.publish` and `realtime.subscribe`. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one once that browser telemetry channel exists.
+Spans are `realtime.publish` and `realtime.subscribe`.
+
+The browser client records nothing itself. When a subscription gives up, it calls `onFallback` with the outcome. A product passes that to `sendFallbackBeacon` ([beacon.ts](../../shared/realtime/src/client/beacon.ts)), which POSTs the outcome word to the product's beacon route. The route counts it with `recordClientFallback` ([fallback.ts](../../shared/realtime/src/server/fallback.ts)).
+
+What that count can and cannot show:
+
+- Counters are no-ops on workerd today, so on a deployed Worker the record is the `realtime client fell back` warning in Workers Logs, which keeps 7 days.
+- `refused` is the hub's 1008 close.
+- `exhausted` merges every refused subscribe (401, 403, 429, 503), a CSP block and a missing hub: the client sees each as a socket that failed to open.
+- A dead network stops the beacon too, so the count undercounts.
 
 ## Tests
 
