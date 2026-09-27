@@ -696,6 +696,61 @@ describe("gala InvitePage", () => {
     expect(window.location.search).not.toContain("code");
   });
 
+  // The plus-one prompt hands its changes to the page, which owns the claim
+  // result: a guest named in the welcome panel is in the Respond dialog next.
+  it("puts a guest named in the welcome panel into the Respond dialog", async () => {
+    const permitted: ClaimResult = {
+      ...claim,
+      members: [{ ...claim.members[0]!, plusOneAllowed: true, plusOneOf: null }],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/plus-one/guest-1") && init?.method === "PUT") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              plusOne: {
+                guestId: "guest-sam",
+                firstName: "Sam",
+                lastName: "Park",
+                plusOneOf: "guest-1",
+                eventIds: ["event-1"],
+              },
+              created: true,
+              dietaryCleared: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(permitted), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", noSession(fetchMock as typeof fetch));
+
+    const { getByText, getAllByRole, getByPlaceholderText, findByLabelText } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+
+    fireEvent.input(await findByLabelText("First name", {}, { timeout: 2000 }), {
+      target: { value: "Sam" },
+    });
+    fireEvent.input(await findByLabelText("Last name"), { target: { value: "Park" } });
+    fireEvent.click(getByText("Add guest"));
+    await waitFor(() => expect(getByText("Sam Park")).toBeTruthy());
+
+    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    await waitFor(() => expect(capturedProps.value).not.toBeNull());
+    const members = capturedProps.value!.members as ClaimResult["members"];
+    expect(members.map((m) => m.guestId)).toEqual(["guest-1", "guest-sam"]);
+  });
+
   it("hides the closing section until the guest claims their code, then shows it", async () => {
     // The closing content rides the CLAIM response — the public invite payload
     // redacts it, so there is no prop to seed it with pre-claim.

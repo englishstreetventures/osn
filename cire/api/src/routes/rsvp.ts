@@ -1,5 +1,5 @@
 import { families, guests, guestEvents, weddings } from "@cire/db";
-import type { DietaryPreset } from "@cire/dietary";
+import { PLUS_ONE_DIETARY_ATTESTATION, type DietaryPreset } from "@cire/dietary";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -141,6 +141,8 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
                       guestId: guests.id,
                       eventId: guestEvents.eventId,
                       plusOneOf: guests.plusOneOfGuestId,
+                      firstName: guests.firstName,
+                      lastName: guests.lastName,
                     })
                     .from(guests)
                     .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
@@ -234,20 +236,38 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
             }
 
             // A plus-one's reply is typed by the household that brought them,
-            // so its dietary data would rest on the household's attestation,
-            // not the plus-one's own consent — and the invite has no wording
-            // for that attestation yet. Refuse it rather than stamp a consent
-            // version whose copy says something else. Status-only replies for a
-            // plus-one are accepted. See [[wiki/compliance/dpia/cire-guest-data]]
-            // → inviter-attested variant.
-            const plusOneIds = new Set(
-              familyGuestEvents.filter((row) => row.plusOneOf !== null).map((row) => row.guestId),
+            // so its dietary data rests on the household's attestation that the
+            // plus-one agreed, not on the plus-one's own consent. It is stored
+            // only when the sheet showed the attestation wording this API
+            // stamps, for the person the row names now:
+            //  - the reply names that wording's version, and anything else — no
+            //    attestation, or words from another build of the invite — is
+            //    refused (422) rather than stamped with a version whose copy was
+            //    not on screen;
+            //  - the reply names who the sheet showed, and a name the row no
+            //    longer carries — a page opened before the household renamed
+            //    them, still holding the old person's answers — is refused
+            //    (409), so the page reloads rather than attest for someone else.
+            // Status-only replies for a plus-one need neither. See
+            // [[wiki/compliance/dpia/cire-guest-data]] → inviter-attested
+            // variant.
+            const plusOneNames = new Map(
+              familyGuestEvents
+                .filter((row) => row.plusOneOf !== null)
+                .map((row) => [row.guestId, `${row.firstName} ${row.lastName}`.trim()] as const),
             );
             for (const rsvp of body.rsvps) {
-              if (plusOneIds.has(rsvp.guestId) && hasDietaryData(rsvp)) {
+              const plusOneName = plusOneNames.get(rsvp.guestId);
+              if (plusOneName === undefined || !hasDietaryData(rsvp)) continue;
+              if (rsvp.dietaryAttestation !== PLUS_ONE_DIETARY_ATTESTATION.version) {
                 set.status = 422;
                 yield* Effect.sync(() => metricRsvpBlocked("plus_one_dietary"));
                 return { error: "plus_one_dietary_unavailable" };
+              }
+              if (rsvp.dietaryAttestedName.trim() !== plusOneName) {
+                set.status = 409;
+                yield* Effect.sync(() => metricRsvpBlocked("plus_one_dietary"));
+                return { error: "plus_one_changed" };
               }
             }
 
@@ -265,7 +285,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               dietaryConsent: hasDietaryData(rsvp) && rsvp.dietaryConsent,
               // Who recorded it: the household for its plus-one, else the
               // guest's own reply.
-              consentSource: plusOneIds.has(rsvp.guestId) ? "inviter_attested" : "guest",
+              consentSource: plusOneNames.has(rsvp.guestId) ? "inviter_attested" : "guest",
             }));
 
             // Ownership + invitation already validated above — service method does

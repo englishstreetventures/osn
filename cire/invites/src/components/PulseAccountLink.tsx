@@ -2,6 +2,7 @@ import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { isPlusOne } from "./plus-one";
 import type { FamilyMember } from "./types";
 
 /**
@@ -97,6 +98,15 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
   });
 
   const isLinked = (guestId: string) => linked().has(guestId);
+
+  /**
+   * The seats to pick from: the household the couple invited. A plus-one's
+   * seat was typed in by the member who brought them, not by someone holding
+   * the code, and goes when that member removes them, so it is not offered.
+   * One already linked stays listed — its radio is disabled like any linked
+   * seat — so its Unlink is still within reach.
+   */
+  const seats = () => props.members.filter((m) => !isPlusOne(m) || isLinked(m.guestId));
 
   /** Add/remove a guest id from the linked set immutably (so signals react). */
   function setLinkedFor(guestId: string, value: boolean) {
@@ -211,7 +221,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
           {/* Signed in to OSN — pick which household member you are, then link. */}
           <p class="text-text text-ui-sm mb-3 font-light">Which guest are you?</p>
           <ul class="flex flex-col gap-2" aria-label="Household members">
-            <For each={props.members}>
+            <For each={seats()}>
               {(member) => (
                 // Wraps rather than overflows: inside the narrow panel layout
                 // on a phone the row has about 200px, less than a name plus

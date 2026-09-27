@@ -1,9 +1,10 @@
 import Button from "@cire/ui/button";
-import { createEffect, For, lazy, onMount, Show, Suspense } from "solid-js";
+import { createEffect, createMemo, For, lazy, onMount, Show, Suspense } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
 import { hasClaimedHint, noteClaimed, signOut } from "./claim-session";
 import { filterThemeVars } from "./invite-theme";
+import { invitedMembers, isPlusOne } from "./plus-one";
 import type { RsvpDeadlineState } from "./rsvp-deadline";
 import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
@@ -27,17 +28,25 @@ const AuthProvider = lazy(() => {
   return import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider }));
 });
 
+// The plus-one prompt, split out for the same reason: most households are
+// never allowed a guest, and nothing here renders it before a claim.
+const PlusOnePrompt = lazy(() =>
+  import("./PlusOnePrompt").then((m) => ({ default: m.PlusOnePrompt })),
+);
+
 /**
- * Start downloading the account link and its auth client, without rendering
- * either. Called as a claim or a session restore begins, so the chunks arrive
- * while that request is in flight: the account link sits above the events, and
- * the later it appears, the further it pushes events already on screen.
- * Idempotent — `lazy` keeps one promise per chunk. A failed download is left
- * for the render to meet, inside its own Suspense boundary.
+ * Start downloading the household's controls — the account link, its auth
+ * client and the plus-one prompt — without rendering any of them. Called as a
+ * claim or a session restore begins, so the chunks arrive while that request
+ * is in flight: the controls sit above the events, and the later one appears,
+ * the further it pushes events already on screen. Idempotent — `lazy` keeps
+ * one promise per chunk. A failed download is left for the render to meet,
+ * inside its own Suspense boundary.
  */
-function warmAccountLink(): void {
+function warmHouseholdControls(): void {
   void PulseAccountLink.preload().catch(() => {});
   void AuthProvider.preload().catch(() => {});
+  void PlusOnePrompt.preload().catch(() => {});
 }
 
 /**
@@ -168,6 +177,15 @@ interface LoginSectionProps {
    * swap the view back.
    */
   onSignOut?: () => void;
+  /**
+   * Apply a plus-one change to the page's claim result. The panel's plus-one
+   * prompt names, renames and removes the household's guests through the API
+   * and hands each change here as an update, so the Respond dialog and the
+   * cards read it from the page's one copy.
+   *
+   * Absent ⇒ no prompt, since nothing would carry its changes to the page.
+   */
+  onPlusOneChange?: (update: (result: ClaimResult) => ClaimResult) => void;
 }
 
 // The built-in post-claim greeting, used when the organiser hasn't overridden it.
@@ -200,12 +218,12 @@ export function LoginSection(props: LoginSectionProps) {
   // preview arrives this way too and never shows the link; that costs the
   // organiser one small download, which is cheaper than waiting to know.
   createEffect(() => {
-    if (claim.loading()) warmAccountLink();
+    if (claim.loading()) warmHouseholdControls();
   });
   // A returning household: the restore hint says the page's session restore
   // is about to open the invite without a code, so warm it beside that request.
   onMount(() => {
-    if (hasClaimedHint()) warmAccountLink();
+    if (hasClaimedHint()) warmHouseholdControls();
   });
 
   // Falls back to `result` so the section still swaps for a caller that passes
@@ -216,14 +234,33 @@ export function LoginSection(props: LoginSectionProps) {
   // A claim code can cover one guest or a whole household. A single-guest code
   // greets the person individually ("Dear {name}"); a multi-guest code greets
   // the household ("The {familyName} Family"). For an individual, an optional
-  // nickname overrides their first name.
+  // nickname overrides their first name. The greeting counts the people the
+  // couple invited: a guest who names a plus-one is still one guest.
   const members = () => props.result?.members ?? [];
-  const isIndividual = () => members().length === 1;
+  const invited = () => invitedMembers(members());
+  const isIndividual = () => invited().length === 1;
   const individualName = () => {
-    const m = members()[0];
+    const m = invited()[0];
     if (!m) return "";
     return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
   };
+
+  // Whether this household has a plus-one prompt: someone may bring a guest,
+  // or one is named. A household with neither never renders it (its chunk is
+  // still warmed with the account link's as a claim starts, before anyone
+  // knows). Never in host preview. Once shown it stays for
+  // that household (by code), even when a removal leaves nothing to offer —
+  // the prompt still holds that removal's confirmation and the focus.
+  let plusOneShownFor: string | null = null;
+  const offersPlusOne = createMemo(() => {
+    const result = props.result;
+    if (result === null || result.preview === true) return false;
+    if (members().some((m) => m.plusOneAllowed === true || isPlusOne(m))) {
+      plusOneShownFor = result.publicId;
+      return true;
+    }
+    return plusOneShownFor === result.publicId;
+  });
 
   // "Not the Okafor family? Sign out" when we know who they are, so the control
   // names the household it ends rather than describing a mechanism. Falls back
@@ -417,7 +454,7 @@ export function LoginSection(props: LoginSectionProps) {
                 {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
               </p>
               <p class="text-text text-ui-base leading-ui-normal mb-8 font-light">
-                <For each={props.result?.members}>
+                <For each={invited()}>
                   {(member, i) => (
                     <>
                       {i() > 0 && ", "}
@@ -451,14 +488,31 @@ export function LoginSection(props: LoginSectionProps) {
           class={`mb-8 ${layout().measure}`}
         />
 
-        {/* The household's controls. Account linking is optional and additive:
-            it renders nothing when linking is off (503) or unreachable, so it
-            can never break the invite. Never in host preview, since a host is
-            not a guest seat to link. Its own AuthProvider reads the cire OSN
+        {/* The household's controls. The plus-one prompt comes first, for a
+            household the couple let bring a guest (or one that already named
+            one); it locks with the rest of the invite at the RSVP deadline.
+            Account linking is optional and additive: it renders nothing when
+            linking is off (503) or unreachable, so it can never break the
+            invite. Neither appears in host preview, since a host is not a
+            guest seat. The account link's own AuthProvider reads the cire OSN
             session from cire-api, which keeps the rest of the guest site free
-            of any OSN dependency. The plus-one prompt joins these controls
-            here: englishstventures/osn#1084. Sign-out comes last — it ends the
-            session the others act on. */}
+            of any OSN dependency. Each sits in its own Suspense, so one chunk
+            never waits on the other. Sign-out comes last — it ends the session
+            the others act on. */}
+        <Show when={props.onPlusOneChange && offersPlusOne() ? props.onPlusOneChange : null}>
+          {(onChange) => (
+            <Suspense fallback={null}>
+              <PlusOnePrompt
+                apiUrl={props.apiUrl}
+                members={members()}
+                rsvps={props.result?.rsvps ?? []}
+                closed={props.rsvpDeadlineState === "closed"}
+                onChange={onChange()}
+                class={`mb-8 ${layout().measure}`}
+              />
+            </Suspense>
+          )}
+        </Show>
         <Show when={props.result && !props.result.preview}>
           <Suspense fallback={null}>
             <AuthProvider config={{ apiBase: props.apiUrl }}>

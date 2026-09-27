@@ -186,4 +186,4 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 | Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
 | Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
 | Organiser UI | `cire/host/src/components/SettingsPanel.tsx` |
-| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `PlusOnePrompt.tsx`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
