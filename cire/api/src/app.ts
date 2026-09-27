@@ -45,6 +45,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createRealtimeFallbackRoutes } from "./routes/realtime-fallback";
 import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
@@ -182,6 +183,13 @@ const defaultVendorPortalLimiter = createRateLimiter({ maxRequests: 20, windowMs
  */
 const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
+ * Default per-IP limiter for the public realtime fallback beacon. In memory,
+ * per isolate, like the CSP collector's. A tab sends at most one beacon per
+ * subscription, so 10/min is far above real use, and a flood past it costs
+ * only a log line and a count.
+ */
+const defaultRealtimeFallbackLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
  * Default per-USER limiter for the vendor directory browse route. 60 reads/min
  * is generous for a paginated listing UI while capping the D1 query amplifier
  * from a scripted caller with a valid organiser token.
@@ -308,6 +316,8 @@ export interface AppOptions {
   realtimeHub?: HubNamespace;
   /** Override the realtime subscribe per-organiser limiter (useful for testing). */
   realtimeLimiter?: RateLimiterBackend;
+  /** Override the public realtime fallback-beacon rate limiter (useful for testing). */
+  realtimeFallbackLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
   /** Test seam: override the invite design catalog (e.g. to add a premium fixture). */
@@ -601,6 +611,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     upgradePrices = {},
     registryLinkPreviewOptions,
     realtimeHub,
+    realtimeFallbackLimiter = defaultRealtimeFallbackLimiter,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
     // it did before flags existed.
@@ -985,11 +996,17 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
+  // Past the widening, like every mount below, so the typed chain above does not grow.
+  const withRealtimeFallback: AnyElysia = rootApp.use(
+    createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }),
+  );
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
-    ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
-    : rootApp;
+    ? withRealtimeFallback.use(
+        createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }),
+      )
+    : withRealtimeFallback;
   // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
   // than inside the organiser chain above: that chain is already at
   // TypeScript's instantiation-depth limit (see the comment on `rootApp`), and
