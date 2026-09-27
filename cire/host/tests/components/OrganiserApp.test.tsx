@@ -1064,4 +1064,53 @@ describe("OrganiserApp Dashboard", () => {
       clock.mockRestore();
     }
   });
+
+  describe("a push event while a list re-read is in flight", () => {
+    // A signal, a reconnect or a stop means the hosts may have changed by the
+    // moment it arrived, so one that lands after a re-read started sends a
+    // fresh read: the read in flight may have been answered before the change.
+    const start = 1_900_000_000_000;
+    const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
+
+    it.each(["message", "reconnected", "stopped"])(
+      "sends a fresh read for a %s event that arrives after the read started",
+      async (reason) => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+        try {
+          history.replaceState(null, "", "#/w/wed_a");
+          const early = heldList();
+          let listReads = 0;
+          authFetchMock.mockImplementation((url: string) => {
+            if (url !== LIST_URL) return Promise.resolve(listResponse(wedA));
+            listReads += 1;
+            if (listReads === 2) return early.promise;
+            return Promise.resolve(listResponse(listReads === 3 ? [] : wedA));
+          });
+          render(() => <OrganiserApp />);
+          await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+          setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+          // The first signal's read is held with the wedding still in it.
+          topic.onSignal?.({ reason: "message" });
+          await waitFor(() => expect(listReads).toBe(2));
+
+          // The organiser is removed after that read started.
+          clock.mockReturnValue(start + 1);
+          topic.onSignal?.({ reason });
+
+          await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+          expect(listReads).toBe(3);
+          expect(peekCachedVendors("wed_a")).toBeNull();
+
+          // The older read, answering late, must not bring the wedding back.
+          early.answer(listResponse(wedA));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(screen.queryByTestId("module-shell")).toBeNull();
+          expect(peekCachedVendors("wed_a")).toBeNull();
+        } finally {
+          clock.mockRestore();
+        }
+      },
+    );
+  });
 });
