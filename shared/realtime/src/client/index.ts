@@ -1,3 +1,4 @@
+export { sendFallbackBeacon } from "./beacon";
 export {
   createTopicSubscription,
   SUBSCRIPTION_DEFAULTS,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTopic, isSignal, parseTopic } from "../src/protocol";
+import { formatTopic, isFallbackOutcome, isSignal, parseTopic } from "../src/protocol";
 
 describe("parseTopic", () => {
   it("splits a well-formed topic of a known product", () => {
@@ -61,3 +61,22 @@ describe("isSignal", () => {
     expect(isSignal(value)).toBe(false);
   });
 });
+
+describe("isFallbackOutcome", () => {
+  it.each(["refused", "exhausted"])("accepts %s", (value) => {
+    expect(isFallbackOutcome(value)).toBe(true);
+  });
+
+  it.each([
+    ["the client's stopped signal", "stopped"],
+    ["a capitalised outcome", "Refused"],
+    ["an outcome with surrounding whitespace", " refused"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a number", 1008],
+    ["an object", { outcome: "refused" }],
+  ])("refuses %s", (_label, value) => {
+    expect(isFallbackOutcome(value)).toBe(false);
+  });
+});
+
