@@ -154,7 +154,15 @@ describe("InviteBuilder theme", () => {
         theme: { ...EMPTY_CUSTOMISATION.theme, headingFont: "georgia", bodyFont: "system-sans" },
       }),
     );
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => {
       const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
@@ -178,7 +186,15 @@ describe("InviteBuilder theme", () => {
         },
       }),
     );
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => {
       const size = screen.getByLabelText("Heading size") as HTMLSelectElement;
@@ -194,7 +210,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.change(screen.getByLabelText("Heading style"), { target: { value: "italic" } });
@@ -215,7 +239,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => screen.getByText("Save invite"));
 
@@ -258,7 +290,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
@@ -283,7 +323,15 @@ describe("InviteBuilder theme", () => {
   it("disables Save on a clean form and shows the live dirty indicator on edit", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // Clean form ⇒ the button is disabled and the bar reports saved state — a
@@ -319,7 +367,15 @@ describe("InviteBuilder theme", () => {
     );
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
     // The inline preview only mounts on its own tab (P-I2).
     await openSection("Welcome");
@@ -350,7 +406,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
     // The Hero inline preview only mounts on its own tab (P-I2); "Fog" (the
     // Look section's preset picker) is clickable regardless of active tab.
@@ -384,7 +448,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // One tone control per section, in guest-page order (hero, story, welcome,
@@ -410,7 +482,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.click(screen.getAllByText("Raised")[0]); // hero — make the half dirty
@@ -427,7 +507,15 @@ describe("InviteBuilder theme", () => {
         heroDisplay: { blur: 12, titleBackdrop: { opacity: 60, blur: 8 } },
       }),
     );
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => screen.getByText("Save invite"));
     expect((screen.getByLabelText("Hero image blur") as HTMLInputElement).value).toBe("12");
@@ -439,7 +527,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.input(screen.getByLabelText("Hero image blur"), { target: { value: "5" } });
@@ -463,7 +559,13 @@ describe("InviteBuilder theme", () => {
     );
 
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => screen.getByText("Save invite"));
     await openSection("Hero");
@@ -497,7 +599,15 @@ describe("InviteBuilder theme", () => {
     );
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => {
       const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
@@ -519,7 +629,13 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => screen.getByText("Save invite"));
@@ -557,7 +673,13 @@ describe("InviteBuilder theme", () => {
     // discards a `var()` value applied that way. See `test-support/declared-style`.
     const styles = captureDeclaredStyles();
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => screen.getByText("Save invite"));
     await openSection(/^Hero/);
@@ -596,7 +718,15 @@ describe("InviteBuilder theme", () => {
   it("shows the live section previews with the live copy buffers", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // Each guest-page section has its own labelled preview card — but only
@@ -639,7 +769,15 @@ describe("InviteBuilder theme", () => {
       }),
     );
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
@@ -665,7 +803,15 @@ describe("InviteBuilder theme", () => {
   it("reports no adjustment for the built-in scheme", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     expect(screen.queryByText(/Adjusted to stay readable/)).toBeNull();
@@ -675,7 +821,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Invalid colour or font" }, 400));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // Dirty the theme half so its PUT actually fires.
@@ -689,7 +843,15 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Missing or invalid fields" }, 400));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // Dirty BOTH halves; the failed text PUT must stop the theme PUT.
@@ -709,7 +871,15 @@ describe("InviteBuilder theme", () => {
     ); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const field = (await waitFor(() =>
       screen.getByLabelText("Invite message (optional)"),
@@ -739,7 +909,15 @@ describe("InviteBuilder theme", () => {
     ); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const eyebrow = (await waitFor(() =>
       screen.getByLabelText("Events eyebrow"),
@@ -765,7 +943,15 @@ describe("InviteBuilder theme", () => {
   it("tolerates a payload without details/welcome copy (older API) — fields seed empty", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // no details/welcome keys
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const eyebrow = (await waitFor(() =>
       screen.getByLabelText("Events eyebrow"),
@@ -784,7 +970,15 @@ describe("InviteBuilder theme", () => {
     ); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const note = (await waitFor(() =>
       screen.getByLabelText("Closing note (optional)"),
@@ -807,7 +1001,15 @@ describe("InviteBuilder theme", () => {
     );
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const note = (await waitFor(() =>
       screen.getByLabelText("Closing note (optional)"),
@@ -834,7 +1036,13 @@ describe("InviteBuilder shown/hidden badges", () => {
   it("marks hero, story, FAQ and footer 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => expect(badges(container)).toHaveLength(4));
@@ -860,7 +1068,13 @@ describe("InviteBuilder shown/hidden badges", () => {
       }),
     );
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => expect(badges(container)).toHaveLength(4));
@@ -875,7 +1089,13 @@ describe("InviteBuilder shown/hidden badges", () => {
   it("flips the hero badge to 'Shown' live as the organiser types a title", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => expect(badges(container)).toHaveLength(4));
@@ -900,7 +1120,13 @@ describe("InviteBuilder shown/hidden badges", () => {
       }),
     );
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => expect(badges(container)).toHaveLength(4));
@@ -914,7 +1140,13 @@ describe("InviteBuilder shown/hidden badges", () => {
   it("flips the footer badge live, and whitespace-only stays hidden", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => expect(badges(container)).toHaveLength(4));
@@ -955,7 +1187,15 @@ describe("design selector", () => {
   it("renders a card per catalog design with the active one marked", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     expect(classic.getAttribute("aria-checked")).toBe("true");
@@ -964,7 +1204,15 @@ describe("design selector", () => {
   it("clicking the current design does not save", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     fireEvent.click(classic);
@@ -979,7 +1227,15 @@ describe("design selector", () => {
     const { designId: _omitted, ...customisationWithoutDesignId } = EMPTY_CUSTOMISATION;
     authFetchMock.mockResolvedValueOnce(json(customisationWithoutDesignId)); // initial load
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     fireEvent.click(classic);
@@ -993,7 +1249,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "other" })); // initial load — an id from a newer deploy, Classic not active
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "classic" })); // design save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     expect(classic.getAttribute("aria-checked")).toBe("false");
@@ -1009,7 +1273,13 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
 
     await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
@@ -1027,7 +1297,15 @@ describe("design selector", () => {
   it("shows a 'Preview live' link per unlocked card, outside the radio control", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
 
@@ -1061,7 +1339,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "gala" }));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     // Both preview layers mount while the builder's width is unmeasurable (see
     // `previewLayer`), so the composed pane is reachable here.
@@ -1095,7 +1381,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({}, 500)); // design PUT fails
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const gala = await waitFor(() => screen.getByRole("radio", { name: /Gala/ }));
     fireEvent.click(gala);
@@ -1113,7 +1407,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "gala" })); // design save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     // Locked cards are aria-disabled (never `disabled`) so they stay in the
@@ -1139,7 +1441,15 @@ describe("design selector", () => {
   it("clicking a locked design is a no-op (server-enforced; the card only signals)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const premium = await waitFor(() => screen.getByRole("radio", { name: /Test Premium/ }));
     fireEvent.click(premium);
@@ -1153,7 +1463,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "gala" })); // End -> gala
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "classic" })); // Home -> classic
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     fireEvent.keyDown(classic, { key: "End" });
@@ -1178,7 +1496,15 @@ describe("design selector", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "gala" })); // design save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
     const radios = screen.getAllByRole("radio");
@@ -1229,7 +1555,15 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
 
   it("offers 'Phone crop' on the hero image only (the story renders at one aspect)", async () => {
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     // Both slots offer the plain crop; only the hero offers the phone one —
     // checked one tab at a time, since the builder shows one section at a time.
@@ -1247,7 +1581,15 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // initial load
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // crop save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Phone crop" })));
@@ -1269,7 +1611,15 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // initial load
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // crop save
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     const cropButtons = await waitFor(() => screen.getAllByRole("button", { name: "Crop" }));
@@ -1290,7 +1640,15 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // desktop reset
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // phone reset
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     // Desktop reset: `crop: null` must reach the API as an explicit null (not
@@ -1319,7 +1677,13 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
       }),
     );
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => screen.getByText("Save invite"));
     await openSection("Hero");
@@ -1349,7 +1713,13 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
       }),
     );
     const first = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() =>
       expect(screen.getByLabelText("Hero background image (phone crop)")).toBeTruthy(),
@@ -1359,7 +1729,15 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
 
     // Without a saved phone crop the thumbnail is absent.
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
     await waitFor(() => screen.getByRole("button", { name: "Phone crop" }));
     expect(screen.queryByLabelText("Hero background image (phone crop)")).toBeNull();
@@ -1385,7 +1763,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("shows a live character counter on capped notes, enforced at the input", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
 
     const note = (await waitFor(() =>
       screen.getByLabelText("Closing note (optional)"),
@@ -1404,7 +1790,15 @@ describe("InviteBuilder UX guards", () => {
     const confirmSpy = vi.fn().mockReturnValue(false);
     vi.stubGlobal("confirm", confirmSpy);
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     const remove = await waitFor(() => screen.getByRole("button", { name: "Remove" }));
@@ -1421,7 +1815,15 @@ describe("InviteBuilder UX guards", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // DELETE
     vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Remove" })));
@@ -1438,7 +1840,13 @@ describe("InviteBuilder UX guards", () => {
     authFetchMock.mockResolvedValueOnce(json({ error: "Image too large (max 5 MB)" }, 413)); // upload
 
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => screen.getByText("Save invite"));
 
@@ -1460,7 +1868,13 @@ describe("InviteBuilder UX guards", () => {
     vi.stubGlobal("confirm", confirmSpy);
 
     const { unmount } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => screen.getByText("Save invite"));
 
@@ -1494,7 +1908,15 @@ describe("InviteBuilder UX guards", () => {
     authFetchMock.mockResolvedValueOnce(json({ error: "Remove failed upstream" }, 500)); // DELETE
     vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
 
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await openSection("Hero");
 
     fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Remove" })));
@@ -1506,7 +1928,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("renders the composed preview pane and the section jump list", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // The persistent composed preview (sticky pane at wide widths) exists and
@@ -1523,7 +1953,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("shows one section at a time via the native `hidden` attribute", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // Design is the default active tab; every other section starts hidden.
@@ -1541,7 +1979,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("wires the section tabs to their panels via aria-controls/aria-labelledby", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     const designTab = screen.getByRole("tab", { name: "Design" });
@@ -1553,7 +1999,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("moves focus AND activation with ArrowRight/ArrowLeft/Home/End (roving tabindex)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     const designTab = screen.getByRole("tab", { name: "Design" });
@@ -1590,7 +2044,15 @@ describe("InviteBuilder UX guards", () => {
 
   it("opens the composed preview in a modal from the mobile Preview button", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     // No dialog until the button is clicked — the modal is the only way to
@@ -1636,7 +2098,15 @@ describe("InviteBuilder section menu (narrow containers)", () => {
 
   const renderBuilder = async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
   };
 
@@ -2014,7 +2484,15 @@ describe("InviteBuilder preview layer", () => {
 
   const renderBuilder = async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
   };
 
@@ -2092,7 +2570,15 @@ describe("InviteBuilder preview layer", () => {
   it("feeds the saved closing crop to the inline preview", async () => {
     stubResizeObserver(600);
     authFetchMock.mockResolvedValueOnce(json(WITH_CLOSING_CROP));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByText("Save invite"));
 
     await openSection("Closing");
@@ -2102,7 +2588,15 @@ describe("InviteBuilder preview layer", () => {
   it("feeds the saved closing crop to the composed preview pane", async () => {
     stubResizeObserver(1200);
     authFetchMock.mockResolvedValueOnce(json(WITH_CLOSING_CROP));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => screen.getByLabelText("Invite preview"));
 
     // The pass-through the pane adds on top of the inline path: its own
@@ -2170,7 +2664,15 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
 
   async function renderWith(customisation: unknown) {
     authFetchMock.mockResolvedValueOnce(json(customisation));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => expect(badgeIn("invite-hero")).toBeTruthy());
   }
 
@@ -2410,7 +2912,15 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
 
   async function renderWith(customisation: unknown) {
     authFetchMock.mockResolvedValueOnce(json(customisation));
-    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
+    ));
     await waitFor(() => expect(badge()).toBeTruthy());
   }
 
@@ -2480,7 +2990,13 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     authFetchMock.mockResolvedValueOnce(json({ ok: true })); // upload
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // reload, no entries
     const { container } = render(() => (
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     ));
     await waitFor(() => expect(badge()).toBeTruthy());
 
