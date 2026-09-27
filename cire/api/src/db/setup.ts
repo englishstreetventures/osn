@@ -277,6 +277,8 @@ CREATE TABLE IF NOT EXISTS budget_items (
   estimate_minor INTEGER,
   quoted_minor INTEGER,
   actual_minor INTEGER,
+  unit_price_minor INTEGER,
+  per_head_event_ids TEXT,
   notes TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,

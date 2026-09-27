@@ -378,6 +378,18 @@ export const budgetItems = sqliteTable(
     estimateMinor: integer("estimate_minor"),
     quotedMinor: integer("quoted_minor"),
     actualMinor: integer("actual_minor"),
+    // Price per guest, minor units of the wedding's currency. Non-null marks a
+    // PER-HEAD line: its estimate is this price times the guests at its events,
+    // counted from the RSVPs on every read and never stored, so `estimate_minor`
+    // stays NULL on such a line.
+    unitPriceMinor: integer("unit_price_minor"),
+    // The events a per-head line counts guests at, as a JSON array of event ids.
+    // NULL = every event. Not a join table with a cascading foreign key: deleting
+    // the only picked event would then empty the set, and an empty set reads as
+    // "every event", silently widening the line. A stale id here matches no
+    // invitation, so the line counts nobody instead. NULL whenever
+    // `unit_price_minor` is NULL.
+    perHeadEventIds: text("per_head_event_ids"),
     notes: text("notes"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
