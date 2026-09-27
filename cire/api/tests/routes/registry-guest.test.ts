@@ -924,12 +924,29 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
 
     // An item that names an image under ANOTHER wedding's prefix does not count
     // either: the key is rebuilt from this slug's wedding, and must match whole.
+    // Both objects exist, so only the gate can refuse.
     plant(assets, `assets/${OTHER_WEDDING_ID}/registry-elsewhere`);
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-elsewhere`);
     db.update(registryItems)
       .set({ imageKey: `assets/${OTHER_WEDDING_ID}/registry-elsewhere` })
       .where(eq(registryItems.id, BOWL))
       .run();
     const res = await appRequest(app, `${guestBase()}/image/registry-elsewhere`);
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+
+  it("404s this wedding's image when only another wedding's item names it", async () => {
+    // The item check is scoped to the slug's wedding: a row of wedding B
+    // holding wedding A's key opens nothing on A's list. Writes refuse such a
+    // key already; this is the gate holding without them.
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-cross`);
+    db.update(registryItems)
+      .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-cross` })
+      .where(eq(registryItems.id, OTHER_ITEM))
+      .run();
+    const res = await appRequest(app, `${guestBase()}/image/registry-cross`);
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
   });
@@ -993,7 +1010,10 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     )
       .map((r) => r.detail)
       .join("\n");
-    expect(plan).toContain("registry_items_wedding_image_idx");
+    expect(plan).toMatch(
+      /SEARCH registry_items USING (COVERING )?INDEX registry_items_wedding_image_idx \(wedding_id=\? AND image_key=\?\)/,
+    );
+    expect(plan).not.toMatch(/SCAN registry_items/);
   });
 
   it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing (S-M1)", async () => {

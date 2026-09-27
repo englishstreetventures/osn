@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 
 import { Effect, Exit } from "effect";
 
+import { CIRE_METRICS } from "../../src/metrics";
 import type { StoredAsset } from "../../src/services/invite-assets";
 import { AssetsR2Service, createAssetsStub } from "../../src/services/invite-assets";
 import {
@@ -21,6 +22,7 @@ import {
   type ImageTransformHandle,
   type OutputFormat,
 } from "../../src/services/invite-image-transform";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 describe("resolveVariant", () => {
   it("returns a known variant verbatim", () => {
@@ -451,8 +453,18 @@ describe("serveTransformedImage — revalidating a revocable image", () => {
     delete (globalThis as { caches?: unknown }).caches;
   });
 
-  /** Everything a full answer would spend, counted. */
-  function harness() {
+  const notModified = () =>
+    counterValue(CIRE_METRICS.imageTransform, {
+      result: "not_modified",
+      variant: "thumb",
+      format: "image/jpeg",
+    });
+
+  /**
+   * Everything a full answer would spend, counted. `stored` prefills the
+   * Worker cache, as an entry written by an earlier deploy would be.
+   */
+  function harness(stored: Response | null = null) {
     const assets = createAssetsStub();
     const spent = { r2: 0, match: 0, transforms: 0 };
     const get = assets.get.bind(assets);
@@ -460,7 +472,6 @@ describe("serveTransformedImage — revalidating a revocable image", () => {
       spent.r2 += 1;
       return get(key);
     };
-    let stored: Response | null = null;
     (globalThis as { caches?: unknown }).caches = {
       default: {
         match: () => {
@@ -534,12 +545,34 @@ describe("serveTransformedImage — revalidating a revocable image", () => {
     expect(original.headers.get("ETag")).toBe(TAG);
   });
 
+  it("tags a Worker-cache hit stored before tags existed, and untags an immutable one", async () => {
+    // The Worker cache keeps an entry for a year, so every copy stored before
+    // this tag existed comes back without one. The hit is re-stamped from the
+    // slot, never trusted from the store.
+    const untagged = new Response(new Uint8Array([7]), {
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000" },
+    });
+    const h = harness(untagged);
+    const hit = await serve(h);
+    expect(hit.headers.get("ETag")).toBe(TAG);
+    expect(h.spent.transforms).toBe(0);
+    expect(h.spent.r2).toBe(0);
+
+    const tagged = new Response(new Uint8Array([7]), {
+      headers: { "Content-Type": "image/jpeg", ETag: TAG },
+    });
+    const immutable = await serve(harness(tagged), { lifetime: "immutable" });
+    expect(immutable.headers.get("ETag")).toBeNull();
+  });
+
   it("answers a matching If-None-Match with 304 and spends nothing else", async () => {
     // The browser's hour is up and it asks again with the tag it holds. The
     // bytes under a key never change, so the gate the route already ran is the
     // only thing worth paying for.
     const h = harness();
+    const before = await notModified();
     const res = await serve(h, { ifNoneMatch: TAG });
+    expect(await notModified()).toBe(before + 1);
     expect(res.status).toBe(304);
     expect(await res.arrayBuffer()).toHaveProperty("byteLength", 0);
     expect(res.headers.get("ETag")).toBe(TAG);
@@ -572,9 +605,11 @@ describe("serveTransformedImage — revalidating a revocable image", () => {
       "",
     ]) {
       const h = harness();
+      const before = await notModified();
       const res = await serve(h, { ifNoneMatch: header });
       expect(res.status).toBe(200);
       expect(res.headers.get("ETag")).toBe(TAG);
+      expect(await notModified()).toBe(before);
     }
   });
 
