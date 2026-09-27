@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { SubscriptionOptions } from "@shared/realtime/client";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,14 +151,17 @@ vi.mock("../../src/components/SecurityPanel", () => ({
 const topic = vi.hoisted(() => ({
   url: null as null | (() => string | null | undefined),
   onSignal: null as null | ((event: { reason: string }) => void),
+  options: null as null | SubscriptionOptions,
 }));
 vi.mock("@shared/realtime/solid", () => ({
   useTopic: (
     url: () => string | null | undefined,
     onSignal: (event: { reason: string }) => void,
+    options?: SubscriptionOptions,
   ) => {
     topic.url = url;
     topic.onSignal = onSignal;
+    topic.options = options ?? null;
   },
 }));
 
@@ -213,6 +217,7 @@ describe("OrganiserApp Dashboard", () => {
     vi.unstubAllGlobals();
     topic.url = null;
     topic.onSignal = null;
+    topic.options = null;
     // The dashboard mirrors its state into the URL hash — reset it so one test's
     // deep link doesn't seed the next.
     history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -630,6 +635,28 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     topic.onSignal?.({ reason: "reconnected" });
     await waitFor(() => expect(listCalls()).toBe(2));
+  });
+
+  it("tells cire-api why when the socket gives up", async () => {
+    // The portal's own reads go through `authFetch`, so the global `fetch`
+    // sees the beacon alone.
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    topic.options?.onFallback?.("exhausted");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.test/api/realtime/fallback",
+      expect.objectContaining({ method: "POST", body: "exhausted" }),
+    );
   });
 
   it("drops the rows of a wedding the organiser leaves, from a deep link onward", async () => {
