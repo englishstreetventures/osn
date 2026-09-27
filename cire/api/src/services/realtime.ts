@@ -10,9 +10,9 @@ export const weddingTopic = (weddingId: string): string => `cire:wedding:${weddi
 export interface WeddingSignals {
   /**
    * The wedding's hosts changed. Call after the write has committed.
-   * `affectedOsnProfileId` is the co-host whose seat changed: their sockets
-   * are closed after the signal, so they reconnect and have their access
-   * checked again. `request` is the write's own request: when the Worker
+   * `affectedOsnProfileId` is a co-host who may have lost the dashboard: their
+   * sockets are closed after the signal, so they reconnect and have their
+   * access checked again. `request` is the write's own request: when the Worker
    * registered an execution context for it, the publish runs after the
    * response in `waitUntil`, so the write never waits on the hub. Never fails.
    */

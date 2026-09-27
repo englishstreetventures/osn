@@ -789,14 +789,36 @@ describe("co-host writes publish members-changed", () => {
     expect(publishes).toEqual([{ name: topic, evict: [] }]);
   });
 
-  it("after a role change, evicting the re-roled co-host", async () => {
-    const { hub, publishes } = recordingHub();
-    const { db, app } = buildPublishingApp(hub);
-    seedCohost(db);
-    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "helper" });
-    expect(res.status).toBe(200);
-    expect(publishes).toEqual([{ name: topic, evict: [COHOST] }]);
-  });
+  it.each([
+    ["editor", "helper"],
+    ["viewer", "helper"],
+  ] as const)(
+    "after a change from %s to %s, evicting the co-host, whose seat loses the dashboard",
+    async (from, to) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildPublishingApp(hub);
+      seedCohost(db, from);
+      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
+      expect(res.status).toBe(200);
+      expect(publishes).toEqual([{ name: topic, evict: [COHOST] }]);
+    },
+  );
+
+  it.each([
+    ["editor", "viewer"],
+    ["viewer", "editor"],
+    ["helper", "editor"],
+  ] as const)(
+    "after a change from %s to %s, evicting nobody, since the new seat reads the dashboard",
+    async (from, to) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildPublishingApp(hub);
+      seedCohost(db, from);
+      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
+      expect(res.status).toBe(200);
+      expect(publishes).toEqual([{ name: topic, evict: [] }]);
+    },
+  );
 
   it("after a removal, evicting the removed co-host", async () => {
     const { hub, publishes } = recordingHub();

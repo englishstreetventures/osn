@@ -16,6 +16,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { decideCapability } from "../middleware/wedding-role";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
@@ -164,8 +165,10 @@ export const createOrganiserHostsReadRoutes = (
  * account-linking route — additive, not a privilege ladder.
  *
  * Each successful write then tells the wedding's open tabs
- * (`signals.membersChanged`); a remove or role change also evicts that
- * co-host's sockets so their access is checked again.
+ * (`signals.membersChanged`). A removal, and a role change to one without the
+ * dashboard (`member`), also evict that co-host's sockets so their access is
+ * checked again; a change that keeps the dashboard leaves their sockets open,
+ * since the check could only admit them again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
@@ -324,7 +327,12 @@ export const createOrganiserHostsWriteRoutes = (
                   osnProfileId: params.osnProfileId,
                   role: body.role,
                 });
-                yield* signals.membersChanged(weddingId, params.osnProfileId, request);
+                // Every open tab hears of it; the co-host's own sockets close
+                // only when the new role no longer reads the dashboard.
+                const evict = decideCapability(body.role, "member").allowed
+                  ? undefined
+                  : params.osnProfileId;
+                yield* signals.membersChanged(weddingId, evict, request);
                 yield* Effect.sync(() => metricHostRoleChanged("ok"));
                 return {
                   host: {
