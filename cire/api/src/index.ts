@@ -6,12 +6,13 @@ import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 
-import { type AppOptions, createApp, DEFAULT_ORGANISER_ORIGIN } from "./app";
+import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
+import { organiserOriginFrom } from "./lib/organiser-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
@@ -711,10 +712,7 @@ const handler: ExportedHandler<Env> = {
     // recipient's marker past changes nobody was told about. The portal link
     // uses the tier's organiser origin, the second entry of WEB_ORIGIN.
     if (organiserEmails && resendApiKey) {
-      const organiserOrigin =
-        env.WEB_ORIGIN.split(",")
-          .map((origin) => origin.trim())
-          .at(1) || DEFAULT_ORGANISER_ORIGIN;
+      const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       runSweep(() =>
         Effect.runPromise(
           rsvpDigestService.sendDailyDigests({ organiserOrigin, lookup: organiserEmails }).pipe(

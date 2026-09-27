@@ -28,6 +28,20 @@ describe("rsvp-change-digest", () => {
     expect(out.html.startsWith("<!doctype html>")).toBe(true);
   });
 
+  it("leads with the households in all, which one household making two kinds of change counts once", () => {
+    const out = renderTemplate("rsvp-change-digest", {
+      ...base,
+      households: 1,
+      counts: { reply_edited: 1, plus_one_added: 1 },
+    });
+    expect(out.text).toContain(
+      "1 household changed their RSVPs for Ama & Jonah since our last email:",
+    );
+    expect(out.html).toContain(
+      "1 household changed their RSVPs for Ama &amp; Jonah since our last email:",
+    );
+  });
+
   it("leaves out a kind nobody made", () => {
     const out = renderTemplate("rsvp-change-digest", base);
     expect(out.text).not.toContain("plus-one");

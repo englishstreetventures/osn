@@ -62,13 +62,14 @@ export function renderRsvpChangeDigest(data: RsvpChangeDigestData): RenderedEmai
     const n = data.counts[kind] ?? 0;
     return n > 0 ? [line(n)] : [];
   });
+  const lead = `${households(data.households)} changed their RSVPs for ${data.weddingName} since our last email`;
   const stop =
     'We send this once a day, and only when something has changed. To stop these emails for this wedding, turn off "Email me a daily summary" on the wedding\'s Overview page. Your co-hosts choose for themselves.';
 
   const text = [
     `Hello,`,
     ``,
-    `Guests have updated their RSVPs for ${data.weddingName} since our last email:`,
+    `${lead}:`,
     ``,
     ...lines.map((line) => `  ${line}`),
     ``,
@@ -82,7 +83,7 @@ export function renderRsvpChangeDigest(data: RsvpChangeDigestData): RenderedEmai
   const html = wrap(
     `<h2>RSVP changes for ${esc(data.weddingName)}</h2>` +
       `<p>Hello,</p>` +
-      `<p>Guests have updated their RSVPs for ${esc(data.weddingName)} since our last email:</p>` +
+      `<p>${esc(lead)}:</p>` +
       `<ul>${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` +
       `<p><a href="${esc(data.rsvpUrl)}">See who</a></p>` +
       `<p style="color:#666;font-size:14px">${esc(stop)}</p>` +

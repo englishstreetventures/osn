@@ -83,9 +83,9 @@ A run ends with one `rsvp digest run complete` log line carrying the counts — 
 
 *Unverified — the digest's CPU time on workerd has not been measured; no deployed run exists yet.*
 
-The portal link is the tier's organiser origin (the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
+The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
 
-**What the email says.** Counts only — "3 households replied", "1 household changed their reply" — the wedding's name, the link, and how to turn it off. No household or guest name, no attendance, no dietary data: those stay in the portal, on Cloudflare. Naming households is an open decision (englishstventures/osn#1259) that first needs the guest privacy notice, the guest-data DPIA and the Resend DPA to cover it.
+**What the email says.** Counts only — "4 households changed their RSVPs for Ama & Jonah since our last email", then "3 households replied", "1 household changed their reply" — the link, and how to turn it off. One household can make more than one kind of change, so the lead count is not the sum of the lines. No household or guest name, no attendance, no dietary data: those stay in the portal, on Cloudflare. Naming households is an open decision (englishstventures/osn#1259) that first needs the guest privacy notice, the guest-data DPIA and the Resend DPA to cover it.
 
 ## Retention
 
