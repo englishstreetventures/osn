@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
 import { tableExportService } from "../../src/services/table-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const withDb = effWith(TestDbLayer);
 
@@ -24,7 +26,7 @@ describe("tableExportService.guestsCsv", () => {
         // Header + the seed's 6 guests.
         expect(rows).toHaveLength(7);
         expect(rows[0]).toBe(
-          "Family Code,Family Name,Guest First Name,Guest Last Name,Events,Invite Sent At,Invite Opened At,Code Status",
+          "Family Code,Family Name,Guest First Name,Guest Last Name,Events,Invite Sent At,Invite Opened At,Code Status,Plus-one Of",
         );
         const codes = rows.slice(1).map((r) => r.split(",")[0]!);
         expect(codes).toEqual([...codes].toSorted());
@@ -150,8 +152,8 @@ describe("tableExportService.guestsCsv", () => {
 
         const csv = yield* tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID);
         const row = lines(csv).find((r) => r.startsWith("ZZSOLO-AAAA"));
-        // Empty Events + Sent + Opened cells, Active status.
-        expect(row).toBe("ZZSOLO-AAAA,Solofam,Sana,Solo,,,,Active");
+        // Empty Events + Sent + Opened cells, Active status, and no inviter.
+        expect(row).toBe("ZZSOLO-AAAA,Solofam,Sana,Solo,,,,Active,");
       }),
     ),
   );
@@ -175,11 +177,54 @@ describe("tableExportService.guestsCsv", () => {
 
         const csv = yield* tableExportService.guestsCsv("wed_empty");
         expect(lines(csv)).toEqual([
-          "Family Code,Family Name,Guest First Name,Guest Last Name,Events,Invite Sent At,Invite Opened At,Code Status",
+          "Family Code,Family Name,Guest First Name,Guest Last Name,Events,Invite Sent At,Invite Opened At,Code Status,Plus-one Of",
         ]);
       }),
     ),
   );
+});
+
+/**
+ * A named plus-one is a guest row of the household, so the roster lists them —
+ * marked with the guest who brought them, and placed straight after that guest
+ * rather than by the sort order copied when they were named.
+ */
+describe("tableExportService.guestsCsv — plus-ones", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    return { db, run };
+  };
+  const byName = (csv: string, first: string, last: string) =>
+    lines(csv).find((r) => r.includes(`,${first},${last},`));
+
+  it("adds no row for a permission with no plus-one named", async () => {
+    const { db, run } = setUp();
+    const before = lines(await run(tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID)));
+    allowPlusOne(db, guestNamed(db, "Bo").id);
+    const after = lines(await run(tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID)));
+    expect(after).toEqual(before);
+  });
+
+  it("names the inviter in the last column, straight after the inviter's row", async () => {
+    const { db, run } = setUp();
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    // The household reordered after Sam was named: Bo moved last, and Sam kept
+    // the number copied from Bo, now the lowest in the household.
+    db.update(guests).set({ sortOrder: 9 }).where(eq(guests.id, bo.id)).run();
+
+    const csv = await run(tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID));
+    const rows = lines(csv);
+    const sam = byName(csv, "Sam", "Lee")!;
+    expect(rows.indexOf(sam)).toBe(rows.indexOf(byName(csv, "Bo", "Sampleton")!) + 1);
+    expect(sam.split(",").at(-1)).toBe("Bo Sampleton");
+    // Invited to Bo's events, which the plus-one copied when named.
+    expect(sam).toContain("Hindu Ceremony; Reception");
+    expect(byName(csv, "Bo", "Sampleton")!.split(",").at(-1)).toBe("");
+  });
 });
 
 describe("tableExportService.eventsCsv", () => {
@@ -327,4 +372,33 @@ describe("tableExportService.eventsCsv", () => {
       }),
     ),
   );
+});
+
+describe("tableExportService.eventsCsv — plus-ones", () => {
+  const invitedTo = (csv: string, event: string) =>
+    lines(csv)
+      .find((r) => r.startsWith(`${event},`))!
+      .split(",")
+      .at(-1);
+
+  it("counts a named plus-one as invited, and a permission alone not at all", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const before = await run(tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+
+    allowPlusOne(db, bo.id);
+    const allowed = await run(tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+    expect(invitedTo(allowed, "Hindu Ceremony")).toBe(invitedTo(before, "Hindu Ceremony"));
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const named = await run(tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+    expect(Number(invitedTo(named, "Hindu Ceremony"))).toBe(
+      Number(invitedTo(before, "Hindu Ceremony")) + 1,
+    );
+    // Bo is not invited to the Catholic ceremony, so neither is Sam.
+    expect(invitedTo(named, "Catholic Ceremony")).toBe(invitedTo(before, "Catholic Ceremony"));
+  });
 });

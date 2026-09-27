@@ -1233,11 +1233,11 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
       "Guest First Name",
       "Guest Last Name",
     ]);
-    expect(columns.at(-1)).toBe("Recorded By");
+    expect(columns.slice(-2)).toEqual(["Recorded By", "Plus-one Of"]);
     expect(columns).not.toContain("Dietary Requirements");
     // The middle is pairs: every second column from index 4 is a dietary column
     // named after the status column immediately before it.
-    const middle = columns.slice(4, -1);
+    const middle = columns.slice(4, -2);
     expect(middle.length % 2).toBe(0);
     expect(middle.length).toBeGreaterThan(0);
     for (let i = 0; i < middle.length; i += 2) {
