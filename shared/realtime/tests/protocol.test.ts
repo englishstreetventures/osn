@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import * as root from "../src/index";
 import {
   CLOSE_CODES,
+  FALLBACK_OUTCOMES,
   formatTopic,
+  isFallbackOutcome,
   isSignal,
   parseTopic,
   PING,
@@ -72,11 +75,37 @@ describe("isSignal", () => {
   });
 });
 
+describe("isFallbackOutcome", () => {
+  it.each(["refused", "exhausted"])("accepts %s", (value) => {
+    expect(isFallbackOutcome(value)).toBe(true);
+  });
+
+  it.each([
+    ["the client's stopped signal", "stopped"],
+    ["a capitalised outcome", "Refused"],
+    ["an outcome with surrounding whitespace", " refused"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a number", 1008],
+    ["an object", { outcome: "refused" }],
+  ])("refuses %s", (_label, value) => {
+    expect(isFallbackOutcome(value)).toBe(false);
+  });
+});
+
+describe("root export", () => {
+  it("carries the fallback outcomes a product's route and portal share", () => {
+    expect(root.FALLBACK_OUTCOMES).toEqual(["refused", "exhausted"]);
+    expect(root.isFallbackOutcome("exhausted")).toBe(true);
+  });
+});
+
 describe("wire constants", () => {
   it("pins the frames and close codes both ends agree on", () => {
     expect([PING, PONG]).toEqual(["ping", "pong"]);
     expect(CLOSE_CODES).toEqual({ policy: 1008, evicted: 4001, stale: 4002 });
     expect(REALTIME_PRODUCTS).toEqual(["cire"]);
     expect(SIGNAL_KINDS).toEqual(["members-changed"]);
+    expect(FALLBACK_OUTCOMES).toEqual(["refused", "exhausted"]);
   });
 });

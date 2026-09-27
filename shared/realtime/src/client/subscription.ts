@@ -1,4 +1,4 @@
-import { CLOSE_CODES, isSignal, PING, PONG, type Signal } from "../protocol";
+import { CLOSE_CODES, type FallbackOutcome, isSignal, PING, PONG, type Signal } from "../protocol";
 
 /**
  * Why the subscriber should read again: a signal arrived; an open socket was
@@ -24,10 +24,12 @@ export interface SubscriptionOptions {
   /** Jitter source in [0, 1). */
   readonly random?: () => number;
   /**
-   * Called once when the subscription gives up for good. The client records
-   * no metric of its own until englishstventures/osn#1242 lands.
+   * Called once when the subscription gives up for good, with why:
+   * `refused` or `exhausted` (see `FALLBACK_OUTCOMES`). The client records no
+   * metric itself; a product posts the outcome to its API with
+   * `sendFallbackBeacon` to have it counted.
    */
-  readonly onFallback?: () => void;
+  readonly onFallback?: (outcome: FallbackOutcome) => void;
   /** The WebSocket constructor; tests pass a stand-in. */
   readonly WebSocket?: new (url: string) => WebSocket;
 }
@@ -51,8 +53,9 @@ export const SUBSCRIPTION_DEFAULTS = {
  * or a signal both prove the socket works end to end and reset the count,
  * so a socket that opens and is then cut before answering anything still
  * counts against the limit. After `maxAttempts` consecutive failed attempts
- * it stops and calls `onFallback` once, leaving the product's own refetch
- * triggers as the only ones. It never throws and never logs: a browser that
+ * it stops and calls `onFallback("exhausted")`; a 1008 close stops it at once
+ * with `onFallback("refused")`. Either way the product's own refetch triggers
+ * are left as the only ones. It never throws and never logs: a browser that
  * cannot hold the socket behaves exactly as one without push.
  */
 export function createTopicSubscription(
@@ -104,11 +107,11 @@ export function createTopicSubscription(
     }
   }
 
-  function fallBack(): void {
+  function fallBack(outcome: FallbackOutcome): void {
     stop();
     if (everOpened) emit({ reason: "stopped" });
     try {
-      options.onFallback?.();
+      options.onFallback?.(outcome);
     } catch {
       // As for onSignal: nothing is left running to protect.
     }
@@ -117,7 +120,7 @@ export function createTopicSubscription(
   function retry(): void {
     if (stopped) return;
     if (failures >= maxAttempts) {
-      fallBack();
+      fallBack("exhausted");
       return;
     }
     const ceiling = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, failures - 1));
@@ -131,7 +134,7 @@ export function createTopicSubscription(
     stopPinging();
     if (stopped) return;
     if (code === CLOSE_CODES.policy) {
-      fallBack();
+      fallBack("refused");
       return;
     }
     if (opened) emit({ reason: "dropped" });
