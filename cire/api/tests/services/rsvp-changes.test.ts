@@ -329,9 +329,9 @@ describe("rsvpChangeService.feed", () => {
 
   it("reads through the wedding index, ranging on seq", () => {
     const { db } = fixture();
-    const { sql, params } = buildUnseenQuery(db, BOOTSTRAP_WEDDING_ID, OWNER).toSQL();
+    const { sql: text, params } = buildUnseenQuery(db, BOOTSTRAP_WEDDING_ID, OWNER).toSQL();
     const plan = db.$client
-      .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${sql}`)
+      .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
       .all(...(params as never[]))
       .map((r) => r.detail)
       .join("\n");
