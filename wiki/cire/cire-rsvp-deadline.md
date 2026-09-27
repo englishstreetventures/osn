@@ -5,7 +5,8 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-18
+  - "[[cire-budget]]"
+last-reviewed: 2026-09-27
 ---
 # RSVP deadline
 
@@ -44,7 +45,7 @@ resolveRsvpDeadline(date, timezone, now)
 isRsvpClosed(date, timezone, now)  // → boolean
 ```
 
-Everything — the guest write gate, the claim payload, the guest banner — goes through it, so the server's 403 and the invite's "closed" copy can never disagree about when the door shut.
+Everything — the guest write gate, the claim payload, the guest banner — goes through it, so the server's 403 and the invite's "closed" copy can never disagree about when the door shut. One read-side caller uses it too: the budget snapshot's `rsvpsClosed`, which switches a per-head budget line from pricing expected guests to confirmed ones at the same instant the invite locks (see [[cire-budget#Per-head lines]]).
 
 Offsets come from `Intl.DateTimeFormat` (no tz library on a Worker): format the instant into the zone, read the wall-clock fields back, and subtract. It runs **two passes** — the first offset is sampled at the UTC-interpreted instant, which is up to a day away from the real one and so can land on the wrong side of a DST transition; re-sampling at the corrected instant settles it. That is what makes "the end of 5 April in Sydney" resolve at `+10` (the day *ends* on AEST) rather than the `+11` in force when it began.
 
