@@ -50,7 +50,10 @@ export async function markHouseholdShared(
   if (typeof sharedAt === "number") {
     setCachedGuests(
       weddingId,
-      rows.map((row) => (row.familyId === familyId ? { ...row, codeSharedAt: sharedAt } : row)),
+      // A copy, never the cached row itself: the cache is replaced, not edited.
+      rows.map((row) =>
+        row.familyId === familyId ? Object.assign({}, row, { codeSharedAt: sharedAt }) : row,
+      ),
     );
   } else {
     invalidateGuests(weddingId);
