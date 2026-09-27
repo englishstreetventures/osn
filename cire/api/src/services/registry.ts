@@ -1545,8 +1545,8 @@ export const registryService = {
         },
         { concurrency: "unbounded" },
       );
-      // The same shared check the list read and the writes use, so the three
-      // gates cannot drift.
+      // The household check every guest route makes, answered with the same
+      // failure, so a cookie for one wedding buys nothing on another.
       if (!gates.familyBelongs) {
         return yield* Effect.fail(new RegistryNotVisible());
       }
