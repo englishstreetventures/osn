@@ -18,6 +18,7 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
@@ -194,6 +195,59 @@ describe("dress-code palette colours are checked on the server", () => {
     expect(body.find((e) => e.id === "evt_bad_palette")!.dressCodePalette).toEqual([
       { name: "Sage", color: "#b2ac88" },
     ]);
+  });
+});
+
+// ── Size of an editor draft ────────────────────────────────────────────────
+
+describe("an editor draft is bounded in events and households", () => {
+  const event = (i: number) => ({
+    name: `Event ${i}`,
+    startAt: "2026-09-18T16:00:00+10:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    address: null,
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: i,
+  });
+
+  it(`400s a schedule of more than ${MAX_EVENTS} events`, async () => {
+    const { app } = buildApp();
+    const events = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const res = await editorPreview(app, {
+      desiredState: { events, families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: events.slice(0, MAX_EVENTS), families: [] },
+      scope: "events",
+    });
+    expect(atCap.status).toBe(200);
+  });
+
+  it(`400s more than ${MAX_ROWS} households`, async () => {
+    const { app } = buildApp();
+    const families = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
+      familyName: `F${i}`,
+      guests: [],
+    }));
+    const res = await editorPreview(app, {
+      desiredState: { events: [], families },
+      scope: "guests",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: [], families: families.slice(0, MAX_ROWS) },
+      scope: "guests",
+    });
+    expect(atCap.status).toBe(200);
   });
 });
 
