@@ -113,6 +113,12 @@ describe("renderTemplate", () => {
       listPurchased: 1,
       listReserved: 2,
     },
+    "rsvp-change-digest": {
+      weddingName: "Ama & Jonah",
+      households: 2,
+      counts: { reply_new: 2 },
+      rsvpUrl: "https://example.test/#/w/wed_1/guests/rsvps",
+    },
     "vendor-claim-invite": {
       claimUrl: "https://example.test/claim/abc",
       vendorName: "Bloom & Co",

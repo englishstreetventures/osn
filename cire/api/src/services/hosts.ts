@@ -1,8 +1,8 @@
-import { weddingHosts, weddings } from "@cire/db";
+import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
 import { and, asc, count, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { entitlementPresent } from "./entitlements";
 import type { EntitlementKey } from "./entitlements";
 
@@ -614,6 +614,9 @@ export const hostsService = {
    * Remove a co-host. Scoped to `(weddingId, osnProfileId)` so an owner can only
    * remove a host from their own wedding (the route's `weddingOwner()` proved
    * ownership). Idempotent: removing a host that isn't there succeeds.
+   *
+   * Their RSVP read marker and digest setting (`host_rsvp_notices`) go in the
+   * same batch: they belong to the seat, and a later re-add starts clean.
    */
   remove(input: {
     weddingId: string;
@@ -623,7 +626,15 @@ export const hostsService = {
       const db = yield* DbService;
       yield* Effect.tryPromise({
         try: () =>
-          Promise.resolve(
+          commitBatch(db, [
+            db
+              .delete(hostRsvpNotices)
+              .where(
+                and(
+                  eq(hostRsvpNotices.weddingId, input.weddingId),
+                  eq(hostRsvpNotices.osnProfileId, input.osnProfileId),
+                ),
+              ),
             db
               .delete(weddingHosts)
               .where(
@@ -631,9 +642,8 @@ export const hostsService = {
                   eq(weddingHosts.weddingId, input.weddingId),
                   eq(weddingHosts.osnProfileId, input.osnProfileId),
                 ),
-              )
-              .run(),
-          ),
+              ),
+          ]),
         catch: (e) => new HostWriteError({ op: "delete", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("host delete failed", { reason: err.reason })),

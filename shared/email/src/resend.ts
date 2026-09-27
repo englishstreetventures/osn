@@ -29,11 +29,17 @@ import {
   metricEmailSendAttempt,
   metricEmailSendDuration,
 } from "./metrics";
-import { EmailError, EmailService } from "./service";
+import { EmailError, EmailService, type SendEmailInput } from "./service";
 import { renderTemplate } from "./templates";
 
 /** Hardcoded Resend endpoint. Not derived from any input — no SSRF surface. */
 const RESEND_API_URL = "https://api.resend.com/emails";
+
+/** Hardcoded Resend batch endpoint; takes an array of the same payloads. */
+const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
+
+/** Resend accepts at most this many emails in one batch call. */
+export const RESEND_BATCH_LIMIT = 100;
 
 /** Runtime configuration for the Resend-backed transport. */
 export interface ResendEmailConfig {
@@ -55,8 +61,98 @@ interface ResendEmailPayload {
   readonly text: string;
 }
 
+/**
+ * Render every email, then POST them to the batch endpoint, at most
+ * {@link RESEND_BATCH_LIMIT} per call, one call after another. A render failure
+ * fails the batch before anything is sent; a failed call fails it too, though
+ * calls before it have gone — callers that must not double-send keep a batch
+ * within one call.
+ */
+const sendBatch = (
+  config: ResendEmailConfig,
+  inputs: readonly SendEmailInput[],
+): Effect.Effect<void, EmailError> =>
+  Effect.gen(function* () {
+    if (inputs.length === 0) return;
+    const started = Date.now();
+    const from = config.fromAddress ?? "noreply@osn.local";
+
+    const payloads: ResendEmailPayload[] = [];
+    for (const input of inputs) {
+      const rendered = yield* Effect.try({
+        try: () => renderTemplate(input.template, input.data),
+        catch: (cause) => new EmailError({ reason: "render_failed", cause }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() =>
+            metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "ok"),
+          ),
+        ),
+        Effect.tapError(() =>
+          Effect.sync(() =>
+            metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "error"),
+          ),
+        ),
+      );
+      payloads.push({
+        from,
+        to: [input.to],
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+      });
+    }
+
+    const record = (index: number, outcome: "sent" | "failed" | "rate_limited") => {
+      const template = inputs[index]!.template;
+      metricEmailSendAttempt(template, outcome);
+      metricEmailSendDuration((Date.now() - started) / 1000, template, outcome);
+    };
+
+    for (let offset = 0; offset < payloads.length; offset += RESEND_BATCH_LIMIT) {
+      const chunk = payloads.slice(offset, offset + RESEND_BATCH_LIMIT);
+      const indexes = chunk.map((_, i) => offset + i);
+      const template = inputs[offset]!.template;
+      const response = yield* Effect.tryPromise({
+        try: () =>
+          instrumentedFetch(RESEND_BATCH_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              // Bearer secret — header only. Never logged or echoed.
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify(chunk),
+          }),
+        catch: (cause) => {
+          metricEmailDispatchStatus(template, "network");
+          for (const i of indexes) record(i, "failed");
+          return new EmailError({ reason: "api_unreachable", cause });
+        },
+      }).pipe(
+        Effect.withSpan("email.resend.dispatch_batch", {
+          attributes: { template, size: chunk.length },
+        }),
+      );
+
+      metricEmailDispatchStatus(template, classifyHttpStatus(response.status));
+      if (response.status === 429) {
+        for (const i of indexes) record(i, "rate_limited");
+        return yield* Effect.fail(new EmailError({ reason: "rate_limited" }));
+      }
+      if (!response.ok) {
+        for (const i of indexes) record(i, "failed");
+        return yield* Effect.fail(
+          new EmailError({ reason: "dispatch_failed", cause: { status: response.status } }),
+        );
+      }
+      for (const i of indexes) record(i, "sent");
+    }
+  }).pipe(Effect.withSpan("email.send_batch", { attributes: { size: inputs.length } }));
+
 export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<EmailService> =>
   Layer.succeed(EmailService, {
+    sendBatch: (inputs) => sendBatch(config, inputs),
     send: (input) =>
       Effect.gen(function* () {
         const started = Date.now();

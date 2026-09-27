@@ -1,20 +1,28 @@
-import { families, guests, guestEvents, weddings } from "@cire/db";
+import { families, guests, guestEvents, rsvps, weddings } from "@cire/db";
 import type { DietaryPreset } from "@cire/dietary";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
-import { metricDietaryPreset, metricRsvpBatchSize, metricRsvpBlocked } from "../metrics";
+import {
+  metricDietaryPreset,
+  metricRsvpBatchSize,
+  metricRsvpBlocked,
+  metricRsvpChangeRecorded,
+} from "../metrics";
 import { sessionAuth } from "../middleware/auth";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { rsvpService } from "../services/rsvp";
 import type { RsvpInput } from "../services/rsvp";
+import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
 // S-L2: RSVP payloads are small (a family's worth of events). Reject obviously
 // oversized requests before we pay for JSON parsing — mirrors the import route's
@@ -56,10 +64,16 @@ export interface RsvpRouteOptions {
    * missing/invalid token fails closed (403) after auth, before any write.
    */
   turnstileVerifier?: TurnstileVerifier | null;
+  /**
+   * Per-IP limiter for the write (see `defaultRsvpLimiter` in `app.ts`). An
+   * unresolvable client IP is refused, as on every limited guest write.
+   */
+  limiter: RateLimiterBackend;
 }
 
-export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRouteOptions = {}) =>
+export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: RsvpRouteOptions) =>
   new Elysia({ prefix: "/api/rsvp" })
+    .use(rateLimitMiddleware(limiter))
     // Gate every method under /api/rsvp behind a valid session cookie.
     .use(sessionAuth(db))
     .post(
@@ -120,6 +134,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
                   dbService
                     .select({
                       kind: families.kind,
+                      weddingId: families.weddingId,
                       rsvpDeadline: weddings.rsvpDeadline,
                       rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
                     })
@@ -135,15 +150,28 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
                 // invitation sets are both derived from it below. Deliberately
                 // keyed on familyId alone, never on body-supplied guest/event
                 // ids — those are only validated AFTER ownership is established.
+                // The stored reply for each invitation rides along (one probe of
+                // `rsvps_guest_event_uniq` per pair), so the change log can tell a
+                // new reply from an edit without a read of its own.
                 dbQuery(() =>
                   dbService
                     .select({
                       guestId: guests.id,
                       eventId: guestEvents.eventId,
+                      priorStatus: rsvps.status,
+                      priorDietary: rsvps.dietary,
+                      priorDietaryPresets: rsvps.dietaryPresets,
                       plusOneOf: guests.plusOneOfGuestId,
                     })
                     .from(guests)
                     .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+                    .leftJoin(
+                      rsvps,
+                      and(
+                        eq(rsvps.guestId, guestEvents.guestId),
+                        eq(rsvps.eventId, guestEvents.eventId),
+                      ),
+                    )
                     .where(eq(guests.familyId, familyId))
                     .all(),
                 ),
@@ -268,13 +296,31 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               consentSource: plusOneIds.has(rsvp.guestId) ? "inviter_attested" : "guest",
             }));
 
+            // What the organisers' change feed and digest will see: each pair
+            // whose answer is new or different from the stored one. Dietary
+            // content is compared here and never logged.
+            const prior = new Map<string, PriorReply>();
+            for (const row of familyGuestEvents) {
+              if (row.eventId === null || row.priorStatus === null) continue;
+              prior.set(pairKey(row.guestId, row.eventId), {
+                status: row.priorStatus,
+                dietary: row.priorDietary ?? "",
+                dietaryPresets: row.priorDietaryPresets ?? "",
+              });
+            }
+            const changes = classifyRsvpChanges(prior, replies);
+
             // Ownership + invitation already validated above — service method does
-            // not re-check. Upsert the whole batch AND read back the family's
-            // current rows in one D1 round-trip instead of two.
-            const updatedRsvps = yield* rsvpService.submitRsvpsAndList(replies, familyId);
+            // not re-check. Upsert the whole batch, log the changes AND read back
+            // the family's current rows in one D1 round-trip instead of three.
+            const updatedRsvps = yield* rsvpService.submitRsvpsAndList(replies, familyId, {
+              weddingId: family.weddingId,
+              changes,
+            });
 
             yield* Effect.sync(() => {
               metricRsvpBatchSize(body.rsvps.length);
+              for (const change of changes) metricRsvpChangeRecorded(change.kind);
               // Counts what a caterer will cook for, so a guest who is not
               // coming does not enter the count. The row still STORES their
               // presets — a declined reply can be changed back, and the consent

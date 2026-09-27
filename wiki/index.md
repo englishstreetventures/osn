@@ -116,6 +116,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
+- [[cire-rsvp-changes]] — the RSVP change log, the organisers' daily digest email and the "since your last visit" card and badges
 - [[cire-vendors]] — vendor directory, CRM, and the email-verification claim
 - [[cire-workerd]] — what cire does differently on workerd (no OTel SDK, deferred export)
 - [[cire]] — wedding-invite stack (`@cire/invites` + `@cire/host` + `@cire/api` + `@cire/db`)

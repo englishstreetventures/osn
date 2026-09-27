@@ -14,6 +14,7 @@ tags:
   - observability
 status: current
 related:
+  - "[[cire-rsvp-changes]]"
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
@@ -22,7 +23,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-27
 ---
 
 # Email Transport
@@ -93,6 +94,15 @@ The template catalogue is the complete list of emails OSN sends:
 | `totp-enrolled`          | `{}`                                | `completeTotpEnrollment` |
 | `totp-disabled`          | `{}`                                | `disableTotp` |
 
+cire-api sends from the same catalogue:
+
+| Template | Data shape | Call site |
+|---|---|---|
+| `enquiry-new`, `enquiry-reply`, `enquiry-quote` | `EnquiryNewData` / `EnquiryReplyData` / `EnquiryQuoteData` | the vendor-enquiry service |
+| `vendor-claim-invite` | `{ claimUrl, vendorName }` | the vendor directory's claim invite |
+| `registry-gift-summary` | `RegistryGiftSummaryData` (aggregates only) | the retention sweep, as it deletes a wedding's guest data |
+| `rsvp-change-digest` | `{ weddingName, households, counts, rsvpUrl }` — counts per kind of change, no guest name | the daily RSVP digest cron — see [[cire-rsvp-changes]] |
+
 `otp-recovery` is the only OTP template sent from an **unauthenticated**
 endpoint, which shapes its copy: anyone who knows the address can cause it to
 arrive (capped at 3 per 24 h per account), so it reads as something a stranger
@@ -155,6 +165,12 @@ Content-Type: application/json
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
   to Cloudflare's Email Service REST API via `instrumentedFetch` so the
   call becomes a child span.
+- `EmailService.sendBatch` (optional) — several emails in as few provider
+  calls as the transport allows. Resend implements it as `POST
+  https://api.resend.com/emails/batch`, up to 100 emails per call, all or
+  nothing; the other transports leave it out and callers loop over `send`.
+  cire's RSVP digest uses it so a cron run mails up to 100 organisers for one
+  outbound request ([[cire-rsvp-changes]]).
 - `makeLogEmailLive()` — dev + test. Renders the template in-process,
   records the payload into an in-memory ring buffer (exposed via
   `recorded()`), emits a single `Effect.logDebug` line with `template`
@@ -302,8 +318,8 @@ set the `CLOUDFLARE_*` vars) but is no longer the live transport.
   on 429. Dev log `[email:log] template=... subject="..." to=...` from
   `LogEmailLive` only (guarded by log level).
 - **Metrics** (in `shared/email/src/metrics.ts`):
-  - `osn.email.send.attempts` — counter, `{ template: 7 values,
-    outcome: sent|failed|rate_limited|skipped }`. Cardinality: 28 series.
+  - `osn.email.send.attempts` — counter, `{ template: 18 values,
+    outcome: sent|failed|rate_limited|skipped }`. Cardinality: 72 series.
   - `osn.email.send.duration` — histogram, same attrs.
   - `osn.email.render.duration` — histogram,
     `{ template, outcome: ok|error }`.

@@ -40,6 +40,13 @@ export type SendEmailInput = {
 
 export interface EmailServiceImpl {
   readonly send: (input: SendEmailInput) => Effect.Effect<void, EmailError>;
+  /**
+   * Send several emails in as few provider calls as the transport allows —
+   * one per 100 on Resend. All or nothing as far as the caller can tell: a
+   * failure means none of the batch should be counted as sent. Optional: a
+   * transport without it leaves the caller to loop over {@link send}.
+   */
+  readonly sendBatch?: (inputs: readonly SendEmailInput[]) => Effect.Effect<void, EmailError>;
 }
 
 export class EmailService extends Context.Service<EmailService, EmailServiceImpl>()(

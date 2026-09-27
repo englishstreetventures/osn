@@ -14,6 +14,7 @@ import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
 import type { AccountLinking } from "./lib/account-linking";
+import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
@@ -37,6 +38,10 @@ import {
 } from "./routes/organiser-hosts";
 import { createOrganiserPlusOneRoutes } from "./routes/organiser-plus-one";
 import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
+import {
+  createOrganiserRsvpChangeReadRoutes,
+  createOrganiserRsvpChangeWriteRoutes,
+} from "./routes/organiser-rsvp-changes";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
   createOrganiserExportRoutes,
@@ -232,6 +237,15 @@ const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowM
  * indexed statement.
  */
 const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Per-IP limiter for the guest RSVP write (`POST /api/rsvp`), the same shape
+ * and budget as the registry guest writes behind the same household cookie. A
+ * submit carries up to 200 replies and writes an upsert plus a change-log row
+ * for each one that changed, so without it one household code could spend the
+ * account's daily D1 write budget in a loop. A household answering its invite
+ * never comes near 20 submits a minute.
+ */
+const defaultRsvpLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the household's plus-one writes (name, rename,
  * remove). Same shape and budget as the guest registry writes, for the same
@@ -470,6 +484,8 @@ export interface AppOptions {
   registryImageLimiter?: RateLimiterBackend;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
+  /** Override the guest RSVP write rate limiter (useful for testing). */
+  rsvpLimiter?: RateLimiterBackend;
   /** Override the household plus-one write limiter (useful for testing). */
   plusOneLimiter?: RateLimiterBackend;
   /** Override the guest "give money" limiter (useful for testing). */
@@ -534,7 +550,7 @@ export interface AppOptions {
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
-    organiserOrigin = "https://host.cireweddings.com",
+    organiserOrigin = DEFAULT_ORGANISER_ORIGIN,
     vendorPortalOrigin = "https://vendor.cireweddings.com",
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
@@ -580,6 +596,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
     registryGuestLimiter = defaultRegistryGuestLimiter,
+    rsvpLimiter = defaultRsvpLimiter,
     plusOneLimiter = defaultPlusOneLimiter,
     registryContributeLimiter = defaultRegistryContributeLimiter,
     stripe = null,
@@ -779,7 +796,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
-      .use(createRsvpRoutes(db))
+      .use(createRsvpRoutes(db, { limiter: rsvpLimiter }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
       .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
@@ -848,6 +865,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'`. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // Guest-side RSVP changes since each organiser last looked, their read
+      // marker, and their daily digest switch. Feed + marker admit every role
+      // that reads RSVPs (weddingMember); the switch is editor or owner
+      // (weddingEditor), the roles the digest goes to. Sibling instances, as
+      // for tasks below.
+      .use(createOrganiserRsvpChangeReadRoutes(db, osnAuthOptions))
+      .use(createOrganiserRsvpChangeWriteRoutes(db, osnAuthOptions))
       // Plus-one permission, per guest or per household. weddingEditor()-gated.
       .use(createOrganiserPlusOneRoutes(db, osnAuthOptions))
       // Checklist tasks (platform Phase 1). Reads admit any member role

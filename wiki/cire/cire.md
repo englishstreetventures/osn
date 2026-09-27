@@ -22,6 +22,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
+  - "[[cire-rsvp-changes]]"
 last-reviewed: 2026-09-27
 ---
 
@@ -66,6 +67,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multiple weddings per organiser are live (#147) — there is no longer a single seeded wedding.
 - `weddings.owner_osn_profile_id` stores the owning OSN profile id as an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). `wedding_hosts(wedding_id, osn_profile_id, …)` (#148) records co-hosts; unique per `(wedding_id, osn_profile_id)`. Owner + co-hosts are the `weddingMember()` set.
 - A **plus-one** is an ordinary `guests` row whose `plus_one_of_guest_id` names the guest who brought them; `guests.plus_one_allowed` is the organiser's permission (migration 0066). The household names them on the invite; the change pipeline never matches one. See [[cire-plus-ones]].
+- `rsvp_changes` logs each guest-side RSVP change (ids, kind, time; `seq` AUTOINCREMENT cursor; cascades with the household and wedding, purged at 90 days) and `host_rsvp_notices` keeps each organiser's read marker and digest switch per wedding (migration 0068). See [[cire-rsvp-changes]].
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
 - **No bootstrap owner / no boot gate (#156).** Earlier builds seeded a demo wedding `wed_bootstrap` and gated the whole Worker on a `BOOTSTRAP_OWNER_PROFILE_ID` env var (`ensureBootstrapOwner` threw → 503 in any deployed tier until a real `usr_*` owner was set). That entire mechanism is **removed**: migration `0015_drop_bootstrap_wedding.sql` deletes the demo wedding, the env var + `ensureBootstrapOwner` + `resolveBootstrapOwnerProfileId` are gone, and a freshly signed-in account gets `GET /api/organiser/weddings → 200 {weddings: []}` and creates its first wedding. (Migration `0006_multi_tenant.sql` still uses the `__keep_*` snapshot/restore pattern for the multi-tenant scaffold — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1, verified by testing.)
 
@@ -148,7 +150,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the

@@ -12,6 +12,7 @@ import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
+import { organiserOriginFrom } from "./lib/organiser-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
@@ -21,12 +22,15 @@ import {
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
+  createOrganiserEmailLookupFromEnv,
   createOrganiserEmailResolverFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
 } from "./services/osn-bridge";
 import { retentionService, type GiftSummaryNotice } from "./services/retention";
+import { rsvpChangeService } from "./services/rsvp-changes";
+import { rsvpDigestService } from "./services/rsvp-digest";
 import { sessionService } from "./services/session";
 import { createStripeClientFromEnv } from "./services/stripe";
 import { createZapChatClientFromEnv } from "./services/zap-bridge";
@@ -530,9 +534,9 @@ const handler: ExportedHandler<Env> = {
     return response;
   },
 
-  // Cron-triggered daily maintenance (C-M2/C-M15 + retention). Configured by the
-  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Six
-  // independent sweeps share the cron:
+  // Cron-triggered daily maintenance and mail. Configured by the single
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Eight
+  // independent jobs share the cron (seven when the digest has no transport):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -552,9 +556,14 @@ const handler: ExportedHandler<Env> = {
   //     non-empty bucket, and caps deletions per run. See asset-reconcile.ts.
   //  5. Expired vendor-claim tokens + 6. abandoned `preview` change rows (with
   //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
+  //  7. RSVP change-log rows past their 90-day window — services/rsvp-changes.ts.
+  //  8. The daily RSVP digest email to each wedding's owner and editors, sent
+  //     only when osn-api can be asked for addresses and Resend is configured
+  //     — services/rsvp-digest.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles.
+  // the other and the isolate stays alive until each delete settles. All eight
+  // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
     // Same session routing as `fetch`, for the same reason. The sweeps are
@@ -564,10 +573,10 @@ const handler: ExportedHandler<Env> = {
     const db = createD1Db(createSessionRoutedClient(env.DB, "scheduled"));
     const dbLayer = Layer.succeed(DbService, db);
 
-    // One session PER SWEEP, not one shared by all six. `waitUntil` only
+    // One session PER SWEEP, not one shared by all of them. `waitUntil` only
     // registers a promise — what decides which session a query rides is where
     // the promise was created — so each sweep gets its own `runInD1Session`
-    // wrapping its own `Effect.runPromise`. Sharing one would couple six
+    // wrapping its own `Effect.runPromise`. Sharing one would couple
     // unrelated, delete-heavy sweeps to a single bookmark that each of them
     // keeps advancing, so every read would be forwarded to the primary anyway.
     //
@@ -684,6 +693,53 @@ const handler: ExportedHandler<Env> = {
         ),
       ),
     );
+
+    // Change-log rows older than 90 days. They hold ids and a kind, never a
+    // name, but they are still a record of a household's replies.
+    runSweep(() =>
+      Effect.runPromise(
+        rsvpChangeService.sweepExpired(new Date()).pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled rsvp change sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // The daily RSVP digest. Same two preconditions as the gift summary, for
+    // the same reason: without a way to ask osn-api for addresses, or a real
+    // transport, there is nobody to mail, and a log stand-in would move every
+    // recipient's marker past changes nobody was told about. Its lookup keeps
+    // "osn-api did not answer" apart from "no address", so an outage holds the
+    // markers. The portal link uses the tier's organiser origin, the second
+    // entry of WEB_ORIGIN.
+    const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
+      osnApiUrl: env.OSN_API_URL,
+      arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+      arcKeyId: env.CIRE_API_ARC_KEY_ID,
+    });
+    if (organiserEmailLookup && resendApiKey) {
+      const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
+      runSweep(() =>
+        Effect.runPromise(
+          rsvpDigestService
+            .sendDailyDigests({ organiserOrigin, lookup: organiserEmailLookup })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled rsvp digest failed", { reason: err.reason }),
+              ),
+              Effect.provide(dbLayer),
+              Effect.provide(
+                makeResendEmailLive({
+                  apiKey: resendApiKey,
+                  fromAddress: "hello@cireweddings.com",
+                }),
+              ),
+            ),
+        ),
+      );
+    }
 
     // IB-S-L2: reconcile orphaned `cire-assets` invite images (re-upload/remove
     // best-effort-delete failures leave objects no DB row references). Pass the

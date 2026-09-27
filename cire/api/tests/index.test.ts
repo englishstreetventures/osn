@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
@@ -412,13 +413,9 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
-  it("gives each scheduled sweep its own session", async () => {
-    // Six sweeps, six sessions — deliberately NOT one shared by all of them.
-    // Sharing would couple six unrelated delete-heavy sweeps to a single
-    // bookmark each of them keeps advancing, so every read would be forwarded
-    // to the primary regardless.
+  const runCron = async (extraEnv: Record<string, string> = {}) => {
     const probe = probeD1();
-    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+    const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
       NonNullable<typeof handler.scheduled>
     >[1];
 
@@ -438,9 +435,33 @@ describe("D1 session routing at the entry points", () => {
     // `allSettled`: a sweep failing on this bare schema is not what is under
     // test — that its queries rode a session of its own is.
     await Promise.allSettled(pending);
+    return { pending, probe };
+  };
 
-    expect(pending).toHaveLength(6);
-    expect(probe.constraints).toEqual(Array.from({ length: 6 }, () => D1_SESSION_CONSTRAINT));
+  it("gives each scheduled sweep its own session", async () => {
+    // One session per sweep — deliberately NOT one shared by all of them.
+    // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
+    // each of them keeps advancing, so every read would be forwarded to the
+    // primary regardless. With no mail transport the digest does not run, so
+    // seven sweeps.
+    const { pending, probe } = await runCron();
+    expect(pending).toHaveLength(7);
+    expect(probe.constraints).toEqual(Array.from({ length: 7 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
+  });
+
+  it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };
+    const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
+
+    const full = await runCron({ ...mail, ...arc });
+    expect(full.pending).toHaveLength(8);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.probe.bindingQueries).toEqual([]);
+
+    // Either half missing: no digest.
+    expect((await runCron(mail)).pending).toHaveLength(7);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(7);
   });
 });

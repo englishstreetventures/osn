@@ -27,6 +27,11 @@ import {
   renderStepUpOtp,
 } from "./otp";
 import {
+  renderRsvpChangeDigest,
+  type RsvpChangeDigestData,
+  type RsvpDigestChangeKind,
+} from "./rsvp-digest";
+import {
   type RecoveryUsedData,
   renderCrossDeviceLogin,
   renderPasskeyAdded,
@@ -57,6 +62,7 @@ export type EmailTemplate =
   | "totp-disabled"
   | "cross-device-login"
   | "registry-gift-summary"
+  | "rsvp-change-digest"
   | "vendor-claim-invite";
 
 /** Typed data bag per template. Extend the map when adding a template. */
@@ -77,6 +83,7 @@ export interface EmailTemplateDataMap {
   "totp-disabled": Record<string, never>;
   "cross-device-login": Record<string, never>;
   "registry-gift-summary": RegistryGiftSummaryData;
+  "rsvp-change-digest": RsvpChangeDigestData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
 }
 
@@ -131,6 +138,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderCrossDeviceLogin();
     case "registry-gift-summary":
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
+    case "rsvp-change-digest":
+      return renderRsvpChangeDigest(data as EmailTemplateData<"rsvp-change-digest">);
     case "vendor-claim-invite":
       return renderVendorClaimInvite(data as EmailTemplateData<"vendor-claim-invite">);
   }
@@ -156,6 +165,7 @@ export {
   renderTotpDisabled,
   renderCrossDeviceLogin,
   renderRegistryGiftSummary,
+  renderRsvpChangeDigest,
   renderVendorClaimInvite,
 };
 
@@ -164,5 +174,7 @@ export type {
   EnquiryReplyData,
   EnquiryQuoteData,
   RegistryGiftSummaryData,
+  RsvpChangeDigestData,
+  RsvpDigestChangeKind,
   VendorClaimInviteData,
 };
