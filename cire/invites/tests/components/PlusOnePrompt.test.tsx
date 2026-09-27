@@ -302,7 +302,7 @@ describe("PlusOnePrompt — a named guest", () => {
     const { result } = renderPrompt(household([bo, sam], [reply("g-sam", "e1")]));
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Sam Park" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, remove" }));
 
     await waitFor(() => expect(screen.getByLabelText("First name")).toBeTruthy());
     const [url, init] = fetchMock.mock.calls[0]!;

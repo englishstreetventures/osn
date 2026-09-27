@@ -90,8 +90,11 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
 
   return (
     <Show when={rows().length > 0}>
+      {/* `wrap-anywhere` is inherited: names are typed by guests and can be one
+          long word, and every line here that carries one must still wrap
+          inside the narrow panel card on a phone. */}
       <section
-        class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+        class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left wrap-anywhere ${props.class ?? ""}`}
         aria-labelledby={headingId}
       >
         <h3
@@ -364,7 +367,7 @@ function PlusOneRow(props: PlusOneRowProps) {
                 </p>
                 <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                   <Button variant="danger" onClick={() => void remove()} disabled={busy()}>
-                    {busy() ? "Removing…" : `Remove ${fullName(guest())}`}
+                    {busy() ? "Removing…" : "Yes, remove"}
                   </Button>
                   <Button variant="touchLink" ref={keepButton} onClick={keep} disabled={busy()}>
                     Keep
