@@ -75,19 +75,24 @@ interface EditTarget {
   dietary: string;
   /** May hold a key this build does not know; see `RsvpFilterGuest`. */
   dietaryPresets: readonly string[];
+  /** A plus-one's reply: the organiser route stores no dietary data on it. */
+  plusOne: boolean;
 }
 
 /**
  * In-dashboard RSVP summary. Per event: a status tally and every guest invited
  * to it — those who replied, with status + dietary + a provenance badge
- * (organiser-entered vs guest-submitted), and those who have not, as "No reply"
- * rows in the same list. Above them sits one search box and one set of status
- * chips, applied to every event at once.
+ * (organiser-entered, or household-entered for a plus-one, vs guest-submitted),
+ * and those who have not, as "No reply" rows in the same list. A plus-one's row
+ * names the guest who brought them. Above them sits one search box and one set
+ * of status chips, applied to every event at once.
  *
  * Editors get a "Record / Edit" button in each row to enter a phone/paper RSVP
  * on a guest's behalf — the API stamps such rows
  * `consent_source='organiser_attested'` and they VISIBLY OVERWRITE a prior
- * guest reply (platform-plan §3.3). Viewers see the same list, read-only.
+ * guest reply (platform-plan §3.3). For a plus-one it records the status only,
+ * since the API refuses dietary data on that path. Viewers see the same list,
+ * read-only.
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
@@ -154,7 +159,7 @@ export default function RsvpView(props: RsvpViewProps) {
 
   const openEditor = (
     eventId: string,
-    guest: { guestId: string; firstName: string; lastName: string },
+    guest: { guestId: string; firstName: string; lastName: string; plusOneOf: string | null },
     existing?: { status: RsvpStatus; dietary: string; dietaryPresets: readonly string[] },
   ) => {
     setFormError(null);
@@ -174,6 +179,7 @@ export default function RsvpView(props: RsvpViewProps) {
       status: existing?.status ?? "attending",
       dietary: existing?.dietary ?? "",
       dietaryPresets: existing?.dietaryPresets ?? [],
+      plusOne: guest.plusOneOf !== null,
     });
   };
 
@@ -228,8 +234,10 @@ export default function RsvpView(props: RsvpViewProps) {
   const save = async () => {
     const target = edit();
     if (!target) return;
-    const dietary = formDietary().trim();
-    const dietaryPresets = formPresets();
+    // A plus-one's reply goes without dietary data, which the API refuses on
+    // this path; the form shows no fields for it.
+    const dietary = target.plusOne ? "" : formDietary().trim();
+    const dietaryPresets = target.plusOne ? [] : formPresets();
     // Presets are special-category exactly as the free text is, so either one
     // being present is what the attestation has to cover.
     const hasDietaryData = dietary.length > 0 || dietaryPresets.length > 0;
@@ -467,6 +475,23 @@ export default function RsvpView(props: RsvpViewProps) {
                                       Host-entered
                                     </span>
                                   </Show>
+                                  <Show when={row.consentSource === "inviter_attested"}>
+                                    {" "}
+                                    <span
+                                      class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
+                                      title="Given by the household that brought them, not by the plus-one"
+                                    >
+                                      Household-entered
+                                    </span>
+                                  </Show>
+                                  {/* Its own line, and free to wrap: the column
+                                      is fixed, and an inviter's name is as long
+                                      as any guest's. */}
+                                  <Show when={row.plusOneOf !== null}>
+                                    <span class="font-body text-gold-ink text-ui-xs mt-0.5 block">
+                                      Plus-one of {row.plusOneOfName ?? "another guest"}
+                                    </span>
+                                  </Show>
                                 </Td>
                                 <Td tone="muted" valign="middle" class="wrap-break-word">
                                   {row.familyName}
@@ -528,7 +553,10 @@ export default function RsvpView(props: RsvpViewProps) {
 
   /** The editor form body. `guest` names whoever the reply is being recorded
    *  for — the form reads the same whether or not they answered before. */
-  function renderEditorForm(guest: { firstName: string; lastName: string }) {
+  function renderEditorForm(guest: { firstName: string; lastName: string }, target: EditTarget) {
+    /** What the household gave for a plus-one, which a save here replaces. */
+    const storedDietary = () =>
+      target.plusOne ? formatDietaryCell(target.dietaryPresets, target.dietary) : "";
     return (
       <form
         class="border-gold/30 bg-surface/60 flex flex-col gap-3 rounded-sm border p-4"
@@ -558,39 +586,60 @@ export default function RsvpView(props: RsvpViewProps) {
           </select>
         </label>
 
-        <div class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1.5 uppercase">
-          Dietary requirements (optional)
-          <div class="normal-case">
-            <DietaryPresets
-              value={formPresets()}
-              onChange={setFormPresets}
-              disabled={saving()}
-              label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
-            />
-          </div>
-        </div>
+        {/* A plus-one's dietary answers are the household's to give, on the
+            invite; the organiser route refuses them. Where the household has
+            given some, a save here replaces their reply, so say what goes. */}
+        <Show when={target.plusOne}>
+          <p class="font-body text-text-muted text-ui-sm">
+            Dietary requirements can't be recorded here for a plus-one.
+          </p>
+          <Show when={storedDietary()}>
+            {(stored) => (
+              <Notice tone="warn">
+                Saving replaces their household's reply and clears the dietary requirements it gave:{" "}
+                {stored()}.
+              </Notice>
+            )}
+          </Show>
+        </Show>
 
-        {/* Free text for whatever the vocabulary has no key for. Always shown
-            here rather than behind an "Other" tick: an organiser is copying
-            down a reply someone gave on the phone, so the box has to be ready
-            for words they are already hearing. */}
-        <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
-          Anything else
-          <textarea
-            class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
-            rows={2}
-            maxlength={500}
-            value={formDietary()}
-            onInput={(e) => setFormDietary(e.currentTarget.value)}
-            disabled={saving()}
-          />
-        </label>
+        <Show when={!target.plusOne}>
+          <div class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1.5 uppercase">
+            Dietary requirements (optional)
+            <div class="normal-case">
+              <DietaryPresets
+                value={formPresets()}
+                onChange={setFormPresets}
+                disabled={saving()}
+                label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
+              />
+            </div>
+          </div>
+
+          {/* Free text for whatever the vocabulary has no key for. Always shown
+              here rather than behind an "Other" tick: an organiser is copying
+              down a reply someone gave on the phone, so the box has to be ready
+              for words they are already hearing. */}
+          <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
+            Anything else
+            <textarea
+              class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
+              rows={2}
+              maxlength={500}
+              value={formDietary()}
+              onInput={(e) => setFormDietary(e.currentTarget.value)}
+              disabled={saving()}
+            />
+          </label>
+        </Show>
 
         {/* Gated on the SAME condition the submit gate and the payload use.
             Gating visibility on the free text alone left a preset-only reply
             attested with no control on screen, and re-stamped that attestation
             on every save. */}
-        <Show when={formDietary().trim().length > 0 || formPresets().length > 0}>
+        <Show
+          when={!target.plusOne && (formDietary().trim().length > 0 || formPresets().length > 0)}
+        >
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"
@@ -633,7 +682,7 @@ export default function RsvpView(props: RsvpViewProps) {
     return (
       <tr>
         <td colSpan={props.canEdit ? 5 : 4} class="border-border border-b px-4 py-3">
-          {renderEditorForm({ firstName: firstName ?? "", lastName: rest.join(" ") })}
+          {renderEditorForm({ firstName: firstName ?? "", lastName: rest.join(" ") }, target)}
         </td>
       </tr>
     );

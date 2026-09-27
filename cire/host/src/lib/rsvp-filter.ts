@@ -18,7 +18,9 @@
  * question without any extra controls.
  *
  * Dietary text is part of what a word can match on purpose. "Search nut" is the
- * caterer's question, and it has no other home in the portal.
+ * caterer's question, and it has no other home in the portal. So is the line a
+ * plus-one's row shows under their name: "plus-one" lists every plus-one, and
+ * the inviter's name finds the guest they brought.
  *
  * ## Why a row carries its own search text
  *
@@ -35,9 +37,23 @@ export type RsvpStatus = "attending" | "declined" | "maybe";
 export type RsvpRowStatus = RsvpStatus | "none";
 /** What the chips filter by — every status, plus the unfiltered default. */
 export type RsvpFilterKey = "all" | RsvpRowStatus;
-export type ConsentSource = "guest" | "organiser_attested";
+/** Who gave a reply: the guest, an organiser on their behalf, or — for a
+ *  plus-one — the household that brought them. */
+export type ConsentSource = "guest" | "organiser_attested" | "inviter_attested";
 
-export interface RsvpFilterGuest {
+/**
+ * Who brought a guest, when the guest is a plus-one. Optional because the
+ * portal can deploy before the API that sends them; absent reads as "not a
+ * plus-one".
+ */
+interface PlusOneLink {
+  /** The guest id of the member who brought them. */
+  plusOneOf?: string | null;
+  /** That member's full name, or null when the API could not name them. */
+  plusOneOfName?: string | null;
+}
+
+export interface RsvpFilterGuest extends PlusOneLink {
   guestId: string;
   firstName: string;
   lastName: string;
@@ -54,7 +70,7 @@ export interface RsvpFilterGuest {
   consentSource: ConsentSource;
 }
 
-export interface RsvpFilterInvitedGuest {
+export interface RsvpFilterInvitedGuest extends PlusOneLink {
   guestId: string;
   firstName: string;
   lastName: string;
@@ -80,6 +96,11 @@ export interface RsvpRow {
   dietaryPresets: readonly string[];
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
+  /** Set on a plus-one's row: the guest id of the member who brought them. */
+  plusOneOf: string | null;
+  /** That member's full name; null when the row is not a plus-one's, or the
+   *  API could not name them. */
+  plusOneOfName: string | null;
   responded: boolean;
   /** Everything a typed word can land on, lower-cased once at merge time. */
   search: string;
@@ -102,46 +123,65 @@ export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
  * can find. A key this build does not know is labelled from its own words, so
  * it is found by the same words the row shows.
  */
-function haystack(guest: {
-  firstName: string;
-  lastName: string;
-  familyName: string;
-  familyCode: string;
-  dietary?: string;
-  dietaryPresets?: readonly string[];
-}): string {
+function haystack(
+  guest: {
+    firstName: string;
+    lastName: string;
+    familyName: string;
+    familyCode: string;
+    dietary?: string;
+    dietaryPresets?: readonly string[];
+  },
+  link: { plusOneOf: string | null; plusOneOfName: string | null },
+): string {
   const presets = presetLabels(guest.dietaryPresets ?? []).join(" ");
-  return `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${presets} ${guest.dietary ?? ""}`.toLowerCase();
+  const base = `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${presets} ${guest.dietary ?? ""}`;
+  const plusOne = link.plusOneOf === null ? "" : ` plus-one of ${link.plusOneOfName ?? ""}`;
+  return `${base}${plusOne}`.toLowerCase();
+}
+
+/** A row's plus-one fields, null for anyone who is not one. */
+function plusOneLink(guest: PlusOneLink) {
+  const plusOneOf = guest.plusOneOf ?? null;
+  return { plusOneOf, plusOneOfName: plusOneOf === null ? null : (guest.plusOneOfName ?? null) };
 }
 
 /** Replies in the order the API gave them, then the guests who owe one. */
 export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
-  const replied: RsvpRow[] = event.guests.map((guest) => ({
-    guestId: guest.guestId,
-    firstName: guest.firstName,
-    lastName: guest.lastName,
-    familyName: guest.familyName,
-    familyCode: guest.familyCode,
-    status: guest.status,
-    dietary: guest.dietary,
-    dietaryPresets: guest.dietaryPresets,
-    consentSource: guest.consentSource,
-    responded: true,
-    search: haystack(guest),
-  }));
-  const silent: RsvpRow[] = event.unresponded.map((guest) => ({
-    guestId: guest.guestId,
-    firstName: guest.firstName,
-    lastName: guest.lastName,
-    familyName: guest.familyName,
-    familyCode: guest.familyCode,
-    status: "none",
-    dietary: "",
-    dietaryPresets: [],
-    consentSource: null,
-    responded: false,
-    search: haystack(guest),
-  }));
+  const replied: RsvpRow[] = event.guests.map((guest) => {
+    const link = plusOneLink(guest);
+    return {
+      guestId: guest.guestId,
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      familyName: guest.familyName,
+      familyCode: guest.familyCode,
+      status: guest.status,
+      dietary: guest.dietary,
+      dietaryPresets: guest.dietaryPresets,
+      consentSource: guest.consentSource,
+      ...link,
+      responded: true,
+      search: haystack(guest, link),
+    };
+  });
+  const silent: RsvpRow[] = event.unresponded.map((guest) => {
+    const link = plusOneLink(guest);
+    return {
+      guestId: guest.guestId,
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      familyName: guest.familyName,
+      familyCode: guest.familyCode,
+      status: "none",
+      dietary: "",
+      dietaryPresets: [],
+      consentSource: null,
+      ...link,
+      responded: false,
+      search: haystack(guest, link),
+    };
+  });
   return [...replied, ...silent];
 }
 

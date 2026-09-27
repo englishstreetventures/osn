@@ -749,3 +749,210 @@ describe("RsvpView", () => {
     expect(await screen.findByLabelText(/Status/i)).toBeTruthy();
   });
 });
+
+/**
+ * Plus-ones: a guest row like any other, marked with who brought them, and a
+ * reply the household gave for them badged apart from a guest's own and an
+ * organiser's. Sam and Kit carry their inviter's name from the API; Ren's
+ * inviter it could not name.
+ */
+const PLUS_ONE_VIEW = {
+  events: [
+    {
+      id: "evt_1",
+      name: "Ceremony",
+      invited: 5,
+      attending: 2,
+      declined: 0,
+      maybe: 1,
+      responded: 3,
+      noResponse: 2,
+      guests: [
+        {
+          guestId: "g2",
+          firstName: "Bo",
+          lastName: "Jones",
+          familyName: "Jones",
+          familyCode: "JONES-KITE-77Q2",
+          status: "attending" as const,
+          dietary: "",
+          dietaryPresets: [],
+          consentSource: "guest" as const,
+          plusOneOf: null,
+          plusOneOfName: null,
+        },
+        {
+          guestId: "p1",
+          firstName: "Sam",
+          lastName: "Lee",
+          familyName: "Jones",
+          familyCode: "JONES-KITE-77Q2",
+          status: "attending" as const,
+          dietary: "",
+          dietaryPresets: [],
+          consentSource: "inviter_attested" as const,
+          plusOneOf: "g2",
+          plusOneOfName: "Bo Jones",
+        },
+        {
+          ...DEV,
+          status: "maybe" as const,
+          dietary: "",
+          dietaryPresets: [],
+          consentSource: "organiser_attested" as const,
+          plusOneOf: null,
+          plusOneOfName: null,
+        },
+      ],
+      unresponded: [
+        {
+          guestId: "p2",
+          firstName: "Kit",
+          lastName: "Moss",
+          familyName: "Rao",
+          familyCode: "RAO-EMBER-51X8",
+          plusOneOf: "g4",
+          plusOneOfName: "Dev Rao",
+        },
+        {
+          guestId: "p3",
+          firstName: "Ren",
+          lastName: "Ito",
+          familyName: "Sharma",
+          familyCode: "SHARMA-WIDGET-AB3K9",
+          plusOneOf: "g1",
+          plusOneOfName: null,
+        },
+      ],
+    },
+  ],
+};
+
+/** The same wedding once the household can give a plus-one's dietary answers:
+ *  Sam's reply carries a requirement the organiser path cannot store. */
+const PLUS_ONE_WITH_DIETARY = {
+  events: PLUS_ONE_VIEW.events.map((event) => ({
+    ...event,
+    guests: event.guests.map((guest) =>
+      guest.guestId === "p1" ? { ...guest, dietaryPresets: ["vegetarian"] } : guest,
+    ),
+  })),
+};
+
+/** The row whose Guest cell starts with `name` — not one whose marker names
+ *  them as the inviter. */
+const findRow = (name: string) =>
+  [...document.querySelectorAll<HTMLElement>("tbody > tr")].find((tr) =>
+    tr.querySelector("td")?.textContent?.trim().startsWith(name),
+  );
+const rowOf = (name: string) => findRow(name)!;
+
+describe("RsvpView — plus-ones", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+  });
+
+  it("marks a plus-one's row with the guest who brought them", async () => {
+    authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
+
+    expect(within(rowOf("Sam Lee")).getByText("Plus-one of Bo Jones")).toBeTruthy();
+    expect(within(rowOf("Kit Moss")).getByText("Plus-one of Dev Rao")).toBeTruthy();
+    // An inviter the API could not name still leaves the row marked.
+    expect(within(rowOf("Ren Ito")).getByText("Plus-one of another guest")).toBeTruthy();
+    expect(within(rowOf("Bo Jones")).queryByText(/Plus-one of/)).toBeNull();
+    expect(screen.getAllByText(/^Plus-one of/)).toHaveLength(3);
+  });
+
+  it("badges a household-given reply apart from a guest's own and an organiser's", async () => {
+    authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
+
+    expect(within(rowOf("Sam Lee")).getByText("Household-entered")).toBeTruthy();
+    expect(within(rowOf("Sam Lee")).queryByText("Host-entered")).toBeNull();
+    expect(within(rowOf("Dev Rao")).getByText("Host-entered")).toBeTruthy();
+    expect(within(rowOf("Dev Rao")).queryByText("Household-entered")).toBeNull();
+    // A guest's own reply carries neither badge.
+    expect(within(rowOf("Bo Jones")).queryByText(/-entered$/)).toBeNull();
+    expect(screen.getAllByText("Household-entered")).toHaveLength(1);
+  });
+
+  it("finds a plus-one by the guest who brought them", async () => {
+    authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
+
+    fireEvent.input(searchBox(), { target: { value: "bo" } });
+    expect(screen.getByText(/Showing 2 of 5 guest rows/i)).toBeTruthy();
+    expect(findRow("Sam Lee")).toBeTruthy();
+
+    fireEvent.input(searchBox(), { target: { value: "plus-one" } });
+    expect(screen.getByText(/Showing 3 of 5 guest rows/i)).toBeTruthy();
+    expect(findRow("Bo Jones")).toBeUndefined();
+  });
+
+  it("records a plus-one's reply without the dietary fields the organiser path refuses", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
+      .mockResolvedValueOnce(json({ rsvp: { status: "declined" } }))
+      .mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
+    const status = await screen.findByLabelText(/Status/i);
+    expect(screen.getByText(/can't be recorded here for a plus-one/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // Nothing stored to lose, so no warning.
+    expect(screen.queryByText(/clears the dietary requirements/i)).toBeNull();
+
+    fireEvent.change(status, { target: { value: "declined" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    const putCall = authFetchMock.mock.calls[1]!;
+    expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/p2/rsvps/evt_1");
+    expect(JSON.parse(putCall[1]?.body as string)).toEqual({
+      status: "declined",
+      dietary: "",
+      dietaryPresets: [],
+      dietaryConsent: false,
+    });
+  });
+
+  it("warns, naming them, before a save clears the dietary requirements the household gave", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(PLUS_ONE_WITH_DIETARY))
+      .mockResolvedValueOnce(json({ rsvp: { status: "maybe" } }))
+      .mockResolvedValueOnce(json(PLUS_ONE_WITH_DIETARY));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
+    const warning = await screen.findByText(/clears the dietary requirements/i);
+    expect(warning.textContent).toContain("Vegetarian");
+
+    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toMatchObject({
+      status: "maybe",
+      dietary: "",
+      dietaryPresets: [],
+      dietaryConsent: false,
+    });
+  });
+
+  it("still offers the dietary fields on an ordinary guest's row", async () => {
+    authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(findRow("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Bo Jones" }));
+    expect(await screen.findByLabelText(/Anything else/i)).toBeTruthy();
+    expect(screen.queryByText(/can't be recorded here for a plus-one/i)).toBeNull();
+  });
+});

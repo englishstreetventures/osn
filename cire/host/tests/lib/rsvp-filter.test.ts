@@ -118,6 +118,93 @@ describe("mergeRows", () => {
   });
 });
 
+/**
+ * A plus-one is a guest row like any other; the API adds who brought them
+ * (`plusOneOf`, and that guest's name). The row carries both, and a search
+ * finds a plus-one by the words the row shows beside their name.
+ */
+const WITH_PLUS_ONES: RsvpFilterEvent = {
+  guests: [
+    {
+      guestId: "g2",
+      firstName: "Bo",
+      lastName: "Jones",
+      familyName: "Jones",
+      familyCode: "JONES-KITE-77Q2",
+      status: "attending",
+      dietary: "",
+      dietaryPresets: [],
+      consentSource: "guest",
+      plusOneOf: null,
+      plusOneOfName: null,
+    },
+    {
+      guestId: "p1",
+      firstName: "Sam",
+      lastName: "Lee",
+      familyName: "Jones",
+      familyCode: "JONES-KITE-77Q2",
+      status: "attending",
+      dietary: "",
+      dietaryPresets: [],
+      consentSource: "inviter_attested",
+      plusOneOf: "g2",
+      plusOneOfName: "Bo Jones",
+    },
+  ],
+  unresponded: [
+    {
+      guestId: "p2",
+      firstName: "Kit",
+      lastName: "",
+      familyName: "Rao",
+      familyCode: "RAO-EMBER-51X8",
+      plusOneOf: "g4",
+      plusOneOfName: "Dev Rao",
+    },
+    {
+      guestId: "p3",
+      firstName: "Ren",
+      lastName: "",
+      familyName: "Sharma",
+      familyCode: "SHARMA-WIDGET-AB3K9",
+      // An inviter the API could not name.
+      plusOneOf: "g1",
+      plusOneOfName: null,
+    },
+  ],
+};
+
+describe("mergeRows — plus-ones", () => {
+  it("carries who brought a plus-one, replied or silent, and null for everyone else", () => {
+    const rows = mergeRows(WITH_PLUS_ONES);
+    expect(rows.map((r) => [r.guestId, r.plusOneOf, r.plusOneOfName])).toEqual([
+      ["g2", null, null],
+      ["p1", "g2", "Bo Jones"],
+      ["p2", "g4", "Dev Rao"],
+      ["p3", "g1", null],
+    ]);
+    expect(rows[1]?.consentSource).toBe("inviter_attested");
+  });
+
+  it("reads an API that does not send the fields as no plus-one at all", () => {
+    // The portal can deploy before the API that adds them.
+    const rows = mergeRows(CEREMONY);
+    expect(rows.every((r) => r.plusOneOf === null && r.plusOneOfName === null)).toBe(true);
+  });
+
+  it("finds a plus-one by the words beside their name, and by who brought them", () => {
+    const rows = mergeRows(WITH_PLUS_ONES);
+    expect(ids(filterRows(rows, "plus-one", "all"))).toEqual(["p1", "p2", "p3"]);
+    expect(ids(filterRows(rows, "bo", "all"))).toEqual(["g2", "p1"]);
+    expect(ids(filterRows(rows, "rao dev", "all"))).toEqual(["p2"]);
+  });
+
+  it("leaves an ordinary row's search text as it was", () => {
+    expect(mergeRows(WITH_PLUS_ONES)[0]?.search).toBe("bo jones jones jones-kite-77q2  ");
+  });
+});
+
 describe("filterRows", () => {
   const rows = mergeRows(CEREMONY);
 
