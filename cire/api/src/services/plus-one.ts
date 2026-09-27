@@ -25,16 +25,18 @@
  */
 import { families, guestEvents, guests, weddingEntitlements, weddings } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, notExists, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import type { Db, ReturningTail } from "../db";
-import { DbService, commitBatch, commitGroupedBatchesReturning, dbQuery } from "../db";
+import { DbService, commitBatchResults, commitGroupedBatchesReturning, dbQuery } from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet } from "../metrics";
+import type { ConfirmedPlusOne } from "../schemas/plus-one";
 import type { CapacityExceeded } from "./entitlements";
 import { CAPACITY_ENTITLEMENT_KEYS, entitlementService } from "./entitlements";
 
@@ -57,8 +59,8 @@ export class PlusOneCannotInvite extends Data.TaggedError("PlusOneCannotInvite")
 export class PlusOneNotAllowed extends Data.TaggedError("PlusOneNotAllowed") {}
 /** The guest has no plus-one named. 404-class. */
 export class PlusOneNotFound extends Data.TaggedError("PlusOneNotFound") {}
-/** Permission off was asked for where a plus-one is named, without asking for
- *  them to be removed. 409-class. */
+/** Permission off was asked for where a plus-one is named whom the request did
+ *  not confirm for removal. `named` counts the plus-ones in scope. 409-class. */
 export class PlusOneNamed extends Data.TaggedError("PlusOneNamed")<{ named: number }> {}
 
 // ── Shapes ──────────────────────────────────────────────────────────────────
@@ -298,6 +300,109 @@ function writeName(
   });
 }
 
+/** Whose permission a write sets: one guest, or every member of a household. */
+type PermissionScope = { kind: "guest"; guestId: string } | { kind: "household"; familyId: string };
+
+/** The plus-ones a write to `scope` covers, on `table` (`guests` or an alias
+ *  of it): the one the guest brought, or every plus-one in the household. */
+function plusOnesIn(
+  table: { familyId: AnySQLiteColumn; plusOneOfGuestId: AnySQLiteColumn },
+  scope: PermissionScope,
+): SQL | undefined {
+  return scope.kind === "guest"
+    ? eq(table.plusOneOfGuestId, scope.guestId)
+    : and(eq(table.familyId, scope.familyId), isNotNull(table.plusOneOfGuestId));
+}
+
+/**
+ * True when every plus-one in `scope` is on `confirmed` — same id, same first
+ * name, same last name, compared exactly — and so true when none is named.
+ * Uncorrelated, so a statement evaluates it once, against the state its batch
+ * sees. The list rides as ONE bound parameter (`json_each`), however long.
+ */
+function everyPlusOneConfirmed(
+  db: Db,
+  scope: PermissionScope,
+  confirmed: readonly ConfirmedPlusOne[],
+): SQL {
+  const plusOne = alias(guests, "plus_one");
+  const list = JSON.stringify(
+    confirmed.map(({ guestId, firstName, lastName }) => ({ guestId, firstName, lastName })),
+  );
+  const onList = sql`EXISTS (SELECT 1 FROM json_each(${list}) AS confirmed WHERE json_extract(confirmed.value, '$.guestId') = ${plusOne.id} AND json_extract(confirmed.value, '$.firstName') = ${plusOne.firstName} AND json_extract(confirmed.value, '$.lastName') = ${plusOne.lastName})`;
+  return notExists(
+    db
+      .select({ one: sql`1` })
+      .from(plusOne)
+      .where(and(plusOnesIn(plusOne, scope), sql`NOT ${onList}`)),
+  );
+}
+
+/**
+ * Write the permission for `scope`.
+ *
+ * Turning it on is one UPDATE. Turning it off deletes the plus-ones in scope
+ * with it, and so is guarded: the UPDATE and the DELETE both carry
+ * {@link everyPlusOneConfirmed}, and a read of the plus-ones still in scope
+ * ends the same batch. D1 runs a batch as one transaction, so the check sees
+ * exactly the rows the writes would touch — a plus-one the household names or
+ * renames while the organiser confirms cannot slip between them. Either every
+ * plus-one in scope was confirmed, so the DELETE took them all and the read
+ * finds none; or one was not, so neither write changed a row and the read
+ * finds them, which fails {@link PlusOneNamed} with their count.
+ *
+ * A confirmed plus-one the household has already taken back does not block
+ * the write: everything it deletes is still someone the organiser agreed to.
+ * With nothing confirmed there is no DELETE, and the guard reads "no plus-one
+ * named", so a plain turn-off can never leave a plus-one under a revoked
+ * permission that was named before it committed.
+ *
+ * Answers the number of plus-ones deleted, from the rows the DELETE returns:
+ * its change count would also count the replies and invitations its cascade
+ * takes with them, on bun:sqlite and D1 alike.
+ */
+function writePermission(
+  scope: PermissionScope,
+  allowed: boolean,
+  confirmed: readonly ConfirmedPlusOne[],
+): Effect.Effect<{ removed: number }, PlusOneNamed, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const now = new Date();
+    const targets =
+      scope.kind === "guest"
+        ? eq(guests.id, scope.guestId)
+        : and(eq(guests.familyId, scope.familyId), isNull(guests.plusOneOfGuestId));
+
+    if (allowed) {
+      yield* dbQuery(() =>
+        db.update(guests).set({ plusOneAllowed: true, updatedAt: now }).where(targets).run(),
+      );
+      return { removed: 0 };
+    }
+
+    const guard = everyPlusOneConfirmed(db, scope, confirmed);
+    const deleting = confirmed.length > 0;
+    const results = yield* dbQuery(() =>
+      commitBatchResults(db, [
+        db.update(guests).set({ plusOneAllowed: false, updatedAt: now }).where(and(targets, guard)),
+        ...(deleting
+          ? [
+              db
+                .delete(guests)
+                .where(and(plusOnesIn(guests, scope), guard))
+                .returning({ id: guests.id }),
+            ]
+          : []),
+        db.select({ id: guests.id }).from(guests).where(plusOnesIn(guests, scope)),
+      ]),
+    );
+    const left = results[results.length - 1] as readonly { id: string }[];
+    if (left.length > 0) return yield* Effect.fail(new PlusOneNamed({ named: left.length }));
+    return { removed: deleting ? (results[1] as readonly { id: string }[]).length : 0 };
+  });
+}
+
 export const plusOneService = {
   /**
    * Name the plus-one of `inviterGuestId`, or rename the one already named.
@@ -455,32 +560,31 @@ export const plusOneService = {
   },
 
   /**
-   * Set one guest's permission. Turning it off where their plus-one is named
-   * fails {@link PlusOneNamed} unless `removePlusOne` is set, in which case the
-   * plus-one goes in the same batch as the switch.
+   * Set one guest's permission. Turning it off is refused with
+   * {@link PlusOneNamed} while their plus-one is named, unless `removePlusOnes`
+   * confirms that plus-one, in which case they go in the same batch as the
+   * switch (see {@link writePermission}).
    */
   setGuestPermission(input: {
     weddingId: string;
     guestId: string;
     allowed: boolean;
-    removePlusOne: boolean;
+    removePlusOnes: readonly ConfirmedPlusOne[];
   }): Effect.Effect<
     { guestId: string; plusOneAllowed: boolean; plusOneRemoved: boolean },
     PlusOneGuestNotFound | PlusOneCannotInvite | PlusOneNamed,
     DbService
   > {
-    const { weddingId, guestId, allowed, removePlusOne } = input;
+    const { weddingId, guestId, allowed } = input;
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const plusOne = alias(guests, "plus_one");
       // Guest ∈ this wedding's guest households: the join to `families` scopes
       // the lookup and excludes the host-preview family.
       const [row] = yield* dbQuery(() =>
         db
-          .select({ plusOneOf: guests.plusOneOfGuestId, plusOneId: plusOne.id })
+          .select({ plusOneOf: guests.plusOneOfGuestId })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
-          .leftJoin(plusOne, eq(plusOne.plusOneOfGuestId, guests.id))
           .where(
             and(
               eq(guests.id, guestId),
@@ -493,43 +597,37 @@ export const plusOneService = {
       if (!row) return yield* Effect.fail(new PlusOneGuestNotFound());
       if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneCannotInvite());
 
-      const removing = !allowed && row.plusOneId !== null;
-      if (removing && !removePlusOne) return yield* Effect.fail(new PlusOneNamed({ named: 1 }));
-
-      const statements: BatchItem<"sqlite">[] = [
-        db
-          .update(guests)
-          .set({ plusOneAllowed: allowed, updatedAt: new Date() })
-          .where(eq(guests.id, guestId)),
-      ];
-      if (removing) statements.push(db.delete(guests).where(eq(guests.plusOneOfGuestId, guestId)));
-      yield* dbQuery(() => commitBatch(db, statements));
-
+      const { removed } = yield* writePermission(
+        { kind: "guest", guestId },
+        allowed,
+        input.removePlusOnes,
+      );
       yield* Effect.sync(() => {
         metricPlusOnePermissionSet("guest", allowed);
-        if (removing) metricPlusOneChanged("removed", "organiser");
+        if (removed > 0) metricPlusOneChanged("removed", "organiser");
       });
-      return { guestId, plusOneAllowed: allowed, plusOneRemoved: removing };
+      return { guestId, plusOneAllowed: allowed, plusOneRemoved: removed > 0 };
     }).pipe(Effect.withSpan("cire.plus_one.setGuestPermission"));
   },
 
   /**
    * Set the permission for every member of a household (its plus-ones, who
    * cannot bring one, are skipped). The same removal rule as
-   * {@link setGuestPermission}, household-wide: turning it off where any
-   * plus-one is named needs `removePlusOnes`.
+   * {@link setGuestPermission}, household-wide: turning it off is refused while
+   * any plus-one in the household is named whom `removePlusOnes` does not
+   * confirm.
    */
   setHouseholdPermission(input: {
     weddingId: string;
     familyId: string;
     allowed: boolean;
-    removePlusOnes: boolean;
+    removePlusOnes: readonly ConfirmedPlusOne[];
   }): Effect.Effect<
     { familyId: string; plusOneAllowed: boolean; guestsUpdated: number; plusOnesRemoved: number },
     PlusOneFamilyNotFound | PlusOneNamed,
     DbService
   > {
-    const { weddingId, familyId, allowed, removePlusOnes } = input;
+    const { weddingId, familyId, allowed } = input;
     return Effect.gen(function* () {
       const db = yield* DbService;
       // The household, in wedding scope and not the host preview, with its
@@ -550,38 +648,18 @@ export const plusOneService = {
           .all(),
       );
       if (rows.length === 0) return yield* Effect.fail(new PlusOneFamilyNotFound());
-      const members = rows.filter((r) => r.memberId !== null);
+      const guestsUpdated = rows.filter((r) => r.memberId !== null && r.plusOneOf === null).length;
 
-      const guestsUpdated = members.filter((m) => m.plusOneOf === null).length;
-      const named = members.length - guestsUpdated;
-      const removing = !allowed && named > 0;
-      if (removing && !removePlusOnes) return yield* Effect.fail(new PlusOneNamed({ named }));
-
-      const statements: BatchItem<"sqlite">[] = [
-        db
-          .update(guests)
-          .set({ plusOneAllowed: allowed, updatedAt: new Date() })
-          .where(and(eq(guests.familyId, familyId), isNull(guests.plusOneOfGuestId))),
-      ];
-      if (removing) {
-        statements.push(
-          db
-            .delete(guests)
-            .where(and(eq(guests.familyId, familyId), isNotNull(guests.plusOneOfGuestId))),
-        );
-      }
-      yield* dbQuery(() => commitBatch(db, statements));
-
+      const { removed } = yield* writePermission(
+        { kind: "household", familyId },
+        allowed,
+        input.removePlusOnes,
+      );
       yield* Effect.sync(() => {
         metricPlusOnePermissionSet("household", allowed);
-        if (removing) metricPlusOneChanged("removed", "organiser", named);
+        if (removed > 0) metricPlusOneChanged("removed", "organiser", removed);
       });
-      return {
-        familyId,
-        plusOneAllowed: allowed,
-        guestsUpdated,
-        plusOnesRemoved: removing ? named : 0,
-      };
+      return { familyId, plusOneAllowed: allowed, guestsUpdated, plusOnesRemoved: removed };
     }).pipe(Effect.withSpan("cire.plus_one.setHouseholdPermission"));
   },
 };

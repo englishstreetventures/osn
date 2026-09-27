@@ -70,6 +70,28 @@ async function put(app: App, path: string, profileId: string | undefined, body: 
   return appRequest(app, path, { method: "PUT", headers, body: JSON.stringify(body) });
 }
 
+/**
+ * The plus-ones of a household as the portal is shown them: read through
+ * `GET …/guests`, the list the portal builds its confirmation from, and cut to
+ * the three fields a removal echoes back.
+ */
+async function shownPlusOnes(app: App, familyId: string, guestId?: string) {
+  const res = await appRequest(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`, {
+    headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
+  });
+  const rows = (await jsonBody(res)) as {
+    guestId: string;
+    familyId: string;
+    firstName: string;
+    lastName: string;
+    plusOneOf: string | null;
+  }[];
+  return rows
+    .filter((r) => r.familyId === familyId && r.plusOneOf !== null)
+    .filter((r) => guestId === undefined || r.plusOneOf === guestId)
+    .map(({ guestId: id, firstName, lastName }) => ({ guestId: id, firstName, lastName }));
+}
+
 /** A request carrying the given raw headers and no bearer token of ours. */
 function putWith(app: App, path: string, headers: Record<string, string>, body: unknown) {
   return appRequest(app, path, {
@@ -144,10 +166,10 @@ describe("PUT …/guests/:guestId/plus-one", () => {
     expect((await put(app, guestPath(bo.id), OWNER, {})).status).toBe(400);
   });
 
-  it("409s plus_one_named, then removes the plus-one only when asked", async () => {
+  it("409s plus_one_named, then removes the plus-one once they are confirmed", async () => {
     const { db, app } = buildApp();
     const bo = guestNamed(db, "Bo");
-    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
 
     const refused = await put(app, guestPath(bo.id), OWNER, { allowed: false });
     expect(refused.status).toBe(409);
@@ -156,11 +178,52 @@ describe("PUT …/guests/:guestId/plus-one", () => {
 
     const removed = await put(app, guestPath(bo.id), OWNER, {
       allowed: false,
-      removePlusOne: true,
+      removePlusOnes: await shownPlusOnes(app, bo.familyId, bo.id),
     });
     expect(removed.status).toBe(200);
-    expect(await jsonBody(removed)).toMatchObject({ plusOneRemoved: true });
+    expect(await jsonBody(removed)).toEqual({
+      guestId: bo.id,
+      plusOneAllowed: false,
+      plusOneRemoved: true,
+    });
     expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toHaveLength(0);
+  });
+
+  it("409s a confirmation whose plus-one was replaced or renamed since, changing nothing", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const shown = await shownPlusOnes(app, bo.familyId, bo.id);
+
+    // Renamed under the same id: the organiser agreed to remove Sam, not Kit.
+    db.update(guests).set({ firstName: "Kit" }).where(eq(guests.id, samId)).run();
+    const renamed = await put(app, guestPath(bo.id), OWNER, {
+      allowed: false,
+      removePlusOnes: shown,
+    });
+    expect(renamed.status).toBe(409);
+    expect(await jsonBody(renamed)).toEqual({ error: "plus_one_named", named: 1 });
+
+    // Replaced by a new row.
+    db.delete(guests).where(eq(guests.id, samId)).run();
+    const patId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const replaced = await put(app, guestPath(bo.id), OWNER, {
+      allowed: false,
+      removePlusOnes: shown,
+    });
+    expect(replaced.status).toBe(409);
+    expect(db.select().from(guests).where(eq(guests.id, patId)).all()).toHaveLength(1);
+    expect(allowedOf(db, bo.id)).toBe(true);
+  });
+
+  it("400s the old boolean flag rather than dropping it", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const res = await put(app, guestPath(bo.id), OWNER, { allowed: false, removePlusOne: true });
+    expect(res.status).toBe(400);
+    expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+    expect(db.select().from(guests).where(eq(guests.id, samId)).all()).toHaveLength(1);
   });
 
   it("409s plus_one_cannot_invite on a plus-one's own row", async () => {
@@ -200,7 +263,7 @@ describe("PUT …/families/:familyId/plus-one", () => {
     expect((await put(app, familyPath(bo.familyId), VIEWER, { allowed: true })).status).toBe(403);
   });
 
-  it("409s plus_one_named with the count, then removes them when asked", async () => {
+  it("409s plus_one_named with the count, then removes them once they are confirmed", async () => {
     const { db, app } = buildApp();
     const bo = guestNamed(db, "Bo");
     seedPlusOne(db, bo.id, { firstName: "Sam" });
@@ -212,9 +275,44 @@ describe("PUT …/families/:familyId/plus-one", () => {
 
     const removed = await put(app, familyPath(bo.familyId), OWNER, {
       allowed: false,
-      removePlusOnes: true,
+      removePlusOnes: await shownPlusOnes(app, bo.familyId),
     });
-    expect(await jsonBody(removed)).toMatchObject({ plusOnesRemoved: 2, guestsUpdated: 3 });
+    expect(removed.status).toBe(200);
+    expect(await jsonBody(removed)).toEqual({
+      familyId: bo.familyId,
+      plusOneAllowed: false,
+      plusOnesRemoved: 2,
+      guestsUpdated: 3,
+    });
+  });
+
+  it("409s a confirmation that misses a plus-one named since, removing no one", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const shown = await shownPlusOnes(app, bo.familyId);
+    seedPlusOne(db, guestNamed(db, "Dot").id, { firstName: "Pat" });
+
+    const res = await put(app, familyPath(bo.familyId), OWNER, {
+      allowed: false,
+      removePlusOnes: shown,
+    });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "plus_one_named", named: 2 });
+    expect(await shownPlusOnes(app, bo.familyId)).toHaveLength(2);
+    expect(allowedOf(db, bo.id)).toBe(true);
+  });
+
+  it("400s the old boolean flag and a malformed list", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    for (const body of [
+      { allowed: false, removePlusOnes: true },
+      { allowed: false, removePlusOnes: [{ guestId: "g_x" }] },
+      { allowed: false, removePlusOnes: [], confirm: true },
+    ]) {
+      expect((await put(app, familyPath(bo.familyId), OWNER, body)).status).toBe(400);
+    }
   });
 
   it("404s a household of another wedding", async () => {
@@ -308,10 +406,17 @@ describe("the organiser plus-one routes — metrics", () => {
     seedPlusOne(db, guestNamed(db, "Dot").id, { firstName: "Pat" });
     const householdOff = await set("household", "off");
     const removedBefore = await removed();
-    // The refused call counts nothing.
+    // A refused call counts nothing, whether it confirmed nobody or a list that
+    // has gone stale.
+    const shown = await shownPlusOnes(app, bo.familyId);
     await put(app, familyPath(bo.familyId), OWNER, { allowed: false });
+    await put(app, familyPath(bo.familyId), OWNER, {
+      allowed: false,
+      removePlusOnes: shown.slice(1),
+    });
     expect(await set("household", "off")).toBe(householdOff);
-    await put(app, familyPath(bo.familyId), OWNER, { allowed: false, removePlusOnes: true });
+    expect(await removed()).toBe(removedBefore);
+    await put(app, familyPath(bo.familyId), OWNER, { allowed: false, removePlusOnes: shown });
     expect(await set("household", "off")).toBe(householdOff + 1);
     expect(await removed()).toBe(removedBefore + 2);
   });
