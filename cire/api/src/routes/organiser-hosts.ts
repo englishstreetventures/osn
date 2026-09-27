@@ -21,6 +21,7 @@ import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
 import type { HostRole } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
 
@@ -161,12 +162,17 @@ export const createOrganiserHostsReadRoutes = (
  * That asymmetry is the whole safety argument: the worst an editor can do is add
  * someone unwanted, and the owner can always undo it. Same shape as the
  * account-linking route — additive, not a privilege ladder.
+ *
+ * Each successful write then tells the wedding's open tabs
+ * (`signals.membersChanged`); a remove or role change also evicts that
+ * co-host's sockets so their access is checked again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
+  signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
@@ -226,6 +232,7 @@ export const createOrganiserHostsWriteRoutes = (
                   ownerOsnProfileId: ownerProfileId,
                   role: body.role,
                 });
+                yield* signals.membersChanged(scopedWeddingId, undefined, request);
 
                 yield* Effect.sync(() => metricHostAdded("ok"));
                 set.status = 201;
@@ -317,6 +324,7 @@ export const createOrganiserHostsWriteRoutes = (
                   osnProfileId: params.osnProfileId,
                   role: body.role,
                 });
+                yield* signals.membersChanged(weddingId, params.osnProfileId, request);
                 yield* Effect.sync(() => metricHostRoleChanged("ok"));
                 return {
                   host: {
@@ -360,7 +368,7 @@ export const createOrganiserHostsWriteRoutes = (
           // parses it by hand — malformed JSON degrades to the schema's 400.
           { parse: () => ({}) },
         )
-        .delete("/hosts/:osnProfileId", ({ weddingId, params, set }) => {
+        .delete("/hosts/:osnProfileId", ({ request, weddingId, params, set }) => {
           if (!weddingId) {
             set.status = 500;
             return { error: "Internal error" };
@@ -369,6 +377,13 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok"))),
+              // Only when a seat went: removing someone who holds none (or the
+              // owner, who is never rowed in) changes nobody's access.
+              Effect.tap((removed) =>
+                removed
+                  ? signals.membersChanged(weddingId, params.osnProfileId, request)
+                  : Effect.void,
+              ),
               Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
               Effect.catchTag("HostWriteError", () =>
                 Effect.sync(() => {

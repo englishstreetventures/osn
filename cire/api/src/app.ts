@@ -87,6 +87,7 @@ import type {
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
+import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
 import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
 import { createUpgradeService } from "./services/upgrades";
@@ -599,6 +600,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     upgradeLimiter = defaultUpgradeLimiter,
     upgradePrices = {},
     registryLinkPreviewOptions,
+    realtimeHub,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
     // it did before flags existed.
@@ -653,6 +655,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // `db` turns on the organiser session cookie path in `osnAuth` — the way every
   // browser authenticates now that the passkey ceremony lives on musubi.social.
   const osnAuthOptions = organiserAuthOptions(db, options);
+
+  // One publisher for the co-host writes. No hub bound ⇒ every signal is a
+  // counted no-op and the writes behave exactly as they did before push.
+  const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -798,7 +804,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // sibling instances so the read isn't gated by the write limiter.
       .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
-        createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
+        createOrganiserHostsWriteRoutes(
+          db,
+          osnAuthOptions,
+          hostLimiter,
+          resolveOsnProfileByHandle,
+          weddingSignals,
+        ),
       )
       // Co-host autocomplete, sourced from the caller's OSN connections first
       // and the global handle search second. osnAuth-only (not wedding-scoped) —

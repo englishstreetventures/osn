@@ -321,10 +321,14 @@ describe("hostsService.remove", () => {
         role: "editor",
       }),
     );
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      true,
+    );
     expect(db.select().from(weddingHosts).all()).toHaveLength(0);
-    // Idempotent — removing again succeeds.
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    // Idempotent — removing again succeeds, and says nothing was removed.
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      false,
+    );
   });
 
   it("does not remove a host from a different wedding (cross-tenant guard)", async () => {
