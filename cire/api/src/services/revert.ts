@@ -1,5 +1,5 @@
-import { families, guests, imports } from "@cire/db";
-import { and, desc, eq, lt, ne } from "drizzle-orm";
+import { events, families, guests, imports } from "@cire/db";
+import { and, asc, desc, eq, lt, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, Option, Schema } from "effect";
 
@@ -363,16 +363,29 @@ function restoreBeforeImage(
       const snapshotFamilies = yield* parseGuestsCsv(guestsCsv, snapshotEvents, {
         snapshot: true,
       }).pipe(Effect.mapError(parseFailed("guests")));
-      const liveEvents = yield* currentEventsAsParsed(weddingId);
+      // One read of the live schedule serves both the attendance translation
+      // and the diff. Ordered as the schedule is, because `translateAttendance`
+      // resolves a name shared by two events to the first one it meets.
+      const db = yield* DbService;
+      const liveEvents = yield* dbQuery(() =>
+        db
+          .select({ id: events.id, name: events.name })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .orderBy(asc(events.sortOrder), asc(events.name))
+          .all(),
+      );
       const { families: desired, knownEventIds } = translateAttendance(
         snapshotFamilies,
         snapshotEvents,
-        liveEvents.flatMap((e) => (e.id === undefined ? [] : [{ id: e.id, name: e.name }])),
+        liveEvents,
       );
+      // No desired events: a `guests` diff with name matching never reads them.
       // See `diffAgainstDb` in reconcileToSnapshot for why `orDie` is right.
-      const diffed = yield* diffAgainstDb(liveEvents, desired, weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      const diffed = yield* diffAgainstDb([], desired, weddingId, {
+        scope,
+        existingEvents: liveEvents,
+      }).pipe(Effect.orDie);
       plan = {
         ...diffed,
         eventLinkRemoves: diffed.eventLinkRemoves.filter((link) => knownEventIds.has(link.eventId)),
