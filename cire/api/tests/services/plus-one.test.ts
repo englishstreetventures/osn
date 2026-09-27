@@ -14,6 +14,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { BASE_GUEST_CAP } from "../../src/services/entitlements";
@@ -593,6 +594,160 @@ describe("plusOneService — a removal the organiser was not shown", () => {
   });
 });
 
+describe("plusOneService — a plus-one named after the lookup, before the write", () => {
+  /**
+   * Runs `stage` once, just before the permission-off UPDATE is prepared: after
+   * the service's own lookup has read the household, before its batch runs. A
+   * decision taken from that lookup would miss what `stage` writes; the check
+   * inside the batch sees it.
+   */
+  function beforePermissionWrite(stage: () => void): void {
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let staged = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!staged && sql.startsWith('update "guests" set "plus_one_allowed"')) {
+          staged = true;
+          stage();
+        }
+        return prepare(sql);
+      },
+    });
+  }
+
+  it("refuses a plain turn-off, and leaves the permission on", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    let samId = "";
+    beforePermissionWrite(() => {
+      samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    });
+
+    expect(
+      await failureOf(
+        plusOneService.setGuestPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: bo.id,
+          allowed: false,
+          removePlusOnes: [],
+        }),
+      ),
+    ).toEqual({ _tag: "PlusOneNamed", named: 1 });
+    expect(plusOnesOf(bo.id).map((g) => g.id)).toEqual([samId]);
+    expect(allowedOf(bo.id)).toBe(true);
+  });
+
+  it("refuses a confirmed household removal, and deletes no one", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const shown = confirmedIn(bo.familyId);
+    let patId = "";
+    beforePermissionWrite(() => {
+      patId = seedPlusOne(db, guestNamed(db, "Cleo").id, { firstName: "Pat" });
+    });
+
+    expect(
+      await failureOf(
+        plusOneService.setHouseholdPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: bo.familyId,
+          allowed: false,
+          removePlusOnes: shown,
+        }),
+      ),
+    ).toEqual({ _tag: "PlusOneNamed", named: 2 });
+    expect(
+      confirmedIn(bo.familyId)
+        .map((g) => g.guestId)
+        .toSorted(),
+    ).toEqual([samId, patId].toSorted());
+    expect(allowedOf(bo.id)).toBe(true);
+  });
+});
+
+describe("plusOneService — the permission-off write is one batch", () => {
+  /** The test handle with a `batch` that records each call's size, then runs
+   *  the statements in order, as the bun:sqlite fallback would. */
+  function batchingDb() {
+    const calls: number[] = [];
+    const batching: Db = Object.create(db);
+    Object.defineProperty(batching, "batch", {
+      value: async (statements: PromiseLike<unknown>[]) => {
+        calls.push(statements.length);
+        const out: unknown[] = [];
+        for (const statement of statements) out.push(await statement);
+        return out;
+      },
+    });
+    return { batching, calls };
+  }
+  const runOn = <A, E>(handle: Db, eff: Effect.Effect<A, E, DbService>) =>
+    Effect.runPromise(eff.pipe(Effect.ignore, Effect.provideService(DbService, handle)));
+
+  it("sends the guarded write, any delete and the read of who is left together", async () => {
+    const bo = guestNamed(db, "Bo");
+    const { batching, calls } = batchingDb();
+    const household = (
+      allowed: boolean,
+      removePlusOnes: { guestId: string; firstName: string; lastName: string }[],
+    ) =>
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: bo.familyId,
+        allowed,
+        removePlusOnes,
+      });
+
+    await runOn(batching, household(false, []));
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    await runOn(batching, household(false, confirmedIn(bo.familyId)));
+    // Turning it on deletes nothing, so it needs no batch.
+    await runOn(batching, household(true, []));
+    expect(calls).toEqual([2, 3]);
+  });
+});
+
+describe("plusOneService — names that JSON has to escape", () => {
+  it("confirms and removes plus-ones whose names carry quotes, backslashes and non-ASCII", async () => {
+    const names = [
+      { firstName: "O'Brien", lastName: "" },
+      { firstName: "Zoë", lastName: "Ångström" },
+      { firstName: 'Jo "JJ"', lastName: "back\\slash" },
+      { firstName: "🎉 Ana", lastName: "李" },
+    ];
+    const inviters = ["Bo", "Cleo", "Dot"].map((n) => guestNamed(db, n));
+    for (const [i, inviter] of inviters.entries()) seedPlusOne(db, inviter.id, names[i]!);
+    const bo = inviters[0]!;
+    const shown = confirmedIn(bo.familyId);
+    expect(shown).toHaveLength(3);
+
+    const result = await run(
+      plusOneService.setHouseholdPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: bo.familyId,
+        allowed: false,
+        removePlusOnes: shown,
+      }),
+    );
+    expect(result.plusOnesRemoved).toBe(3);
+
+    const ada = guestNamed(db, "Ada");
+    const anaId = seedPlusOne(db, ada.id, names[3]!);
+    expect(
+      await run(
+        plusOneService.setGuestPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: ada.id,
+          allowed: false,
+          removePlusOnes: [{ guestId: anaId, ...names[3]! }],
+        }),
+      ),
+    ).toMatchObject({ plusOneRemoved: true });
+  });
+});
+
 describe("the inviter's removal", () => {
   it("removes their plus-one through the foreign key", () => {
     const bo = guestNamed(db, "Bo");
@@ -796,6 +951,7 @@ describe("plusOneService — statements per write", () => {
     // Refused: the same three, and the update wrote nothing.
     expect(await count(household([]))).toBe(3);
     expect(confirmedIn(bo.familyId)).toHaveLength(1);
+    expect(allowedOf(bo.id)).toBe(true);
     // Confirmed: read, update, delete, the read of who is left.
     expect(await count(household(confirmedIn(bo.familyId)))).toBe(4);
     expect(confirmedIn(bo.familyId)).toEqual([]);

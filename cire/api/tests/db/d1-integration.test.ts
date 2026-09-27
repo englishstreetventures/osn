@@ -30,6 +30,7 @@ import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
+import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { claimService } from "../../src/services/claim";
 import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
@@ -939,6 +940,50 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(rows.filter((r) => r.id === GUEST_1 || r.id === GUEST_2).every((r) => r.allowed)).toBe(
         true,
       );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a confirmed removal over D1 takes the largest list the body allows",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+      const long = "x".repeat(PLUS_ONE_NAME_MAX);
+      // The two real plus-ones, then filler at every field's longest, so the
+      // one bound `json_each` parameter is as large as the schema lets it be.
+      const filler = Array.from({ length: PLUS_ONE_REMOVALS_MAX - 2 }, (_, i) => ({
+        guestId: `${i}`.padStart(64, "g"),
+        firstName: long,
+        lastName: long,
+      }));
+      const result = await run(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+          ...filler,
+        ]),
+      );
+      expect(result.plusOnesRemoved).toBe(2);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "one guest's confirmed removal over D1, under a name JSON has to escape",
+    async () => {
+      const name = { firstName: 'Jo "JJ" Zoë', lastName: "back\\slash 🎉" };
+      await seedPlusOneOnD1("g_jo", GUEST_1, name);
+      const result = await run(
+        plusOneService.setGuestPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: GUEST_1,
+          allowed: false,
+          removePlusOnes: [{ guestId: "g_jo", ...name }],
+        }),
+      );
+      expect(result).toEqual({ guestId: GUEST_1, plusOneAllowed: false, plusOneRemoved: true });
+      expect(await db.select().from(guests).where(eq(guests.id, "g_jo"))).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

@@ -24,8 +24,7 @@ const ORGANISER_REFUSALS = {
 
 /**
  * The refusal body for a service failure. `plus_one_named` also says how many
- * plus-ones the remove flag would delete, so the portal can name the cost
- * before asking again.
+ * plus-ones are named in scope now, so the portal can show them again and ask.
  */
 function refuse(
   e: { readonly _tag: keyof typeof ORGANISER_REFUSALS; readonly named?: number },

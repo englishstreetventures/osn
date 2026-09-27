@@ -420,6 +420,47 @@ describe("the organiser plus-one routes — metrics", () => {
     expect(await set("household", "off")).toBe(householdOff + 1);
     expect(await removed()).toBe(removedBefore + 2);
   });
+
+  it("counts the plus-ones actually removed, not the ones confirmed", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const removed = () =>
+      counterValue(CIRE_METRICS.plusOneChanged, { action: "removed", actor: "organiser" });
+
+    // One guest, their plus-one confirmed: one removal.
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    let before = await removed();
+    await put(app, guestPath(bo.id), OWNER, {
+      allowed: false,
+      removePlusOnes: await shownPlusOnes(app, bo.familyId, bo.id),
+    });
+    expect(await removed()).toBe(before + 1);
+
+    // One guest whose confirmed plus-one was already taken back: none.
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const shownOne = await shownPlusOnes(app, bo.familyId, bo.id);
+    db.delete(guests).where(eq(guests.id, samId)).run();
+    before = await removed();
+    const none = await put(app, guestPath(bo.id), OWNER, {
+      allowed: false,
+      removePlusOnes: shownOne,
+    });
+    expect(await jsonBody(none)).toMatchObject({ plusOneRemoved: false });
+    expect(await removed()).toBe(before);
+
+    // A household with two confirmed, one taken back since: one removal.
+    const patId = seedPlusOne(db, bo.id, { firstName: "Pat" });
+    seedPlusOne(db, guestNamed(db, "Dot").id, { firstName: "Kit" });
+    const shownTwo = await shownPlusOnes(app, bo.familyId);
+    db.delete(guests).where(eq(guests.id, patId)).run();
+    before = await removed();
+    const one = await put(app, familyPath(bo.familyId), OWNER, {
+      allowed: false,
+      removePlusOnes: shownTwo,
+    });
+    expect(await jsonBody(one)).toMatchObject({ plusOnesRemoved: 1 });
+    expect(await removed()).toBe(before + 1);
+  });
 });
 
 describe("PUT …/guests/:guestId/plus-one/name", () => {
