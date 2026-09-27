@@ -135,6 +135,29 @@ CREATE TABLE IF NOT EXISTS rsvps (
 CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);
 CREATE INDEX IF NOT EXISTS rsvps_event_id_idx ON rsvps(event_id);
 
+CREATE TABLE IF NOT EXISTS rsvp_changes (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  guest_id TEXT NOT NULL,
+  event_id TEXT,
+  kind TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rsvp_changes_wedding_idx ON rsvp_changes(wedding_id);
+CREATE INDEX IF NOT EXISTS rsvp_changes_created_at_idx ON rsvp_changes(created_at);
+CREATE INDEX IF NOT EXISTS rsvp_changes_family_idx ON rsvp_changes(family_id);
+
+CREATE TABLE IF NOT EXISTS host_rsvp_notices (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_profile_id TEXT NOT NULL,
+  seen_seq INTEGER NOT NULL DEFAULT 0,
+  digest_seq INTEGER NOT NULL DEFAULT 0,
+  digest_enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (wedding_id, osn_profile_id)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
