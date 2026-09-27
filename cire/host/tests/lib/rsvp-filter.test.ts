@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterRows,
   mergeRows,
+  plusOneMarker,
   type RsvpFilterEvent,
   RSVP_FILTERS,
   statusCounts,
@@ -172,6 +173,15 @@ const WITH_PLUS_ONES: RsvpFilterEvent = {
       plusOneOf: "g1",
       plusOneOfName: null,
     },
+    {
+      guestId: "p4",
+      firstName: "Lu",
+      lastName: "",
+      familyName: "Okafor",
+      familyCode: "OKAFOR-REED-90Z1",
+      // An API that sends the link but predates the name: the key is absent.
+      plusOneOf: "g5",
+    },
   ],
 };
 
@@ -183,6 +193,7 @@ describe("mergeRows — plus-ones", () => {
       ["p1", "g2", "Bo Jones"],
       ["p2", "g4", "Dev Rao"],
       ["p3", "g1", null],
+      ["p4", "g5", null],
     ]);
     expect(rows[1]?.consentSource).toBe("inviter_attested");
   });
@@ -195,9 +206,21 @@ describe("mergeRows — plus-ones", () => {
 
   it("finds a plus-one by the words beside their name, and by who brought them", () => {
     const rows = mergeRows(WITH_PLUS_ONES);
-    expect(ids(filterRows(rows, "plus-one", "all"))).toEqual(["p1", "p2", "p3"]);
+    expect(ids(filterRows(rows, "plus-one", "all"))).toEqual(["p1", "p2", "p3", "p4"]);
+    // An unnamed inviter is found by the words the row shows in their place.
+    expect(ids(filterRows(rows, "another guest", "all"))).toEqual(["p3", "p4"]);
     expect(ids(filterRows(rows, "bo", "all"))).toEqual(["g2", "p1"]);
     expect(ids(filterRows(rows, "rao dev", "all"))).toEqual(["p2"]);
+  });
+
+  it("words the marker the way the row shows it", () => {
+    const rows = mergeRows(WITH_PLUS_ONES);
+    expect(rows.slice(1).map(plusOneMarker)).toEqual([
+      "Plus-one of Bo Jones",
+      "Plus-one of Dev Rao",
+      "Plus-one of another guest",
+      "Plus-one of another guest",
+    ]);
   });
 
   it("leaves an ordinary row's search text as it was", () => {

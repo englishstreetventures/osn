@@ -225,6 +225,15 @@ describe("tableExportService.guestsCsv — plus-ones", () => {
     expect(sam).toContain("Hindu Ceremony; Reception");
     expect(byName(csv, "Bo", "Sampleton")!.split(",").at(-1)).toBe("");
   });
+
+  it("names an inviter with no last name without a trailing space", async () => {
+    const { db, run } = setUp();
+    const bo = guestNamed(db, "Bo");
+    db.update(guests).set({ lastName: "" }).where(eq(guests.id, bo.id)).run();
+    seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    const csv = await run(tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID));
+    expect(byName(csv, "Sam", "Lee")!.endsWith(",Bo")).toBe(true);
+  });
 });
 
 describe("tableExportService.eventsCsv", () => {

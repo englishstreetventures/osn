@@ -24,6 +24,7 @@ import { haptic } from "../lib/haptics";
 import {
   filterRows,
   mergeRows,
+  plusOneMarker,
   RSVP_FILTERS,
   type RsvpFilterEvent,
   type RsvpFilterKey,
@@ -489,7 +490,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                       as any guest's. */}
                                   <Show when={row.plusOneOf !== null}>
                                     <span class="font-body text-gold-ink text-ui-xs mt-0.5 block">
-                                      Plus-one of {row.plusOneOfName ?? "another guest"}
+                                      {plusOneMarker(row)}
                                     </span>
                                   </Show>
                                 </Td>

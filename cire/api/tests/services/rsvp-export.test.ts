@@ -892,4 +892,51 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
     expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("organiser");
   });
+
+  it("keeps 'Organiser' when the household's reply is read after the organiser's", async () => {
+    // The mirror of the case above: the organiser recorded the Hindu ceremony
+    // and the household answered the reception, so the rows come back the
+    // other way round.
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values([
+        {
+          id: "r_sam_hindu",
+          guestId: samId,
+          eventId: HINDU,
+          status: "declined",
+          consentSource: "organiser_attested",
+          createdAt: new Date(),
+        },
+        {
+          id: "r_sam_reception",
+          guestId: samId,
+          eventId: eventsSeed.reception.id,
+          status: "attending",
+          consentSource: "inviter_attested",
+          createdAt: new Date(),
+        },
+      ])
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("organiser");
+    const line = toCsv(data)
+      .split("\r\n")
+      .find((l) => l.includes(",Sam,"))!
+      .split(",");
+    expect(line.at(-2)).toBe("Organiser");
+  });
+
+  it("names an inviter with no last name without a trailing space", async () => {
+    const { db, run, hindu } = setUp();
+    const bo = guestNamed(db, "Bo");
+    db.update(guests).set({ lastName: "" }).where(eq(guests.id, bo.id)).run();
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+
+    const view = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(view.unresponded.find((g) => g.guestId === samId)?.plusOneOfName).toBe("Bo");
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.plusOneOfName).toBe("Bo");
+  });
 });

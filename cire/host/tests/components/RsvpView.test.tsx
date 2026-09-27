@@ -828,16 +828,39 @@ const PLUS_ONE_VIEW = {
   ],
 };
 
-/** The same wedding once the household can give a plus-one's dietary answers:
- *  Sam's reply carries a requirement the organiser path cannot store. */
-const PLUS_ONE_WITH_DIETARY = {
-  events: PLUS_ONE_VIEW.events.map((event) => ({
-    ...event,
-    guests: event.guests.map((guest) =>
-      guest.guestId === "p1" ? { ...guest, dietaryPresets: ["vegetarian"] } : guest,
-    ),
-  })),
+/** What an API that sends the link but not the name serves: `plusOneOfName`
+ *  is absent, not null. */
+const LINK_WITHOUT_NAME = {
+  events: [
+    {
+      ...PLUS_ONE_VIEW.events[0]!,
+      unresponded: [
+        {
+          guestId: "p2",
+          firstName: "Kit",
+          lastName: "Moss",
+          familyName: "Rao",
+          familyCode: "RAO-EMBER-51X8",
+          plusOneOf: "g4",
+        },
+      ],
+      noResponse: 1,
+    },
+  ],
 };
+
+/** The same wedding once the household can give a plus-one's dietary answers:
+ *  Sam's reply carries requirements the organiser path cannot store. */
+function withSamDietary(dietaryPresets: string[], dietary: string) {
+  return {
+    events: PLUS_ONE_VIEW.events.map((event) => ({
+      ...event,
+      guests: event.guests.map((guest) =>
+        guest.guestId === "p1" ? { ...guest, dietaryPresets, dietary } : guest,
+      ),
+    })),
+  };
+}
 
 /** The row whose Guest cell starts with `name` — not one whose marker names
  *  them as the inviter. */
@@ -923,27 +946,53 @@ describe("RsvpView — plus-ones", () => {
     });
   });
 
-  it("warns, naming them, before a save clears the dietary requirements the household gave", async () => {
-    authFetchMock
-      .mockResolvedValueOnce(json(PLUS_ONE_WITH_DIETARY))
-      .mockResolvedValueOnce(json({ rsvp: { status: "maybe" } }))
-      .mockResolvedValueOnce(json(PLUS_ONE_WITH_DIETARY));
-    render(() => <RsvpView weddingId="wed_a" canEdit />);
-    await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
+  for (const [what, presets, text, named] of [
+    ["picked from the list", ["vegetarian"], "", "Vegetarian"],
+    // Free text is the case that matters most: the form pre-fills it, so only
+    // the plus-one guard keeps it out of the PUT the API would refuse.
+    ["typed", [], "No shellfish", "No shellfish"],
+    // Worded as the row's Dietary cell words it, so the warning names what the
+    // host can see.
+    [
+      "picked and typed",
+      ["vegetarian", "other"],
+      "No shellfish",
+      "Vegetarian; Other; No shellfish",
+    ],
+  ] as const) {
+    it(`warns, naming them, before a save clears requirements the household ${what}`, async () => {
+      const view = withSamDietary([...presets], text);
+      authFetchMock
+        .mockResolvedValueOnce(json(view))
+        .mockResolvedValueOnce(json({ rsvp: { status: "maybe" } }))
+        .mockResolvedValueOnce(json(view));
+      render(() => <RsvpView weddingId="wed_a" canEdit />);
+      await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
-    const warning = await screen.findByText(/clears the dietary requirements/i);
-    expect(warning.textContent).toContain("Vegetarian");
+      fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
+      const warning = await screen.findByText(/clears the dietary requirements/i);
+      expect(warning.textContent).toContain(named);
+      // No attestation to tick for data this path will not store.
+      expect(screen.queryByRole("checkbox")).toBeNull();
+      expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
 
-    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
-    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
-    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toMatchObject({
-      status: "maybe",
-      dietary: "",
-      dietaryPresets: [],
-      dietaryConsent: false,
+      fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
+      fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+      expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
+        status: "maybe",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsent: false,
+      });
     });
+  }
+
+  it("marks a plus-one from an API that sends the link but not the name", async () => {
+    authFetchMock.mockResolvedValueOnce(json(LINK_WITHOUT_NAME));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+    expect(within(rowOf("Kit Moss")).getByText("Plus-one of another guest")).toBeTruthy();
   });
 
   it("still offers the dietary fields on an ordinary guest's row", async () => {

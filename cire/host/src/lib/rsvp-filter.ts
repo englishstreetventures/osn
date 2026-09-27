@@ -41,6 +41,14 @@ export type RsvpFilterKey = "all" | RsvpRowStatus;
  *  plus-one — the household that brought them. */
 export type ConsentSource = "guest" | "organiser_attested" | "inviter_attested";
 
+/** What a plus-one's marker says when the API names no inviter. */
+export const UNNAMED_INVITER = "another guest";
+
+/** The line a plus-one's row shows under their name. */
+export function plusOneMarker(row: { plusOneOfName: string | null }): string {
+  return `Plus-one of ${row.plusOneOfName ?? UNNAMED_INVITER}`;
+}
+
 /**
  * Who brought a guest, when the guest is a plus-one. Optional because the
  * portal can deploy before the API that sends them; absent reads as "not a
@@ -136,7 +144,7 @@ function haystack(
 ): string {
   const presets = presetLabels(guest.dietaryPresets ?? []).join(" ");
   const base = `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${presets} ${guest.dietary ?? ""}`;
-  const plusOne = link.plusOneOf === null ? "" : ` plus-one of ${link.plusOneOfName ?? ""}`;
+  const plusOne = link.plusOneOf === null ? "" : ` ${plusOneMarker(link)}`;
   return `${base}${plusOne}`.toLowerCase();
 }
 
