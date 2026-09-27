@@ -20,7 +20,7 @@ import { isPlusOne } from "./plus-one";
 import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
-import { isValidRsvpSaveResponse } from "./utils";
+import { formatNames, isValidRsvpSaveResponse } from "./utils";
 
 interface RsvpModalProps {
   event: EventSummary;
@@ -93,19 +93,6 @@ type Attending = "attending" | "declined" | null;
 async function failureCode(res: Response): Promise<string | undefined> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   return typeof body?.error === "string" ? body.error : undefined;
-}
-
-/**
- * "Ana", "Ana and Ravi", "Ana, Ravi and Tom".
- *
- * The consent wording has to name whose data it authorises: a box reading only
- * "the dietary requirements above" leaves a guest ticking on behalf of people it
- * does not identify, which is the opposite of the specificity Art. 9(2)(a) asks
- * for.
- */
-function formatNames(names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 /**

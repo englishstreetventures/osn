@@ -122,3 +122,16 @@ export function isValidPlusOneSaveResponse(data: unknown): data is PlusOneSaved 
   if (!("eventIds" in p) || !Array.isArray(p.eventIds)) return false;
   return p.eventIds.every((id: unknown) => typeof id === "string");
 }
+
+/**
+ * "Ana", "Ana and Ravi", "Ana, Ravi and Tom".
+ *
+ * The consent wording has to name whose data it authorises: a box reading only
+ * "the dietary requirements above" leaves a guest ticking on behalf of people it
+ * does not identify, which is the opposite of the specificity Art. 9(2)(a) asks
+ * for.
+ */
+export function formatNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
