@@ -32,7 +32,7 @@ import {
 } from "../lib/dashboard-route";
 import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
-import { weddingTopicUrl } from "../lib/realtime";
+import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { initTheme } from "../lib/theme";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
 import type { PaidTier } from "../lib/tiers";
@@ -565,8 +565,9 @@ function Dashboard() {
   // without the dashboard — so the re-read above runs at once instead of on
   // the next refusal or return to the tab. A signal only says "ask again"; the
   // answer is what drops the rows. A socket that cannot be held changes
-  // nothing: the other triggers still run. A helper's seat holds no rows, so
-  // it does not listen.
+  // nothing: the other triggers still run. When the socket gives up, the tab
+  // also tells cire-api why. A helper's seat holds no rows, so it does not
+  // listen.
   useTopic(
     () => {
       const wedding = selected();
@@ -575,6 +576,7 @@ function Dashboard() {
         : null;
     },
     () => void recheckWeddings(Date.now()),
+    { onFallback: reportRealtimeFallback },
   );
 
   // Graceful fallback: once the list is loaded, if the route names a wedding
