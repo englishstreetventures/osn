@@ -24,13 +24,16 @@ import {
   ensureBudgetLoaded,
   invalidateBudget,
   itemSpend,
+  lineEstimate,
   type PaymentRow,
   peekCachedBudget,
+  revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
 import { haptic } from "../lib/haptics";
-import { formatMinor } from "../lib/money";
+import { formatMinor, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
 interface BudgetViewProps {
   weddingId: string;
@@ -63,10 +66,17 @@ export default function BudgetView(props: BudgetViewProps) {
   const [newCategory, setNewCategory] = createSignal<ServiceCategory>(SERVICE_CATEGORIES[0]!.key);
   const [newName, setNewName] = createSignal("");
   const [newEstimate, setNewEstimate] = createSignal("");
+  const [newPerHead, setNewPerHead] = createSignal(false);
   const [expanded, setExpanded] = createSignal<string | null>(null);
+  const [perHeadOpen, setPerHeadOpen] = createSignal<string | null>(null);
 
   const budgetUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/budget`);
   const currency = () => snapshot()?.currency ?? "AUD";
+  const rsvpsClosed = () => snapshot()?.rsvpsClosed ?? false;
+  const weddingEvents = () => snapshot()?.events ?? [];
+  // Only an API that sends the event list stores per-head settings; an older
+  // one would drop them from a write and still answer 200.
+  const perHeadSupported = () => snapshot()?.events !== undefined;
 
   const load = async (): Promise<BudgetSnapshot> => {
     const res = await authFetch(budgetUrl());
@@ -79,7 +89,7 @@ export default function BudgetView(props: BudgetViewProps) {
   };
 
   onMount(() => {
-    ensureBudgetLoaded(props.weddingId, load).catch((err) => {
+    revalidateBudget(props.weddingId, load).catch((err) => {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't load your budget. Refresh to try again.");
     });
@@ -123,7 +133,8 @@ export default function BudgetView(props: BudgetViewProps) {
 
   const spent = createMemo(() => {
     const items = snapshot()?.items ?? [];
-    return items.reduce((sum, it) => sum + itemSpend(it), 0);
+    const closed = rsvpsClosed();
+    return items.reduce((sum, it) => sum + itemSpend(it, closed), 0);
   });
 
   // ── Item writes ──────────────────────────────────────────────────────────
@@ -132,13 +143,27 @@ export default function BudgetView(props: BudgetViewProps) {
     const name = newName().trim();
     if (!name) return;
     setError(null);
-    const estMinor = newEstimate().trim() === "" ? null : Math.round(Number(newEstimate()) * 100);
-    if (estMinor !== null && (!Number.isFinite(estMinor) || estMinor < 0)) {
+    // A per-head line sends its price instead of an estimate.
+    const perHead = newPerHead() && perHeadSupported();
+    const minor = perHead
+      ? parseMinor(newEstimate(), currency())
+      : newEstimate().trim() === ""
+        ? null
+        : Math.round(Number(newEstimate()) * 100);
+    if (perHead && minor === null) {
+      haptic("reject");
+      setError("A per-head line needs a price per head.");
+      return;
+    }
+    if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
       haptic("reject");
       setError("Estimate must be a positive amount.");
       return;
     }
-    const body = { category: newCategory(), name, estimateMinor: estMinor };
+    const body =
+      perHead && minor !== null
+        ? { category: newCategory(), name, perHead: { unitPriceMinor: minor } }
+        : { category: newCategory(), name, estimateMinor: minor };
     setNewName("");
     setNewEstimate("");
     try {
@@ -201,6 +226,49 @@ export default function BudgetView(props: BudgetViewProps) {
       void reload();
     }
   };
+
+  /** Send a per-head patch and fold the row the server returns: it carries the
+   *  headcount, which only the server can count. */
+  const patchPerHead = async (
+    item: BudgetItemRow,
+    body: { perHead: PerHeadChange | null; estimateMinor?: number | null },
+    failure: string,
+  ) => {
+    try {
+      const res = await authFetch(
+        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`patch ${res.status}`);
+      const { item: updated } = (await res.json()) as { item: BudgetItemRow };
+      patchSnap((s) => ({
+        ...s,
+        items: s.items.map((it) => (it.id === updated.id ? updated : it)),
+      }));
+      setPerHeadOpen(null);
+      haptic("commit");
+    } catch {
+      haptic("reject");
+      setError(failure);
+      void reload();
+    }
+  };
+
+  const savePerHead = (item: BudgetItemRow, perHead: PerHeadChange) =>
+    patchPerHead(item, { perHead }, "Couldn't save the price per head.");
+
+  /** Back to a fixed line, keeping the figure it came to as its estimate. */
+  const useFixedAmount = (item: BudgetItemRow) =>
+    patchPerHead(
+      item,
+      { perHead: null, estimateMinor: lineEstimate(item, rsvpsClosed()) },
+      "Couldn't switch that line to a fixed amount.",
+    );
 
   const deleteItem = async (item: BudgetItemRow) => {
     patchSnap((s) => ({
@@ -491,7 +559,20 @@ export default function BudgetView(props: BudgetViewProps) {
               />
             )}
           </Field>
-          <Field label="Estimate (optional)" class="w-32">
+          <Show when={perHeadSupported()}>
+            <label class="text-text text-ui-sm flex items-center gap-2 self-center">
+              <input
+                type="checkbox"
+                checked={newPerHead()}
+                onChange={(e) => setNewPerHead(e.currentTarget.checked)}
+              />
+              Priced per head
+            </label>
+          </Show>
+          <Field
+            label={newPerHead() && perHeadSupported() ? "Price per head" : "Estimate (optional)"}
+            class="w-32"
+          >
             {(field) => (
               <Input
                 {...field}
@@ -543,8 +624,9 @@ export default function BudgetView(props: BudgetViewProps) {
                 onPhase: (phase) => haptic(phase),
               });
               const subtotalEst = () =>
-                categoryItems().reduce((s, it) => s + (it.estimateMinor ?? 0), 0);
-              const subtotalActual = () => categoryItems().reduce((s, it) => s + itemSpend(it), 0);
+                categoryItems().reduce((s, it) => s + (lineEstimate(it, rsvpsClosed()) ?? 0), 0);
+              const subtotalActual = () =>
+                categoryItems().reduce((s, it) => s + itemSpend(it, rsvpsClosed()), 0);
               return (
                 <Show when={categoryItems().length > 0}>
                   <section class="flex flex-col gap-2">
@@ -587,11 +669,12 @@ export default function BudgetView(props: BudgetViewProps) {
                                     <span class="text-text text-ui-base min-w-32 flex-1">
                                       {item.name}
                                     </span>
+                                    {/* A per-head line's estimate is computed, so its cell is read-only. */}
                                     <MoneyCell
                                       label="Est"
-                                      minor={item.estimateMinor}
+                                      minor={lineEstimate(item, rsvpsClosed())}
                                       currency={currency()}
-                                      canEdit={props.canEdit}
+                                      canEdit={props.canEdit && item.unitPriceMinor == null}
                                       onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
                                     />
                                     <MoneyCell
@@ -617,6 +700,18 @@ export default function BudgetView(props: BudgetViewProps) {
                                     >
                                       payments ({paymentsFor(item.id).length})
                                     </Button>
+                                    <Show when={props.canEdit && perHeadSupported()}>
+                                      <Button
+                                        variant="bare"
+                                        type="button"
+                                        aria-expanded={perHeadOpen() === item.id}
+                                        onClick={() =>
+                                          setPerHeadOpen(perHeadOpen() === item.id ? null : item.id)
+                                        }
+                                      >
+                                        per head
+                                      </Button>
+                                    </Show>
                                     <Show when={props.canEdit}>
                                       <Button
                                         variant="bareDanger"
@@ -628,6 +723,24 @@ export default function BudgetView(props: BudgetViewProps) {
                                       </Button>
                                     </Show>
                                   </div>
+                                  <Show when={item.unitPriceMinor != null}>
+                                    <PerHeadSummary
+                                      item={item}
+                                      events={weddingEvents()}
+                                      currency={currency()}
+                                      rsvpsClosed={rsvpsClosed()}
+                                    />
+                                  </Show>
+                                  <Show when={perHeadOpen() === item.id}>
+                                    <PerHeadPanel
+                                      item={item}
+                                      events={weddingEvents()}
+                                      currency={currency()}
+                                      onSave={(change) => void savePerHead(item, change)}
+                                      onUseFixed={() => void useFixedAmount(item)}
+                                      onCancel={() => setPerHeadOpen(null)}
+                                    />
+                                  </Show>
                                   <Show when={expanded() === item.id}>
                                     <PaymentPanel
                                       item={item}

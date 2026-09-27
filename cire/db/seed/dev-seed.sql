@@ -207,77 +207,77 @@ INSERT OR IGNORE INTO wedding_entitlements (wedding_id, entitlement, source, gra
 INSERT OR IGNORE INTO budget_items (
   id, wedding_id, category, name,
   estimate_minor, quoted_minor, actual_minor,
-  notes, sort_order, created_at, updated_at
+  unit_price_minor, notes, sort_order, created_at, updated_at
 ) VALUES
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000001', 'wed_bootstrap', 'venue', 'Reception venue',
     3200000, 3450000, NULL,
-    'Quote came in over the estimate — minimum spend on a Saturday.', 0, unixepoch(), unixepoch()
+    NULL, 'Quote came in over the estimate — minimum spend on a Saturday.', 0, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000002', 'wed_bootstrap', 'catering', 'Dinner and canapés',
-    2800000, 2940000, NULL,
-    'Per head, 560 guests. Final numbers due with the balance.', 1, unixepoch(), unixepoch()
+    NULL, 2940000, NULL,
+    5000, 'Final numbers due with the balance.', 1, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000003', 'wed_bootstrap', 'photography', 'Photographer — full day',
     650000, 620000, 620000,
-    NULL, 2, unixepoch(), unixepoch()
+    NULL, NULL, 2, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000004', 'wed_bootstrap', 'videography', 'Videographer — ceremony and speeches',
     450000, NULL, NULL,
-    'Two quotes outstanding.', 3, unixepoch(), unixepoch()
+    NULL, 'Two quotes outstanding.', 3, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000005', 'wed_bootstrap', 'decor_styling', 'Styling and lighting',
     420000, 445000, NULL,
-    NULL, 4, unixepoch(), unixepoch()
+    NULL, NULL, 4, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000006', 'wed_bootstrap', 'florals', 'Mandap and table florals',
     380000, 412000, NULL,
-    NULL, 5, unixepoch(), unixepoch()
+    NULL, NULL, 5, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000007', 'wed_bootstrap', 'music_entertainment', 'DJ and dhol players',
     300000, 285000, 285000,
-    NULL, 6, unixepoch(), unixepoch()
+    NULL, NULL, 6, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000008', 'wed_bootstrap', 'celebrant', 'Celebrant',
     90000, 90000, NULL,
-    NULL, 7, unixepoch(), unixepoch()
+    NULL, NULL, 7, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000009', 'wed_bootstrap', 'cake', 'Three-tier cake',
     120000, NULL, NULL,
-    NULL, 8, unixepoch(), unixepoch()
+    NULL, NULL, 8, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000010', 'wed_bootstrap', 'stationery', 'Invitations and signage',
     95000, 88000, 88000,
-    NULL, 9, unixepoch(), unixepoch()
+    NULL, NULL, 9, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000011', 'wed_bootstrap', 'hair_makeup', 'Hair and makeup, both sides',
     260000, 275000, NULL,
-    NULL, 10, unixepoch(), unixepoch()
+    NULL, NULL, 10, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000012', 'wed_bootstrap', 'transport', 'Guest coaches and the car',
     180000, NULL, NULL,
-    NULL, 11, unixepoch(), unixepoch()
+    NULL, NULL, 11, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000013', 'wed_bootstrap', 'attire', 'Outfits and jewellery',
     700000, NULL, 760000,
-    'Came in over — the second outfit was not in the estimate.', 12, unixepoch(), unixepoch()
+    NULL, 'Came in over — the second outfit was not in the estimate.', 12, unixepoch(), unixepoch()
   ),
   (
     'bud_e2a1c0d4-0000-4000-8000-000000000014', 'wed_bootstrap', 'other', 'Contingency',
     300000, NULL, NULL,
-    NULL, 13, unixepoch(), unixepoch()
+    NULL, NULL, 13, unixepoch(), unixepoch()
   );
 
 -- ────────────────────────────────────────────────────────────────────────────

@@ -29,8 +29,39 @@ const Minor = Schema.Number.check(
   Schema.isLessThanOrEqualTo(MAX_MINOR),
 );
 
-// Create item: category + name required; the three money figures + notes are
-// optional, absent → null.
+// A price per guest. Capped at the budget total's own ceiling (below), so the
+// price times any real headcount stays far inside Number.MAX_SAFE_INTEGER.
+const UnitPrice = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 0, maximum: 100_000_000_000 }),
+);
+// Event ids are UUIDs; the bound keeps a body from carrying junk.
+const EventId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64));
+// At least one id: "every event" is spelled `null`, never `[]`, so an empty
+// list cannot widen a line by accident. At most 50, far more than a wedding
+// has events, so the stored list stays small.
+const EventIds = Schema.Array(EventId).check(Schema.isMinLength(1), Schema.isMaxLength(50));
+
+// A per-head line: a price per guest, and the events whose guests it counts.
+// `eventIds` absent keeps the line's current events (a fixed line has none, so
+// it counts every event); `null` counts every event; a list counts only those.
+const PerHead = Schema.Struct({
+  unitPriceMinor: UnitPrice,
+  eventIds: Schema.optional(Schema.NullOr(EventIds)),
+});
+export type PerHeadBody = Schema.Schema.Type<typeof PerHead>;
+
+// A per-head line's estimate is computed from the RSVPs, so a body that makes a
+// line per head and also names a fixed estimate contradicts itself.
+const noEstimateWithPerHead = Schema.makeFilter(
+  (body: { perHead?: PerHeadBody | null; estimateMinor?: number | null }) =>
+    body.perHead != null && body.estimateMinor != null
+      ? "A per-head line has no fixed estimate"
+      : undefined,
+);
+
+// Create item: category + name required; the three money figures, notes and the
+// per-head settings are optional, absent → null.
 export const CreateBudgetItemBody = Schema.Struct({
   category: CategorySchema,
   name: Name,
@@ -38,7 +69,8 @@ export const CreateBudgetItemBody = Schema.Struct({
   quotedMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
   actualMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
   notes: Schema.NullOr(Notes).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
-});
+  perHead: Schema.NullOr(PerHead).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+}).check(noEstimateWithPerHead);
 export type CreateBudgetItemBody = Schema.Schema.Type<typeof CreateBudgetItemBody>;
 
 // Update item: every field optional (a partial patch). Absent field ⇒ unchanged;
@@ -50,7 +82,9 @@ export const UpdateBudgetItemBody = Schema.Struct({
   quotedMinor: Schema.optional(Schema.NullOr(Minor)),
   actualMinor: Schema.optional(Schema.NullOr(Minor)),
   notes: Schema.optional(Schema.NullOr(Notes)),
-});
+  // `null` makes the line fixed again; an object makes it (or keeps it) per head.
+  perHead: Schema.optional(Schema.NullOr(PerHead)),
+}).check(noEstimateWithPerHead);
 export type UpdateBudgetItemBody = Schema.Schema.Type<typeof UpdateBudgetItemBody>;
 
 // Reorder: the new order of item ids within one category.

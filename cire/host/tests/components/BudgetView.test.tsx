@@ -13,6 +13,12 @@ import {
 const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
+const redirectToLoginMock = vi.hoisted(() => vi.fn());
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return { ...actual, redirectToLogin: redirectToLoginMock };
+});
+
 const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
   items: [],
   payments: [],
@@ -28,6 +34,7 @@ afterEach(() => {
 beforeEach(() => {
   __resetBudgetCache();
   authFetch.mockReset();
+  redirectToLoginMock.mockReset();
 });
 
 describe("BudgetView", () => {
@@ -261,5 +268,250 @@ describe("BudgetView", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Couldn't refresh your budget."),
     );
     expect(screen.queryByText("Reception venue")).not.toBeInTheDocument();
+  });
+});
+
+describe("BudgetView — per-head lines", () => {
+  const EVENTS = [
+    { id: "evt_ceremony", name: "Ceremony" },
+    { id: "evt_reception", name: "Reception" },
+  ];
+  const row = (over: Partial<BudgetSnapshot["items"][number]> = {}) => ({
+    id: "ph",
+    weddingId: "wed_1",
+    category: "catering",
+    name: "Dinner",
+    estimateMinor: null,
+    quotedMinor: null,
+    actualMinor: null,
+    notes: null,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    unitPriceMinor: 5_000,
+    eventIds: null,
+    headcount: { expected: 120, confirmed: 80 },
+    ...over,
+  });
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+  it("offers no per-head control against an API that does not send the event list", async () => {
+    setCachedBudget(
+      "wed_1",
+      snap({
+        items: [
+          row({
+            unitPriceMinor: undefined,
+            headcount: undefined,
+            eventIds: undefined,
+            estimateMinor: 1_000,
+          }),
+        ],
+      }),
+    );
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    expect(screen.queryByLabelText("Priced per head")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "per head" })).not.toBeInTheDocument();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("shows a per-head line's computed estimate read-only, and counts it in the totals", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS, rsvpsClosed: false }));
+    authFetch.mockReturnValue(new Promise(() => {}));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    expect(screen.getByTestId("per-head-summary")).toHaveTextContent(/120 expected/);
+    const section = screen.getByRole("heading", { name: "Catering" }).closest("section")!;
+    expect(section).toHaveTextContent(/est \S*6,000\.00 · spent \S*6,000\.00/);
+    // The Est cell is text, not an input: only the Quote and Actual cells edit.
+    expect(within(section as HTMLElement).getAllByRole("spinbutton")).toHaveLength(2);
+    expect(screen.getByText(/Spent so far/).parentElement).toHaveTextContent(/6,000\.00/);
+  });
+
+  it("refetches on open when the cached budget holds a per-head line", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch.mockResolvedValueOnce(
+      json(
+        snap({
+          items: [row({ headcount: { expected: 130, confirmed: 90 } })],
+          events: EVENTS,
+          rsvpsClosed: false,
+        }),
+      ),
+    );
+    render(() => <BudgetView weddingId="wed_1" canEdit={false} canManage={false} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("per-head-summary")).toHaveTextContent(/130 expected/),
+    );
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves the price and events from the per-head panel and folds the returned row", async () => {
+    setCachedBudget(
+      "wed_1",
+      snap({
+        items: [row({ unitPriceMinor: null, headcount: null, estimateMinor: 900 })],
+        events: EVENTS,
+      }),
+    );
+    // The fixed-only cache does not refetch on open, so the PATCH is the first call.
+    authFetch.mockResolvedValueOnce(
+      json({
+        item: row({
+          unitPriceMinor: 2_000,
+          eventIds: ["evt_reception"],
+          headcount: { expected: 40, confirmed: 10 },
+        }),
+      }),
+    );
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    fireEvent.click(screen.getByRole("button", { name: "per head" }));
+    fireEvent.input(screen.getByLabelText(/Price per head \(AUD\)/), { target: { value: "20" } });
+    fireEvent.click(screen.getByLabelText("Only these events"));
+    fireEvent.click(screen.getByLabelText("Reception"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    const [url, init] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/budget\/items\/ph$/);
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({
+      perHead: { unitPriceMinor: 2_000, eventIds: ["evt_reception"] },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("per-head-summary")).toHaveTextContent(/per head at Reception/),
+    );
+    expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
+  });
+
+  it("turns a line back to a fixed amount, keeping what it came to", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS, rsvpsClosed: true }));
+    authFetch
+      .mockResolvedValueOnce(json(snap({ items: [row()], events: EVENTS, rsvpsClosed: true })))
+      .mockResolvedValueOnce(
+        json({ item: row({ unitPriceMinor: null, headcount: null, estimateMinor: 400_000 }) }),
+      );
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "per head" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use a fixed amount" }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    // RSVPs are closed, so the line came to 80 confirmed × 5,000.
+    expect(JSON.parse(authFetch.mock.calls[1]![1].body)).toEqual({
+      perHead: null,
+      estimateMinor: 400_000,
+    });
+    await waitFor(() => expect(screen.queryByTestId("per-head-summary")).not.toBeInTheDocument());
+  });
+
+  it("adds a per-head line with its price instead of an estimate", async () => {
+    setCachedBudget("wed_1", snap({ items: [], events: EVENTS }));
+    authFetch.mockResolvedValueOnce(json({ item: row() }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.input(await screen.findByPlaceholderText(/caterer, venue/i), {
+      target: { value: "Dinner" },
+    });
+    fireEvent.click(screen.getByLabelText("Priced per head"));
+    fireEvent.input(screen.getByLabelText("Price per head"), { target: { value: "50" } });
+    // Submitted directly: happy-dom's step check computes 50 % 0.01 in floating
+    // point, calls the field invalid and blocks the button's submit, which a
+    // browser does not.
+    fireEvent.submit(screen.getByRole("button", { name: /add item/i }).closest("form")!);
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toEqual({
+      category: "venue",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 5_000 },
+    });
+  });
+
+  it("gives a viewer the summary but no per-head editor", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch.mockReturnValue(new Promise(() => {}));
+    render(() => <BudgetView weddingId="wed_1" canEdit={false} canManage={false} />);
+    await screen.findByText("Dinner");
+    expect(screen.getByTestId("per-head-summary")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "per head" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the panel open with an error when a per-head save is refused, and reloads", async () => {
+    const fixed = row({ unitPriceMinor: null, headcount: null, estimateMinor: 900 });
+    setCachedBudget("wed_1", snap({ items: [fixed], events: EVENTS }));
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "unknown_event" }), { status: 400 }),
+      )
+      .mockResolvedValueOnce(json(snap({ items: [fixed], events: EVENTS })));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    fireEvent.click(screen.getByRole("button", { name: "per head" }));
+    fireEvent.input(screen.getByLabelText(/Price per head \(AUD\)/), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/budget$/);
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't save the price per head.");
+    expect(screen.getByTestId("per-head-panel")).toBeInTheDocument();
+  });
+
+  it("sends the organiser to sign in when a per-head save answers 401", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch
+      .mockResolvedValueOnce(json(snap({ items: [row()], events: EVENTS })))
+      .mockResolvedValueOnce(new Response("", { status: 401 }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "per head" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
+  });
+
+  it("clears a cached per-head budget when the refetch on open is refused", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch.mockResolvedValueOnce(new Response("forbidden", { status: 403 }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={false} canManage={false} />);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your budget."),
+    );
+    expect(screen.queryByText("Dinner")).not.toBeInTheDocument();
+  });
+
+  it("refuses a per-head line with no price and sends nothing", async () => {
+    setCachedBudget("wed_1", snap({ items: [], events: EVENTS }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.input(await screen.findByPlaceholderText(/caterer, venue/i), {
+      target: { value: "Dinner" },
+    });
+    fireEvent.click(screen.getByLabelText("Priced per head"));
+    const form = screen.getByRole("button", { name: /add item/i }).closest("form")!;
+    for (const price of ["", "-5"]) {
+      fireEvent.input(screen.getByLabelText("Price per head"), { target: { value: price } });
+      fireEvent.submit(form);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A per-head line needs a price per head.",
+      );
+    }
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("opens and closes the per-head panel from its toggle and from Cancel", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch.mockReturnValue(new Promise(() => {}));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    const toggle = screen.getByRole("button", { name: "per head" });
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("per-head-panel")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 });
