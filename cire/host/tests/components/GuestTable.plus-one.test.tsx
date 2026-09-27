@@ -9,12 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * everyone" / "Allow no one"); a viewer sees the switches read-only. Turning it
  * off where a plus-one is already named deletes that plus-one with their
  * replies, outside the change history, so the table asks first, naming them,
- * reads the list again before it sends the remove flag, and never sends it at
- * all without a yes.
+ * and on a yes sends the plus-ones it showed as the confirmed list. The API
+ * deletes only when every plus-one in scope is on that list.
  *
- * The API is a small in-memory stand-in routed by URL, so a test can change
- * what the server holds between two reads — which is exactly the case the
- * re-read exists for.
+ * The API is a small in-memory stand-in routed by URL that applies that rule,
+ * so a test can change what the server holds while the confirmation is open —
+ * which is exactly the case the confirmed list exists for.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -99,6 +99,8 @@ const sam = () => guest(SHARMA, "g_sam", "Sam", "Lee", { plusOneOf: "g_ada" });
 const ada = () => guest(SHARMA, "g_ada", "Ada", "Sharma", { plusOneAllowed: true });
 const bo = () => guest(SHARMA, "g_bo", "Bo", "Sharma");
 const cy = () => guest(JONES, "g_cy", "Cy", "Jones", { plusOneAllowed: true });
+/** Sam as a confirmation sends them: id and the stored name, nothing else. */
+const SAM_CONFIRMED = { guestId: "g_sam", firstName: "Sam", lastName: "Lee" };
 
 /** What the stand-in API holds. Tests change it between reads. */
 let server: OrganiserGuestRow[] = [];
@@ -117,28 +119,43 @@ const puts = () =>
       body: JSON.parse(String((init as RequestInit).body)) as unknown,
     }));
 
-/** A PUT that the stand-in applies the way the API does. */
+/** A PUT that the stand-in applies the way the API does: unknown keys are a
+ *  400, and turning permission off writes only when every plus-one in scope is
+ *  on the confirmed list by id and exact name. */
 function applyPut(url: string, body: Record<string, unknown>): Response {
+  if (Object.keys(body).some((key) => key !== "allowed" && key !== "removePlusOnes")) {
+    return json({ error: "Missing or invalid fields" }, 400);
+  }
   const allowed = body.allowed === true;
+  const confirmed = (body.removePlusOnes ?? []) as {
+    guestId: string;
+    firstName: string;
+    lastName: string;
+  }[];
+  const isConfirmed = (g: OrganiserGuestRow) =>
+    confirmed.some(
+      (c) => c.guestId === g.guestId && c.firstName === g.firstName && c.lastName === g.lastName,
+    );
   const guestMatch = /\/guests\/([^/]+)\/plus-one$/.exec(url);
   const familyMatch = /\/families\/([^/]+)\/plus-one$/.exec(url);
   if (guestMatch) {
     const id = decodeURIComponent(guestMatch[1]!);
-    const named = server.some((g) => g.plusOneOf === id);
-    if (!allowed && named && body.removePlusOne !== true) {
-      return json({ error: "plus_one_named", named: 1 }, 409);
+    const inScope = server.filter((g) => g.plusOneOf === id);
+    if (!allowed && !inScope.every(isConfirmed)) {
+      return json({ error: "plus_one_named", named: inScope.length }, 409);
     }
-    const removing = !allowed && named;
+    const removing = !allowed && inScope.length > 0;
     server = server
       .filter((g) => !(removing && g.plusOneOf === id))
       .map((g) => (g.guestId === id ? Object.assign({}, g, { plusOneAllowed: allowed }) : g));
     return json({ guestId: id, plusOneAllowed: allowed, plusOneRemoved: removing });
   }
   const familyId = decodeURIComponent(familyMatch![1]!);
-  const named = server.filter((g) => g.familyId === familyId && g.plusOneOf).length;
-  if (!allowed && named > 0 && body.removePlusOnes !== true) {
-    return json({ error: "plus_one_named", named }, 409);
+  const inScope = server.filter((g) => g.familyId === familyId && g.plusOneOf);
+  if (!allowed && !inScope.every(isConfirmed)) {
+    return json({ error: "plus_one_named", named: inScope.length }, 409);
   }
+  const named = inScope.length;
   const removing = !allowed && named > 0;
   server = server
     .filter((g) => !(removing && g.familyId === familyId && g.plusOneOf))
@@ -278,38 +295,47 @@ describe("GuestTable — plus-one permission", () => {
     expect(described?.textContent).toMatch(/removes Sam Lee from the guest list/);
   });
 
-  it("on yes, reads the list again, then sends the remove flag, and the plus-one leaves", async () => {
+  it("on yes, sends the plus-ones it showed as the confirmed list, and the plus-one leaves", async () => {
     await mount();
     fireEvent.click(switchFor("Ada Sharma"));
     const readsBefore = guestReads();
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
 
     await waitFor(() => expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull());
-    expect(guestReads()).toBe(readsBefore + 1);
+    // No read before the write: the API checks the list at write time.
+    expect(guestReads()).toBe(readsBefore);
     expect(puts()).toEqual([
       {
         url: "https://api.test/api/organiser/weddings/wed_a/guests/g_ada/plus-one",
-        body: { allowed: false, removePlusOne: true },
+        body: { allowed: false, removePlusOnes: [SAM_CONFIRMED] },
       },
     ]);
     expect(switchFor("Ada Sharma").checked).toBe(false);
     expect(toastSuccess).toHaveBeenCalledWith("Removed Sam Lee");
   });
 
-  it("asks again, about the new name, when the household changed its plus-one before the yes", async () => {
+  it("asks again, about the new name, when the household swapped its plus-one before the yes", async () => {
     await mount();
     fireEvent.click(switchFor("Ada Sharma"));
     // Meanwhile the household swaps Sam for Kit.
     server = [guest(SHARMA, "g_kit", "Kit", "Ng", { plusOneOf: "g_ada" }), ada(), bo(), cy()];
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
 
+    // The confirmation's own snapshot went, and the API refused it.
     await waitFor(() => expect(screen.getByText("Remove Kit Ng?")).toBeTruthy());
     expect(screen.getByText(/changed its plus-ones since the list loaded/)).toBeTruthy();
-    expect(puts()).toEqual([]);
+    expect(puts().map((p) => p.body)).toEqual([
+      { allowed: false, removePlusOnes: [SAM_CONFIRMED] },
+    ]);
+    expect(server.some((g) => g.guestId === "g_kit")).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Kit Ng" }));
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ allowed: false, removePlusOne: true });
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts()[1]!.body).toEqual({
+      allowed: false,
+      removePlusOnes: [{ guestId: "g_kit", firstName: "Kit", lastName: "Ng" }],
+    });
+    await waitFor(() => expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull());
   });
 
   it("asks again when the household renamed its plus-one before the yes, though the id is the same", async () => {
@@ -320,18 +346,25 @@ describe("GuestTable — plus-one permission", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
 
     await waitFor(() => expect(screen.getByText("Remove Kit Ng?")).toBeTruthy());
-    expect(puts()).toEqual([]);
+    // The first write carried the name the organiser saw, not the new one.
+    expect(puts().map((p) => p.body)).toEqual([
+      { allowed: false, removePlusOnes: [SAM_CONFIRMED] },
+    ]);
+    expect(server.some((g) => g.firstName === "Kit")).toBe(true);
   });
 
-  it("sends a plain turn-off when the plus-one was already taken back before the yes", async () => {
+  it("turns the permission off without complaint when the plus-one was already taken back", async () => {
     await mount();
     fireEvent.click(switchFor("Ada Sharma"));
     server = [ada(), bo(), cy()];
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
 
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ allowed: false });
     await waitFor(() => expect(switchFor("Ada Sharma").checked).toBe(false));
+    expect(puts().map((p) => p.body)).toEqual([
+      { allowed: false, removePlusOnes: [SAM_CONFIRMED] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull();
   });
 
   it("when the API says a plus-one was named since the list loaded, reloads and asks", async () => {
@@ -451,44 +484,27 @@ describe("GuestTable — plus-one permission", () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]).toEqual({
       url: "https://api.test/api/organiser/weddings/wed_a/families/fam_a/plus-one",
-      body: { allowed: false, removePlusOnes: true },
+      body: { allowed: false, removePlusOnes: [SAM_CONFIRMED] },
     });
     await waitFor(() => expect(switchFor("Bo Sharma").checked).toBe(false));
   });
 
-  it("reloads and warns when the API removed a different number than was confirmed", async () => {
+  it("removes fewer than confirmed without an error when the household took one back", async () => {
+    server = [...server, guest(SHARMA, "g_kit", "Kit", "Ng", { plusOneOf: "g_bo" })];
     await mount();
     fireEvent.click(within(householdGroup("Sharma")).getByRole("button", { name: "Allow no one" }));
-    // The re-read still shows one plus-one, but by the time the write lands
-    // the household has named a second.
-    answerPut = (url, body) => {
-      server = [...server, guest(SHARMA, "g_zed", "Zed", "Fox", { plusOneOf: "g_bo" })];
-      return applyPut(url, body);
-    };
-    const confirm = await screen.findByRole("button", { name: "Turn off and remove Sam Lee" });
-    const readsBefore = guestReads();
+    const confirm = await screen.findByRole("button", { name: "Turn off and remove 2" });
+    // Kit is taken back while the confirmation is open.
+    server = server.filter((g) => g.guestId !== "g_kit");
     fireEvent.click(confirm);
 
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(String(toastError.mock.calls[0]![0])).toMatch(
-      /Removed 2 plus-ones, not the 1 you confirmed/,
-    );
-    // Read once before the write and once more after the mismatch.
-    expect(guestReads()).toBe(readsBefore + 2);
-    expect(screen.queryByText(/Zed Fox/)).toBeNull();
-  });
-
-  it("shows an error, not an empty list, when the reload before a removal fails", async () => {
-    await mount();
-    fireEvent.click(switchFor("Ada Sharma"));
-    authFetchMock.mockImplementation((url: string) =>
-      Promise.resolve(url.endsWith("/guests") ? json({}, 500) : json({})),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
-
-    await waitFor(() => expect(screen.getByText(/Could not reload the guest list/)).toBeTruthy());
-    expect(screen.queryByText("No guests yet")).toBeNull();
-    expect(puts()).toEqual([]);
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Removed 1 plus-one"));
+    expect(puts()[0]!.body).toEqual({
+      allowed: false,
+      removePlusOnes: [SAM_CONFIRMED, { guestId: "g_kit", firstName: "Kit", lastName: "Ng" }],
+    });
+    expect(toastError).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Plus-one of/)).toBeNull();
   });
 
   it("runs one write at a time, and marks the switch whose write is running", async () => {

@@ -42,13 +42,13 @@ import {
 import { invalidateHouseholds } from "../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import {
+  type ConfirmedPlusOne,
   householdPermission,
   isPlusOne,
   placePlusOnesAfterInviters,
   plusOnesRemovedBy,
   type PlusOneScope,
   putPlusOnePermission,
-  samePeople,
   supportsPlusOnes,
   withPermission,
 } from "../lib/plus-one-permission";
@@ -115,9 +115,10 @@ function groupIntoFamilies(rows: readonly OrganiserGuestRow[]): FamilyGroup[] {
 const fullName = (person: { firstName: string; lastName: string }) =>
   `${person.firstName} ${person.lastName}`.trim();
 
-/** One plus-one a confirmation names, and whose they are. */
-interface NamedPlusOne {
-  guestId: string;
+/** One plus-one a confirmation names, and whose they are. Carries the first
+ *  and last name exactly as the guest list served them: that is what the
+ *  removal sends back for the API to check against. */
+interface NamedPlusOne extends ConfirmedPlusOne {
   name: string;
   inviterName: string;
 }
@@ -471,7 +472,8 @@ export default function GuestTable(props: GuestTableProps) {
   // Contract: `wiki/cire/cire-plus-ones.md`. Turning permission off where a
   // plus-one is named deletes them with their replies, outside the change
   // history, so it is never sent without the organiser having been shown who
-  // and said yes — and the list is read again just before it is sent.
+  // and said yes. The write carries the plus-ones the confirmation showed, and
+  // the API refuses it if the household has changed them since.
 
   /** The plus-ones `scope` would delete, named with whose they are. Built from
    *  the whole list, never the search-filtered rows. */
@@ -481,6 +483,8 @@ export default function GuestTable(props: GuestTableProps) {
       const inviter = plusOne.plusOneOf ? byId.get(plusOne.plusOneOf) : undefined;
       return {
         guestId: plusOne.guestId,
+        firstName: plusOne.firstName,
+        lastName: plusOne.lastName,
         name: fullName(plusOne),
         inviterName: inviter ? fullName(inviter) : "",
       };
@@ -543,18 +547,16 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   /**
-   * Send one permission write and apply its answer. `expectedRemovals` is how
-   * many plus-ones the organiser agreed to remove, checked against what the API
-   * says it removed.
+   * Send one permission write and apply its answer. `remove` is the plus-ones
+   * the organiser confirmed, as the confirmation captured them; `null` for a
+   * write that confirms nobody.
    */
   async function sendPermission(
     scope: PlusOneScope,
     allowed: boolean,
-    remove: boolean,
-    expectedRemovals: number,
+    remove: readonly NamedPlusOne[] | null,
   ): Promise<void> {
     const familyName = familyNameOf(guests(), scope);
-    const removedNames = remove ? namePlusOnes(guests(), scope) : [];
     const answer = await putPlusOnePermission(authFetch, props.weddingId, scope, allowed, remove);
     switch (answer.kind) {
       case "unauthenticated":
@@ -565,20 +567,13 @@ export default function GuestTable(props: GuestTableProps) {
         if (rows) setCachedGuests(props.weddingId, withPermission(rows, scope, allowed));
         // A removal changes the household's guest count.
         if (answer.removed > 0) invalidateHouseholds(props.weddingId);
-        if (remove && answer.removed !== expectedRemovals) {
-          // The household changed its plus-ones between the last read and
-          // this write: say what happened and show the list as it now is.
-          await reloadGuests();
-          toast.error(
-            `Removed ${answer.removed} ${answer.removed === 1 ? "plus-one" : "plus-ones"}, not the ${expectedRemovals} you confirmed — the household changed them meanwhile. Check the list.`,
-          );
-          return;
-        }
+        // Fewer than confirmed is not an error: the household took one back
+        // meanwhile, and the API deletes only people on the confirmed list.
         if (answer.removed > 0) {
           toast.success(
-            removedNames.length === 1
-              ? `Removed ${removedNames[0]!.name}`
-              : `Removed ${answer.removed} plus-ones`,
+            answer.removed === 1 && remove?.length === 1
+              ? `Removed ${remove[0]!.name}`
+              : `Removed ${answer.removed} ${answer.removed === 1 ? "plus-one" : "plus-ones"}`,
           );
         }
         if (scope.kind === "household") {
@@ -591,7 +586,9 @@ export default function GuestTable(props: GuestTableProps) {
         return;
       }
       case "named": {
-        // A plus-one was named after this list was read. Show who, and ask.
+        // A plus-one in scope was not among those confirmed: named after this
+        // list was read, or swapped or renamed since the confirmation opened.
+        // Show who is there now, and ask.
         const fresh = await reloadGuests();
         if (!fresh) return;
         if (plusOnesRemovedBy(fresh, scope).length > 0) askToRemove(fresh, scope, true);
@@ -621,28 +618,20 @@ export default function GuestTable(props: GuestTableProps) {
       queueMicrotask(() => askToRemove(guests(), scope, false));
       return;
     }
-    void exclusively(scope, () => sendPermission(scope, allowed, false, 0));
+    void exclusively(scope, () => sendPermission(scope, allowed, null));
   }
 
   /**
-   * The organiser said yes to removing the plus-ones the dialog named. The list
-   * is read once more first; if the household has changed those plus-ones
-   * since, the organiser is asked again about the list as it now stands rather
-   * than deleting someone they were never shown.
+   * The organiser said yes to removing the plus-ones the dialog named. The
+   * write carries the dialog's own snapshot of them — never the list as it is
+   * now, which would confirm whoever the household has named since. If they
+   * have changed, the API refuses and the organiser is asked again.
    */
   function confirmRemoval() {
     const pending = pendingRemoval();
     if (!pending) return;
     setPendingRemoval(null);
-    const { scope } = pending;
-    void exclusively(scope, async () => {
-      const fresh = await reloadGuests();
-      if (!fresh) return;
-      const now = namePlusOnes(fresh, scope);
-      if (now.length === 0) return sendPermission(scope, false, false, 0);
-      if (!samePeople(now, pending.plusOnes)) return askToRemove(fresh, scope, true);
-      return sendPermission(scope, false, true, now.length);
-    });
+    void exclusively(pending.scope, () => sendPermission(pending.scope, false, pending.plusOnes));
   }
 
   const hasGuests = () => families.length > 0;

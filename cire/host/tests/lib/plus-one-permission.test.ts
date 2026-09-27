@@ -12,7 +12,6 @@ import {
   placePlusOnesAfterInviters,
   plusOnesRemovedBy,
   putPlusOnePermission,
-  samePeople,
   supportsPlusOnes,
   withPermission,
 } from "../../src/lib/plus-one-permission";
@@ -132,28 +131,16 @@ describe("withPermission", () => {
   });
 });
 
-describe("samePeople", () => {
-  const samLee = { guestId: "g_sam", name: "Sam Lee" };
-  const kitNg = { guestId: "g_kit", name: "Kit Ng" };
-  it("compares by id and name, in any order", () => {
-    expect(samePeople([samLee, kitNg], [kitNg, samLee])).toBe(true);
-    expect(samePeople([], [])).toBe(true);
-    expect(samePeople([samLee], [kitNg])).toBe(false);
-    expect(samePeople([samLee], [samLee, kitNg])).toBe(false);
-  });
-
-  it("tells a renamed plus-one from the one that was shown, though the id is the same", () => {
-    expect(samePeople([samLee], [{ guestId: "g_sam", name: "Kit Ng" }])).toBe(false);
-  });
-});
-
 describe("putPlusOnePermission", () => {
   const call = (authFetch: ReturnType<typeof vi.fn>) => {
     const [url, init] = authFetch.mock.calls[0] as [string, RequestInit];
     return { url, method: init.method, body: JSON.parse(String(init.body)) as unknown };
   };
 
-  it("PUTs a guest's permission without the remove flag unless asked", async () => {
+  const SAM = { guestId: "g_sam", firstName: "Sam", lastName: "Lee" };
+  const KIT = { guestId: "g_kit", firstName: "Kit", lastName: "Ng" };
+
+  it("PUTs a guest's permission with no confirmed list unless given one", async () => {
     const authFetch = vi
       .fn()
       .mockResolvedValue(json({ guestId: "g_cy", plusOneAllowed: true, plusOneRemoved: false }));
@@ -162,7 +149,7 @@ describe("putPlusOnePermission", () => {
       "wed_1",
       { kind: "guest", guestId: "g_cy" },
       true,
-      false,
+      null,
     );
     expect(answer).toEqual({ kind: "saved", removed: 0 });
     expect(call(authFetch)).toEqual({
@@ -172,7 +159,7 @@ describe("putPlusOnePermission", () => {
     });
   });
 
-  it("sends `removePlusOne` for a guest only when told to, and counts the removal", async () => {
+  it("sends the confirmed plus-ones for a guest, and counts the removal", async () => {
     const authFetch = vi
       .fn()
       .mockResolvedValue(json({ guestId: "g_ada", plusOneAllowed: false, plusOneRemoved: true }));
@@ -181,13 +168,23 @@ describe("putPlusOnePermission", () => {
       "wed_1",
       { kind: "guest", guestId: "g_ada" },
       false,
-      true,
+      [SAM],
     );
     expect(answer).toEqual({ kind: "saved", removed: 1 });
-    expect(call(authFetch).body).toEqual({ allowed: false, removePlusOne: true });
+    expect(call(authFetch).body).toEqual({ allowed: false, removePlusOnes: [SAM] });
   });
 
-  it("uses the household route and its `removePlusOnes` flag", async () => {
+  it("sends only the three fields the API takes, whatever else the entries carry", async () => {
+    // The API refuses any key it does not know, and the portal's entries also
+    // carry the display name and whose plus-one it is.
+    const authFetch = vi.fn().mockResolvedValue(json({ plusOneRemoved: true }));
+    await putPlusOnePermission(authFetch, "w", { kind: "guest", guestId: "g_ada" }, false, [
+      Object.assign({ name: "Sam Lee", inviterName: "Ada Sharma" }, SAM),
+    ]);
+    expect(call(authFetch).body).toEqual({ allowed: false, removePlusOnes: [SAM] });
+  });
+
+  it("uses the household route, with the same field", async () => {
     const authFetch = vi
       .fn()
       .mockResolvedValue(
@@ -198,24 +195,24 @@ describe("putPlusOnePermission", () => {
       "wed_1",
       { kind: "household", familyId: "fam_a" },
       false,
-      true,
+      [SAM, KIT],
     );
     expect(answer).toEqual({ kind: "saved", removed: 2 });
     expect(call(authFetch)).toEqual({
       url: "https://api.test/api/organiser/weddings/wed_1/families/fam_a/plus-one",
       method: "PUT",
-      body: { allowed: false, removePlusOnes: true },
+      body: { allowed: false, removePlusOnes: [SAM, KIT] },
     });
   });
 
-  it("reads `plus_one_named` as 'ask first', with the count", async () => {
+  it("reads `plus_one_named` as 'ask again', with the count", async () => {
     const authFetch = vi.fn().mockResolvedValue(json({ error: "plus_one_named", named: 2 }, 409));
     const answer = await putPlusOnePermission(
       authFetch,
       "wed_1",
       { kind: "household", familyId: "fam_a" },
       false,
-      false,
+      [SAM],
     );
     expect(answer).toEqual({ kind: "named", named: 2 });
   });
@@ -227,7 +224,7 @@ describe("putPlusOnePermission", () => {
       "wed_1",
       { kind: "guest", guestId: "g_sam" },
       true,
-      false,
+      null,
     );
     expect(answer).toEqual({ kind: "refused", status: 409, error: "plus_one_cannot_invite" });
   });
@@ -235,42 +232,44 @@ describe("putPlusOnePermission", () => {
   it("reports a viewer's refusal and a missing guest with their codes", async () => {
     const readOnly = vi.fn().mockResolvedValue(json({ error: "read_only_role" }, 403));
     expect(
-      await putPlusOnePermission(readOnly, "w", { kind: "guest", guestId: "g" }, true, false),
+      await putPlusOnePermission(readOnly, "w", { kind: "guest", guestId: "g" }, true, null),
     ).toEqual({ kind: "refused", status: 403, error: "read_only_role" });
 
     const gone = vi.fn().mockResolvedValue(json({ error: "guest_not_found" }, 404));
     expect(
-      await putPlusOnePermission(gone, "w", { kind: "guest", guestId: "g" }, true, false),
+      await putPlusOnePermission(gone, "w", { kind: "guest", guestId: "g" }, true, null),
     ).toEqual({ kind: "refused", status: 404, error: "guest_not_found" });
   });
 
   it("reads a 401 as a lost session and a body that is not JSON as no code", async () => {
     const expired = vi.fn().mockResolvedValue(new Response("", { status: 401 }));
     expect(
-      await putPlusOnePermission(expired, "w", { kind: "guest", guestId: "g" }, true, false),
+      await putPlusOnePermission(expired, "w", { kind: "guest", guestId: "g" }, true, null),
     ).toEqual({ kind: "unauthenticated" });
 
     const broken = vi.fn().mockResolvedValue(new Response("<html>", { status: 502 }));
     expect(
-      await putPlusOnePermission(broken, "w", { kind: "guest", guestId: "g" }, true, false),
+      await putPlusOnePermission(broken, "w", { kind: "guest", guestId: "g" }, true, null),
     ).toEqual({ kind: "refused", status: 502, error: null });
   });
 
   it("falls back to one named plus-one, and to none removed, when the body leaves the count out", async () => {
     const named = vi.fn().mockResolvedValue(json({ error: "plus_one_named" }, 409));
     expect(
-      await putPlusOnePermission(named, "w", { kind: "guest", guestId: "g" }, false, false),
+      await putPlusOnePermission(named, "w", { kind: "guest", guestId: "g" }, false, null),
     ).toEqual({ kind: "named", named: 1 });
 
     const saved = vi.fn().mockResolvedValue(json({ familyId: "fam_a" }));
     expect(
-      await putPlusOnePermission(saved, "w", { kind: "household", familyId: "fam_a" }, false, true),
+      await putPlusOnePermission(saved, "w", { kind: "household", familyId: "fam_a" }, false, [
+        SAM,
+      ]),
     ).toEqual({ kind: "saved", removed: 0 });
   });
 
   it("encodes the ids into the path", async () => {
     const authFetch = vi.fn().mockResolvedValue(json({}));
-    await putPlusOnePermission(authFetch, "w/1", { kind: "guest", guestId: "a b" }, true, false);
+    await putPlusOnePermission(authFetch, "w/1", { kind: "guest", guestId: "a b" }, true, null);
     expect(call(authFetch).url).toBe(
       "https://api.test/api/organiser/weddings/w%2F1/guests/a%20b/plus-one",
     );

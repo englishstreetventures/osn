@@ -5,7 +5,8 @@
 // sets the permission for one guest or for every member of a household, and
 // turning it off where a plus-one is already named deletes that plus-one with
 // their replies — which the API refuses (409 `plus_one_named`) unless the
-// request carries the remove flag. The contract is `wiki/cire/cire-plus-ones.md`.
+// request lists every plus-one in scope as confirmed. The contract is
+// `wiki/cire/cire-plus-ones.md`.
 //
 // `authFetch` is a parameter, never an import (see `api.ts`). Frontend code:
 // no Effect.
@@ -111,10 +112,10 @@ export function plusOnesRemovedBy<T extends PermissionRow>(
 /**
  * The rows after a successful write of `allowed` to `scope`.
  *
- * Turning permission off always leaves no plus-one in scope on the server:
- * either the request carried the remove flag and deleted them, or the API found
- * none to refuse over. So they come out of the rows either way — keeping one
- * the household had already removed would show a guest who no longer exists.
+ * Turning permission off always leaves no plus-one in scope on the server: the
+ * API writes only when every plus-one in scope was confirmed, and deletes them
+ * with the switch. So they come out of the rows either way — keeping one the
+ * household had already removed would show a guest who no longer exists.
  */
 export function withPermission<T extends PermissionRow>(
   rows: readonly T[],
@@ -134,24 +135,24 @@ export function withPermission<T extends PermissionRow>(
 }
 
 /**
- * Do the two lists name the same people, in any order? Compared by id AND name:
- * a household can replace its plus-one by renaming the row it already has, so
- * the id alone would pass a removal of someone the organiser was never shown.
+ * A plus-one the organiser was shown and agreed to remove, with the name as
+ * the guest list served it. The API deletes only when every plus-one in scope
+ * matches one of these exactly, so a household that names, swaps or renames
+ * its plus-one meanwhile makes the write refuse rather than reach someone the
+ * organiser never saw.
  */
-export function samePeople(
-  a: readonly { guestId: string; name: string }[],
-  b: readonly { guestId: string; name: string }[],
-): boolean {
-  if (a.length !== b.length) return false;
-  const seen = new Set(a.map((person) => `${person.guestId}\u0000${person.name}`));
-  return b.every((person) => seen.has(`${person.guestId}\u0000${person.name}`));
+export interface ConfirmedPlusOne {
+  guestId: string;
+  firstName: string;
+  lastName: string;
 }
 
 /** What the API said to a permission write. */
 export type PermissionAnswer =
   /** Written. `removed` counts the plus-ones deleted with it. */
   | { kind: "saved"; removed: number }
-  /** Refused: a plus-one is named in scope and the remove flag was not sent. */
+  /** Refused: a plus-one in scope was not among those confirmed — none were
+   *  sent, or the household changed its plus-ones since the list was read. */
   | { kind: "named"; named: number }
   /** The session is gone. */
   | { kind: "unauthenticated" }
@@ -177,22 +178,29 @@ function permissionPath(weddingId: string, scope: PlusOneScope): string {
 /**
  * Set the permission for `scope`.
  *
- * `remove` sends the flag that lets turning it off delete a named plus-one. Send
- * it only after the organiser has been shown who that deletes and said yes: the
- * delete sits outside the change history and cannot be undone.
+ * `remove` lists the plus-ones that turning it off may delete: the ones the
+ * organiser was shown and said yes to, as the confirmation captured them. Never
+ * a list read again at the moment of sending — that would echo whatever is
+ * current and defeat the API's check. The delete sits outside the change
+ * history and cannot be undone. `null` confirms nobody.
  */
 export async function putPlusOnePermission(
   authFetch: AuthFetch,
   weddingId: string,
   scope: PlusOneScope,
   allowed: boolean,
-  remove: boolean,
+  remove: readonly ConfirmedPlusOne[] | null,
 ): Promise<PermissionAnswer> {
-  const flag = scope.kind === "guest" ? "removePlusOne" : "removePlusOnes";
+  // Only the three fields: the API refuses any key it does not know.
+  const removePlusOnes = remove?.map(({ guestId, firstName, lastName }) => ({
+    guestId,
+    firstName,
+    lastName,
+  }));
   const res = await authFetch(apiUrl(permissionPath(weddingId, scope)), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(remove ? { allowed, [flag]: true } : { allowed }),
+    body: JSON.stringify(removePlusOnes ? { allowed, removePlusOnes } : { allowed }),
   });
   if (res.status === 401) return { kind: "unauthenticated" };
   const body = (await res.json().catch(() => null)) as PermissionReply | null;
