@@ -8,7 +8,7 @@
  * mutate wedding B's vendor even with a leaked id.
  */
 import { vendors } from "@cire/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, commitGroupedBatches, dbQuery } from "../db";
@@ -111,18 +111,19 @@ export const vendorsService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const status = input.status ?? "researching";
-      // Append to end of (wedding, status) group.
-      const existing = yield* dbQuery(() =>
+      // Append to end of (wedding, status) group. Only the top row is read:
+      // `vendors_wedding_status_idx (wedding_id, status, sort_order)` serves
+      // the ORDER BY, so the group's size never crosses the wire.
+      const [top] = yield* dbQuery(() =>
         db
           .select({ sortOrder: vendors.sortOrder })
           .from(vendors)
           .where(and(eq(vendors.weddingId, input.weddingId), eq(vendors.status, status)))
+          .orderBy(desc(vendors.sortOrder))
+          .limit(1)
           .all(),
       );
-      const maxSort = (existing as { sortOrder: number }[]).reduce(
-        (m, r) => Math.max(m, r.sortOrder),
-        -1,
-      );
+      const maxSort = top?.sortOrder ?? -1;
       const id = `ven_${crypto.randomUUID()}`;
       const now = new Date();
       const row: VendorRow = {
