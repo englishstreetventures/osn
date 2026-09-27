@@ -133,17 +133,17 @@ describe("withPermission", () => {
 });
 
 describe("samePeople", () => {
-  const sam = { guestId: "g_sam", name: "Sam Lee" };
-  const kit = { guestId: "g_kit", name: "Kit Ng" };
+  const samLee = { guestId: "g_sam", name: "Sam Lee" };
+  const kitNg = { guestId: "g_kit", name: "Kit Ng" };
   it("compares by id and name, in any order", () => {
-    expect(samePeople([sam, kit], [kit, sam])).toBe(true);
+    expect(samePeople([samLee, kitNg], [kitNg, samLee])).toBe(true);
     expect(samePeople([], [])).toBe(true);
-    expect(samePeople([sam], [kit])).toBe(false);
-    expect(samePeople([sam], [sam, kit])).toBe(false);
+    expect(samePeople([samLee], [kitNg])).toBe(false);
+    expect(samePeople([samLee], [samLee, kitNg])).toBe(false);
   });
 
   it("tells a renamed plus-one from the one that was shown, though the id is the same", () => {
-    expect(samePeople([sam], [{ guestId: "g_sam", name: "Kit Ng" }])).toBe(false);
+    expect(samePeople([samLee], [{ guestId: "g_sam", name: "Kit Ng" }])).toBe(false);
   });
 });
 
