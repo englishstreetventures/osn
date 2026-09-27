@@ -233,7 +233,7 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | `POST \| DELETE /registry/items/:itemId/claim`          | `sessionAuth` + per-IP limiter    |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
-**Every gated route checks the family against the WEDDING**, through one shared `familyInWedding` read, and they must not drift: a `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
+**Every gated route checks the family against the WEDDING**, and they must not drift: the list and `/mine` fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`), and claim, release and contribute run the shared `familyInWedding` read. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
 
 | Route                                          | A household of another wedding gets                                                    |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -256,7 +256,7 @@ So an image URL is a **bearer credential while its gift is on a published list**
 
 The route passes `lifetime: "revocable"` to `serveTransformedImage` for this. Every other cire image route keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
 
-**The gate is one D1 statement.** The slug read, the `registry` entitlement (`entitlementPresent`, the same fold the organiser role gates use), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished) and, for the image route, the item check are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
+**The gate is one D1 statement.** The slug read, the `registry` entitlement (`entitlementPresent`, the same fold the organiser role gates use), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check (list and `/mine`) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
 
 **A revalidation after the hour costs the gate and nothing else.** A `revocable` image carries a weak `ETag` built from what its cache key is built from — the server-derived version, the variant and the format — because the bytes under one key never change. When the browser's hour runs out it asks again with `If-None-Match`, and once the gate has passed `serveTransformedImage` answers `304` with the same `Cache-Control` and `Vary`, before any Worker-cache lookup, R2 read or transform. The check sits inside `serveTransformedImage`, which the route calls only after the gate, so a withdrawn gift still answers `404`, not `304`. Immutable images carry no tag: they are never revalidated.
 

@@ -370,6 +370,22 @@ describe("the guest registry is one 404, whatever the reason", () => {
     });
   }
 
+  it("reads a household's list with the household check inside the gate", async () => {
+    // Gate (with the household), then the items and the claim counts
+    // together: two hops, never a third for the household or the currency.
+    const { app, db } = buildApp();
+    const cookie = await guestCookie(app);
+    const statements = recordStatements(db);
+    await listView(app, cookie);
+    const registryReads = statements.filter((s) => /"registry_|"weddings"/.test(s.sql));
+    expect(registryReads).toHaveLength(3);
+    expect(registryReads[0]!.sql).toContain('"families"');
+    const householdOnly = statements.filter(
+      (s) => /from "families"/.test(s.sql) && !s.sql.includes('"weddings"'),
+    );
+    expect(householdOnly).toEqual([]);
+  });
+
   it("decides all of it in one statement", async () => {
     // Every guest route pays this gate, and the image route pays it per image.
     for (const [opts, slug, visible] of [

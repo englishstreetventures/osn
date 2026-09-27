@@ -1246,17 +1246,25 @@ describe("gift log paging", () => {
   });
 
   it("reads a page in one statement that returns the page and one row more", async () => {
-    // Both tables in one UNION ALL, cut in SQLite: at the deepest page the
-    // Worker receives 51 rows, not 551 from each table to sort and slice.
+    // Both tables in one UNION ALL, cut in SQLite: a deep page hands the
+    // Worker 51 rows, not up to 501 from each table to sort and slice.
     const db = db0();
     seedRun(db, 560);
     const statements = recordStatements(db);
-    const page = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 500 }));
+    const page = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 450 }));
     expect(page.entries).toHaveLength(50);
+    expect(page.hasMore).toBe(true);
     expect(statements).toHaveLength(1);
     expect(statements[0]!.sql).toContain('from "registry_claims"');
     expect(statements[0]!.sql).toContain('from "registry_contributions"');
     expect(statements[0]!.rowCounts).toEqual([51]);
+
+    // The last page that may be asked for already knows it has no successor,
+    // so it reads no row past itself.
+    const last = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 500 }));
+    expect(last.entries).toHaveLength(50);
+    expect(last.hasMore).toBe(false);
+    expect(statements[1]!.rowCounts).toEqual([50]);
   });
 
   it("totals ALL succeeded money, not just the money on the first page", async () => {

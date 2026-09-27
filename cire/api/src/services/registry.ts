@@ -1090,11 +1090,14 @@ export const registryService = {
           ),
         );
 
-      // One row past the page decides `hasMore` without a count.
+      // One row past the page decides `hasMore` without a count — except on
+      // a page whose successor would pass the offset cap, where the answer is
+      // already no and the extra row could not change it.
+      const lastReachable = offset + limit > MAX_GIFT_LOG_OFFSET;
       const rows = yield* dbQuery(() =>
         unionAll(claims, contributions)
           .orderBy(desc(sql`created_at`))
-          .limit(limit + 1)
+          .limit(lastReachable ? limit : limit + 1)
           .offset(offset)
           .all(),
       );
@@ -1125,7 +1128,7 @@ export const registryService = {
 
       return {
         entries,
-        hasMore: rows.length > limit && offset + limit <= MAX_GIFT_LOG_OFFSET,
+        hasMore: !lastReachable && rows.length > limit,
       };
     }).pipe(Effect.withSpan("cire.registry.giftLog"));
   },
@@ -2856,25 +2859,31 @@ const toPublicItemDto = (
  * same 404 — so an unentitled wedding, an unpublished one and a slug nobody
  * registered are indistinguishable from outside.
  *
- * Given an `imageName`, a third: an item of this wedding still names the image
- * `assets/<weddingId>/<imageName>`. The public image route asks it, so a gift
- * the couple deleted, or a picture they replaced, stops serving by its name at
- * once — including from the Worker's own cache, whose every lookup runs after
- * this gate.
+ * Two optional checks join them, each failing the same way:
+ *
+ * - `imageName` — an item of this wedding still names the image
+ *   `assets/<weddingId>/<imageName>`. The public image route asks it, so a gift
+ *   the couple deleted, or a picture they replaced, stops serving by its name
+ *   at once — including from the Worker's own cache, whose every lookup runs
+ *   after this gate.
+ * - `familyId` — the household belongs to THIS wedding. A `cire_session` names
+ *   a household, not a wedding, so without it one leaked code would open every
+ *   couple's list; answering it as `RegistryNotVisible` keeps a stranger
+ *   household's 404 identical to an unpublished list's.
  *
  * ONE statement, whatever the answer: the slug read, the entitlement, the
- * settings row and the item check are keyed on the id the slug read produces,
- * so each is folded into it rather than run after it. Every guest route pays
- * this gate, and the image route pays it per image.
+ * settings row and both checks are keyed on the id the slug read produces, so
+ * each is folded into it rather than run after it. Every guest route pays this
+ * gate, and the image route pays it per image.
  *
  * The settings row travels back with the id because every caller that needs the
  * gate also needs the settings, and re-reading it per route would be a second
  * round trip for a row already in hand. So does the wedding's currency, which
- * saves `contributionContext` a second read of the same row.
+ * saves `guestView` and `contributionContext` a second read of the same row.
  */
 function resolveVisibleRegistry(
   slug: string,
-  imageName?: string,
+  also: GateChecks = {},
 ): Effect.Effect<
   { weddingId: string; settings: RegistrySettingsRecord; currency: string },
   RegistryNotVisible,
@@ -2882,18 +2891,23 @@ function resolveVisibleRegistry(
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    const { imageName, familyId } = also;
     const [found] = yield* dbQuery(() =>
       db
         .select({
           id: weddings.id,
           currency: weddings.currency,
           entitled: entitlementPresent(weddings.id, "registry").as("entitled"),
-          // For every caller but the image route there is no image to check,
-          // and the constant keeps the row one shape.
+          // A check the caller did not ask for is the constant 1, so the row
+          // keeps one shape.
           imageListed: (imageName === undefined
             ? sql<number>`1`
             : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
           ).as("image_listed"),
+          familyListed: (familyId === undefined
+            ? sql<number>`1`
+            : sql<number>`EXISTS (SELECT 1 FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
+          ).as("family_listed"),
           // NULL exactly when the wedding has no settings row: the LEFT JOIN
           // leaves every settings column NULL then, and this one is the key.
           settingsWeddingId: registrySettings.weddingId,
@@ -2916,12 +2930,18 @@ function resolveVisibleRegistry(
     const row = found as GateRow | undefined;
     if (!row) return yield* Effect.fail(new RegistryNotVisible());
     const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
-    if (!row.entitled || !settings.published || !row.imageListed) {
+    if (!row.entitled || !settings.published || !row.imageListed || !row.familyListed) {
       return yield* Effect.fail(new RegistryNotVisible());
     }
     // Same fallback `primaryCurrency` has always used.
     return { weddingId: row.id, settings, currency: row.currency ?? "AUD" };
   });
+}
+
+/** The optional checks {@link resolveVisibleRegistry} folds into its read. */
+interface GateChecks {
+  imageName?: string;
+  familyId?: string;
 }
 
 /** The one row the guest gate reads — see {@link resolveVisibleRegistry}. */
@@ -2930,6 +2950,7 @@ interface GateRow {
   currency: string | null;
   entitled: number;
   imageListed: number;
+  familyListed: number;
   settingsWeddingId: string | null;
   published: boolean | null;
   headline: string | null;
@@ -2989,7 +3010,7 @@ export const registryGuestService = {
     slug: string,
     name: string,
   ): Effect.Effect<string, RegistryNotVisible, DbService> {
-    return resolveVisibleRegistry(slug, name).pipe(
+    return resolveVisibleRegistry(slug, { imageName: name }).pipe(
       Effect.map((r) => `assets/${r.weddingId}/${name}`),
       Effect.withSpan("cire.registry.visibleImageKey"),
     );
@@ -3018,11 +3039,11 @@ export const registryGuestService = {
   }): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
-      if (!(yield* familyInWedding(weddingId, input.familyId))) {
-        return yield* Effect.fail(new RegistryNotVisible());
-      }
-      const { claimed, currency, itemRows } = yield* Effect.all(
+      // The household check rides in the gate's own statement.
+      const { settings, weddingId, currency } = yield* resolveVisibleRegistry(input.slug, {
+        familyId: input.familyId,
+      });
+      const { claimed, itemRows } = yield* Effect.all(
         {
           itemRows: dbQuery(() =>
             db
@@ -3033,7 +3054,6 @@ export const registryGuestService = {
               .all(),
           ),
           claimed: claimedByItem(weddingId),
-          currency: primaryCurrency(weddingId),
         },
         { concurrency: "unbounded" },
       );
@@ -3069,15 +3089,15 @@ export const registryGuestService = {
   }): Effect.Effect<HouseholdRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
-      // The same gate the list read keeps (S-M1). Without it this route answered
-      // 200 `{claims: []}` for a visible registry and 404 for an invisible one —
-      // so anyone holding any valid session could walk slugs and learn which
-      // weddings have a published gift list, which is the exact fact the single
-      // 404 code exists to hide.
-      if (!(yield* familyInWedding(weddingId, input.familyId))) {
-        return yield* Effect.fail(new RegistryNotVisible());
-      }
+      // The same household check the list read keeps, in the gate's own
+      // statement. Without it this route answered 200 `{claims: []}` for a
+      // visible registry and 404 for an invisible one — so anyone holding any
+      // valid session could walk slugs and learn which weddings have a
+      // published gift list, which is the exact fact the single 404 code exists
+      // to hide.
+      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug, {
+        familyId: input.familyId,
+      });
       const rows = yield* dbQuery(() =>
         db
           .select({
