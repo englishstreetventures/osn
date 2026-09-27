@@ -137,7 +137,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
           by hand when the clipboard refuses. */}
       <p
         data-testid="invite-message-preview"
-        class="border-border font-body text-text text-ui-sm rounded-sm border p-3 whitespace-pre-wrap select-all"
+        class="border-border font-body text-text text-ui-sm rounded-sm border p-3 wrap-break-word whitespace-pre-wrap select-all"
       >
         {message(props.draftLine)}
       </p>
