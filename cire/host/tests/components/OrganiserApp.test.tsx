@@ -1069,6 +1069,8 @@ describe("OrganiserApp Dashboard", () => {
     // A signal, a reconnect or a stop means the hosts may have changed by the
     // moment it arrived, so one that lands after a re-read started sends a
     // fresh read: the read in flight may have been answered before the change.
+    // A dropped socket reports no change of its own (an eviction's drop follows
+    // the signal that already started a read), so it joins the read in flight.
     const start = 1_900_000_000_000;
     const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
 
@@ -1112,5 +1114,47 @@ describe("OrganiserApp Dashboard", () => {
         }
       },
     );
+
+    it("lets a dropped socket join the read in flight rather than send another", async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+      try {
+        history.replaceState(null, "", "#/w/wed_a");
+        const held = heldList();
+        let listReads = 0;
+        authFetchMock.mockImplementation((url: string) => {
+          if (url !== LIST_URL) return Promise.resolve(listResponse(wedA));
+          listReads += 1;
+          return listReads === 2 ? held.promise : Promise.resolve(listResponse(wedA));
+        });
+        render(() => <OrganiserApp />);
+        await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+        // The signal, then the eviction's drop a millisecond later.
+        topic.onSignal?.({ reason: "message" });
+        await waitFor(() => expect(listReads).toBe(2));
+        clock.mockReturnValue(start + 1);
+        topic.onSignal?.({ reason: "dropped" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(listReads).toBe(2);
+
+        held.answer(listResponse(wedA));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(listReads).toBe(2);
+        expect(shell().textContent).toContain("wed_a");
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("reads on a dropped socket when no read is in flight", async () => {
+      history.replaceState(null, "", "#/w/wed_a");
+      authFetchMock.mockResolvedValue(listResponse(wedA));
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      expect(listCalls()).toBe(1);
+
+      topic.onSignal?.({ reason: "dropped" });
+      await waitFor(() => expect(listCalls()).toBe(2));
+    });
   });
 });
