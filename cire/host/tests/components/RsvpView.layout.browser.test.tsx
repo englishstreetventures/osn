@@ -280,8 +280,7 @@ describe("the replies table's layout", () => {
   it("carries plus-ones with the longest inviter names, so the checks below see them", async () => {
     await page.viewport(1280, 900);
     await renderList();
-    const markers = [...document.querySelectorAll("tbody td")]
-      .flatMap((td) => [...td.querySelectorAll("span")])
+    const markers = [...document.querySelectorAll("tbody td span")]
       .map((span) => span.textContent?.trim() ?? "")
       .filter((text) => text.startsWith("Plus-one of"));
     expect(markers.length).toBeGreaterThan(30);
