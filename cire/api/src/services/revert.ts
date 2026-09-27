@@ -297,14 +297,27 @@ function reinviteToRecreatedEvents(
     const db = yield* DbService;
     const live = yield* dbQuery(() =>
       db
-        .select({ id: guests.id })
+        .select({ id: guests.id, plusOneOf: guests.plusOneOfGuestId })
         .from(guests)
         .innerJoin(families, eq(guests.familyId, families.id))
         .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
         .all(),
     );
     const liveIds = new Set(live.map((g) => g.id));
-    return wanted.filter((link) => liveIds.has(link.guestId));
+    // Plus-ones are not in the snapshot (it holds the organiser's sheet), but
+    // one is invited wherever their inviter is, so each re-invitation of an
+    // inviter re-invites their live plus-one too.
+    const plusOneOf = new Map(
+      live.flatMap((g) => (g.plusOneOf === null ? [] : [[g.plusOneOf, g.id] as const])),
+    );
+    return wanted
+      .filter((link) => liveIds.has(link.guestId))
+      .flatMap((link) => {
+        const plusOneId = plusOneOf.get(link.guestId);
+        return plusOneId === undefined
+          ? [link]
+          : [link, { guestId: plusOneId, eventId: link.eventId }];
+      });
   });
 }
 

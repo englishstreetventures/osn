@@ -9,15 +9,19 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
+import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
 import { rsvpExportService, toCsv, sanitiseCsvCell } from "../../src/services/rsvp-export";
+import type { RsvpView } from "../../src/services/rsvp-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const withDb = effWith(TestDbLayer);
 
@@ -697,4 +701,79 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
       }),
     ),
   );
+});
+
+/**
+ * A named plus-one is an ordinary guest row, invited to their inviter's events,
+ * so the per-event tallies count them once named and once they reply —
+ * permission alone creates no row and counts toward nothing.
+ */
+describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const hindu = (view: RsvpView) => view.events.find((e) => e.id === HINDU)!;
+    return { db, run, hindu };
+  };
+  const HINDU = eventsSeed.hindu.id;
+
+  it("adds nothing for a permission with no plus-one named", async () => {
+    const { db, run, hindu } = setUp();
+    const before = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    allowPlusOne(db, guestNamed(db, "Bo").id);
+    const after = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(after.invited).toBe(before.invited);
+    expect(after.attending).toBe(before.attending);
+  });
+
+  it("counts a named plus-one as invited, and as attending once they reply", async () => {
+    const { db, run, hindu } = setUp();
+    const bo = guestNamed(db, "Bo");
+    const before = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const named = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(named.invited).toBe(before.invited + 1);
+    expect(named.unresponded.find((g) => g.guestId === samId)?.plusOneOf).toBe(bo.id);
+
+    db.insert(rsvps)
+      .values({
+        id: "r_sam",
+        guestId: samId,
+        eventId: HINDU,
+        status: "attending",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const replied = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(replied.attending).toBe(before.attending + 1);
+    expect(replied.guests.find((g) => g.guestId === samId)).toMatchObject({
+      plusOneOf: bo.id,
+      consentSource: "inviter_attested",
+    });
+    // Everyone else carries a null.
+    expect(
+      replied.guests.filter((g) => g.guestId !== samId).every((g) => g.plusOneOf === null),
+    ).toBe(true);
+  });
+
+  it("files an inviter-attested reply as the guest's own in the CSV", async () => {
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values({
+        id: "r_sam",
+        guestId: samId,
+        eventId: HINDU,
+        status: "attending",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("guest");
+  });
 });

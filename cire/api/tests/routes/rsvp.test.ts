@@ -16,6 +16,7 @@ import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { hostCodeService } from "../../src/services/host-code";
 import { eff } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
@@ -892,4 +893,136 @@ describe("POST /api/rsvp — RSVP deadline", () => {
       }),
     ),
   );
+});
+
+/**
+ * A plus-one's reply is written by the household that brought them. It is
+ * stamped `inviter_attested`, counted as a guest write, and — until the invite
+ * carries wording for the household's attestation — may not carry dietary data.
+ * Its own database, so the plus-one rows never reach the suite above.
+ */
+describe("POST /api/rsvp — a plus-one's reply", () => {
+  const setUp = async () => {
+    const plusDb = createDb(":memory:");
+    seedDb(plusDb);
+    const plusApp = createApp(plusDb, {
+      claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    });
+    const bo = guestNamed(plusDb, "Bo");
+    const samId = seedPlusOne(plusDb, bo.id, { firstName: "Sam" });
+    const claimRes = await plusApp.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
+        body: JSON.stringify({ publicId: "TESTTWO-OAK-BB22" }),
+      }),
+    );
+    const cookie = `cire_session=${parseSessionToken(claimRes.headers.get("Set-Cookie"))}`;
+    const send = (rsvpBody: unknown) =>
+      plusApp.fetch(
+        new Request("http://localhost/api/rsvp", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "http://localhost:4321",
+            Cookie: cookie,
+          },
+          body: JSON.stringify(rsvpBody),
+        }),
+      );
+    return { plusDb, bo, samId, send };
+  };
+
+  it("stamps inviter_attested on the plus-one's row and guest on the member's", async () => {
+    const { plusDb, bo, samId, send } = await setUp();
+    const guestWrites = await counterValue(CIRE_METRICS.rsvpUpserted, {
+      status: "attending",
+      source: "guest",
+      result: "ok",
+    });
+    const res = await send({
+      rsvps: [
+        { guestId: samId, eventId: HINDU_ID, status: "attending" },
+        { guestId: bo.id, eventId: HINDU_ID, status: "attending" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const sources = plusDb
+      .select({ guestId: rsvps.guestId, source: rsvps.consentSource })
+      .from(rsvps)
+      .all();
+    expect(sources.find((r) => r.guestId === samId)?.source).toBe("inviter_attested");
+    expect(sources.find((r) => r.guestId === bo.id)?.source).toBe("guest");
+    // Both are guest writes on the counter; neither is an organiser's.
+    expect(
+      await counterValue(CIRE_METRICS.rsvpUpserted, {
+        status: "attending",
+        source: "guest",
+        result: "ok",
+      }),
+    ).toBe(guestWrites + 2);
+  });
+
+  it("refuses dietary data on the plus-one's reply, and writes nothing", async () => {
+    const { plusDb, samId, send } = await setUp();
+    for (const reply of [
+      { dietary: "Vegetarian", dietaryConsent: true },
+      { dietaryPresets: ["halal"], dietaryConsent: true },
+    ]) {
+      const res = await send({
+        rsvps: [{ guestId: samId, eventId: HINDU_ID, status: "attending", ...reply }],
+      });
+      expect(res.status).toBe(422);
+      expect((await res.json()) as unknown).toEqual({ error: "plus_one_dietary_unavailable" });
+    }
+    expect(plusDb.select().from(rsvps).where(eq(rsvps.guestId, samId)).all()).toEqual([]);
+  });
+
+  it("refuses the whole batch when a member's consented reply rides beside it", async () => {
+    const { plusDb, bo, samId, send } = await setUp();
+    const blocked = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" });
+    const res = await send({
+      rsvps: [
+        {
+          guestId: bo.id,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietaryPresets: ["vegetarian"],
+          dietaryConsent: true,
+        },
+        {
+          guestId: samId,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietaryPresets: ["vegetarian"],
+          dietaryConsent: true,
+        },
+      ],
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as unknown).toEqual({ error: "plus_one_dietary_unavailable" });
+    // All or nothing: the member's reply was not written either.
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" })).toBe(
+      blocked + 1,
+    );
+  });
+
+  it("answers the missing-consent refusal first when both apply", async () => {
+    const { plusDb, samId, send } = await setUp();
+    const res = await send({
+      rsvps: [
+        { guestId: samId, eventId: HINDU_ID, status: "attending", dietaryPresets: ["halal"] },
+      ],
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as unknown).toEqual({
+      error: "Dietary requirements need your consent to store",
+    });
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+  });
 });

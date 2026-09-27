@@ -108,6 +108,11 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                     set.status = 409;
                     return { error: "guest_not_invited_to_event" };
                   }),
+                PlusOneDietaryUnavailable: () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "plus_one_dietary_unavailable" };
+                  }),
               }),
               Effect.catchDefect(() =>
                 Effect.sync(() => {

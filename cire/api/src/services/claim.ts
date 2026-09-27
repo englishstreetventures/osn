@@ -113,6 +113,29 @@ function eventImageCrop(key: string | null, raw: string | null): ImageCrop | nul
 }
 
 /**
+ * The household in its sort order, each plus-one moved to sit right after the
+ * member who brought them. A plus-one's own `sort_order` is a copy of their
+ * inviter's taken when they were named, and a later reorder of the household
+ * does not touch it, so placement goes by the link rather than by that number.
+ * A plus-one whose inviter is somehow not in the list keeps its place.
+ */
+export function withPlusOnesAfterInviters<T extends { guestId: string; plusOneOf: string | null }>(
+  members: readonly T[],
+): T[] {
+  const present = new Set(members.map((m) => m.guestId));
+  const placed = members.filter((m) => m.plusOneOf === null || !present.has(m.plusOneOf));
+  const byInviter = new Map(
+    members.flatMap((m) =>
+      m.plusOneOf !== null && present.has(m.plusOneOf) ? [[m.plusOneOf, m] as const] : [],
+    ),
+  );
+  return placed.flatMap((m) => {
+    const plusOne = byInviter.get(m.guestId);
+    return plusOne ? [m, plusOne] : [m];
+  });
+}
+
+/**
  * The row shape both entry points below resolve before building a response —
  * `lookup` by claim code, `restore` by the session's family id.
  */
@@ -196,6 +219,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
               lastName: guests.lastName,
               nickname: guests.nickname,
               sortOrder: guests.sortOrder,
+              plusOneAllowed: guests.plusOneAllowed,
+              plusOneOf: guests.plusOneOfGuestId,
               eventId: guestEvents.eventId,
             })
             .from(guests)
@@ -233,6 +258,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
         lastName: string;
         nickname: string | null;
         eventIds: string[];
+        plusOneAllowed: boolean;
+        plusOneOf: string | null;
       }
     >();
     const eventIds = new Set<string>();
@@ -245,6 +272,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
           lastName: row.lastName,
           nickname: row.nickname,
           eventIds: [],
+          plusOneAllowed: row.plusOneAllowed,
+          plusOneOf: row.plusOneOf,
         };
         memberMap.set(row.guestId, member);
       }
@@ -308,7 +337,7 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
       publicId: family.publicId,
       familyName: family.familyName,
       preview: family.kind === "host",
-      members: Array.from(memberMap.values()),
+      members: withPlusOnesAfterInviters(Array.from(memberMap.values())),
       events: eventList,
       // The stored key list becomes an array at the boundary, and the stored
       // consent VERSION collapses to "is this the copy we show now?" — the sheet
@@ -521,6 +550,8 @@ export const claimService = {
             firstName: guests.firstName,
             lastName: guests.lastName,
             nickname: guests.nickname,
+            plusOneAllowed: guests.plusOneAllowed,
+            plusOneOf: guests.plusOneOfGuestId,
             publicId: families.publicId,
             familyName: families.familyName,
             codeSharedAt: families.codeSharedAt,
@@ -556,6 +587,8 @@ export const claimService = {
             lastName: row.lastName,
             nickname: row.nickname,
             events: [],
+            plusOneAllowed: row.plusOneAllowed,
+            plusOneOf: row.plusOneOf,
             // Drizzle decodes the `timestamp`-mode column to a `Date | null`;
             // surface epoch-ms (or null) so the JSON wire stays a plain number.
             codeSharedAt: row.codeSharedAt === null ? null : row.codeSharedAt.getTime(),

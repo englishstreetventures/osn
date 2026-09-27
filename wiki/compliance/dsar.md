@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-27
 ---
 
 # DSAR Runbook
@@ -137,6 +137,23 @@ profile-id string with **no cross-DB FK**. Two consequences:
   right is the organiser's responsibility as **controller** (cire is
   processor — see [[data-map]]). Route guest requests to the organiser and
   assist as processor.
+- **Plus-ones (migration 0066).** A plus-one's `guests` row — their name, their
+  replies and the link to the guest who brought them
+  (`plus_one_of_guest_id`) — holds data another guest supplied, and the
+  plus-one never holds the household's code. Their requests go to the
+  organiser like any guest's. Access: the row, its `rsvps` and its
+  `guest_events`, found by `plus_one_of_guest_id` or by name within the
+  household. Erasure has three ready paths, each deleting the row with its
+  replies and invitations by cascade: the household removes them on the invite
+  (`DELETE /api/plus-one/:guestId`) until the RSVP deadline; an editor turns
+  the inviting guest's permission off with the remove flag
+  (`PUT …/guests/:guestId/plus-one`, `removePlusOne: true`); or the inviting
+  guest is removed. The round-trip export and the change history's
+  before-images leave plus-ones out, so no before-image has to be reached for
+  them. **Rectification** (Art. 16): the household can rename them until the
+  deadline; an editor can correct the name at any time
+  (`PUT …/guests/:guestId/plus-one/name`, `:guestId` being the guest who
+  brought them). See [[cire-plus-ones]].
 - **Guest free text in the gift registry (migration 0057).** A guest's claim
   can carry `registry_claims.note` + `display_name`, and a contribution can
   carry `registry_contributions.message` + `display_name` — text the guest

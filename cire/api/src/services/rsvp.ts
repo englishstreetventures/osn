@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import type { Db, ReturningTail } from "../db";
 import { DbService, dbQuery, commitGroupedBatches, commitGroupedBatchesReturning } from "../db";
 import { metricRsvpUpserted } from "../metrics";
+import type { RsvpWriter } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
 
@@ -14,8 +15,16 @@ import type { RsvpRecord } from "../schemas/rsvp";
  *  authority the dietary free-text is held (migration 0037). `guest` — the
  *  guest self-submitted and gave their own Art. 9(2)(a) consent.
  *  `organiser_attested` — an organiser recorded a phone/paper RSVP and attests
- *  the guest consented. Defaults to `guest` for the invite write path. */
-export type ConsentSource = "guest" | "organiser_attested";
+ *  the guest consented. `inviter_attested` — the household recorded the reply
+ *  of the plus-one it brought (migration 0066). Defaults to `guest` for the
+ *  invite write path. Read off the column, so the enum has one home. */
+export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
+
+/** Which writer class a provenance value belongs to, for the upsert counter:
+ *  only an organiser's attestation is an organiser write. */
+function writerOf(source: ConsentSource): RsvpWriter {
+  return source === "organiser_attested" ? "organiser" : "guest";
+}
 
 /** One guest×event RSVP to upsert. */
 export interface RsvpInput {
@@ -34,7 +43,8 @@ export interface RsvpInput {
   // Who recorded the row + the consent basis. Optional; defaults to `guest`
   // (the invite write path). The organiser endpoint passes `organiser_attested`
   // so the row is distinguishable and its dietary consent is attested, not
-  // self-given. Stamped into `rsvps.consent_source`.
+  // self-given; the invite passes `inviter_attested` for a plus-one's reply.
+  // Stamped into `rsvps.consent_source`.
   consentSource?: ConsentSource;
 }
 
@@ -187,7 +197,7 @@ export const rsvpService = {
         ),
       );
       for (const input of inputs) {
-        const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
+        const writer = writerOf(input.consentSource ?? "guest");
         yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
       }
     }).pipe(Effect.withSpan("cire.rsvp.submit"));
@@ -236,7 +246,7 @@ export const rsvpService = {
       );
 
       for (const input of inputs) {
-        const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
+        const writer = writerOf(input.consentSource ?? "guest");
         yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
       }
 

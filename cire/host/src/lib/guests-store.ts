@@ -34,6 +34,13 @@ export interface OrganiserGuestRow {
    *  draft-save preserves it instead of blanking it. */
   nickname: string | null;
   events: string[];
+  /** Whether this guest may bring a plus-one. Optional here only because the
+   *  portal can be deployed before the API that serves it. */
+  plusOneAllowed?: boolean;
+  /** Set on a plus-one's row: the guest id of the member who brought them. A
+   *  plus-one is the household's, not the organiser's sheet — the editor draft
+   *  leaves them out. */
+  plusOneOf?: string | null;
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
   deactivatedAt: number | null;

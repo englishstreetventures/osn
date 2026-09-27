@@ -6,7 +6,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-auth]]"
   - "[[cire-upgrades]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-27
 ---
 # Entitlements — per-wedding capability gates
 
@@ -117,11 +117,11 @@ A missing `weddingId` in `params` (should not occur after the role gate validate
 
 `applyImport` (in `cire/api/src/services/import.ts`) calls `entitlementService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap)` — where `netGuestDelta = guestCreates.length - guestRemoves.length` — **before** writing any rows. `applyImport` skips the check when the net delta is zero or negative (a churn import that removes K and adds K at cap succeeds). The check and the D1 batch write that follows are sequenced atomically: if the capacity check fails, no guests are written. There are no partial writes.
 
-The check counts real guests only — a `ne(families.kind, 'host')` filter excludes the synthetic `host`-kind family row used for invite previews.
+The check counts real guests only — a `ne(families.kind, 'host')` filter excludes the synthetic `host`-kind family row used for invite previews. A **plus-one** is a real guest and counts: a household that names one takes a place under the organiser's cap, so naming one is refused (`409 guest_capacity`) when the wedding is full ([[cire-plus-ones]]). The diff's preview arithmetic counts plus-ones too.
 
 **The capacity query only ever reads the two rows that can matter.** `assertGuestCapacity`'s own fallback query, and `diffAgainstDb`'s preview-warning query below, both filter `WHERE entitlement IN ('capacity_500', 'capacity_1000')` (the `CAPACITY_ENTITLEMENT_KEYS` constant in `entitlements.ts`) instead of fetching every entitlement row on the wedding — `deriveCap` only ever inspects those two keys, so a wider fetch would be pure waste. **`setsForWeddings` is NOT narrowed** — it feeds `deriveCap` in `organiser-weddings.ts` and also drives feature display (`premium_templates`/`vendors`/`ai`/`registry`), so it keeps returning the full set.
 
-**`diffAgainstDb`'s preview warning skips its own query below a floor threshold.** The resulting guest count after any plan is `existing − removes + creates`, which can never exceed `existing + creates` (removes only ever help). Since the cap can never fall below `BASE_GUEST_CAP` (100, exported from `entitlements.ts`, the same fallback `deriveCap` returns), `diffAgainstDb` skips the entitlement query — and the warning check — entirely once `existingGuests.length + guestCreates.length <= BASE_GUEST_CAP`: no entitlement row on any wedding could make that import breach the cap. Above the threshold it runs the narrowed query.
+**`diffAgainstDb`'s preview warning skips its own query below a floor threshold.** The resulting guest count after any plan is `existing − removes + creates`, which can never exceed `existing + creates` (removes only ever help). Since the cap can never fall below `BASE_GUEST_CAP` (100, exported from `entitlements.ts`, the same fallback `deriveCap` returns), `diffAgainstDb` skips the entitlement query — and the warning check — entirely once the wedding's current guests (plus-ones included) plus `guestCreates.length` come to at most `BASE_GUEST_CAP`: no entitlement row on any wedding could make that import breach the cap. Above the threshold it runs the narrowed query.
 
 **`applyImport` reuses `diffAgainstDb`'s already-derived cap instead of re-scanning.** `ImportPlan` carries an optional `derivedCap: number`, set by `diffAgainstDb` ONLY when its own preview-warning block actually ran the entitlement query (i.e. above the floor threshold, with `guestCreates.length > 0`). `applyImport` passes it straight to `assertGuestCapacity`'s `precomputedCap` parameter, which then skips its own query. `derivedCap` is absent whenever the preview never needed the real cap (below the floor threshold, or no guests were being created) — `assertGuestCapacity` MUST keep enforcing in that case by running its own (narrowed) query; a missing cap is never treated as "no cap". This composes with the floor threshold cleanly: a small import pays one query total (`applyImport`'s own, since the preview skipped its), a large one also pays one query total (the preview's, reused by `applyImport`) — never two separate scans of the same rows. Both call sites that feed `applyImport` a plan (`organiser-changes.ts` and `revert.ts`) run `diffAgainstDb` then `applyImport` in the SAME request — plan objects never cross the client boundary, so there is no TOCTOU window between the two.
 

@@ -194,8 +194,12 @@ function buildDraft(
   const eventKeyById = new Map(draftEvents.filter((e) => e.id).map((e) => [e.id!, e.key]));
 
   // Group the flat guest rows into households, preserving first-seen order.
+  // A plus-one stays out: the household names and removes them, and the save
+  // never matches one, so a draft that carried their id could only go stale —
+  // once the household removed them, the save would be refused.
   const byFamily = new Map<string, DraftFamily>();
   for (const g of guests) {
+    if (g.plusOneOf !== undefined && g.plusOneOf !== null) continue;
     let fam = byFamily.get(g.familyId);
     if (!fam) {
       fam = {
