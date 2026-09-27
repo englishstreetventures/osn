@@ -278,6 +278,36 @@ describe("plusOneService.save — a household rename", () => {
     expect(result).toMatchObject({ created: false, dietaryCleared: false });
   });
 
+  it("writes only the replies that hold something to clear", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    // A second reply, status only.
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: eventsData.reception.id,
+        status: "declined",
+        dietary: "",
+        dietaryPresets: "",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    // Count the rows the rename writes: D1 bills each one.
+    db.$client.run("create temp table rsvp_writes (n integer not null)");
+    db.$client.run("insert into rsvp_writes values (0)");
+    db.$client.run(
+      "create temp trigger count_rsvp_writes after update on rsvps begin update rsvp_writes set n = n + 1; end",
+    );
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(db.$client.query("select n from rsvp_writes").get()).toEqual({ n: 1 });
+    expect(replyOf(samId)?.dietary).toBe("");
+  });
+
   it("leaves another guest's dietary answers alone", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
@@ -345,14 +375,15 @@ describe("plusOneService.save — a household rename", () => {
     expect(replyOf(samId)).toMatchObject({ dietary: "", dietaryConsentVersion: null });
   });
 
-  it("renames over dietary answers in one read and one batch of three", async () => {
+  it("renames over dietary answers in one read and one batch of two", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
     giveDietary(samId);
     const recorded = recordStatements(db);
     await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
-    // The context read, then the clear, the name write and its read-back.
-    expect(recorded).toHaveLength(4);
+    // The context read, then the clear and the name write, which answers with
+    // its own row.
+    expect(recorded).toHaveLength(3);
   });
 
   /**
@@ -735,10 +766,10 @@ describe("plusOneService — the host-preview household", () => {
 describe("plusOneService — statements per write", () => {
   // Every guest write reads its whole context in ONE statement. Naming adds
   // only the guest count (the cap comes from that context read) before a
-  // three-statement batch; a rename is one batch of three (clear the dietary
-  // answers, write the name, read it back); an unchanged name writes nothing;
+  // three-statement batch; a rename is one batch of two (clear any dietary
+  // answers, write the name and return it); an unchanged name writes nothing;
   // a remove is one write; a remove with nothing named writes nothing.
-  it("names in five statements, renames in four, removes in two, and a repeat remove in one", async () => {
+  it("names in five statements, renames in three, removes in two, and a repeat remove in one", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     const recorded = recordStatements(db);
@@ -752,7 +783,7 @@ describe("plusOneService — statements per write", () => {
     ).toBe(5);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
-    ).toBe(4);
+    ).toBe(3);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(1);

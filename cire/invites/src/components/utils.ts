@@ -1,4 +1,4 @@
-import type { ClaimResult, PlusOneSaved, RsvpSummary } from "./types";
+import type { ClaimResult, RsvpSummary } from "./types";
 
 // These guards read an untrusted payload one field at a time. Each field is
 // proven with `key in value` before it is read, which is what lets the checks
@@ -102,25 +102,6 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     if (!("sortOrder" in e) || typeof e.sortOrder !== "number") return false;
     return true;
   });
-}
-
-/**
- * The body of a 200 from `PUT /api/plus-one/:guestId`: everything the page
- * needs to place the plus-one beside the member who brought them.
- */
-export function isValidPlusOneSaveResponse(data: unknown): data is PlusOneSaved {
-  if (typeof data !== "object" || data === null) return false;
-  if (!("created" in data) || typeof data.created !== "boolean") return false;
-  if ("dietaryCleared" in data && typeof data.dietaryCleared !== "boolean") return false;
-  if (!("plusOne" in data)) return false;
-  const p = data.plusOne;
-  if (typeof p !== "object" || p === null) return false;
-  if (!("guestId" in p) || typeof p.guestId !== "string") return false;
-  if (!("firstName" in p) || typeof p.firstName !== "string") return false;
-  if (!("lastName" in p) || typeof p.lastName !== "string") return false;
-  if (!("plusOneOf" in p) || typeof p.plusOneOf !== "string") return false;
-  if (!("eventIds" in p) || !Array.isArray(p.eventIds)) return false;
-  return p.eventIds.every((id: unknown) => typeof id === "string");
 }
 
 /**

@@ -3,7 +3,6 @@ import { describe, it, expect } from "vitest";
 import {
   formatNames,
   isValidClaimResponse,
-  isValidPlusOneSaveResponse,
   isValidRsvpSaveResponse,
 } from "../../src/components/utils";
 
@@ -418,47 +417,6 @@ describe("isValidRsvpSaveResponse", () => {
     expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, dietaryConsentCurrent: "yes" }] })).toBe(
       false,
     );
-  });
-});
-
-describe("isValidPlusOneSaveResponse", () => {
-  const body = {
-    plusOne: {
-      guestId: "g-sam",
-      firstName: "Sam",
-      lastName: "",
-      plusOneOf: "g-bo",
-      eventIds: ["e1", "e2"],
-    },
-    created: true,
-    dietaryCleared: false,
-  };
-
-  it("accepts the answer to a naming or a rename", () => {
-    expect(isValidPlusOneSaveResponse(body)).toBe(true);
-  });
-
-  // An API that predates `dietaryCleared` also clears nothing on a rename.
-  it("accepts an answer without dietaryCleared", () => {
-    const { dietaryCleared: _d, ...older } = body;
-    expect(isValidPlusOneSaveResponse(older)).toBe(true);
-  });
-
-  it("rejects anything the page could not place", () => {
-    for (const bad of [
-      null,
-      {},
-      { ...body, created: "yes" },
-      { ...body, dietaryCleared: 1 },
-      { ...body, plusOne: null },
-      { ...body, plusOne: { ...body.plusOne, guestId: 3 } },
-      { ...body, plusOne: { ...body.plusOne, firstName: undefined } },
-      { ...body, plusOne: { ...body.plusOne, lastName: null } },
-      { ...body, plusOne: { ...body.plusOne, plusOneOf: null } },
-      { ...body, plusOne: { ...body.plusOne, eventIds: ["e1", 2] } },
-    ]) {
-      expect(isValidPlusOneSaveResponse(bad)).toBe(false);
-    }
   });
 });
 

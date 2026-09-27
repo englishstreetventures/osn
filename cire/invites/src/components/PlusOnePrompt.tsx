@@ -1,16 +1,17 @@
 import Button from "@cire/ui/button";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
+import { invitedMembers } from "./plus-one";
 import {
   hasUnansweredEvents,
-  invitedMembers,
+  isValidPlusOneSaveResponse,
   plusOneOf,
   plusOneRefusalMessage,
   withPlusOneRemoved,
   withPlusOneSaved,
-} from "./plus-one";
+} from "./plus-one-updates";
 import type { ClaimResult, FamilyMember, RsvpSummary } from "./types";
-import { formatNames, isValidPlusOneSaveResponse } from "./utils";
+import { formatNames } from "./utils";
 
 /**
  * The household's plus-ones, in the claim and welcome panel: a member the

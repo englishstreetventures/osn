@@ -25,7 +25,7 @@
  */
 import { families, guestEvents, guests, rsvps, weddingEntitlements, weddings } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -193,7 +193,7 @@ function cleanName(name: PlusOneName): PlusOneName {
  * primary key or a unique index, so folding them costs nothing, and a
  * guest-facing write pays one round trip for its context instead of four.
  */
-function readGuestContext(familyId: string, inviterGuestId: string) {
+function readGuestContext(familyId: string, inviterGuestId: string, options: { dietary: boolean }) {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const inviter = alias(guests, "inviter");
@@ -217,8 +217,11 @@ function readGuestContext(familyId: string, inviterGuestId: string) {
           plusOneEventId: guestEvents.eventId,
           // Whether the plus-one has a dietary answer or a consent record on
           // file, which a household rename clears (see `save`): what the
-          // household is told was cleared.
-          plusOneHasDietary: sql<number>`EXISTS (SELECT 1 FROM ${rsvps} WHERE ${rsvps.guestId} = ${plusOneRow.id} AND (${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL))`,
+          // household is told was cleared. Only `save` asks; the subquery
+          // runs once per row this join returns, so `remove` skips it.
+          plusOneHasDietary: options.dietary
+            ? sql<number>`EXISTS (SELECT 1 FROM ${rsvps} WHERE ${rsvps.guestId} = ${plusOneRow.id} AND (${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL))`
+            : sql<number>`0`,
           capacity500: holds("capacity_500"),
           capacity1000: holds("capacity_1000"),
         })
@@ -286,8 +289,8 @@ function readGuestContext(familyId: string, inviterGuestId: string) {
  * name never carries the old person's answers. The clear runs on every such
  * rename rather than only when the caller's read saw answers on file, since a
  * reply can land between that read and this write. The replies' status stays.
- * The name write is then checked by reading the row back at the end of that
- * batch rather than by its change count, which a batch does not return.
+ * The name write then answers with its own row (`RETURNING`) rather than a
+ * change count, which a batch does not return.
  * `dietaryCleared` reports what the caller's read saw on file, for the
  * household's notice.
  */
@@ -317,19 +320,29 @@ function writeName(
       return { plusOne: { ...plusOne, ...clean }, changed: true, dietaryCleared: false };
     }
 
+    // Only rows with something to clear are written, tested inside the batch,
+    // so a reply that lands after the caller's read is still caught.
     const clearAnswers = db
       .update(rsvps)
       .set({ dietary: "", dietaryPresets: "", dietaryConsentAt: null, dietaryConsentVersion: null })
-      .where(eq(rsvps.guestId, plusOne.guestId));
-    const readBack = db
-      .select({ id: guests.id })
-      .from(guests)
-      .where(and(eq(guests.id, plusOne.guestId), scope));
+      .where(
+        and(
+          eq(rsvps.guestId, plusOne.guestId),
+          or(
+            ne(rsvps.dietary, ""),
+            ne(rsvps.dietaryPresets, ""),
+            isNotNull(rsvps.dietaryConsentVersion),
+            isNotNull(rsvps.dietaryConsentAt),
+          ),
+        ),
+      );
+    // The name write answers with its own row, so an empty answer means the
+    // plus-one was removed since the read.
     const rows = yield* dbQuery(() =>
       commitGroupedBatchesReturning<{ id: string }>(
         db,
-        [[clearAnswers, rename]],
-        readBack as ReturningTail<{ id: string }>,
+        [[clearAnswers]],
+        rename.returning({ id: guests.id }) as ReturningTail<{ id: string }>,
       ),
     );
     if (rows.length === 0) return yield* Effect.fail(new PlusOneNotFound());
@@ -367,7 +380,7 @@ export const plusOneService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const context = yield* readGuestContext(familyId, inviterGuestId);
+      const context = yield* readGuestContext(familyId, inviterGuestId, { dietary: true });
       if (!context.inviter.plusOneAllowed) {
         yield* Effect.sync(() => metricPlusOneBlocked("not_allowed"));
         return yield* Effect.fail(new PlusOneNotAllowed());
@@ -437,7 +450,7 @@ export const plusOneService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const context = yield* readGuestContext(familyId, inviterGuestId);
+      const context = yield* readGuestContext(familyId, inviterGuestId, { dietary: false });
       // Nothing named: the read already says so, and the DELETE would match
       // nothing.
       if (context.plusOne === null) return { removed: false };

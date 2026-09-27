@@ -246,8 +246,9 @@ export function LoginSection(props: LoginSectionProps) {
   };
 
   // Whether this household has a plus-one prompt: someone may bring a guest,
-  // or one is named. Checked before the prompt renders so a household with
-  // neither never downloads it. Never in host preview. Once shown it stays for
+  // or one is named. A household with neither never renders it (its chunk is
+  // still warmed with the account link's as a claim starts, before anyone
+  // knows). Never in host preview. Once shown it stays for
   // that household (by code), even when a removal leaves nothing to offer —
   // the prompt still holds that removal's confirmation and the focus.
   let plusOneShownFor: string | null = null;

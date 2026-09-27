@@ -171,7 +171,7 @@ the guard regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176018 B | 187718 B *(re-baselined 2026-09-27 for the plus-one prompt, englishstventures/osn#1239)* |
+| cire/invites | worker | 176043 B | 187743 B *(re-baselined 2026-09-27 for the plus-one prompt, englishstventures/osn#1239)* |
 | cire/host | static | 240953 B | 252653 B *(re-baselined, englishstventures/osn#1086 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
@@ -185,7 +185,7 @@ guard reads; this table only mirrors it.*
 
 *cire/invites measured 2026-09-27 — `bun run --cwd cire/invites build`, whose
 chained guard prints the total; the stack parent measured 172084 B the same way,
-so the plus-one prompt costs 3.9 KB.*
+so the plus-one prompt costs 4.0 KB.*
 
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
 JS number is dominated by one intentional dependency, which is exactly why
