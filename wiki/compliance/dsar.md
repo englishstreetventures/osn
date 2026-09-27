@@ -146,8 +146,10 @@ profile-id string with **no cross-DB FK**. Two consequences:
   household. Erasure has three ready paths, each deleting the row with its
   replies and invitations by cascade: the household removes them on the invite
   (`DELETE /api/plus-one/:guestId`) until the RSVP deadline; an editor turns
-  the inviting guest's permission off with the remove flag
-  (`PUT …/guests/:guestId/plus-one`, `removePlusOne: true`); or the inviting
+  the inviting guest's permission off, confirming the plus-one by id and
+  stored name (`PUT …/guests/:guestId/plus-one`,
+  `removePlusOnes: [{ guestId, firstName, lastName }]` as `GET …/guests`
+  served them — a stale name is refused with `409 plus_one_named`); or the inviting
   guest is removed. The round-trip export and the change history's
   before-images leave plus-ones out, so no before-image has to be reached for
   them. **Rectification** (Art. 16): the household can rename them until the

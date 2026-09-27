@@ -58,22 +58,42 @@ export const PlusOneNameBody = Schema.Struct({
 export type PlusOneNameBody = Schema.Schema.Type<typeof PlusOneNameBody>;
 
 /**
- * Body for `PUT …/guests/:guestId/plus-one`. `removePlusOne` must be set to turn
- * permission off for a guest whose plus-one is already named: that deletes the
- * plus-one and their replies, so it is never a side effect of `allowed: false`
- * alone.
+ * Most plus-ones one household can hold: the largest guest cap is 1000, and
+ * every plus-one needs a guest of their own household who brought them.
  */
-export const GuestPlusOnePermissionBody = Schema.Struct({
-  allowed: Schema.Boolean,
-  removePlusOne: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
-});
-export type GuestPlusOnePermissionBody = Schema.Schema.Type<typeof GuestPlusOnePermissionBody>;
+export const PLUS_ONE_REMOVALS_MAX = 500;
 
-/** Body for `PUT …/families/:familyId/plus-one`: the same rule, household-wide. */
-export const HouseholdPlusOnePermissionBody = Schema.Struct({
-  allowed: Schema.Boolean,
-  removePlusOnes: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
+/**
+ * One plus-one the organiser was shown and agreed to remove, as `GET …/guests`
+ * served them. The name is part of who they are: a household can replace its
+ * plus-one by renaming the row it already has, so the id alone would not show
+ * that the organiser saw the person being removed. Echoed, not typed, so it is
+ * only bounded — the service compares it with what is stored, exactly.
+ */
+const ConfirmedPlusOne = Schema.Struct({
+  guestId: Schema.NonEmptyString.check(Schema.isMaxLength(64)),
+  firstName: Schema.String.check(Schema.isMaxLength(PLUS_ONE_NAME_MAX)),
+  lastName: Schema.String.check(Schema.isMaxLength(PLUS_ONE_NAME_MAX)),
 });
-export type HouseholdPlusOnePermissionBody = Schema.Schema.Type<
-  typeof HouseholdPlusOnePermissionBody
->;
+export type ConfirmedPlusOne = Schema.Schema.Type<typeof ConfirmedPlusOne>;
+
+/**
+ * Body for both permission routes, `PUT …/guests/:guestId/plus-one` and
+ * `PUT …/families/:familyId/plus-one`.
+ *
+ * `removePlusOnes` lists the plus-ones the organiser confirmed removing. Turning
+ * permission off deletes the plus-ones in scope only when every one of them is
+ * on this list, so a delete never reaches someone the organiser was not shown;
+ * left out, it confirms nobody. Ignored when `allowed` is true.
+ *
+ * Unknown keys are refused rather than dropped: a misspelled confirmation would
+ * otherwise decode as "confirms nobody" and be refused as `plus_one_named` again
+ * and again, with nothing to say why.
+ */
+export const PlusOnePermissionBody = Schema.Struct({
+  allowed: Schema.Boolean,
+  removePlusOnes: Schema.Array(ConfirmedPlusOne)
+    .check(Schema.isMaxLength(PLUS_ONE_REMOVALS_MAX))
+    .pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type PlusOnePermissionBody = Schema.Schema.Type<typeof PlusOnePermissionBody>;

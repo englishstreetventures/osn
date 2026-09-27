@@ -49,12 +49,15 @@ Editor-gated (`weddingEditor()`; a viewer gets `403 read_only_role`), like every
 
 | Route | Body | Answer |
 |---|---|---|
-| `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one` | `{ allowed, removePlusOne? }` | `{ guestId, plusOneAllowed, plusOneRemoved }` |
+| `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one` | `{ allowed, removePlusOnes? }` | `{ guestId, plusOneAllowed, plusOneRemoved }` |
 | `PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one` | `{ allowed, removePlusOnes? }` | `{ familyId, plusOneAllowed, guestsUpdated, plusOnesRemoved }` |
 | `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name` | `{ firstName, lastName? }` | `{ plusOne }` |
 
 - The household route writes every member's flag and skips the household's plus-ones.
-- **Turning permission off where a plus-one is already named is refused** — `409 { error: "plus_one_named", named }` — unless the remove flag is set. With it, the plus-one and their replies go in the same batch as the switch. Deleting a guest's data is never a side effect of `allowed: false`, because this delete sits outside the change history: there is no preview and no revert. The portal must name the plus-one and ask before it sends the flag.
+- **Turning permission off deletes only plus-ones the organiser confirmed.** `removePlusOnes` lists the plus-ones the organiser was shown and agreed to remove, each as `{ guestId, firstName, lastName }` exactly as `GET …/guests` served them (default: none). The write goes through only if **every** plus-one in scope is on that list; they are then deleted, with their replies and invitations, in the same batch as the switch. Otherwise nothing is written and the answer is `409 { error: "plus_one_named", named }`, `named` being how many plus-ones are in scope now. So a plain `allowed: false` over a named plus-one is refused, and so is a confirmation that has gone stale — a plus-one named since, or renamed, since a household can replace its plus-one by renaming the row it has. A confirmed plus-one the household has already taken back does not block the write: everything deleted is still someone the organiser agreed to.
+  - The check runs **inside the write batch**, which D1 commits as one transaction: the UPDATE and the DELETE each carry it, and a read of the plus-ones still in scope ends the batch and decides the answer. A plus-one named or renamed while the organiser confirms cannot slip between the check and the delete, and a plain turn-off cannot commit over a plus-one named before it.
+  - Why a list and not a flag: this delete sits outside the change history — no preview, no revert — so it must never reach someone the organiser did not see.
+  - The body refuses any key it does not know with a `400`, so a misspelled confirmation is an error rather than "confirms nobody", refused as `plus_one_named` on every retry.
 - `404 guest_not_found` / `family_not_found` for a row outside the wedding or in the host-preview household; `409 plus_one_cannot_invite` on a plus-one's own row.
 - The name route corrects the name of the plus-one `:guestId` brought (`404 plus_one_not_found` if none). It is the one organiser write to a plus-one's own row, there so a name can be put right after the deadline has locked the household out (Art. 16).
 
@@ -125,7 +128,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 
 - A revert, or a spreadsheet first-name change without an id (a remove + create), re-creates a guest **without** their permission and without the plus-one that went with them.
 - Plus-ones named after a checkpoint **survive** a revert to it.
-- The guest-cap check and the permission check before naming are reads followed by an insert, and an organiser's revoke reads "no plus-one named" before its update. Concurrent requests can overshoot the cap by the number in flight, or leave a plus-one named under a permission revoked at the same moment. Tracked as a follow-up to check both inside the write.
+- Naming a plus-one checks the guest cap and the inviter's permission in reads before its insert. Concurrent requests can overshoot the cap by the number in flight, and a plus-one whose naming read the permission before an organiser's revoke committed is still inserted after it, under the revoked permission. The revoke side checks inside its own write; the naming side does not yet. Tracked as a follow-up to check both inside the insert.
 
 ---
 

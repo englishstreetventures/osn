@@ -15,7 +15,7 @@ import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
-import { commitGroupedBatches, DbService, dbQuery } from "../db";
+import { commitBatchResults, commitGroupedBatches, DbService, dbQuery } from "../db";
 import { metricGuestDataSwept } from "../metrics";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
@@ -269,22 +269,12 @@ export const retentionService = {
           // imports bookkeeping (the uploaded-sheet PII references). The R2
           // objects behind these (+ the invite-image columns) are reaped AFTER
           // this batch commits — their keys were collected above, pre-delete.
-          stmts.push(db.delete(imports).where(inArray(imports.weddingId, weddingIds)));
-
-          const batchable = db as {
-            batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown[]>;
-          };
-          if (typeof batchable.batch === "function" && stmts.length > 0) {
-            return batchable.batch(stmts as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-          }
-          // bun:sqlite (tests/local): no .batch(); run sequentially, children first.
-          // FK-ordered deletes: children must commit before parents, so the
-          // statements are chained rather than gathered with Promise.all —
-          // running them together would delete a parent out from under a child.
-          return stmts.reduce<Promise<unknown[]>>(
-            (chain, stmt) => chain.then(async (out) => [...out, await stmt]),
-            Promise.resolve<unknown[]>([]),
-          );
+          // Last, so the batch is never empty. The statements are in FK order,
+          // children first, which the bun:sqlite fallback keeps.
+          return commitBatchResults(db, [
+            ...stmts,
+            db.delete(imports).where(inArray(imports.weddingId, weddingIds)),
+          ]);
         },
         catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
       }).pipe(

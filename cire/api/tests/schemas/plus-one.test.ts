@@ -3,10 +3,10 @@ import { describe, expect, it } from "bun:test";
 import { Schema } from "effect";
 
 import {
-  GuestPlusOnePermissionBody,
-  HouseholdPlusOnePermissionBody,
   PLUS_ONE_NAME_MAX,
+  PLUS_ONE_REMOVALS_MAX,
   PlusOneNameBody,
+  PlusOnePermissionBody,
 } from "../../src/schemas/plus-one";
 
 const dec = <A>(s: Schema.Codec<A>, v: unknown) => Schema.decodeUnknownResult(s)(v);
@@ -97,25 +97,78 @@ describe("PlusOneNameBody", () => {
   });
 });
 
-describe("the permission bodies", () => {
-  it("default the remove flag to false", () => {
-    const guest = dec(GuestPlusOnePermissionBody, { allowed: false });
-    const household = dec(HouseholdPlusOnePermissionBody, { allowed: false });
-    expect(guest._tag === "Success" && guest.success.removePlusOne).toBe(false);
-    expect(household._tag === "Success" && household.success.removePlusOnes).toBe(false);
+describe("PlusOnePermissionBody", () => {
+  const permission = (v: unknown) => dec(PlusOnePermissionBody, v);
+  const sam = { guestId: "g_sam", firstName: "Sam", lastName: "Lee" };
+
+  it("defaults the confirmed removals to none", () => {
+    const result = permission({ allowed: false });
+    expect(result._tag === "Success" && result.success.removePlusOnes).toEqual([]);
   });
 
-  it("refuse a missing or non-boolean `allowed`, and a non-boolean flag", () => {
+  it("carries each confirmed plus-one's id and both halves of their name, as sent", () => {
+    // An echo of what `GET …/guests` served: kept exactly, spaces included, so
+    // the service can compare it with the stored row.
+    const echoed = { guestId: "g_sam", firstName: " Sam", lastName: "" };
+    const result = permission({ allowed: false, removePlusOnes: [echoed] });
+    expect(result._tag === "Success" && result.success.removePlusOnes).toEqual([echoed]);
+  });
+
+  it("refuses a missing or non-boolean `allowed`", () => {
+    for (const body of [{}, { allowed: "true" }, { allowed: 1 }]) {
+      expect(permission(body)._tag).toBe("Failure");
+    }
+  });
+
+  it("refuses the old boolean flags and any other key it does not know", () => {
+    // Dropped silently, a misspelled confirmation would read as "confirms
+    // nobody" and be refused as plus_one_named on every retry.
     for (const body of [
-      {},
-      { allowed: "true" },
-      { allowed: 1 },
-      { allowed: true, removePlusOne: "yes" },
+      { allowed: false, removePlusOne: true },
+      { allowed: false, removePlusOnes: true },
+      { allowed: false, removePlusOnes: [sam], confirm: true },
     ]) {
-      expect(dec(GuestPlusOnePermissionBody, body)._tag).toBe("Failure");
+      expect(permission(body)._tag).toBe("Failure");
     }
-    for (const body of [{}, { allowed: "true" }, { allowed: false, removePlusOnes: 1 }]) {
-      expect(dec(HouseholdPlusOnePermissionBody, body)._tag).toBe("Failure");
+  });
+
+  it("refuses an entry without its id or either half of the name, or with keys of its own", () => {
+    for (const entry of [
+      { firstName: "Sam", lastName: "Lee" },
+      { guestId: "", firstName: "Sam", lastName: "Lee" },
+      { guestId: "g_sam", lastName: "Lee" },
+      { guestId: "g_sam", firstName: "Sam" },
+      { guestId: "g_sam", firstName: "Sam", lastName: null },
+      { ...sam, name: "Sam Lee" },
+    ]) {
+      expect(permission({ allowed: false, removePlusOnes: [entry] })._tag).toBe("Failure");
     }
+  });
+
+  it("bounds the list, each id and each name", () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ ...sam, guestId: `g_${i}` }));
+    expect(permission({ allowed: false, removePlusOnes: many(PLUS_ONE_REMOVALS_MAX) })._tag).toBe(
+      "Success",
+    );
+    expect(
+      permission({ allowed: false, removePlusOnes: many(PLUS_ONE_REMOVALS_MAX + 1) })._tag,
+    ).toBe("Failure");
+    const long = "x".repeat(PLUS_ONE_NAME_MAX + 1);
+    for (const entry of [
+      { ...sam, guestId: "g".repeat(65) },
+      { ...sam, firstName: long },
+      { ...sam, lastName: long },
+    ]) {
+      expect(permission({ allowed: false, removePlusOnes: [entry] })._tag).toBe("Failure");
+    }
+    expect(
+      permission({
+        allowed: false,
+        removePlusOnes: [
+          { guestId: "g".repeat(64), firstName: "x".repeat(PLUS_ONE_NAME_MAX), lastName: "" },
+        ],
+      })._tag,
+    ).toBe("Success");
   });
 });

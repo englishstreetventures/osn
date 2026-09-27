@@ -102,6 +102,36 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
 }
 
 /**
+ * Commit statements as ONE atomic D1 batch, as {@link commitBatch} does, and
+ * return every statement's result in statement order (none for an empty
+ * list, which D1 would refuse): a write's run result
+ * (read its change count with `rowsChanged`), a SELECT's rows. For a caller
+ * that needs to know what each write did, or that reads inside the same
+ * transaction it wrote in.
+ *
+ * Never chunked, so keep the list small; D1 refuses a batch over
+ * `MAX_STATEMENTS_PER_BATCH` outright. bun:sqlite has no `.batch()`: the
+ * statements run one at a time, in order, outside a transaction, which is
+ * enough to test what each statement does but proves nothing about two
+ * requests racing — only the Miniflare D1 tier can.
+ */
+export async function commitBatchResults(
+  db: Db,
+  statements: BatchItem<"sqlite">[],
+): Promise<unknown[]> {
+  if (statements.length === 0) return [];
+  const batchable = db as BatchableDb;
+  if (typeof batchable.batch === "function") {
+    return batchable.batch(statements as BatchStatements);
+  }
+  // Chained, not gathered, for the same FK ordering as commitBatch's fallback.
+  return statements.reduce<Promise<unknown[]>>(
+    (chain, stmt) => chain.then(async (out) => [...out, await stmt]),
+    Promise.resolve<unknown[]>([]),
+  );
+}
+
+/**
  * D1 Free-tier ceiling on statements per `batch()` invocation. Callers whose
  * write set can grow with data volume must chunk beneath it — a single
  * over-limit batch fails outright. Mirrored by the importer's write-set
