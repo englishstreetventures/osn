@@ -9,13 +9,17 @@ vi.mock("../../src/server/metrics", async (importOriginal) => ({
   metricSignalPublished,
 }));
 
-import { publish } from "../../src/server/publish";
+import { PUBLISH_TIMEOUT_MS, publish } from "../../src/server/publish";
 
 const TOPIC = "cire:wedding:wed_1";
 
 beforeEach(() => metricSignalPublished.mockReset());
 
 describe("publish", () => {
+  it("pins the hub publish timeout", () => {
+    expect(PUBLISH_TIMEOUT_MS).toBe(2_000);
+  });
+
   it("hands the hub for the topic a signal and the subjects to evict", async () => {
     const { hub, publishes } = fakeHub({});
     const before = Date.now();
