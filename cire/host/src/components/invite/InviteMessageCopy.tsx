@@ -61,6 +61,8 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
   // drop the picker's selection.
   const [sentNow, setSentNow] = createSignal<ReadonlySet<string>>(new Set());
   const pickerId = createUniqueId();
+  const pickerNoteId = createUniqueId();
+  const copyNoteId = createUniqueId();
 
   onMount(async () => {
     try {
@@ -76,6 +78,12 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
     }
   });
 
+  const pickerNote = () =>
+    status() === "failed"
+      ? "Could not load the households. Refresh to try again."
+      : status() === "ready" && households().length === 0
+        ? "No households to choose yet."
+        : null;
   const chosen = () => households().find((row) => row.familyId === chosenId()) ?? null;
   const isSent = (row: OrganiserHouseholdRow) =>
     row.codeSharedAt !== null || sentNow().has(row.familyId);
@@ -115,6 +123,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
         <Select
           id={pickerId}
           value={chosenId()}
+          aria-describedby={pickerNote() ? pickerNoteId : undefined}
           onChange={(e) => setChosenId(e.currentTarget.value)}
         >
           <option value="">No household (placeholder code)</option>
@@ -126,11 +135,12 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
             )}
           </For>
         </Select>
-        <Show when={status() === "failed"}>
-          <span class={NOTE_CLASS}>Could not load the households. Refresh to try again.</span>
-        </Show>
-        <Show when={status() === "ready" && households().length === 0}>
-          <span class={NOTE_CLASS}>No households to choose yet.</span>
+        <Show when={pickerNote()}>
+          {(note) => (
+            <span id={pickerNoteId} class={NOTE_CLASS}>
+              {note()}
+            </span>
+          )}
         </Show>
       </div>
       {/* `select-all`: one tap selects the whole message, the way to copy it
@@ -142,11 +152,21 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
         {message(props.draftLine)}
       </p>
       <div class="flex flex-wrap items-center gap-3">
-        <Button variant="quiet" size="sm" disabled={unsaved()} onClick={() => void copy()}>
+        {/* `aria-disabled`, never `disabled`: the button keeps its tab stop,
+            so the reason it cannot copy stays reachable. */}
+        <Button
+          variant="quiet"
+          size="sm"
+          aria-disabled={unsaved() ? "true" : undefined}
+          aria-describedby={unsaved() ? copyNoteId : undefined}
+          onClick={() => void copy()}
+        >
           {chosen() ? "Copy message" : "Copy template"}
         </Button>
         <Show when={unsaved()}>
-          <span class={NOTE_CLASS}>Save the invite to copy the new first line.</span>
+          <span id={copyNoteId} class={NOTE_CLASS}>
+            Save the invite to copy the new first line.
+          </span>
         </Show>
       </div>
     </div>

@@ -229,17 +229,23 @@ describe("InviteMessageCopy", () => {
     withClipboard();
     const { setDraftLine } = mount(json(HOUSEHOLDS), { savedLine: "Come to Goa!" });
     await loaded();
-    expect(copyButton().disabled).toBe(false);
+    expect(copyButton().getAttribute("aria-disabled")).toBeNull();
 
     setDraftLine("Come to Goa, bring sunscreen!");
 
     expect(preview()!.split("\n")[0]).toBe("Come to Goa, bring sunscreen!");
-    expect(copyButton().disabled).toBe(true);
-    expect(screen.getByText("Save the invite to copy the new first line.")).toBeTruthy();
+    expect(copyButton().getAttribute("aria-disabled")).toBe("true");
+    // Still in the tab order, and it says why it will not copy.
+    expect(copyButton().disabled).toBe(false);
+    const note = screen.getByText("Save the invite to copy the new first line.");
+    expect(copyButton().getAttribute("aria-describedby")).toBe(note.id);
+    fireEvent.click(copyButton());
+    await Promise.resolve();
+    expect(writeText).not.toHaveBeenCalled();
 
     // Only whitespace differs: the copy would be the same text, so it is free.
     setDraftLine("Come to Goa!  ");
-    expect(copyButton().disabled).toBe(false);
+    expect(copyButton().getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByText("Save the invite to copy the new first line.")).toBeNull();
   });
 
@@ -247,9 +253,10 @@ describe("InviteMessageCopy", () => {
     withClipboard();
     mount(json({ error: "nope" }, 500));
 
-    await waitFor(() =>
-      expect(screen.getByText("Could not load the households. Refresh to try again.")).toBeTruthy(),
+    const note = await waitFor(() =>
+      screen.getByText("Could not load the households. Refresh to try again."),
     );
+    expect(picker().getAttribute("aria-describedby")).toBe(note.id);
     expect(optionLabels()).toEqual(["No household (placeholder code)"]);
     fireEvent.click(copyButton());
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
@@ -279,7 +286,8 @@ describe("InviteMessageCopy", () => {
   it("says when there is no household to choose yet", async () => {
     mount(json([household({ guestCount: 0 })]));
 
-    await waitFor(() => expect(screen.getByText("No households to choose yet.")).toBeTruthy());
+    const note = await waitFor(() => screen.getByText("No households to choose yet."));
+    expect(picker().getAttribute("aria-describedby")).toBe(note.id);
   });
 
   it("points at the preview when the clipboard refuses", async () => {

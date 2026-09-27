@@ -11,6 +11,7 @@ related:
   - "[[cire-host-portal-layout]]"
 last-reviewed: 2026-09-28
 ---
+
 # Invite Builder
 
 Lets an organiser customise the **presentation** of the guest invite — swap a
@@ -25,16 +26,16 @@ image + text + theme overrides on top of the wedding root.
 The customisable surface is a fixed, closed union — not a generic page builder.
 Single source of truth: `cire/api/src/schemas/invite.ts`.
 
-| Section              | Image slot | Text fields                                  |
-| -------------------- | ---------- | -------------------------------------------- |
-| Hero                 | `hero`     | `heroTitle`, `heroSubtitle`                   |
-| Our Story            | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`  |
-| Code Entry & Welcome | —          | `welcomeMessage` (post-claim greeting line)   |
-| Events ("details")   | —          | `detailsEyebrow`, `detailsHeading`            |
-| FAQ (`faq`)          | —          | none — its content is the `wedding_faqs` entries |
-|   ↳ post-claim only, fixed header copy, and reuses the events tone | | |
-| Closing (`footer`)   | `footer`   | `footerMessage` (closing note, **no default**) |
-|   ↳ post-claim only, and reuses the welcome tone | | |
+| Section                                                          | Image slot | Text fields                                      |
+| ---------------------------------------------------------------- | ---------- | ------------------------------------------------ |
+| Hero                                                             | `hero`     | `heroTitle`, `heroSubtitle`                      |
+| Our Story                                                        | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`      |
+| Code Entry & Welcome                                             | —          | `welcomeMessage` (post-claim greeting line)      |
+| Events ("details")                                               | —          | `detailsEyebrow`, `detailsHeading`               |
+| FAQ (`faq`)                                                      | —          | none — its content is the `wedding_faqs` entries |
+| ↳ post-claim only, fixed header copy, and reuses the events tone |            |                                                  |
+| Closing (`footer`)                                               | `footer`   | `footerMessage` (closing note, **no default**)   |
+| ↳ post-claim only, and reuses the welcome tone                   |            |                                                  |
 
 The `details`/`welcome` copy fields landed in migration
 `0028_details_welcome_copy.sql` — they closed the last hardcoded guest-facing
@@ -53,13 +54,13 @@ monogram-sized square is what a 200px thumbnail suits; couples reach for a
 photograph here, and at that size the sign-off read like a stray avatar rather
 than the invite's closing image.
 
-| | The band today |
-|---|---|
-| Box | `w-full`, square corners, viewport edge to edge below 1536px |
-| Cap | at 1536px and above, the pack's events-column token — `classic` `column-xl` (640px), `gala` `column-2xl` (960px) — centred in both, with a `max-width` transition across the boundary |
-| Height | the crop's pixel aspect (**16∶9** fallback), or the source's natural ratio when uncropped; bounded at `85dvh` |
-| Crop | exact region (`cropBackgroundStyle`) |
-| Variants | `card` 800w / `hero` 1600w, `sizes="(min-width: 1536px) <cap>, 100vw"` |
+|          | The band today                                                                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Box      | `w-full`, square corners, viewport edge to edge below 1536px                                                                                                                          |
+| Cap      | at 1536px and above, the pack's events-column token — `classic` `column-xl` (640px), `gala` `column-2xl` (960px) — centred in both, with a `max-width` transition across the boundary |
+| Height   | the crop's pixel aspect (**16∶9** fallback), or the source's natural ratio when uncropped; bounded at `85dvh`                                                                         |
+| Crop     | exact region (`cropBackgroundStyle`)                                                                                                                                                  |
+| Variants | `card` 800w / `hero` 1600w, `sizes="(min-width: 1536px) <cap>, 100vw"`                                                                                                                |
 
 **The crop decides the shape, and that is the point.** The band takes the crop's
 own aspect, so a 3∶1 panorama publishes as a 3∶1 panorama and a 4∶3 scene as a
@@ -87,7 +88,7 @@ does crop centred, and applies only to an image nobody framed.
 
 Two properties exist purely to keep the band from moving the page under the
 guest, both of which the 200px square didn't need. The `<img>` carries
-`aspect-ratio: auto 16/9` — the *fallback* form, so a box is reserved before a
+`aspect-ratio: auto 16/9` — the _fallback_ form, so a box is reserved before a
 lazy, `content-visibility`-deferred image decodes, and the source's own ratio
 still wins afterwards; without it the note and the site footer jumped down by up
 to a screen height on decode. And `contain-intrinsic-size` is computed
@@ -138,7 +139,7 @@ away (S-H1). The gate is now real:
   beside the events list, to a session that proved household membership.
 - `GET /api/invite/:slug/image/footer` requires a valid `cire_session` **whose
   family belongs to this wedding** (`inviteService.sessionOwnsWedding` — a bare
-  session only proves the holder claimed *some* household's code), and responds
+  session only proves the holder claimed _some_ household's code), and responds
   `Cache-Control: private`. It 404s rather than 401/403, so an unclaimed visitor
   cannot learn whether a closing image exists.
 
@@ -159,15 +160,15 @@ four lanes it has always had.
 **It is NOT part of `SiteFooter`.** Two different things live at the bottom of
 an invite and the distinction is load-bearing:
 
-| | `InviteClosing.astro` | `SiteFooter.astro` |
-|---|---|---|
-| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
-| Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
-| When | Conditional — nothing set ⇒ **renders nothing at all** | Always (compliance blocker C-H4) |
-| Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
-| Gated | Yes — only after the guest claims their code | No — always |
+|        | `InviteClosing.astro`                                    | `SiteFooter.astro`                                           |
+| ------ | -------------------------------------------------------- | ------------------------------------------------------------ |
+| What   | Invite content — the couple's closing image + note       | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
+| Where  | Only the invite, immediately above the footer            | Every document (invite, `/privacy`, `/terms`, 404)           |
+| When   | Conditional — nothing set ⇒ **renders nothing at all**   | Always (compliance blocker C-H4)                             |
+| Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette                               |
+| Gated  | Yes — only after the guest claims their code             | No — always                                                  |
 
-The first implementation put the note and image *inside* `SiteFooter`. That was
+The first implementation put the note and image _inside_ `SiteFooter`. That was
 wrong in three ways: it would have rendered invite content on the legal pages,
 it left the couple's words stranded in a legal-links block instead of a section
 of their own, and — because `SiteFooter` is outside the island — it exposed the
@@ -217,15 +218,15 @@ detail, children, timing — shown **under the events**, once a household has
 entered its code. Migration `0064_invite_faq.sql` added the `wedding_faqs` table
 and the section's `faq_visible` switch together.
 
-| | |
-|---|---|
-| Content | Ordered entries, each a question and an answer (`wedding_faqs`) |
-| Limits | 30 entries per wedding; question ≤ 200 characters, answer ≤ 1000; both required and not blank; stored trimmed. `FAQ_LIMITS` in `cire/api/src/schemas/invite-faq.ts`, mirrored as `FAQ_CAPS` in the builder's `model.ts` |
-| Delivered | In the claim response (`faq: { visible, entries }`), never the public invite read — it is written for invited households. Unlike the events, it is not filtered per household: every household that enters its code sees every entry, and the builder's card says so, so an organiser does not mention an event only some guests are invited to |
-| Header | Fixed copy in both packs: eyebrow "Good to Know", heading "Questions & Answers" (an `<h2>`, sibling of the events heading). Not an organiser field |
-| Surface | The events section's tone — the two read as one block |
-| Guest markup | One native `<details>` per entry: the question is the `<summary>`, the answer opens under it. Keyboard-operable with no script. The question is not a heading, since a heading inside a `<summary>` loses its role in several screen readers |
-| Builder | Entries apply at once (like images); the switch waits for Save (like the other switches) |
+|              |                                                                                                                                                                                                                                                                                                                                                 |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content      | Ordered entries, each a question and an answer (`wedding_faqs`)                                                                                                                                                                                                                                                                                 |
+| Limits       | 30 entries per wedding; question ≤ 200 characters, answer ≤ 1000; both required and not blank; stored trimmed. `FAQ_LIMITS` in `cire/api/src/schemas/invite-faq.ts`, mirrored as `FAQ_CAPS` in the builder's `model.ts`                                                                                                                         |
+| Delivered    | In the claim response (`faq: { visible, entries }`), never the public invite read — it is written for invited households. Unlike the events, it is not filtered per household: every household that enters its code sees every entry, and the builder's card says so, so an organiser does not mention an event only some guests are invited to |
+| Header       | Fixed copy in both packs: eyebrow "Good to Know", heading "Questions & Answers" (an `<h2>`, sibling of the events heading). Not an organiser field                                                                                                                                                                                              |
+| Surface      | The events section's tone — the two read as one block                                                                                                                                                                                                                                                                                           |
+| Guest markup | One native `<details>` per entry: the question is the `<summary>`, the answer opens under it. Keyboard-operable with no script. The question is not a heading, since a heading inside a `<summary>` loses its role in several screen readers                                                                                                    |
+| Builder      | Entries apply at once (like images); the switch waits for Save (like the other switches)                                                                                                                                                                                                                                                        |
 
 **Why 30.** Every entry rides the claim response a household loads on each
 visit, and an invite FAQ past a couple of dozen questions stops being read. The
@@ -270,20 +271,20 @@ The hero, Our Story, the FAQ and the closing section also carry a **visibility s
 section and bring it back with its content intact. Such a section renders only
 when it is switched on **and** has content:
 
-| Switch | Content | State (`SectionState`) | Guest sees |
-| --- | --- | --- | --- |
-| on | yes | `shown` | the section |
-| on | none | `empty` | nothing — the builder says why and what to add |
-| off | either | `off` | nothing — the content is kept |
+| Switch | Content | State (`SectionState`) | Guest sees                                     |
+| ------ | ------- | ---------------------- | ---------------------------------------------- |
+| on     | yes     | `shown`                | the section                                    |
+| on     | none    | `empty`                | nothing — the builder says why and what to add |
+| off    | either  | `off`                  | nothing — the content is kept                  |
 
-| Segment                       | Rendered when…                                            | Where                                   |
-| ----------------------------- | --------------------------------------------------------- | --------------------------------------- |
-| **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
-| **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
-| **FAQ**                       | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`) |
-| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
-| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
-| **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
+| Segment                 | Rendered when…                                                                   | Where                                          |
+| ----------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------- |
+| **Hero** (full-screen)  | switched on, and it has an image **OR** a title **OR** a subtitle                | `InviteHeader.tsx` (`showHero`, `heroState`)   |
+| **Our Story**           | switched on, and it has a heading **OR** a body **OR** a story image             | `InviteHeader.tsx` (`showStory`, `storyState`) |
+| **FAQ**                 | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`)      |
+| **Event → Inspiration** | the event has a `pinterestUrl`                                                   | `DetailsModal.tsx` (`hasPinterest`)            |
+| **Event → Dress Code**  | the event has a dress-code description **OR** a palette swatch                   | `DetailsModal.tsx` (`hasDressCode`)            |
+| **Closing section**     | switched on, and it has a note **OR** an image (whole section), post-claim       | `InviteClosing.tsx` (`footerState`)            |
 
 Welcome (the code entry) and Events have no switch: a guest needs both to reach
 their invitation. The per-event segments and the gift registry have none either;
@@ -302,7 +303,7 @@ content showed. This is the opposite of the "fail closed" default in
 closed would hide every hero on the invite for the deploy window.
 
 **What the switch does not hide.** Switching the hero off hides the hero
-*section*. The couple title still names the page (the tab title and the site
+_section_. The couple title still names the page (the tab title and the site
 footer read `hero.title`), and the hero photo still heads the gift-list page.
 The builder's switched-off line for the hero says so.
 
@@ -436,12 +437,12 @@ Now the organiser names five colours by their ROLE and `derivePalette` in
 root — so the scheme reaches every section, both modals, the footer and the hero
 gradient.
 
-| Seed    | Role on the invite | Drives                                                        |
-| ------- | ------------------ | ------------------------------------------------------------- |
-| `ground` | The page           | body background, hero base gradient, scrims                   |
-| `card`   | Raised paper       | event cards, modals, panels, the code-entry box               |
-| `ink`    | Everything written | headings, body, muted text, hairlines                         |
-| `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                   |
+| Seed     | Role on the invite | Drives                                                                     |
+| -------- | ------------------ | -------------------------------------------------------------------------- |
+| `ground` | The page           | body background, hero base gradient, scrims                                |
+| `card`   | Raised paper       | event cards, modals, panels, the code-entry box                            |
+| `ink`    | Everything written | headings, body, muted text, hairlines                                      |
+| `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                                |
 | `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents, the RSVP confirmation fill + tick |
 
 The builder labels each picker with the **seed name** from that first column —
@@ -486,14 +487,14 @@ chosen by anyone; they are variants we compute, so both are walked against all
 three surfaces at the text minimum, where moving them costs subtlety and not
 identity:
 
-| Token | What it paints | Walked against |
-|---|---|---|
+| Token                | What it paints                                     | Walked against               |
+| -------------------- | -------------------------------------------------- | ---------------------------- |
 | `--color-text-muted` | venue lines, descriptions, the closed RSVP-by line | card, raised, ground @ 4.5:1 |
-| `--color-gold-ink` | the open RSVP-by line, the event-card date | card, raised, ground @ 4.5:1 |
+| `--color-gold-ink`   | the open RSVP-by line, the event-card date         | card, raised, ground @ 4.5:1 |
 
 `--color-gold-ink` exists because **`--color-gold` is the metal, not a text
 colour.** Holding it to 3:1 is right for a rule, a border or a display heading
-and wrong for a sentence, and holding *it* to 4.5 would drag every rule and
+and wrong for a sentence, and holding _it_ to 4.5 would drag every rule and
 button along. So gold-as-prose is split off: the organiser's hue walked far
 enough to be read, while `--color-gold` still paints their metal exactly as
 picked. The live failure that prompted the split was an RSVP-by line at 3.35:1
@@ -515,11 +516,11 @@ mistake — the first cut had it crossed in both directions (measuring
 `--color-surface` while the copy said "event cards", measuring `raised` while
 saying "pop-ups"). On the guest site it is the other way round:
 
-| Token | Where it is actually painted |
-|---|---|
-| `--color-surface` | the modal shell (`AnimatedModal`) and the RSVP sheet's sticky footer — everything on it is already enforced |
-| `--color-surface-raised` | every `EventCard` and the RSVP sheet's notice block — carries the card title (`--color-text`), venue + description (`--color-text-muted`) and the date (`--color-gold-ink`) |
-| `--color-bg` | section backgrounds — muted section copy, the RSVP-by line. A section's tone is the organiser's pick, so that line can land on any of the three surfaces — which is why both prose tokens are walked against all three rather than against this one |
+| Token                    | Where it is actually painted                                                                                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-surface`        | the modal shell (`AnimatedModal`) and the RSVP sheet's sticky footer — everything on it is already enforced                                                                                                                                         |
+| `--color-surface-raised` | every `EventCard` and the RSVP sheet's notice block — carries the card title (`--color-text`), venue + description (`--color-text-muted`) and the date (`--color-gold-ink`)                                                                         |
+| `--color-bg`             | section backgrounds — muted section copy, the RSVP-by line. A section's tone is the organiser's pick, so that line can land on any of the three surfaces — which is why both prose tokens are walked against all three rather than against this one |
 
 Two deliberate calls in that table. **The two muted pairs are backstops, not the
 primary mechanism** — muted is now walked against all three surfaces at 4.5:1,
@@ -766,7 +767,7 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     and so is the organiser-only `inviteMessage` (`publicView` in
     `cire/api/src/services/invite.ts`).
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
-    immutable`; the URL is cache-busted by `?v=<updatedAt>`).
+immutable`; the URL is cache-busted by `?v=<updatedAt>`).
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
     a guest with no OSN token can render the invite.
 - **Organiser (authed)** — under `/api/organiser/weddings/:weddingId/invite`,
@@ -788,11 +789,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     section is a 400. Bumps `updatedAt` only, never the image version. Switching
     off never touches the section's content.
   - `PUT /invite/theme` → upsert the theme (fonts + the five-seed colour scheme
-    + a per-section `tone`) **plus the
-    two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
-    `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
-    unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
-    nothing persisted).
+    - a per-section `tone`) **plus the
+      two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
+      `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
+      unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
+      nothing persisted).
   - `POST /invite/faqs` → add an entry at the end (`{ question, answer }`,
     both required). The 31st is a 409 `faq_limit_reached`, decided inside the
     INSERT. Returns `{ faq }`.
@@ -825,12 +826,12 @@ the Cloudflare Workers **Images** binding (`env.IMAGES`) into a bounded,
 allowlisted **variant** — `cire/api/src/services/invite-image-transform.ts`
 (`IMAGE_VARIANTS`, the single source of truth):
 
-| Variant   | Width  | Blur            | Used for                                   |
-| --------- | ------ | --------------- | ------------------------------------------ |
-| `thumb`   | 320px  | —               | small in-page thumbnails / `srcset`        |
-| `card`    | 800px  | — (the default) | common in-page size (story photo, cards)   |
-| `hero`    | 1600px | —               | a crisp full-res hero, where wanted        |
-| `hero-bg` | 1600px | **server-side** | the **blurred** full-bleed hero backdrop   |
+| Variant   | Width  | Blur            | Used for                                 |
+| --------- | ------ | --------------- | ---------------------------------------- |
+| `thumb`   | 320px  | —               | small in-page thumbnails / `srcset`      |
+| `card`    | 800px  | — (the default) | common in-page size (story photo, cards) |
+| `hero`    | 1600px | —               | a crisp full-res hero, where wanted      |
+| `hero-bg` | 1600px | **server-side** | the **blurred** full-bleed hero backdrop |
 
 Named variants (not an arbitrary `?w=` / `?blur=`) are deliberate: the count is
 exactly four per slot, which keeps the edge cache hot and stops an attacker
@@ -936,12 +937,12 @@ design pack's islands call:
   its whole `initial` prop and takes the payload unmapped, a page falls back to a
   value built from three props and maps three fields out of the payload.
 
-| Path | Worker requests for the invite | Browser requests |
-|---|---|---|
-| Route fetch succeeds | 1 | 0 |
-| Route fetch fails | 1 | 2 (header on load, page when it hydrates) |
+| Path                 | Worker requests for the invite | Browser requests                          |
+| -------------------- | ------------------------------ | ----------------------------------------- |
+| Route fetch succeeds | 1                              | 0                                         |
+| Route fetch fails    | 1                              | 2 (header on load, page when it hydrates) |
 
-*Measured 2026-09-25 — the built Worker under `wrangler dev --config dist/server/wrangler.json`, a stub API on the baked `PUBLIC_API_URL` counting `GET /api/invite/:slug` (an `Origin` header marks a browser request), and `/<slug>` loaded in Playwright Chromium.*
+_Measured 2026-09-25 — the built Worker under `wrangler dev --config dist/server/wrangler.json`, a stub API on the baked `PUBLIC_API_URL` counting `GET /api/invite/:slug` (an `Origin` header marks a browser request), and `/<slug>` loaded in Playwright Chromium._
 
 > [!warning] `createResource` in a server-rendered island fetches in the Worker
 > Solid's server build runs a resource's fetcher during the render unless the
@@ -991,7 +992,7 @@ design pack's islands call:
     2. **Re-arm only on a real URL change.** The re-arm effect resets to
        `pending` (opacity 0) **only when the resolved backdrop `src` actually
        changes** (a re-upload, or a new `heroDisplay.blur` — the served version is
-       derived from the key *and* the blur, so changing either moves the url). New
+       derived from the key _and_ the blur, so changing either moves the url). New
        invite data can carry the **same** url (props Astro reconciles, a
        browser-side retry); resetting on every `data()` change would leave a shown
        image stuck invisible, because an unchanged `<img src>` never re-fires
@@ -1105,21 +1106,21 @@ and tests are unchanged). `useAuth().authFetch` drives the organiser
 endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 401 handling — same patterns as `ImportPanel`.
 
-| File | Owns |
-| --- | --- |
-| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, section tab state |
-| `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
-| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`, three states) / `SectionCard` (`hidden` prop; `visibility` prop renders the badge, the "Show on the invite" switch and the reason line) / `Disclosure` / `InstantBadge` |
-| `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
-| `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
-| `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
-| `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
-| `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
-| `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
-| `invite/FaqEditor.tsx` | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard |
-| `invite/InviteMessageCopy.tsx` | The Message section's copy action: its own `GET /households` read, the household picker, the composed-message preview, the copy and the owner's mark-sent |
-| `lib/mark-shared.ts` | `markHouseholdShared` — the mark-sent POST both copy actions share, and the patch to the cached guest rows |
-| `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
+| File                           | Owns                                                                                                                                                                                                                                                                                                        |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invite/InviteBuilder.tsx`     | Orchestration: resource, draft store, save/upload/crop actions, layout, section tab state                                                                                                                                                                                                                   |
+| `invite/model.ts`              | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders                                                                                                                                                       |
+| `invite/fields.tsx`            | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`, three states) / `SectionCard` (`hidden` prop; `visibility` prop renders the badge, the "Show on the invite" switch and the reason line) / `Disclosure` / `InstantBadge` |
+| `invite/previews.tsx`          | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle`                                                                                                                                                                                             |
+| `invite/PreviewPane.tsx`       | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths                                                                                                                                                                                                     |
+| `invite/PreviewModal.tsx`      | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs                                                                                                                                                                                                         |
+| `invite/DesignPicker.tsx`      | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails                                                                                                                                                                                                                                |
+| `invite/design-layout.ts`      | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog                                                                                                                                                       |
+| `invite/ImageField.tsx`        | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder                                                                                                                                                                                                                    |
+| `invite/FaqEditor.tsx`         | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard                                                                                                                          |
+| `invite/InviteMessageCopy.tsx` | The Message section's copy action: its own `GET /households` read, the household picker, the composed-message preview, the copy and the owner's mark-sent                                                                                                                                                   |
+| `lib/mark-shared.ts`           | `markHouseholdShared` — the mark-sent POST both copy actions share, and the patch to the cached guest rows                                                                                                                                                                                                  |
+| `lib/unsaved-guard.ts`         | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation                                                                                                                                                                                                                      |
 
 **Structure: one card per guest-page section, in the order guests scroll
 them, each owning everything about its section — shown ONE AT A TIME, tabbed,
@@ -1150,8 +1151,9 @@ leaving the Invite module:
   and nothing is marked sent. A first tap never marks a household the organiser
   did not pick.
 - **Saved line only.** The preview follows the line being typed, but the copy
-  sends the saved line and is disabled, with a note, while the two would give
-  different text. The comparison trims both and reads blank as the default, so
+  sends the saved line and is `aria-disabled`, described by a note, while the
+  two would give different text — `aria-disabled` rather than `disabled`, so
+  the button keeps its tab stop and the note stays reachable. The comparison trims both and reads blank as the default, so
   a trailing space alone does not block it.
 - **Roles.** The builder is editor-gated, so owners and editors copy; only the
   owner's copy marks the household sent. Selecting the preview selects the whole
@@ -1197,10 +1199,10 @@ from `sectionTabTone` and `FADED_LABEL` in `fields.tsx`; the icon is
 `HiddenSectionIcon`, lucide's `eye-off` at `size-3.5`, drawn in the label's ink
 and `aria-hidden`:
 
-| | Shown, or no switch | Hidden |
-|---|---|---|
-| Selected | `bg-gold/12` wash, `text-gold-ink` | wash, `text-gold-ink/80`, icon |
-| Not selected | `text-text-muted` | `text-text-faint`, icon |
+|              | Shown, or no switch                | Hidden                         |
+| ------------ | ---------------------------------- | ------------------------------ |
+| Selected     | `bg-gold/12` wash, `text-gold-ink` | wash, `text-gold-ink/80`, icon |
+| Not selected | `text-text-muted`                  | `text-text-faint`, icon        |
 
 The wash and the gold hue say "selected"; the fade and the icon say "hidden", so
 a hidden tab never reads as merely not selected. The selected ink is `gold-ink`,
@@ -1220,17 +1222,17 @@ what the icon, drawn in the same ink, needs as a graphic (WCAG 1.4.11).
 on the tab row, the menu's panel, the gold wash and the trigger, and checks the
 icon paints at a real size.
 
-| Painted, dark / light | Ratio |
-|---|---|
-| Faded tab, not selected (tab row) | 3.39 / 3.28 |
-| Faded tab, not selected (menu panel) | 3.40 / 3.29 |
-| Faded tab, selected (on the wash) | 6.70 / 3.26 |
+| Painted, dark / light                          | Ratio       |
+| ---------------------------------------------- | ----------- |
+| Faded tab, not selected (tab row)              | 3.39 / 3.28 |
+| Faded tab, not selected (menu panel)           | 3.40 / 3.29 |
+| Faded tab, selected (on the wash)              | 6.70 / 3.26 |
 | Faded tab, selected (wash over the menu panel) | 6.70 / 3.27 |
-| Faded menu-trigger label | 3.43 / 3.36 |
-| Idle tab | 5.96 / 5.62 |
-| Selected tab, shown | 9.74 / 4.68 |
+| Faded menu-trigger label                       | 3.43 / 3.36 |
+| Idle tab                                       | 5.96 / 5.62 |
+| Selected tab, shown                            | 9.74 / 4.68 |
 
-*Measured 2026-09-27 — `bun run --cwd cire/host test:browser`, the floors in `InviteBuilder.tabs.browser.test.tsx` raised to 99 so each assertion prints its ratio*
+_Measured 2026-09-27 — `bun run --cwd cire/host test:browser`, the floors in `InviteBuilder.tabs.browser.test.tsx` raised to 99 so each assertion prints its ratio_
 
 **The ARIA tabs contract is complete, not just the roles.** The first cut
 declared `role="tablist"`/`role="tab"`/`aria-selected` on the nav but left the
@@ -1271,10 +1273,10 @@ down. From `@3xl/builder` up the trigger is `display: none` and the tabs are
 the static row they have always been, with `flex-wrap`, so a row that no longer
 fits wraps rather than scrolls.
 
-*Unverified for nine tabs. Measured with eight (four rows, no FAQ tab): the open
+_Unverified for nine tabs. Measured with eight (four rows, no FAQ tab): the open
 grid was ≈206px tall on a 390px phone, and at the crossover the eight pills plus
 "Preview" fitted one line with room to spare. The FAQ tab adds a fifth grid row
-and one short pill; neither number has been re-measured.*
+and one short pill; neither number has been re-measured._
 
 **One tablist, two presentations — not two tablists.** The narrow surface
 re-lays-out the SAME `role="tablist"` rather than rendering a second copy of the
@@ -1297,10 +1299,10 @@ closes and restores focus; an outside `pointerdown` closes it via a
 capture-phase listener that exists only while open; and **focus leaving the nav
 closes it** (`onFocusOut`, `relatedTarget` outside `sectionNav`). That last one
 is not tidiness — without it, tabbing forward instead of selecting walks focus
-into the first form control of the active section, which sits *behind* the
+into the first form control of the active section, which sits _behind_ the
 opaque overlay the open menu paints across the top of that section, with Escape
 bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
-*Focus Not Obscured*, and the "reveal without advancing focus" exception does
+_Focus Not Obscured_, and the "reveal without advancing focus" exception does
 not apply (**SM-C-M1** in `englishstventures/osn-tracker`).
 
 A fifth closer is not a dismissal at all: the `ResizeObserver` that already
@@ -1378,18 +1380,18 @@ exactly as the guest site does. Tone pickers render **as their surface**
 
 **The preview follows the DESIGN PACK too (2026-08-06).** It didn't, for as
 long as there was more than one pack: colours, fonts and copy were exact and
-the layout — the one thing a design pack actually *is* — was a fiction, so
+the layout — the one thing a design pack actually _is_ — was a fiction, so
 switching Classic → Gala changed the radio card and nothing else in the
 miniature. `invite/design-layout.ts` now names each pack's structural signature
 and `HeroSample`/`SectionSample` render it, in all three presentations at once
 (inline cards, sticky pane, mobile modal):
 
-| | `classic` | `gala` |
-|---|---|---|
-| Hero copy | centred in the frame | anchored bottom-left (editorial) |
-| Section copy | centred column | left-aligned |
-| Code entry | full-bleed band | narrow bordered panel, flush left |
-| Events header | heading, then cards | heading closed by a hairline rule |
+|               | `classic`            | `gala`                            |
+| ------------- | -------------------- | --------------------------------- |
+| Hero copy     | centred in the frame | anchored bottom-left (editorial)  |
+| Section copy  | centred column       | left-aligned                      |
+| Code entry    | full-bleed band      | narrow bordered panel, flush left |
+| Events header | heading, then cards  | heading closed by a hairline rule |
 
 Every row traces to the pack's own markup — gala's hero is `items-start
 justify-end` against classic's centred block, its columns are `text-left`
@@ -1664,7 +1666,7 @@ cire/api uses `@shared/observability` (workerd-safe subpaths) — see
 redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWedding,getForWeddingId,getForSlug,
-  imageKeyForSlug,upsertText,upsertTheme,setImage,removeImage}` +
+imageKeyForSlug,upsertText,upsertTheme,setImage,removeImage}` +
   `cire.invite.{storeAsset,fetchAsset,deleteAsset}` +
   `cire.invite.faq.{list,listForGuests,create,update,remove,reorder}` (the
   guests' read runs inside `cire.claim.buildResponse`).

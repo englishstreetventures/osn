@@ -213,11 +213,11 @@ describe("InviteBuilder Message section", () => {
     fireEvent.change(picker(), { target: { value: "fam_a" } });
 
     fireEvent.input(lineField(), { target: { value: "Come to Goa, bring sunscreen!" } });
-    expect(copyButton().disabled).toBe(true);
+    expect(copyButton().getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("Save the invite to copy the new first line.")).toBeTruthy();
 
     fireEvent.input(lineField(), { target: { value: "Come to Goa!" } });
-    expect(copyButton().disabled).toBe(false);
+    expect(copyButton().getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(copyButton());
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
@@ -244,10 +244,10 @@ describe("InviteBuilder Message section", () => {
     fireEvent.change(picker(), { target: { value: "fam_a" } });
 
     fireEvent.input(lineField(), { target: { value: "Come to Goa, bring sunscreen!" } });
-    expect(copyButton().disabled).toBe(true);
+    expect(copyButton().getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(screen.getByText("Save invite"));
 
-    await waitFor(() => expect(copyButton().disabled).toBe(false));
+    await waitFor(() => expect(copyButton().getAttribute("aria-disabled")).toBeNull());
     fireEvent.click(copyButton());
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0].split("\n")[0]).toBe("Come to Goa, bring sunscreen!");
@@ -281,7 +281,7 @@ describe("InviteBuilder Message section", () => {
     renderOnMessage();
     await waitFor(() => expect(picker().options.length).toBe(2));
 
-    expect(copyButton().disabled).toBe(false);
+    expect(copyButton().getAttribute("aria-disabled")).toBeNull();
     expect(screen.getByTestId("invite-message-preview").textContent).toMatch(
       /^You're invited to Anita & Ben!/,
     );
