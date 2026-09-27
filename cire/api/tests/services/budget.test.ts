@@ -746,6 +746,53 @@ describe("budgetService — per-head lines", () => {
     expect(priceOnly.value.headcount).toEqual({ expected: 0, confirmed: 0 });
   });
 
+  it("counts nobody from a stored event list it cannot read, never everybody", async () => {
+    const db = perHeadDb();
+    const created = await run(db, budgetService.createItem(perHeadItem({ unitPriceMinor: 100 })));
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const stored = async (text: string) => {
+      db.update(budgetItems)
+        .set({ perHeadEventIds: text })
+        .where(eq(budgetItems.id, created.value.id))
+        .run();
+      const snap = await run(db, budgetService.get(W));
+      if (!Exit.isSuccess(snap)) throw new Error("get failed");
+      return snap.value.items[0]!;
+    };
+    for (const text of ["not json", '{"a":1}']) {
+      const line = await stored(text);
+      expect(line.eventIds).toEqual([]);
+      expect(line.headcount).toEqual({ expected: 0, confirmed: 0 });
+    }
+    const mixed = await stored(`[1, "${CEREMONY}"]`);
+    expect(mixed.eventIds).toEqual([CEREMONY]);
+    expect(mixed.headcount).toEqual({ expected: 2, confirmed: 1 });
+  });
+
+  it("stores no estimate on a per-head line even when a caller passes one", async () => {
+    const db = perHeadDb();
+    const created = await run(
+      db,
+      budgetService.createItem(perHeadItem({ unitPriceMinor: 100 }, { estimateMinor: 7_000 })),
+    );
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    expect(created.value.estimateMinor).toBeNull();
+    const row = db.select().from(budgetItems).where(eq(budgetItems.id, created.value.id)).get();
+    expect(row?.estimateMinor).toBeNull();
+
+    // Back to fixed with no estimate: nothing hidden comes back.
+    const back = await run(
+      db,
+      budgetService.updateItem({
+        weddingId: W,
+        itemId: created.value.id,
+        patch: { perHead: null },
+      }),
+    );
+    if (!Exit.isSuccess(back)) throw new Error("update failed");
+    expect(back.value.estimateMinor).toBeNull();
+  });
+
   it("reads a fixed line with no per-head fields and its stored estimate", async () => {
     const db = perHeadDb();
     await run(db, budgetService.createItem(perHeadItem(null, { estimateMinor: 1_000 })));

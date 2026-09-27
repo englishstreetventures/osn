@@ -399,4 +399,15 @@ describe("per-head lines", () => {
     await revalidateBudget("wed_1", fetcher);
     expect(calls).toBe(1);
   });
+
+  it("revalidateBudget blanks a cached per-head budget when the refetch is refused", async () => {
+    setCachedBudget("wed_1", snap({ items: [perHead()] }));
+    const refusal = new Error("403");
+    await expect(
+      revalidateBudget("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(peekCachedBudget("wed_1")).toBeNull();
+  });
 });

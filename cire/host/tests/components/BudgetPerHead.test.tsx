@@ -152,4 +152,51 @@ describe("PerHeadPanel", () => {
     panel(line({ unitPriceMinor: null, headcount: null }));
     expect(screen.queryByRole("button", { name: "Use a fixed amount" })).not.toBeInTheDocument();
   });
+
+  it("opens on the line's own events and keeps them when another is ticked", () => {
+    const { onSave } = panel(line({ eventIds: ["evt_reception"] }));
+    expect(screen.getByLabelText("Only these events")).toBeChecked();
+    expect(screen.getByLabelText("Reception")).toBeChecked();
+    expect(screen.getByLabelText("Ceremony")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Ceremony"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith({
+      unitPriceMinor: 5_000,
+      eventIds: ["evt_ceremony", "evt_reception"],
+    });
+  });
+
+  it("cannot limit a line to events the wedding does not have", () => {
+    render(() => (
+      <PerHeadPanel
+        item={line()}
+        events={[]}
+        currency="AUD"
+        onSave={() => {}}
+        onUseFixed={() => {}}
+        onCancel={() => {}}
+      />
+    ));
+    expect(screen.getByLabelText("Only these events")).toBeDisabled();
+  });
+
+  it("reads and writes the price in the currency's own minor unit", () => {
+    const onSave = vi.fn();
+    render(() => (
+      <PerHeadPanel
+        item={line({ unitPriceMinor: 5_000 })}
+        events={EVENTS}
+        currency="JPY"
+        onSave={onSave}
+        onUseFixed={() => {}}
+        onCancel={() => {}}
+      />
+    ));
+    // JPY has no minor unit: 5000 minor units are ¥5,000, and ¥6,000 is 6000.
+    const price = screen.getByLabelText(/Price per head/);
+    expect(price).toHaveValue(5_000);
+    fireEvent.input(price, { target: { value: "6000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith({ unitPriceMinor: 6_000 });
+  });
 });

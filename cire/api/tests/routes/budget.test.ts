@@ -1,11 +1,21 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, weddingHosts, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvps,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -230,33 +240,104 @@ describe("budget routes — per-head lines", () => {
     headcount: { expected: number; confirmed: number } | null;
   }
 
-  const bootstrapEventId = (db: ReturnType<typeof createDb>) =>
-    db
-      .select({ id: events.id })
-      .from(events)
-      .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-      .all()[0]!.id;
-
-  it("creates a per-head line and returns its headcount; the snapshot lists the events", async () => {
+  it("creates a per-head line, returns its headcount, and prices it in the snapshot", async () => {
     const { db, app } = buildAppWithDb();
-    const eventId = bootstrapEventId(db);
+    // A fresh event with a known guest list: three seeded guests invited, one
+    // attending, one declined, one yet to reply → 2 expected, 1 confirmed.
+    const now = new Date();
+    db.insert(events)
+      .values({
+        id: "evt_welcome",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "welcome-drinks",
+        name: "Welcome drinks",
+        startAt: "2027-03-01T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+      })
+      .run();
+    const [g1, g2, g3] = db
+      .select({ id: guests.id })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all();
+    for (const g of [g1!, g2!, g3!]) {
+      db.insert(guestEvents).values({ guestId: g.id, eventId: "evt_welcome" }).run();
+    }
+    for (const [g, status] of [
+      [g1!, "attending"],
+      [g2!, "declined"],
+    ] as const) {
+      db.insert(rsvps)
+        .values({
+          id: `rsvp_${g.id}`,
+          guestId: g.id,
+          eventId: "evt_welcome",
+          status,
+          createdAt: now,
+        })
+        .run();
+    }
+
     const res = await req(app, "POST", `${base}/items`, OWNER, {
       category: "catering",
       name: "Dinner",
-      perHead: { unitPriceMinor: 8_500, eventIds: [eventId] },
+      perHead: { unitPriceMinor: 8_500, eventIds: ["evt_welcome"] },
     });
     expect(res.status).toBe(200);
     const { item } = (await res.json()) as { item: ItemBody };
     expect(item.unitPriceMinor).toBe(8_500);
-    expect(item.eventIds).toEqual([eventId]);
-    expect(item.headcount).not.toBeNull();
+    expect(item.eventIds).toEqual(["evt_welcome"]);
+    expect(item.headcount).toEqual({ expected: 2, confirmed: 1 });
 
     const snap = (await (await req(app, "GET", base, VIEWER)).json()) as {
       events: { id: string; name: string }[];
       rsvpsClosed: boolean;
+      rollup: { totals: { estimateMinor: number } };
     };
-    expect(snap.events.map((e) => e.id)).toContain(eventId);
+    expect(snap.events).toContainEqual({ id: "evt_welcome", name: "Welcome drinks" });
     expect(snap.rsvpsClosed).toBe(false);
+    expect(snap.rollup.totals.estimateMinor).toBe(17_000);
+  });
+
+  // The portal reaches these writes with the organiser session cookie, so the
+  // cookie path has to hold for them, not only the bearer the tests above send.
+  it("accepts a per-head write on a session cookie and refuses a dead one or none", async () => {
+    const { db, app } = buildAppWithDb();
+    const perHeadBody = JSON.stringify({
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 100 },
+    });
+    const token = await seedOrganiserSession(db, EDITOR);
+    const ok = await appRequest(app, `${base}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
+      body: perHeadBody,
+    });
+    expect(ok.status).toBe(200);
+    const { item } = (await ok.json()) as { item: ItemBody };
+    expect(item.unitPriceMinor).toBe(100);
+
+    const dead = await appRequest(app, `${base}/items`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: "cire_org_session=not-a-live-session-token",
+      },
+      body: perHeadBody,
+    });
+    expect(dead.status).toBe(401);
+
+    const none = await req(app, "PATCH", `${base}/items/${item.id}`, undefined, {
+      perHead: { unitPriceMinor: 5 },
+    });
+    expect(none.status).toBe(401);
+    const stranger = await req(app, "PATCH", `${base}/items/${item.id}`, STRANGER, {
+      perHead: { unitPriceMinor: 5 },
+    });
+    expect(stranger.status).toBe(403);
   });
 
   it("400 unknown_event for another wedding's event, on create and on edit", async () => {
