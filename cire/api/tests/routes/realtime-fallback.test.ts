@@ -8,6 +8,7 @@ import { createApp } from "../../src/app";
 import { createDb } from "../../src/db/setup";
 import { createRealtimeRoute } from "../../src/routes/realtime";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { countedStream, streamedInit } from "../test-helpers/streamed-body";
 
 const PATH = "/api/realtime/fallback";
 // `createApp`'s default `webOrigin`, and so the only origin its guard admits.
@@ -90,6 +91,15 @@ describe("POST /api/realtime/fallback — counted", () => {
     await expectNoContent(await beacon(app, "refused".padEnd(64, " ")));
     expect(await fallbacks("refused")).toBe(before + 1);
   });
+
+  it("counts a padded body that declares exactly the byte cap", async () => {
+    // Bun sets no Content-Length for a string body, so the case above never
+    // reaches the declared-length check; this one does, at its boundary.
+    const app = buildApp();
+    const before = await fallbacks("refused");
+    await expectNoContent(await beacon(app, "refused".padEnd(64, " "), { "Content-Length": "64" }));
+    expect(await fallbacks("refused")).toBe(before + 1);
+  });
 });
 
 describe("POST /api/realtime/fallback — dropped, still 204", () => {
@@ -112,12 +122,36 @@ describe("POST /api/realtime/fallback — dropped, still 204", () => {
   });
 
   it("drops a body over the cap that declares no length", async () => {
-    // Surrounding whitespace alone would pass `readFallbackOutcome`, so this
-    // is refused by the route's own read cap.
+    // The route's bounded read and `readFallbackOutcome` both refuse 65
+    // bytes, so this case cannot say which one did. The streamed case below
+    // is the one that shows the read itself stops at the cap.
     const app = buildApp();
     const before = await allFallbacks();
     await expectNoContent(await beacon(app, "refused".padEnd(65, " ")));
     expect(await allFallbacks()).toBe(before);
+  });
+
+  it("stops reading a streamed body with no declared length once it passes the cap", async () => {
+    // 1,000 chunks of 32 bytes of whitespace ahead of a real outcome: a route
+    // that buffered the body before checking its size would pull all of them.
+    const encode = (text: string) => new TextEncoder().encode(text);
+    const { body, seen } = countedStream(encode(" ".repeat(32)), 1_000, encode("refused"));
+    const app = buildApp();
+    const before = await allFallbacks();
+    const res = await app.fetch(
+      new Request(
+        `http://localhost${PATH}`,
+        streamedInit(body, {
+          Origin: ORIGIN,
+          "cf-connecting-ip": nextIp(),
+          "Content-Type": "text/plain;charset=UTF-8",
+        }),
+      ),
+    );
+    await expectNoContent(res);
+    expect(await allFallbacks()).toBe(before);
+    expect(seen.cancelled).toBe(true);
+    expect(seen.pulled).toBeLessThanOrEqual(4);
   });
 
   it("drops a beacon with no cf-connecting-ip", async () => {

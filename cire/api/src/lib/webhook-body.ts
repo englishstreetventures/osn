@@ -8,6 +8,10 @@
  * has to be solved before either signature can be checked: the signature is
  * over the body, so the body must be in hand first.
  *
+ * {@link readBoundedText} also bounds the two public, unauthenticated telemetry
+ * routes — the CSP report collector and the realtime fallback beacon — whose
+ * bodies anyone can send, of any size, with no declared length.
+ *
  * NOT `readCappedBytes` (`services/link-preview.ts`), which is deliberately a
  * different thing despite the similar shape: it bounds a `Response` we chose to
  * fetch and returns bytes, where this bounds an inbound `Request` an attacker
