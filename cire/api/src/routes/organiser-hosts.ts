@@ -18,6 +18,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { decideCapability } from "../middleware/wedding-role";
 import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
@@ -30,6 +31,7 @@ import type {
   WeddingRole,
 } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
 
@@ -202,6 +204,13 @@ export const createOrganiserHostsReadRoutes = (
  * demote or remove another owner, or step down or leave themselves; what no one
  * may do is leave the wedding with no owner (409 `last_owner`, enforced in the
  * writing statement itself).
+ *
+ * Each write that changed a seat then tells the wedding's open tabs
+ * (`signals.membersChanged`). A removal, a leave, and a role change to one
+ * without the dashboard (`member`) also revoke that member's sockets: they
+ * close with 1008 and the tab stops listening. A role change that keeps the
+ * dashboard leaves their sockets open, since a check could only admit them
+ * again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
@@ -209,6 +218,7 @@ export const createOrganiserHostsWriteRoutes = (
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
   ownerNotices?: OwnerNotices,
+  signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
@@ -275,6 +285,7 @@ export const createOrganiserHostsWriteRoutes = (
                   );
 
                 yield* Effect.sync(() => metricHostAdded("ok", host.role));
+                yield* signals.membersChanged(scopedWeddingId, request);
                 // A new owner holds every owner power; the other owners hear of it.
                 if (host.role === "owner") {
                   yield* notifyOwnerChange(db, request, ownerNotices, {
@@ -379,6 +390,15 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRoleChanged("ok", host.role));
+                // Every open tab hears of a real change; the member's own
+                // sockets close for good when the new role loses the dashboard.
+                if (host.previousRole !== host.role) {
+                  yield* signals.membersChanged(
+                    weddingId,
+                    request,
+                    decideCapability(host.role, "member").allowed ? undefined : host.osnProfileId,
+                  );
+                }
                 // An owner moved below owner, the caller's own step-down
                 // included, or a seat moved up to owner: every owner hears of
                 // it, and a demoted owner does too.
@@ -464,6 +484,13 @@ export const createOrganiserHostsWriteRoutes = (
               .pipe(
                 Effect.provideService(DbService, db),
                 Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
+                // Only when a seat went: removing a profile that holds none
+                // changes nobody's access.
+                Effect.tap(({ removed }) =>
+                  removed
+                    ? signals.membersChanged(weddingId, request, params.osnProfileId)
+                    : Effect.void,
+                ),
                 Effect.tap(({ removed }) =>
                   removed?.role === "owner"
                     ? notifyOwnerChange(db, request, ownerNotices, {
@@ -526,6 +553,9 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
+              Effect.tap(({ removed }) =>
+                removed ? signals.membersChanged(weddingId, request, osnProfileId) : Effect.void,
+              ),
               Effect.tap(({ removed }) =>
                 removed?.role === "owner"
                   ? notifyOwnerChange(db, request, ownerNotices, {

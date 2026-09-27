@@ -112,6 +112,7 @@ import type {
 } from "./services/osn-bridge";
 import { cacheAccountResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
+import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
 import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
 import { createUpgradeService } from "./services/upgrades";
@@ -751,6 +752,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     unlockCodeLimiter = defaultUnlockCodeLimiter,
     upgradePrices = {},
     registryLinkPreviewOptions,
+    realtimeHub,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
     // it did before flags existed.
@@ -836,6 +838,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),
   };
+
+  // One publisher for the co-host writes. No hub bound ⇒ every signal is a
+  // counted no-op and the writes behave exactly as they did before push.
+  const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -1034,6 +1040,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
           hostLimiter,
           resolveOsnProfileByHandle,
           ownerNotices,
+          weddingSignals,
         ),
       )
       // Co-host autocomplete, sourced from the caller's OSN connections first
