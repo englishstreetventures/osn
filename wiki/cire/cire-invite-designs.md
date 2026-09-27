@@ -5,7 +5,8 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-26
+  - "[[cire-plus-ones]]"
+last-reviewed: 2026-09-27
 ---
 # Invite design selector
 
@@ -59,16 +60,16 @@ in every layout.
 Before a claim the panel shows the code entry. After it, the greeting, the
 RSVP-by line, and the household's controls in this order:
 
-1. **Pulse account linking** — `PulseAccountLink` inside its own
-   `AuthProvider`, both `lazy()`. Their chunks start downloading when a claim
-   begins (a typed code or the `?code=` deep link) or, when the restore hint is
-   present, at mount beside the session restore — never for a visitor who does
-   not submit a code. `tests/components/LoginSection.lazy.test.tsx` fails if an
-   import turns static, and it and `LoginSection.warm.test.tsx` pin when the
-   download starts. Hidden in host preview, and it renders nothing while
-   linking is off (`cire.account-linking`, [[feature-flags]]).
-2. **Plus-one prompt** — the slot is reserved;
-   `englishstventures/osn#1084` fills it.
+1. **Plus-one prompt** — `PlusOnePrompt`, for a household with a member the
+   couple lets bring a guest or a plus-one already named: name, rename or
+   remove a guest until the RSVP deadline, read-only after it. The pack passes
+   `onPlusOneChange` and applies each change to its claim result; without it
+   there is no prompt. Hidden in host preview. The contract is in
+   [[cire-plus-ones#On the invite]].
+2. **Pulse account linking** — `PulseAccountLink` inside its own
+   `AuthProvider`. Hidden in host preview, and it renders nothing while
+   linking is off (`cire.account-linking`, [[feature-flags]]). It offers no
+   plus-one's seat.
 3. **Sign-out** — "Not {name}? Sign out". The panel itself revokes
    `cire_session` (`POST /api/claim/signout`, see [[cire-auth]]), drops the
    restore hint, resets its form and clears the inline styles the unlock
@@ -78,6 +79,13 @@ RSVP-by line, and the household's controls in this order:
    on a shared device the next household would otherwise find it signed in.
    In preview that session is the organiser's portal sign-in, so it stays.
    The pack's `onSignOut` resets only the pack's own state.
+
+The prompt, the account link and its provider are `lazy()`, each control in its
+own `Suspense`. Their chunks start downloading when a claim begins (a typed code
+or the `?code=` deep link) or, when the restore hint is present, at mount beside
+the session restore — never for a visitor who does not submit a code.
+`tests/components/LoginSection.lazy.test.tsx` fails if an import turns static,
+and it and `LoginSection.warm.test.tsx` pin when the download starts.
 
 The panel also records the restore hint (`noteClaimed`) when a code is
 claimed. The pack keeps the claim result, the reveal choreography

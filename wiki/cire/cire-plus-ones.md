@@ -8,13 +8,14 @@ related:
   - "[[cire-guest-event-editor]]"
   - "[[cire-entitlements]]"
   - "[[dpia/cire-guest-data]]"
+  - "[[cire-invite-designs]]"
 last-reviewed: 2026-09-27
 ---
 # Plus-ones
 
 A guest may bring a plus-one when an editor co-host allows it. The household names the plus-one on the invite, and from then on the plus-one is a guest like any other: they appear in the Respond dialog, reply to their events, and count in every tally.
 
-This page is the contract. The host permission UI, the guest capture on the invite and the host RSVP display build on it.
+This page is the contract, and describes the guest capture on the invite ([[#On the invite]]). The host permission UI and the host RSVP display build on it too.
 
 ---
 
@@ -64,10 +65,10 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 
 | Route | Body | Answer |
 |---|---|---|
-| `PUT /api/plus-one/:guestId` | `{ firstName, lastName? }` | `{ plusOne: { guestId, firstName, lastName, plusOneOf, eventIds }, created }` |
+| `PUT /api/plus-one/:guestId` | `{ firstName, lastName? }` | `{ plusOne: { guestId, firstName, lastName, plusOneOf, eventIds }, created, dietaryCleared }` |
 | `DELETE /api/plus-one/:guestId` | — | `{ removed }` (idempotent) |
 
-`PUT` names the plus-one, or renames the one already named. Refusals, in the order they are checked:
+`PUT` names the plus-one, or renames the one already named. **A rename that changes the name clears the plus-one's dietary answers and consent record** (`dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version`) in the same D1 batch as the name, and answers `dietaryCleared: true`; each reply's status stays. The household may be naming a different person — or a second device, still showing no plus-one, "adds" one over whoever is there — and the answers and the household's attestation were about the person before. The organiser's name correction is a spelling fix and clears nothing. Refusals, in the order they are checked:
 
 | Status | `error` | When |
 |---|---|---|
@@ -88,7 +89,16 @@ Names are trimmed and at most 100 characters each. They may not contain control,
 
 ### The reply
 
-`POST /api/rsvp` stamps a plus-one's rows `consent_source = 'inviter_attested'`: the household typed them, and a plus-one never holds the household's code or sees the invite. **Both write paths refuse dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`) — the invite's, and the organiser's recording route, whose rows the household reads back — until the invite shows wording for the household's attestation and a consent version to go with it — see the inviter-attested variant in [[dpia/cire-guest-data]]. A status-only reply is accepted.
+`POST /api/rsvp` stamps a plus-one's rows `consent_source = 'inviter_attested'`: the household typed them, and a plus-one never holds the household's code or sees the invite. So the household's tick for a plus-one's dietary requirements is not the plus-one's consent but the household's **attestation** that they agreed, in its own words and under its own version:
+
+- The wording and version live together in `@cire/dietary` as `PLUS_ONE_DIETARY_ATTESTATION` (`cire/dietary/src/attestation.ts`), which both the invite and the API read. `cire/dietary/tests/attestation.test.ts` pins the two together.
+- Each reply may carry `dietaryAttestation`: the version of the words the sheet showed. A plus-one's dietary data is stored only when it equals the constant the API stamps; anything else — no attestation, or words from another build of the invite — answers `422 plus_one_dietary_unavailable`. The guest site and the API deploy separately, so this is what keeps a copy change from being stamped with a version whose words were not on screen. The general consent gate (`dietaryConsent`) runs first.
+- The row is stamped with the attestation's version (`dietaryConsentVersionFor` in `cire/api/src/services/rsvp.ts`), never the guest's own-consent `DIETARY_CONSENT_VERSION`.
+- A status-only reply needs no attestation.
+
+**The organiser's recording route still refuses dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`). Its rows are stamped with the guest's own-consent version, not a version of the words the organiser ticks, so for a person whose data comes from someone else they would store evidence naming copy nobody saw. See the inviter-attested variant in [[dpia/cire-guest-data]].
+
+**"Current" consent** — the boolean the invite seeds its boxes from (`dietaryConsentCurrent`) — means the record was made by the writer the box speaks for, against the words it shows now (`isDietaryConsentCurrent`): a member's row counts only as `guest` with `DIETARY_CONSENT_VERSION`, a plus-one's only as `inviter_attested` with the attestation's version. An organiser's recording never opens either box ticked. The claim payload and the RSVP read-back both answer through it.
 
 The couple sees a plus-one's change the way they see any edited reply: in the RSVP table and the guest list. There is no separate notice.
 
@@ -107,6 +117,22 @@ The couple sees a plus-one's change the way they see any edited reply: in the RS
 A named plus-one is a guest row with invitations, so every read that counts guests counts them: the per-event tallies behind `GET …/rsvps` (`invited` once named, `attending` once they say so), the household guest counts, and the guest cap. Permission alone creates no row and counts toward nothing.
 
 `weddings.guest_count_estimate` is a number the organiser types in Settings; nothing derives it, so a plus-one does not move it.
+
+---
+
+## On the invite
+
+The claim and welcome panel (`LoginSection`, [[cire-invite-designs]]) carries the household's plus-one prompt, `PlusOnePrompt`, in both design packs. It is its own lazy chunk, warmed with the account link and rendered only for a household with a permitted member or a named plus-one, never in host preview.
+
+- **Naming.** Each permitted member gets a first and last name form (100 characters each, as the API allows). In a household each form is labelled "Ana's guest"; a guest on their own is spoken to directly.
+- **A named plus-one** shows with "Change name" and "Remove". Removing asks first, naming the person, since their replies go too. A rename over dietary answers warns that it clears them, and says when it did. An "add" answered `created: false` (another device named someone first) says so and shows the name that stands.
+- **The deadline.** Past the RSVP deadline the prompt shows named plus-ones without controls and offers nothing else, like the rest of the invite.
+- **Art. 14.** The prompt asks the household to share the privacy notice with their guest, who never sees the invite; the notice (`cire/invites/src/pages/privacy.astro`) has a section for a person a guest brings — where their details came from, the basis for each, and how to correct, withdraw or delete them without a code.
+- **State.** The prompt makes the request and hands the page an update (`onPlusOneChange`); the pack applies it to its claim result, so the Respond dialog, the greeting and every card read the one copy. The pure updates are in `cire/invites/src/components/plus-one.ts`.
+- **The Respond dialog** lists a plus-one after the member who brought them, labelled as their guest. Their dietary answers sit behind a second box — the attestation, naming only the plus-ones it covers — apart from the household's own consent box. Each box opens ticked only when every person it covers has a current record for that box.
+- **The greeting** counts the members the couple invited: a guest on their own who names a plus-one is still greeted by name.
+- **Completeness.** `hasHouseholdResponded` (the Respond button's tick) and the sheet's celebration leave plus-ones out, so naming a guest after answering never takes a tick back. The prompt says plainly while a named guest still has an event unanswered.
+- **Account linking** does not offer a plus-one's seat: it asks "Which guest are you?" of people holding the code. A plus-one seat that is already linked stays listed so its Unlink is reachable. The API still accepts such a link from the household.
 
 ---
 
@@ -142,7 +168,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | `cire.plus_one.changed` | `action`: `added` \| `renamed` \| `removed`; `actor`: `guest` \| `organiser` |
 | `cire.plus_one.blocked` | `reason`: `preview` \| `deadline` \| `not_allowed` \| `capacity` |
 | `cire.plus_one.permission.set` | `scope`: `guest` \| `household`; `allowed`: `on` \| `off` |
-| `cire.rsvp.blocked` | gains `reason = plus_one_dietary` |
+| `cire.rsvp.blocked` | gains `reason = plus_one_dietary`: a plus-one's dietary data without the current attestation |
 
 `cire.rsvp.upserted` counts a plus-one's reply as a `guest` write. Spans: `cire.plus_one.save`, `.remove`, `.renameAsOrganiser`, `.setGuestPermission`, `.setHouseholdPermission`. No log line carries a name.
 
@@ -160,3 +186,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Reads | `cire/api/src/services/claim.ts`, `cire/api/src/services/rsvp-export.ts` |
 | Pipeline | `cire/api/src/services/import.ts`, `state-export.ts`, `revert.ts` |
 | Editor draft | `cire/host/src/lib/guest-event-draft.ts` |
+| Attestation wording and version | `cire/dietary/src/attestation.ts` |
+| Consent version and "current" | `cire/api/src/services/rsvp.ts` (`dietaryConsentVersionFor`, `isDietaryConsentCurrent`) |
+| Guest capture | `cire/invites/src/components/PlusOnePrompt.tsx`, `plus-one.ts`, `LoginSection.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Privacy notice | `cire/invites/src/pages/privacy.astro` |
