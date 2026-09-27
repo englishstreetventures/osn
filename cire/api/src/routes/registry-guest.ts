@@ -29,8 +29,9 @@ const manualParse = { parse: () => ({}) };
  *
  * Unknown slug, wedding without the `registry` entitlement, registry never
  * opened, registry unpublished, a household of ANOTHER wedding, an image name
- * that doesn't match the registry prefix, an object missing from R2 — all of
- * them, on every route here, produce this exact body. The image route is
+ * that doesn't match the registry prefix, an image no gift on the list names,
+ * an object missing from R2 — all of them, on every route here, produce this
+ * exact body. The image route is
  * genuinely public, and the rest are reachable by anyone holding any valid
  * `cire_session`; an answer that told these apart would let either enumerate
  * which weddings exist and which of them are quietly drafting a gift list.
