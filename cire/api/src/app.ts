@@ -270,6 +270,12 @@ const defaultOidcSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs:
  */
 const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 
+/**
+ * The organiser portal's production origin. What an organiser link falls back
+ * to when a tier's `WEB_ORIGIN` names no organiser origin (its second entry).
+ */
+export const DEFAULT_ORGANISER_ORIGIN = "https://host.cireweddings.com";
+
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
@@ -523,7 +529,7 @@ export interface AppOptions {
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
-    organiserOrigin = "https://host.cireweddings.com",
+    organiserOrigin = DEFAULT_ORGANISER_ORIGIN,
     vendorPortalOrigin = "https://vendor.cireweddings.com",
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
