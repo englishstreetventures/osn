@@ -60,7 +60,7 @@ describe("_headers", () => {
       ["style-src-attr", "'unsafe-inline'"],
       ["font-src", "'self'"],
       ["img-src", "'self'", "data:", "blob:", "https://api.cireweddings.com", "https:"],
-      ["connect-src", "'self'", "https://api.cireweddings.com"],
+      ["connect-src", "'self'", "https://api.cireweddings.com", "wss://api.cireweddings.com"],
       ["frame-src", "'none'"],
       ["worker-src", "'none'"],
       ["frame-ancestors", "'none'"],
@@ -89,9 +89,11 @@ describe("_headers", () => {
     expect(csp).not.toContain("'unsafe-eval'");
   });
 
-  it("allowlists cire-api and nothing else for fetches", () => {
+  it("allowlists cire-api, over https and wss, and nothing else for fetches", () => {
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("connect-src 'self' https://api.cireweddings.com;");
+    expect(csp).toContain(
+      "connect-src 'self' https://api.cireweddings.com wss://api.cireweddings.com;",
+    );
     // Sign-in is a top-level redirect to musubi, not a fetch — the OSN origin
     // must stay out of the policy.
     expect(csp).not.toContain("musubi.social");

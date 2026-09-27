@@ -82,6 +82,28 @@ describe("retargetHeaders", () => {
       expect(() => retargetHeaders(HEADERS, bad)).toThrow(/cire-api URL/);
     }
   });
+
+  const SOCKET_HEADERS = HEADERS.replace(
+    `connect-src 'self' ${PRODUCTION_API_ORIGIN};`,
+    `connect-src 'self' ${PRODUCTION_API_ORIGIN} wss://api.cireweddings.com;`,
+  );
+
+  it("points the socket source at the tier's API as well", () => {
+    expect(retargetHeaders(SOCKET_HEADERS, "https://api.dev.cireweddings.com")).toContain(
+      "connect-src 'self' https://api.dev.cireweddings.com wss://api.dev.cireweddings.com;",
+    );
+    expect(retargetHeaders(SOCKET_HEADERS, "http://localhost:8787")).toContain(
+      "connect-src 'self' http://localhost:8787 ws://localhost:8787;",
+    );
+    expect(retargetHeaders(SOCKET_HEADERS, PRODUCTION_API_ORIGIN)).toBe(SOCKET_HEADERS);
+  });
+
+  it("does not touch a socket host that merely starts with the production origin", () => {
+    const lookalike = `${SOCKET_HEADERS}# wss://api.cireweddings.com.example wss://api.cireweddings.community\n`;
+    const dev = retargetHeaders(lookalike, "https://api.dev.cireweddings.com");
+    expect(dev).toContain("wss://api.cireweddings.com.example");
+    expect(dev).toContain("wss://api.cireweddings.community");
+  });
 });
 
 describe("the build hooks", () => {

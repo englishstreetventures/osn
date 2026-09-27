@@ -144,6 +144,22 @@ vi.mock("../../src/components/PreviewInviteButton", () => ({
 vi.mock("../../src/components/SecurityPanel", () => ({
   default: () => <div data-testid="security-panel">passkeys</div>,
 }));
+// The Dashboard's subscription, captured rather than opened: a unit test drives
+// the signal by hand. The browser tier (`OrganiserApp.realtime.browser.test.tsx`)
+// runs the real socket.
+const topic = vi.hoisted(() => ({
+  url: null as null | (() => string | null | undefined),
+  onSignal: null as null | ((event: { reason: string }) => void),
+}));
+vi.mock("@shared/realtime/solid", () => ({
+  useTopic: (
+    url: () => string | null | undefined,
+    onSignal: (event: { reason: string }) => void,
+  ) => {
+    topic.url = url;
+    topic.onSignal = onSignal;
+  },
+}));
 
 import OrganiserApp from "../../src/components/OrganiserApp";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
@@ -195,6 +211,8 @@ describe("OrganiserApp Dashboard", () => {
     cleanup();
     resetOrganiserMocks();
     vi.unstubAllGlobals();
+    topic.url = null;
+    topic.onSignal = null;
     // The dashboard mirrors its state into the URL hash — reset it so one test's
     // deep link doesn't seed the next.
     history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -560,6 +578,59 @@ describe("OrganiserApp Dashboard", () => {
   const LIST_URL = "https://api.test/api/organiser/weddings";
   const listCalls = () => authFetchMock.mock.calls.filter(([url]) => url === LIST_URL).length;
   const shell = () => screen.getByTestId("module-shell");
+
+  it("listens on the open wedding's topic, and on nothing from the list", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(topic.url?.()).toMatch(/\/realtime\/cire%3Awedding%3Awed_a$/);
+
+    fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
+    expect(topic.url?.()).toBeNull();
+  });
+
+  it("does not listen for a helper, whose seat holds no rows", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "helper" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    expect(topic.url?.()).toBeNull();
+  });
+
+  it("re-reads the list on a signal and drops a wedding the organiser was removed from", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let removed = false;
+    authFetchMock.mockImplementation(async () =>
+      listResponse(removed ? [] : [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(listCalls()).toBe(1);
+
+    removed = true;
+    topic.onSignal?.({ reason: "message" });
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(listCalls()).toBe(2);
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("re-reads at once on a signal, inside the once-a-minute window", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    topic.onSignal?.({ reason: "reconnected" });
+    await waitFor(() => expect(listCalls()).toBe(2));
+  });
 
   it("drops the rows of a wedding the organiser leaves, from a deep link onward", async () => {
     history.replaceState(null, "", "#/w/wed_a");
