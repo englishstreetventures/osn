@@ -531,6 +531,17 @@ describe("plusOneService — a removal the organiser was not shown", () => {
     expect(confirmedIn(bo.familyId)).toHaveLength(2);
   });
 
+  it("counts a list entry with a missing field as confirming no one", async () => {
+    // The body schema refuses such an entry; this pins that the SQL fails closed
+    // on its own too, since `NOT IN` against a NULL would read as "confirmed".
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    const broken = { guestId: samId, firstName: "Sam", lastName: null as unknown as string };
+
+    expect(await failureOf(off(bo.id, [broken]))).toEqual({ _tag: "PlusOneNamed", named: 1 });
+    expect(plusOnesOf(bo.id)).toHaveLength(1);
+  });
+
   it("goes ahead when a confirmed plus-one was already taken back, removing the rest", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });

@@ -319,6 +319,13 @@ function plusOnesIn(
  * name, same last name, compared exactly — and so true when none is named.
  * Uncorrelated, so a statement evaluates it once, against the state its batch
  * sees. The list rides as ONE bound parameter (`json_each`), however long.
+ *
+ * The list test is a row-value `IN` over a subquery that reads nothing from the
+ * plus-one row, so SQLite parses the list once per statement into a temporary
+ * index; a test that referred to the row would parse it again for every
+ * plus-one in scope. `IS NOT 1` rather than `NOT IN`: a list entry with a NULL
+ * field turns `NOT IN` into NULL, which a WHERE reads as "confirmed", while
+ * `IS NOT 1` still counts that plus-one as unconfirmed.
  */
 function everyPlusOneConfirmed(
   db: Db,
@@ -329,12 +336,12 @@ function everyPlusOneConfirmed(
   const list = JSON.stringify(
     confirmed.map(({ guestId, firstName, lastName }) => ({ guestId, firstName, lastName })),
   );
-  const onList = sql`EXISTS (SELECT 1 FROM json_each(${list}) AS confirmed WHERE json_extract(confirmed.value, '$.guestId') = ${plusOne.id} AND json_extract(confirmed.value, '$.firstName') = ${plusOne.firstName} AND json_extract(confirmed.value, '$.lastName') = ${plusOne.lastName})`;
+  const onList = sql`(${plusOne.id}, ${plusOne.firstName}, ${plusOne.lastName}) IN (SELECT json_extract(value, '$.guestId'), json_extract(value, '$.firstName'), json_extract(value, '$.lastName') FROM json_each(${list}))`;
   return notExists(
     db
       .select({ one: sql`1` })
       .from(plusOne)
-      .where(and(plusOnesIn(plusOne, scope), sql`NOT ${onList}`)),
+      .where(and(plusOnesIn(plusOne, scope), sql`(${onList}) IS NOT 1`)),
   );
 }
 
