@@ -4,50 +4,54 @@
     "number": 1260,
     "branch": "feat/realtime-phase2",
     "base_sha": "8c1bc36c38cf38d9160bfcb246bc5689f5aa92e4",
-    "head_sha": "8d1b8871403338147fa35eed1ebfcc56647b2106",
-    "generated_at": "2026-09-27T09:03:06.914Z",
+    "head_sha": "7a35f0461a4190fb688d158f9ed753401cf11fdb",
+    "generated_at": "2026-09-27T09:03:43.853Z",
     "merged_at": null,
     "phase": "at-open"
   },
   "issue": {
-    "number": null,
-    "type": null,
-    "labels": []
+    "number": 1249,
+    "type": "Feature",
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 5,
+    "method": "unconfirmed"
   },
   "window": {
-    "sessions": 16,
+    "sessions": 17,
     "first_ts": "2026-09-27T04:39:45.522Z",
-    "last_ts": "2026-09-27T09:03:02.442Z",
-    "span_seconds": 15797,
-    "active_seconds": 14322,
+    "last_ts": "2026-09-27T09:03:42.027Z",
+    "span_seconds": 15837,
+    "active_seconds": 14383,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 113.66489475000003,
+    "usd_equivalent": 114.97187100000005,
     "tokens": {
-      "input": 2401,
-      "output": 49208,
+      "input": 2423,
+      "output": 50465,
       "thinking": 230,
-      "cache_write_5m": 7976200,
+      "cache_write_5m": 7989564,
       "cache_write_1h": 0,
-      "cache_read": 186320603
+      "cache_read": 189287443
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 79,
-          "output": 22682,
+          "input": 89,
+          "output": 23877,
           "thinking": 0,
-          "cache_write_5m": 166971,
+          "cache_write_5m": 175224,
           "cache_write_1h": 0,
-          "cache_read": 1618280
+          "cache_read": 1737190
         },
-        "usd_equivalent": 2.42015375,
-        "messages": 49
+        "usd_equivalent": 2.561115,
+        "messages": 54
       },
       "<synthetic>": {
         "tokens": {
@@ -63,15 +67,15 @@
       },
       "claude-opus-5-5": {
         "tokens": {
-          "input": 2152,
-          "output": 25494,
+          "input": 2164,
+          "output": 25556,
           "thinking": 230,
-          "cache_write_5m": 7457787,
+          "cache_write_5m": 7462898,
           "cache_write_1h": 0,
-          "cache_read": 178037942
+          "cache_read": 180885872
         },
-        "usd_equivalent": 109.02259980000008,
-        "messages": 1076
+        "usd_equivalent": 110.18861480000007,
+        "messages": 1082
       },
       "claude-sonnet-5": {
         "tokens": {
@@ -89,33 +93,33 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 79,
-          "output": 22682,
+          "input": 89,
+          "output": 23877,
           "thinking": 0,
-          "cache_write_5m": 166971,
+          "cache_write_5m": 175224,
           "cache_write_1h": 0,
-          "cache_read": 1618280
+          "cache_read": 1737190
         },
-        "usd_equivalent": 2.42015375,
-        "messages": 58
+        "usd_equivalent": 2.561115,
+        "messages": 63
       },
       "subagent": {
         "tokens": {
-          "input": 2322,
-          "output": 26526,
+          "input": 2334,
+          "output": 26588,
           "thinking": 230,
-          "cache_write_5m": 7809229,
+          "cache_write_5m": 7814340,
           "cache_write_1h": 0,
-          "cache_read": 184702323
+          "cache_read": 187550253
         },
-        "usd_equivalent": 111.24474100000003,
-        "messages": 1163
+        "usd_equivalent": 112.41075600000002,
+        "messages": 1169
       }
     },
     "effort": {
       "medium": 258,
       "high": 52,
-      "xhigh": 851
+      "xhigh": 857
     },
     "unpriced_models": []
   },
@@ -124,7 +128,7 @@
       "generated": 4,
       "test": 31,
       "docs": 15,
-      "config": 9,
+      "config": 10,
       "source": 33
     },
     "loc": {
@@ -141,7 +145,7 @@
         "deleted": 33
       },
       "config": {
-        "added": 522,
+        "added": 723,
         "deleted": 11
       },
       "source": {
@@ -155,7 +159,7 @@
       "shared/realtime"
     ],
     "touches_migration": false,
-    "commits": 43
+    "commits": 44
   },
   "interaction": {
     "user_turns": 0,
@@ -163,16 +167,16 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 942,
-      "Read": 170,
+      "Bash": 949,
+      "Read": 171,
       "Edit": 156,
       "Write": 40,
       "Agent": 21,
       "SubagentHandback": 20,
-      "Grep": 13,
+      "Grep": 14,
       "Skill": 12,
       "Monitor": 10,
-      "StructuredOutput": 6,
+      "StructuredOutput": 7,
       "TaskStop": 5,
       "Glob": 2,
       "ToolSearch": 1
