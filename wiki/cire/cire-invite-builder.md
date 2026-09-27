@@ -589,7 +589,9 @@ save and a later edit.
 
 The sweep is much narrower: it marks the **crossing** into a complete response,
 so it plays at most once per household per event. `RsvpModal.handleSubmit`
-compares `nowComplete` (every invited member answered in the form) against
+compares `nowComplete` (every member the couple invited answered in the form —
+a plus-one's answer is not waited for, as `hasHouseholdResponded` does not wait
+for it; see [[cire-plus-ones#On the invite]]) against
 `wasComplete` (`hasHouseholdResponded` over the rows as they stood when the
 sheet opened) and cues `onConfirmed` only when the two differ. An edit to an
 already-complete reply therefore gets the toast alone — animating a transition

@@ -945,6 +945,74 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "a plus-one's attested reply reads back current over D1, and a household rename clears it",
+    async () => {
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      const named = await run(
+        plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" }),
+      );
+      const samId = named.plusOne.guestId;
+      const dietary = { dietary: "", dietaryPresets: ["nuts"] as const, dietaryConsent: true };
+
+      // The read-back rides as the trailing statement of the real batch, cast
+      // to its row type: the join columns it reads to answer "current" must
+      // not leak into what the invite receives.
+      const rows = await run(
+        rsvpService.submitRsvpsAndList(
+          [
+            {
+              guestId: samId,
+              eventId: EVENT_A,
+              status: "attending",
+              ...dietary,
+              consentSource: "inviter_attested",
+            },
+            {
+              guestId: GUEST_2,
+              eventId: EVENT_A,
+              status: "attending",
+              ...dietary,
+              consentSource: "organiser_attested",
+            },
+          ],
+          FAMILY_ID,
+        ),
+      );
+      const sam = rows.find((r) => r.guestId === samId);
+      expect(sam?.dietaryConsentCurrent).toBe(true);
+      expect(rows.find((r) => r.guestId === GUEST_2)?.dietaryConsentCurrent).toBe(false);
+      expect(Object.keys(sam ?? {}).toSorted()).toEqual(
+        [
+          "dietary",
+          "dietaryConsentCurrent",
+          "dietaryPresets",
+          "eventId",
+          "guestId",
+          "status",
+        ].toSorted(),
+      );
+
+      // Renamed by the household: the old person's answers and the
+      // attestation go in the same batch as the name.
+      const renamed = await run(
+        plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Alex", lastName: "" }),
+      );
+      expect(renamed).toMatchObject({ created: false, dietaryCleared: true });
+      const [stored] = await db.select().from(rsvps).where(eq(rsvps.guestId, samId));
+      expect(stored).toMatchObject({
+        status: "attending",
+        dietary: "",
+        dietaryPresets: "",
+        dietaryConsentVersion: null,
+        dietaryConsentAt: null,
+      });
+      const [guest] = await db.select().from(guests).where(eq(guests.id, samId));
+      expect(guest?.firstName).toBe("Alex");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "the retention sweep counts a plus-one once, cascade or not",
     async () => {
       await db

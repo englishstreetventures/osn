@@ -10,6 +10,7 @@ import {
   weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -848,6 +849,54 @@ describe("plus-ones in the claim payload and the organiser guest read", () => {
       plusOneAllowed: true,
       plusOneOf: null,
     });
+  });
+
+  /**
+   * "Current" decides whether a consent box may open already ticked, so it has
+   * to mean "this row's record was made by the person that box speaks for,
+   * against the words it shows now". A member's own box is the guest's; a
+   * plus-one's is the household's attestation. A record anyone else made — an
+   * organiser's phone reply above all — never pre-ticks either.
+   */
+  it("counts a reply's consent as current only against the copy its box shows", async () => {
+    const { db, bo, samId, run } = setUp();
+    const events = eventIdsOf(db, bo.id);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    const [first, second] = events as [string, string];
+    const reply = (
+      guestId: string,
+      eventId: string,
+      consentSource: "guest" | "organiser_attested" | "inviter_attested",
+      version: string,
+    ) =>
+      db
+        .insert(rsvps)
+        .values({
+          id: crypto.randomUUID(),
+          guestId,
+          eventId,
+          status: "attending",
+          dietary: "",
+          dietaryPresets: "nuts",
+          consentSource,
+          dietaryConsentAt: new Date(),
+          dietaryConsentVersion: version,
+          createdAt: new Date(),
+        })
+        .run();
+    reply(bo.id, first, "guest", DIETARY_CONSENT_VERSION);
+    reply(bo.id, second, "organiser_attested", DIETARY_CONSENT_VERSION);
+    reply(samId, first, "inviter_attested", PLUS_ONE_DIETARY_ATTESTATION.version);
+    reply(samId, second, "inviter_attested", DIETARY_CONSENT_VERSION);
+
+    const claim = await run(claimService.lookup("TESTTWO-OAK-BB22"));
+    const current = (guestId: string, eventId: string) =>
+      claim.rsvps.find((r) => r.guestId === guestId && r.eventId === eventId)
+        ?.dietaryConsentCurrent;
+    expect(current(bo.id, first)).toBe(true);
+    expect(current(bo.id, second)).toBe(false);
+    expect(current(samId, first)).toBe(true);
+    expect(current(samId, second)).toBe(false);
   });
 
   it("carries both fields on every organiser guest row", async () => {
