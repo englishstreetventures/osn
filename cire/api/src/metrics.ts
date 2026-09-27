@@ -19,6 +19,7 @@
  * cardinality contract and makes the call-sites permanent.
  */
 
+import type { RsvpChangeKind } from "@cire/db";
 import type { DietaryPreset } from "@cire/dietary";
 import {
   BYTE_BUCKETS,
@@ -70,6 +71,12 @@ export const CIRE_METRICS = {
   rsvpBatchSize: "cire.rsvp.batch.size",
   // Guest RSVP submits refused before any write.
   rsvpBlocked: "cire.rsvp.blocked",
+  // Guest-side RSVP changes written to the change log, by kind.
+  rsvpChangeRecorded: "cire.rsvp_change.recorded",
+  // Scheduled change-log purge (cron) — rows past the 90-day window.
+  rsvpChangeSwept: "cire.rsvp_change.swept",
+  // Daily RSVP digest emails (cron), by outcome.
+  rsvpDigestEmails: "cire.rsvp_digest.emails",
   dietaryPreset: "cire.rsvp.dietary_preset.selected",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
@@ -312,6 +319,16 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  passed; `preview` = the organiser's host-preview family, which never writes. */
 export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
+type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
+type RsvpChangeSweptAttrs = { result: "ok" | "error" };
+/**
+ * What happened to one digest recipient in one run. `no_address` — osn-api
+ * answered and had no address for them; `lookup_failed` — osn-api did not
+ * answer, so nobody was mailed; `deferred` — past the per-run cap, carried to
+ * the next run.
+ */
+export type RsvpDigestOutcome = "sent" | "failed" | "no_address" | "lookup_failed" | "deferred";
+type RsvpDigestEmailsAttrs = { outcome: RsvpDigestOutcome };
 /** The preset key itself — a closed sixteen-value union, so the cardinality
  *  ceiling is the vocabulary and cannot grow with traffic. */
 type DietaryPresetAttrs = { preset: DietaryPreset };
@@ -589,6 +606,25 @@ const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
   unit: "{rsvp}",
 });
 
+const rsvpChangeRecorded = createCounter<RsvpChangeRecordedAttrs>({
+  name: CIRE_METRICS.rsvpChangeRecorded,
+  description: "Guest-side RSVP changes written to the change log, by kind",
+  unit: "{change}",
+});
+
+const rsvpChangeSwept = createCounter<RsvpChangeSweptAttrs>({
+  name: CIRE_METRICS.rsvpChangeSwept,
+  description:
+    "RSVP change-log rows deleted by the scheduled 90-day purge — increment is the row count",
+  unit: "{change}",
+});
+
+const rsvpDigestEmails = createCounter<RsvpDigestEmailsAttrs>({
+  name: CIRE_METRICS.rsvpDigestEmails,
+  description: "Daily RSVP digest recipients handled by the cron, by outcome",
+  unit: "{email}",
+});
+
 const dietaryPreset = createCounter<DietaryPresetAttrs>({
   name: CIRE_METRICS.dietaryPreset,
   description:
@@ -842,6 +878,18 @@ export const metricRsvpUpserted = (
 ): void => rsvpUpserted.inc({ status, source, result });
 
 export const metricRsvpBlocked = (reason: RsvpBlockedReason): void => rsvpBlocked.inc({ reason });
+
+/** One guest-side RSVP change written to the change log. */
+export const metricRsvpChangeRecorded = (kind: RsvpChangeKind): void =>
+  rsvpChangeRecorded.inc({ kind });
+
+/** Same shape as `metricVendorClaimsSwept`, for the change-log purge. */
+export const metricRsvpChangeSwept = (result: "ok" | "error", count = 1): void =>
+  rsvpChangeSwept.add(count, { result });
+
+/** `count` digest recipients reached `outcome` in one run. */
+export const metricRsvpDigestEmails = (outcome: RsvpDigestOutcome, count = 1): void =>
+  rsvpDigestEmails.add(count, { outcome });
 
 export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
   registryItemWrite.inc({ action });

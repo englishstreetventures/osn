@@ -9,6 +9,7 @@ import { DbService, dbQuery, commitGroupedBatches, commitGroupedBatchesReturning
 import { metricRsvpUpserted } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
+import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
 
 /** RSVP consent provenance = who recorded the row AND on whose consent
  *  authority the dietary free-text is held (migration 0037). `guest` — the
@@ -215,25 +216,29 @@ export const rsvpService = {
    * Same `now`/chunking/atomicity trade as `submitRsvps` — see its doc
    * comment. An empty `inputs` list still runs the read-back and returns
    * the family's current rows (an empty upsert set is a legal chunk).
+   *
+   * `changeLog`, when given, writes the household's RSVP changes as one
+   * statement after the upserts and before the read-back, stamped with the
+   * same `now`. Up to 49 pairs that is the replies' own batch; past that the
+   * upserts fill earlier batches and the change row rides the last, so a
+   * failure there loses the log entry, never invents one for a reply that did
+   * not land.
    */
   submitRsvpsAndList(
     inputs: readonly RsvpInput[],
     familyId: string,
+    changeLog?: { weddingId: string; changes: readonly RsvpChangeInput[] },
   ): Effect.Effect<RsvpRecord[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
       const now = new Date();
-      const statements = buildRsvpUpsertStatements(db, inputs, now);
+      const groups = buildRsvpUpsertStatements(db, inputs, now).map((s) => [s]);
+      const record = changeLog ? buildRecordStatement(db, { ...changeLog, familyId }, now) : null;
+      if (record) groups.push([record]);
       const tail = buildFamilyRsvpsQuery(db, familyId) as ReturningTail<RsvpRow>;
 
-      const rows = yield* dbQuery(() =>
-        commitGroupedBatchesReturning<RsvpRow>(
-          db,
-          statements.map((s) => [s]),
-          tail,
-        ),
-      );
+      const rows = yield* dbQuery(() => commitGroupedBatchesReturning<RsvpRow>(db, groups, tail));
 
       for (const input of inputs) {
         const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
