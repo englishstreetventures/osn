@@ -18,6 +18,7 @@ import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
 import { originGuard } from "./lib/origin-guard";
 import { createOwnerNotices } from "./lib/owner-notice-email";
+import type { OsnAuthOptions } from "./middleware/osn-auth";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
@@ -657,6 +658,21 @@ function originOf(url: string): string[] {
   }
 }
 
+/**
+ * How every organiser surface authenticates — the Elysia routes and the
+ * realtime subscribe route alike. The defaults are the local issuer, matching
+ * osn-api's own local defaults (`osn/api/src/build-deps.ts`).
+ */
+export function organiserAuthOptions(db: Db, options: AppOptions): OsnAuthOptions {
+  return {
+    jwksUrl: options.osnJwksUrl ?? "http://localhost:4000/.well-known/jwks.json",
+    issuer: options.osnIssuerUrl ?? "http://localhost:4000",
+    audience: options.osnAudience ?? "osn-access",
+    _testKey: options.osnTestKey,
+    db,
+  };
+}
+
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
@@ -682,11 +698,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
     r2,
     assets,
     images,
-    osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
-    // Matches osn-api's own local default (`osn/api/src/build-deps.ts`).
-    osnIssuerUrl = "http://localhost:4000",
-    osnAudience = "osn-access",
-    osnTestKey,
     oidc = null,
     oidcStartLimiter = defaultOidcStartLimiter,
     oidcSessionLimiter = defaultOidcSessionLimiter,
@@ -793,13 +804,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // `db` turns on the organiser session cookie path in `osnAuth` — the way every
   // browser authenticates now that the passkey ceremony lives on musubi.social.
-  const osnAuthOptions = {
-    jwksUrl: osnJwksUrl,
-    issuer: osnIssuerUrl,
-    audience: osnAudience,
-    _testKey: osnTestKey,
-    db,
-  };
+  const osnAuthOptions = organiserAuthOptions(db, options);
+  const osnIssuerUrl = osnAuthOptions.issuer;
 
   // What decides whether a household is offered account linking. The claim and
   // restore responses report it, and a link can only complete with a resolver.
