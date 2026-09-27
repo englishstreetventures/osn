@@ -18,9 +18,13 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
+import type { OsnOrganiserEmailLookup } from "../../src/services/osn-bridge";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import {
+  buildCandidateQuery,
+  chooseRecipients,
   RSVP_DIGEST_LOOKBACK_MS,
+  RSVP_DIGEST_MAX_EMAILS_PER_RUN,
   rsvpDigestService,
   type RsvpDigestResult,
 } from "../../src/services/rsvp-digest";
@@ -107,9 +111,12 @@ function transport(failFor: readonly string[] = []) {
 
 function lookupOf(addresses: Record<string, string>) {
   const calls: string[][] = [];
-  const lookup = async (ids: readonly string[]) => {
+  const lookup: OsnOrganiserEmailLookup = async (ids) => {
     calls.push([...ids]);
-    return new Map(ids.flatMap((id) => (addresses[id] ? [[id, addresses[id]] as const] : [])));
+    return {
+      answered: true,
+      emails: new Map(ids.flatMap((id) => (addresses[id] ? [[id, addresses[id]] as const] : []))),
+    };
   };
   return { lookup, calls };
 }
@@ -117,7 +124,7 @@ function lookupOf(addresses: Record<string, string>) {
 async function run(
   db: TestDb,
   layer: Layer.Layer<EmailService>,
-  lookup: (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>,
+  lookup: OsnOrganiserEmailLookup,
   opts: { maxEmails?: number; now?: Date } = {},
 ): Promise<RsvpDigestResult> {
   return Effect.runPromise(
@@ -128,6 +135,8 @@ async function run(
 }
 
 const recipients = (sent: readonly SendEmailInput[]) => sent.map((s) => s.to).toSorted();
+
+const unanswered: OsnOrganiserEmailLookup = async () => ({ answered: false, emails: new Map() });
 
 describe("rsvpDigestService.sendDailyDigests", () => {
   it("mails the owner and every editor, legacy host seats included, and no viewer or helper", async () => {
@@ -217,11 +226,11 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(recipients(sent)).toEqual(["legacy@example.test", "owner@example.test"]);
   });
 
-  it("sends and marks nothing when osn-api answers with no addresses at all", async () => {
+  it("sends and marks nothing when osn-api does not answer", async () => {
     const { db, ada } = fixture();
     change(db, ada, "reply_new");
     const down = transport();
-    const result = await run(db, down.layer, async () => new Map());
+    const result = await run(db, down.layer, unanswered);
     expect(down.sent).toEqual([]);
     expect(result).toEqual({ sent: 0, failed: 0, noAddress: 0, lookupFailed: 3, deferred: 0 });
     expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
@@ -229,6 +238,17 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     const up = transport();
     await run(db, up.layer, lookupOf(ADDRESSES).lookup);
     expect(up.sent).toHaveLength(3);
+  });
+
+  it("moves every marker when osn-api answers with no address for anyone", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const result = await run(db, transport().layer, lookupOf({}).lookup);
+    expect(result).toEqual({ sent: 0, failed: 0, noAddress: 3, lookupFailed: 0, deferred: 0 });
+    // Nobody is behind any more, so the next run asks osn-api nothing.
+    const { lookup, calls } = lookupOf(ADDRESSES);
+    await run(db, transport().layer, lookup);
+    expect(calls).toEqual([]);
   });
 
   it("treats a lookup that throws as osn-api being down", async () => {
@@ -330,7 +350,7 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(mid.no_address - before.no_address).toBe(1);
     // Then osn-api down, with a cap of one: one looked up and failed, none deferred.
     change(db, ada, "reply_edited");
-    await run(db, transport().layer, async () => new Map(), { maxEmails: 1 });
+    await run(db, transport().layer, unanswered, { maxEmails: 1 });
     const after = await counts();
     expect(after.lookup_failed - mid.lookup_failed).toBe(1);
     expect(after.deferred - mid.deferred).toBe(2);
@@ -422,5 +442,156 @@ describe("rsvpDigestService.sendDailyDigests", () => {
       .where(eq(hostRsvpNotices.osnProfileId, EDITOR))
       .all();
     expect(notice?.enabled).toBe(false);
+  });
+
+  it("sends through the transport's batch call when it has one, and marks nothing if it fails", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const batches: SendEmailInput[][] = [];
+    let fail = true;
+    const batchLayer = Layer.succeed(EmailService, {
+      send: () => Effect.die("a batch-capable transport is sent one batch"),
+      sendBatch: (inputs: readonly SendEmailInput[]) =>
+        fail
+          ? Effect.fail(new EmailError({ reason: "dispatch_failed" }))
+          : Effect.sync(() => void batches.push([...inputs])),
+    });
+    const failed = await run(db, batchLayer, lookupOf(ADDRESSES).lookup);
+    expect(failed).toEqual({ sent: 0, failed: 3, noAddress: 0, lookupFailed: 0, deferred: 0 });
+    expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
+
+    fail = false;
+    const sent = await run(db, batchLayer, lookupOf(ADDRESSES).lookup);
+    expect(sent.sent).toBe(3);
+    expect(batches).toHaveLength(1);
+    expect(recipients(batches[0]!)).toEqual([
+      "editor@example.test",
+      "legacy@example.test",
+      "owner@example.test",
+    ]);
+  });
+
+  it("mails a co-host with no marker only for what changed after they were seated", async () => {
+    const { db, ada, bo } = fixture();
+    const seated = new Date(NOW.getTime() - 2 * 60 * 60 * 1000);
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_d_new",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_digest_new",
+        addedByOsnProfileId: OWNER,
+        role: "editor",
+        createdAt: seated,
+      })
+      .run();
+    change(db, ada, "reply_new", new Date(seated.getTime() - 60_000));
+    const addresses = { ...ADDRESSES, usr_digest_new: "new@example.test" };
+    const first = transport();
+    await run(db, first.layer, lookupOf(addresses).lookup);
+    expect(recipients(first.sent)).not.toContain("new@example.test");
+
+    change(db, bo, "reply_edited", new Date(seated.getTime() + 60_000));
+    const second = transport();
+    await run(db, second.layer, lookupOf(addresses).lookup);
+    const mine = second.sent.find((s) => s.to === "new@example.test");
+    expect(mine?.data).toEqual(
+      expect.objectContaining({ households: 1, counts: { reply_edited: 1 } }),
+    );
+  });
+
+  it("gives every waiting wedding a place before any wedding gets a second", async () => {
+    const { db, ada } = fixture();
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_digest_small",
+        slug: "digest-small",
+        displayName: "Small",
+        ownerOsnProfileId: "usr_small_owner",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    change(db, ada, "reply_new");
+    change(db, ada, "reply_new", undefined, "wed_digest_small");
+    const { sent, layer } = transport();
+    await run(db, layer, lookupOf({ ...ADDRESSES, usr_small_owner: "small@example.test" }).lookup, {
+      maxEmails: 2,
+    });
+    // The bootstrap wedding has three recipients waiting and the small one has
+    // one; a cap of two takes one from each.
+    expect(recipients(sent)).toContain("small@example.test");
+    expect(sent).toHaveLength(2);
+  });
+
+  it("writes no marker for a co-host removed while the run was going", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const lookup: OsnOrganiserEmailLookup = async (ids) => {
+      db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, EDITOR)).run();
+      return lookupOf(ADDRESSES).lookup(ids);
+    };
+    await run(db, transport().layer, lookup);
+    const owners = db
+      .select({ who: hostRsvpNotices.osnProfileId })
+      .from(hostRsvpNotices)
+      .all()
+      .map((r) => r.who)
+      .toSorted();
+    expect(owners).toEqual([LEGACY_HOST, OWNER].toSorted());
+  });
+
+  it("reads its candidates through the created_at index, not the whole log", () => {
+    const { db } = fixture();
+    const { sql: text, params } = buildCandidateQuery(db, NOW).toSQL();
+    const plan = db.$client
+      .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
+      .all(...(params as never[]))
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toMatch(
+      /rsvp_changes USING (COVERING )?INDEX rsvp_changes_created_at_idx \(created_at>\?\)/,
+    );
+    expect(plan).not.toMatch(/SCAN rsvp_changes/);
+  });
+
+  it("caps a run at one lookup call and one batch call's worth", () => {
+    expect(RSVP_DIGEST_MAX_EMAILS_PER_RUN).toBe(100);
+  });
+});
+
+describe("chooseRecipients", () => {
+  const r = (weddingId: string, osnProfileId: string, cursor: number) => ({
+    weddingId,
+    osnProfileId,
+    cursor,
+    since: 0,
+  });
+
+  it("takes one per wedding per round, longest-waiting wedding first", () => {
+    const { chosen, deferred } = chooseRecipients(
+      [
+        r("w_big", "a", 0),
+        r("w_big", "b", 0),
+        r("w_big", "c", 0),
+        r("w_small", "z", 5),
+        r("w_mid", "m", 2),
+      ],
+      4,
+    );
+    expect(chosen.map((x) => `${x.weddingId}/${x.osnProfileId}`)).toEqual([
+      "w_big/a",
+      "w_mid/m",
+      "w_small/z",
+      "w_big/b",
+    ]);
+    expect(deferred).toBe(1);
+  });
+
+  it("takes everyone under the cap", () => {
+    expect(chooseRecipients([r("w", "a", 0), r("w", "b", 3)], 10)).toEqual({
+      chosen: [r("w", "a", 0), r("w", "b", 3)],
+      deferred: 0,
+    });
   });
 });

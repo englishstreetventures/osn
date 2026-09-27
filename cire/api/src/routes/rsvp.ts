@@ -1,5 +1,6 @@
 import { families, guests, guestEvents, rsvps, weddings } from "@cire/db";
 import type { DietaryPreset } from "@cire/dietary";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { and, eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -15,6 +16,7 @@ import {
   metricRsvpChangeRecorded,
 } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
@@ -61,10 +63,16 @@ export interface RsvpRouteOptions {
    * missing/invalid token fails closed (403) after auth, before any write.
    */
   turnstileVerifier?: TurnstileVerifier | null;
+  /**
+   * Per-IP limiter for the write (see `defaultRsvpLimiter` in `app.ts`). An
+   * unresolvable client IP is refused, as on every limited guest write.
+   */
+  limiter: RateLimiterBackend;
 }
 
-export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRouteOptions = {}) =>
+export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: RsvpRouteOptions) =>
   new Elysia({ prefix: "/api/rsvp" })
+    .use(rateLimitMiddleware(limiter))
     // Gate every method under /api/rsvp behind a valid session cookie.
     .use(sessionAuth(db))
     .post(

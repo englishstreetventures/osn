@@ -22,6 +22,7 @@ import {
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
+  createOrganiserEmailLookupFromEnv,
   createOrganiserEmailResolverFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
@@ -709,24 +710,33 @@ const handler: ExportedHandler<Env> = {
     // The daily RSVP digest. Same two preconditions as the gift summary, for
     // the same reason: without a way to ask osn-api for addresses, or a real
     // transport, there is nobody to mail, and a log stand-in would move every
-    // recipient's marker past changes nobody was told about. The portal link
-    // uses the tier's organiser origin, the second entry of WEB_ORIGIN.
-    if (organiserEmails && resendApiKey) {
+    // recipient's marker past changes nobody was told about. Its lookup keeps
+    // "osn-api did not answer" apart from "no address", so an outage holds the
+    // markers. The portal link uses the tier's organiser origin, the second
+    // entry of WEB_ORIGIN.
+    const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
+      osnApiUrl: env.OSN_API_URL,
+      arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+      arcKeyId: env.CIRE_API_ARC_KEY_ID,
+    });
+    if (organiserEmailLookup && resendApiKey) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       runSweep(() =>
         Effect.runPromise(
-          rsvpDigestService.sendDailyDigests({ organiserOrigin, lookup: organiserEmails }).pipe(
-            Effect.catch((err) =>
-              Effect.logError("scheduled rsvp digest failed", { reason: err.reason }),
+          rsvpDigestService
+            .sendDailyDigests({ organiserOrigin, lookup: organiserEmailLookup })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled rsvp digest failed", { reason: err.reason }),
+              ),
+              Effect.provide(dbLayer),
+              Effect.provide(
+                makeResendEmailLive({
+                  apiKey: resendApiKey,
+                  fromAddress: "hello@cireweddings.com",
+                }),
+              ),
             ),
-            Effect.provide(dbLayer),
-            Effect.provide(
-              makeResendEmailLive({
-                apiKey: resendApiKey,
-                fromAddress: "hello@cireweddings.com",
-              }),
-            ),
-          ),
         ),
       );
     }

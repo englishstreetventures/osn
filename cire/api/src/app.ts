@@ -234,6 +234,15 @@ const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowM
  * indexed statement.
  */
 const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Per-IP limiter for the guest RSVP write (`POST /api/rsvp`), the same shape
+ * and budget as the registry guest writes behind the same household cookie. A
+ * submit carries up to 200 replies and writes an upsert plus a change-log row
+ * for each one that changed, so without it one household code could spend the
+ * account's daily D1 write budget in a loop. A household answering its invite
+ * never comes near 20 submits a minute.
+ */
+const defaultRsvpLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 // Per-organiser, and sized like the image limiter beside it: an authenticated
 // couple at hand-speed, whose every press costs an outbound Stripe call.
 const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
@@ -462,6 +471,8 @@ export interface AppOptions {
   registryImageLimiter?: RateLimiterBackend;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
+  /** Override the guest RSVP write rate limiter (useful for testing). */
+  rsvpLimiter?: RateLimiterBackend;
   /** Override the guest "give money" limiter (useful for testing). */
   registryContributeLimiter?: RateLimiterBackend;
   /**
@@ -570,6 +581,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
     registryGuestLimiter = defaultRegistryGuestLimiter,
+    rsvpLimiter = defaultRsvpLimiter,
     registryContributeLimiter = defaultRegistryContributeLimiter,
     stripe = null,
     stripeWebhookSecret = null,
@@ -751,7 +763,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
-      .use(createRsvpRoutes(db))
+      .use(createRsvpRoutes(db, { limiter: rsvpLimiter }))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);

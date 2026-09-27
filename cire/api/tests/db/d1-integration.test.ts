@@ -1261,7 +1261,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
           rsvpDigestService
             .sendDailyDigests({
               organiserOrigin: "https://host.example.test",
-              lookup: async (ids) => new Map(ids.map((id) => [id, `${id}@example.test`])),
+              lookup: async (ids) => ({
+                answered: true,
+                emails: new Map(ids.map((id) => [id, `${id}@example.test`])),
+              }),
             })
             .pipe(Effect.provideService(DbService, db), Effect.provide(layer)),
         );

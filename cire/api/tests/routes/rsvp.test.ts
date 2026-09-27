@@ -43,6 +43,9 @@ beforeAll(() => {
   db = createDb(":memory:");
   app = createApp(db, {
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    // One module-wide app for every test here: a high cap so the RSVP limiter
+    // (tested in rsvp-rate-limit.test.ts) never trips across them.
+    rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
   seedDb(db);
 
@@ -56,10 +59,11 @@ beforeAll(() => {
 const post = (body: unknown, cookie: string | null) =>
   Effect.promise(() => {
     // rsvp POST is state-changing → the origin guard (C5) requires an allowlisted
-    // Origin even though /api/rsvp isn't rate-limited.
+    // Origin, and its per-IP limiter a resolvable `cf-connecting-ip`.
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Origin: "http://localhost:4321",
+      "cf-connecting-ip": "203.0.113.7",
     };
     if (cookie) headers["Cookie"] = cookie;
     return Promise.resolve(
@@ -711,6 +715,7 @@ describe("POST /api/rsvp", () => {
                   "Content-Type": "application/json",
                   Cookie: cookie,
                   Origin: "http://localhost:4321",
+                  "cf-connecting-ip": "203.0.113.7",
                   "Content-Length": String(512 * 1024),
                 },
                 body: JSON.stringify({ rsvps: [] }),
