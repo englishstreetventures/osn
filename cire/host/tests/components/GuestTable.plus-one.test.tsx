@@ -546,6 +546,14 @@ describe("GuestTable — plus-one permission", () => {
     expect(switchFor("Bo Sharma").checked).toBe(false);
   });
 
+  it("sends an organiser whose session expired mid-write to sign in", async () => {
+    await mount();
+    answerPut = () => Promise.reject(new Error("AuthExpiredError"));
+    fireEvent.click(switchFor("Bo Sharma"));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("reloads the list when the guest has gone, and says so", async () => {
     await mount();
     answerPut = () => {
