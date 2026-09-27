@@ -126,7 +126,7 @@ A line with a `unit_price_minor` is priced per guest. The couple enters the pric
 - `perHead: null` makes the line fixed and clears its events. The Budget tab's "Use a fixed amount" sends the line's current computed amount as the new estimate with it.
 - The price is capped at 100,000,000,000 minor units, the same ceiling as the budget total, so price × headcount stays a safe integer.
 
-**Cost.** The invitation read (`cire.budget.headcount` span) runs only for a wedding with at least one per-head line; a fixed-only budget reads what it always did plus the event list.
+**Cost.** The invitation read (`cire.budget.headcount` span) runs only for a wedding with at least one per-head line; a fixed-only budget reads what it always did plus the event list, all in one concurrent round. A per-head write checks its picked events against the wedding's event list, which it reads anyway for the headcount, and runs the invitation read alongside the INSERT or UPDATE.
 
 **Deploy order.** The organiser portal can deploy before the API. The Budget tab offers per-head controls only when the snapshot carries `events`, because an older API would drop `perHead` from a write and still answer 200.
 
@@ -136,7 +136,7 @@ A line with a `unit_price_minor` is priced per guest. The couple enters the pric
 
 - **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
 - **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
-- **Per-head refetch** — a per-head line's figures change as RSVPs arrive, with nobody touching the budget. So the Budget view loads through `revalidateBudget`: when the cached snapshot holds a per-head line it is marked stale and refetched each time the view opens, with the old rows on screen meanwhile; a refused refetch blanks them as any other does. A budget with no per-head line loads once. The Overview card does not refetch, because its fetcher soft-fails to an empty snapshot that would then be cached; it shows whatever was last loaded. This exception is the budget module's alone, not part of the shared cache contract.
+- **Per-head refetch** — a per-head line's figures change as RSVPs arrive, with nobody touching the budget. So the Budget view loads through `revalidateBudget`: when the cached snapshot holds a per-head line it is marked stale and refetched each time the view opens, with the old rows on screen meanwhile; a refused refetch blanks them as any other does. An open while a load is already in flight joins that load rather than discarding it. A budget with no per-head line loads once. The Overview card does not refetch, because its fetcher soft-fails to an empty snapshot that would then be cached; it shows whatever was last loaded. This exception is the budget module's alone, not part of the shared cache contract.
 - **Money inputs** — the per-head price reads and writes through `parseMinor` / `minorToInput` in `cire/host/src/lib/money.ts`, which use each currency's real minor-unit exponent.
 
 ## Reordering items

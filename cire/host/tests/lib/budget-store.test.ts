@@ -410,4 +410,25 @@ describe("per-head lines", () => {
     ).rejects.toBe(refusal);
     expect(peekCachedBudget("wed_1")).toBeNull();
   });
+
+  it("revalidateBudget joins a load already in flight instead of discarding it", async () => {
+    setCachedBudget("wed_1", snap({ items: [perHead()] }));
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const fetcher = async () => {
+      calls += 1;
+      await gate;
+      return snap({ items: [perHead({ headcount: { expected: 7, confirmed: 7 } })] });
+    };
+    const first = revalidateBudget("wed_1", fetcher);
+    const second = revalidateBudget("wed_1", fetcher);
+    release();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(calls).toBe(1);
+    expect(peekCachedBudget("wed_1")?.items[0]?.headcount?.expected).toBe(7);
+  });
 });

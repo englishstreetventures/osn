@@ -29,7 +29,7 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
@@ -221,9 +221,10 @@ const toPaymentDto = (r: PaymentRow): PaymentDto => ({
  * "attending" to at least one. Expected: has not declined every one, so a
  * "maybe" and a guest who has not replied yet both count.
  *
- * Counted here rather than in SQL on purpose: `status != 'declined'` in SQL is
- * unknown, not true, for the NULL of an unanswered invitation, and would drop
- * exactly the guests "expected" exists to count.
+ * Counted here rather than in SQL because each line scopes its own set of
+ * events and a guest counts once across them, so one read of the wedding's
+ * invitations serves every line. A SQL port must keep unanswered invitations:
+ * `status != 'declined'` is unknown, not true, for their NULL.
  */
 export function countHeads(
   invitations: readonly Invitation[],
@@ -342,25 +343,23 @@ function loadEvents(weddingId: string): Effect.Effect<BudgetEventDto[], never, D
   });
 }
 
-/** Fail unless every id names one of this wedding's events. One query; the
- *  body schema caps the list at 50 ids, inside D1's 100 bound parameters. */
-function requireEventsInWedding(
-  weddingId: string,
+/** Fail unless every picked id is one of the wedding's events, checked against
+ *  the event list the write reads anyway, so the check costs no query. */
+function requirePickedEvents(
+  weddingEvents: readonly BudgetEventDto[],
   eventIds: readonly string[],
-): Effect.Effect<void, EventNotInWedding, DbService> {
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const ids = uniqueIds(eventIds);
-    const found = yield* dbQuery(() =>
-      db
-        .select({ id: events.id })
-        .from(events)
-        .where(and(eq(events.weddingId, weddingId), inArray(events.id, ids)))
-        .all(),
-    );
-    if (found.length !== ids.length) return yield* Effect.fail(new EventNotInWedding());
-  });
+): Effect.Effect<void, EventNotInWedding> {
+  const known = new Set(weddingEvents.map((e) => e.id));
+  return eventIds.every((id) => known.has(id)) ? Effect.void : Effect.fail(new EventNotInWedding());
 }
+
+/** A written per-head row as a DTO, from the events and invitations already read. */
+const describePerHead = (
+  row: ItemRow,
+  weddingEvents: readonly BudgetEventDto[],
+  invitations: readonly Invitation[],
+): BudgetItemDto =>
+  toItemDto(row, perHeadFields(row, new Set(weddingEvents.map((e) => e.id)), invitations));
 
 /** One written row as a DTO. A fixed line costs no query; a per-head line reads
  *  the wedding's events and invitations to fill in its headcount. */
@@ -374,8 +373,7 @@ function describeItem(
       [loadEvents(weddingId), loadInvitations(weddingId)],
       { concurrency: 2 },
     );
-    const weddingEventIds = new Set(weddingEvents.map((e) => e.id));
-    return toItemDto(row, perHeadFields(row, weddingEventIds, invitations));
+    return describePerHead(row, weddingEvents, invitations);
   });
 }
 
@@ -518,20 +516,30 @@ export const budgetService = {
       const db = yield* DbService;
       const perHead = input.perHead ?? null;
       const eventIds = perHead?.eventIds ?? null;
-      if (eventIds !== null) yield* requireEventsInWedding(input.weddingId, eventIds);
       // Append to the end of the category: next sort_order = current max + 1.
-      const existing = yield* dbQuery(() =>
-        db
-          .select({ sortOrder: budgetItems.sortOrder })
-          .from(budgetItems)
-          .where(
-            and(
-              eq(budgetItems.weddingId, input.weddingId),
-              eq(budgetItems.category, input.category),
-            ),
-          )
-          .all(),
+      // A per-head line also needs the wedding's events, for the picked-event
+      // check and its headcount, so the two reads go out together.
+      const [existing, weddingEvents] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select({ sortOrder: budgetItems.sortOrder })
+              .from(budgetItems)
+              .where(
+                and(
+                  eq(budgetItems.weddingId, input.weddingId),
+                  eq(budgetItems.category, input.category),
+                ),
+              )
+              .all(),
+          ),
+          perHead === null ? Effect.succeed(null) : loadEvents(input.weddingId),
+        ],
+        { concurrency: 2 },
       );
+      if (weddingEvents !== null && eventIds !== null) {
+        yield* requirePickedEvents(weddingEvents, eventIds);
+      }
       const maxSort = (existing as { sortOrder: number }[]).reduce(
         (m, r) => Math.max(m, r.sortOrder),
         -1,
@@ -554,8 +562,16 @@ export const budgetService = {
         createdAt: now,
         updatedAt: now,
       };
-      yield* dbQuery(() => db.insert(budgetItems).values(row).run());
-      return yield* describeItem(input.weddingId, row);
+      if (weddingEvents === null) {
+        yield* dbQuery(() => db.insert(budgetItems).values(row).run());
+        return toItemDto(row, FIXED_LINE);
+      }
+      // The invitation read does not depend on the insert, so it rides alongside.
+      const [, invitations] = yield* Effect.all(
+        [dbQuery(() => db.insert(budgetItems).values(row).run()), loadInvitations(input.weddingId)],
+        { concurrency: 2 },
+      );
+      return describePerHead(row, weddingEvents, invitations);
     }).pipe(Effect.withSpan("cire.budget.createItem"));
   },
 
@@ -586,10 +602,7 @@ export const budgetService = {
         set.estimateMinor = null;
         const eventIds = patch.perHead.eventIds;
         if (eventIds === null) set.perHeadEventIds = null;
-        else if (eventIds !== undefined) {
-          yield* requireEventsInWedding(weddingId, eventIds);
-          set.perHeadEventIds = JSON.stringify(uniqueIds(eventIds));
-        }
+        else if (eventIds !== undefined) set.perHeadEventIds = JSON.stringify(uniqueIds(eventIds));
       } else if (patch.estimateMinor === null) {
         set.estimateMinor = null;
       } else if (patch.estimateMinor !== undefined) {
@@ -601,7 +614,7 @@ export const budgetService = {
       // Single round trip (as hosts.setRole): RETURNING reports whether an
       // (item, wedding) row existed — zero rows maps to BudgetItemNotInWedding
       // with no separate existence SELECT.
-      const [updated] = yield* dbQuery(() =>
+      const update = dbQuery(() =>
         db
           .update(budgetItems)
           .set(set)
@@ -609,8 +622,35 @@ export const budgetService = {
           .returning()
           .all(),
       );
+
+      if (patch.perHead == null) {
+        // Only the returned row says whether the line is per head, so its
+        // headcount has to wait for the write.
+        const [updated] = yield* update;
+        if (!updated) return yield* Effect.fail(new BudgetItemNotInWedding());
+        return yield* describeItem(weddingId, updated as ItemRow);
+      }
+
+      // The patch makes the line per head, so its events and invitations are
+      // needed whatever the write returns. Picked events are checked before
+      // anything is written; the invitation read rides alongside the write.
+      const pickedIds = patch.perHead.eventIds;
+      const checkedEvents =
+        pickedIds == null
+          ? null
+          : yield* loadEvents(weddingId).pipe(
+              Effect.tap((weddingEvents) => requirePickedEvents(weddingEvents, pickedIds)),
+            );
+      const [[updated], weddingEvents, invitations] = yield* Effect.all(
+        [
+          update,
+          checkedEvents === null ? loadEvents(weddingId) : Effect.succeed(checkedEvents),
+          loadInvitations(weddingId),
+        ],
+        { concurrency: 3 },
+      );
       if (!updated) return yield* Effect.fail(new BudgetItemNotInWedding());
-      return yield* describeItem(weddingId, updated as ItemRow);
+      return describePerHead(updated as ItemRow, weddingEvents, invitations);
     }).pipe(Effect.withSpan("cire.budget.updateItem"));
   },
 

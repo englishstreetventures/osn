@@ -38,8 +38,8 @@ const UnitPrice = Schema.Number.check(
 // Event ids are UUIDs; the bound keeps a body from carrying junk.
 const EventId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64));
 // At least one id: "every event" is spelled `null`, never `[]`, so an empty
-// list cannot widen a line by accident. At most 50: the ownership check binds
-// every id in one `IN (…)`, and D1 allows 100 bound parameters per query.
+// list cannot widen a line by accident. At most 50, far more than a wedding
+// has events, so the stored list stays small.
 const EventIds = Schema.Array(EventId).check(Schema.isMinLength(1), Schema.isMaxLength(50));
 
 // A per-head line: a price per guest, and the events whose guests it counts.

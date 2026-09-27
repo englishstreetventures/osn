@@ -246,6 +246,10 @@ export function revalidateBudget(
   weddingId: string,
   fetcher: () => Promise<BudgetSnapshot>,
 ): Promise<boolean> {
+  // A load already in flight is as fresh as a new one would be, so a second
+  // open joins it rather than throwing it away.
+  const pending = inflight.get(weddingId);
+  if (pending) return pending;
   const cached = peekCachedBudget(weddingId);
   if (cached?.items.some((it) => it.unitPriceMinor != null)) invalidateBudget(weddingId);
   return ensureBudgetLoaded(weddingId, fetcher);

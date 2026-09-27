@@ -128,8 +128,6 @@ describe("per-head bodies", () => {
     if (r._tag === "Success") expect(r.success.perHead).toBeNull();
   });
 
-  // The ownership check binds every id in one IN (...), and D1 allows 100 bound
-  // parameters per query; bun:sqlite allows far more, so only this test holds the cap.
   it("takes 1 to 50 event ids, and null or absent for every event", () => {
     expect(create({ unitPriceMinor: 1, eventIds: ids(50) })._tag).toBe("Success");
     expect(create({ unitPriceMinor: 1, eventIds: ids(51) })._tag).toBe("Failure");
