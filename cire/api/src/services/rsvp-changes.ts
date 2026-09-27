@@ -125,8 +125,9 @@ const TUPLE_FIELDS = ["weddingId", "familyId", "guestId", "eventId", "kind", "cr
  * column in schema order, so the select list is derived from that order, with
  * `NULL` for `seq` so SQLite assigns the next number.
  *
- * Plus-one writes call this in their own batch with a {@link PlusOneChangeKind}
- * and `eventId: null`, naming the guest who brought the plus-one.
+ * A plus-one write records a {@link PlusOneChangeKind} through this in its own
+ * batch, with `eventId: null` and the guest who brought the plus-one. The guest
+ * plus-one writes are wired in englishstventures/osn#1258.
  */
 export function buildRecordStatement(
   db: Db,

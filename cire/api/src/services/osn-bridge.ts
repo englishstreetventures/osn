@@ -430,10 +430,13 @@ export async function createHandleSearchResolverFromEnv(env: {
  * exist, its account may be mid-erasure, or it may have no usable address, and
  * the route deliberately does not say which. Do not treat absence as an error.
  *
- * FAIL-SOFT: any transport or infra failure resolves to an EMPTY map. The only
- * caller is the retention sweep's parting summary, and the sweep has already
- * deleted the data by the time this runs — an unreachable osn-api costs a
- * courtesy email, never the deletion.
+ * FAIL-SOFT: any transport or infra failure resolves to an EMPTY map. Two
+ * callers, both in the daily cron. The retention sweep's parting summary has
+ * already deleted the data by the time this runs, so an unreachable osn-api
+ * costs a courtesy email, never the deletion. The RSVP digest asks about at
+ * most one call's worth of ids, so it reads an empty answer to a non-empty
+ * question as "osn-api did not answer" and retries next run rather than
+ * treating everyone as address-less (`services/rsvp-digest.ts`).
  */
 export type OsnOrganiserEmailResolver = (
   profileIds: readonly string[],
@@ -516,8 +519,8 @@ export function createArcOrganiserEmailResolver(
 /**
  * Builds the organiser-address resolver from raw env material — the sibling of
  * {@link createHandleSearchResolverFromEnv}. Returns `null` when any piece is
- * absent, which simply means the retention sweep sends no summary email that
- * run; it never fails to boot and never blocks the sweep.
+ * absent, which simply means the cron sends neither the retention summary nor
+ * the RSVP digest that run; it never fails to boot and never blocks a sweep.
  */
 export async function createOrganiserEmailResolverFromEnv(env: {
   osnApiUrl?: string;

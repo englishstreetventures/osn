@@ -69,7 +69,7 @@ export default function RsvpChangesCard(props: {
               <For each={feed().items}>
                 {(item) => (
                   <li class="flex flex-wrap items-baseline gap-x-1.5">
-                    <span class="text-text">{item.familyName}</span>
+                    <span class="text-text min-w-0 wrap-break-word">{item.familyName}</span>
                     <span>{describeChangeKinds(item.kinds)}</span>
                     <span class="text-text-muted/70 text-ui-xs">· {formatChangeTime(item.at)}</span>
                   </li>

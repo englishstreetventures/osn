@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-27
 ---
 
 # DSAR Runbook
@@ -158,6 +158,14 @@ profile-id string with **no cross-DB FK**. Two consequences:
   pair in place; with no text they say nothing about the guest.
   The `registry` entitlement is sold self-serve, so production can hold these
   rows. Tracked under C-M1 alongside the rest of the missing cire ARC bridge.
+- **RSVP change log and organiser read state (migration 0066).** A household's
+  `rsvp_changes` rows (which guest changed which reply, and when — no content)
+  are part of that household's data: an access request returns them, and
+  deleting the `families` row cascades them. An organiser's
+  `host_rsvp_notices` rows (their read marker and digest switch, per wedding)
+  are part of the organiser's cire data; removing their seat deletes the row,
+  but an OSN account deletion does not reach it, the same orphan as
+  `wedding_hosts` below. See [[cire-rsvp-changes]].
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and
