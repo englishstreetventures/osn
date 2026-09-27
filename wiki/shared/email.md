@@ -165,6 +165,12 @@ Content-Type: application/json
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
   to Cloudflare's Email Service REST API via `instrumentedFetch` so the
   call becomes a child span.
+- `EmailService.sendBatch` (optional) — several emails in as few provider
+  calls as the transport allows. Resend implements it as `POST
+  https://api.resend.com/emails/batch`, up to 100 emails per call, all or
+  nothing; the other transports leave it out and callers loop over `send`.
+  cire's RSVP digest uses it so a cron run mails up to 100 organisers for one
+  outbound request ([[cire-rsvp-changes]]).
 - `makeLogEmailLive()` — dev + test. Renders the template in-process,
   records the payload into an in-memory ring buffer (exposed via
   `recorded()`), emits a single `Effect.logDebug` line with `template`

@@ -100,6 +100,16 @@ describe("privacy.astro", () => {
   });
 
   /**
+   * `RSVP_CHANGE_RETENTION_MS` in `cire/api/src/services/rsvp-changes.ts` is
+   * 90 days; the record of when a household's replies changed is guest data,
+   * so the notice names it and its window.
+   */
+  it("names the RSVP change record and its 90-day window", () => {
+    expect(body).toContain("When your household’s replies changed");
+    expect(body).toMatch(/kept for\s+<strong>90 days<\/strong>/);
+  });
+
+  /**
    * Softened from "hosted in Sydney" once the subprocessor register turned out to
    * record the D1/R2 region as unconfirmed. The page must still name a region and
    * still tell an EEA or UK reader that their data leaves that area — those two
