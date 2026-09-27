@@ -15,7 +15,7 @@ last-reviewed: 2026-09-27
 
 A guest may bring a plus-one when an editor co-host allows it. The household names the plus-one on the invite, and from then on the plus-one is a guest like any other: they appear in the Respond dialog, reply to their events, and count in every tally.
 
-This page is the contract. The host permission UI, the guest capture on the invite and the host RSVP display build on it.
+This page is the contract. The host permission UI, the guest capture on the invite and the host RSVP display build on it; the permission UI and the RSVP display are described under [[#The portal]] and [[#The RSVP table]].
 
 ---
 
@@ -119,17 +119,33 @@ The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 
 ---
 
+## The RSVP table
+
+The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with three additions:
+
+- **The marker.** Under the plus-one's name, on its own line, "Plus-one of <inviter's full name>" — the words the Households tab uses. It wraps rather than widening the fixed Guest column. When the API names no inviter (an older API, or none found) it reads "Plus-one of another guest".
+- **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's own reply carries no badge.
+- **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
+
+Recording a reply for a plus-one sets the status only. The dietary picker, the free text and the consent tick are not shown, and the form says "Dietary requirements can't be recorded here for a plus-one", because the organiser route refuses dietary data on that reply. Where the stored reply already carries dietary requirements the household gave, the form names them and warns that saving replaces the household's reply and clears them: the organiser write is an upsert of the whole reply. Keeping such an answer through an organiser's status change needs a consent-source decision, tracked in englishstventures/osn#1251.
+
+The table lists replies before the guests who have not answered, so a plus-one and their inviter sit together only when both have replied or neither has; the marker names the inviter either way.
+
+---
+
 ## Reads
 
 | Read | Carries |
 |---|---|
 | Claim payload `members[]` (`claim.ts`) | `plusOneAllowed`, `plusOneOf`; a plus-one is listed straight after the member who brought them, placed by the link rather than by `sort_order` |
 | `GET …/guests` (`OrganiserGuestRow`) | `plusOneAllowed`, `plusOneOf` |
-| `GET …/rsvps` (per-event view) | `plusOneOf` on responded and unresponded entries |
+| `GET …/rsvps` (per-event view) | `plusOneOf` and `plusOneOfName` (the inviter's full name) on responded and unresponded entries; within each list a plus-one sits straight after their inviter. The name is joined from the inviter's own row, held to the plus-one's household, so a reply kept after the household was dropped from the event still names them and a link outside the household names no one |
+| `GET …/rsvps.csv` | One row per guest, a plus-one's straight after their inviter's. **Plus-one Of** (the inviter's full name, blank otherwise) is the last column, after **Recorded By**, which says **Household** when any of the plus-one's replies is the household's (**Organiser** still outranks it) |
+| `GET …/guests.csv` (the roster report, not the round-trip export) | A plus-one's row straight after their inviter's, with **Plus-one Of** appended after **Code Status** |
 
 ### Counting
 
-A named plus-one is a guest row with invitations, so every read that counts guests counts them: the per-event tallies behind `GET …/rsvps` (`invited` once named, `attending` once they say so), the household guest counts, and the guest cap. Permission alone creates no row and counts toward nothing.
+A named plus-one is a guest row with invitations, so every read that counts guests counts them: the per-event tallies behind `GET …/rsvps` (`invited` once named, `attending` once they say so), the household guest counts, the events export's **Invited Guests**, the rows of both guest CSVs, and the guest cap. Permission alone creates no row and counts toward nothing. The per-event `attending` tally is the attending count a per-head figure reads.
 
 `weddings.guest_count_estimate` is a number the organiser types in Settings; nothing derives it, so a plus-one does not move it.
 
@@ -182,7 +198,8 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Routes | `cire/api/src/routes/plus-one.ts`, `cire/api/src/routes/organiser-plus-one.ts` |
 | Bodies | `cire/api/src/schemas/plus-one.ts` |
 | Reply provenance | `cire/api/src/routes/rsvp.ts`, `cire/api/src/services/rsvp.ts` |
-| Reads | `cire/api/src/services/claim.ts`, `cire/api/src/services/rsvp-export.ts` |
+| Reads | `cire/api/src/services/claim.ts`, `cire/api/src/services/rsvp-export.ts`, `cire/api/src/services/table-export.ts` |
 | Pipeline | `cire/api/src/services/import.ts`, `state-export.ts`, `revert.ts` |
 | Editor draft | `cire/host/src/lib/guest-event-draft.ts` |
 | Portal controls | `cire/host/src/components/GuestTable.tsx`, `cire/host/src/lib/plus-one-permission.ts` |
+| RSVP table | `cire/host/src/components/RsvpView.tsx`, `cire/host/src/lib/rsvp-filter.ts` |
