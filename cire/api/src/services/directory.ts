@@ -349,7 +349,9 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         } else {
           dvId = (existing as DvRow).id;
           const now = new Date();
-          // RETURNING hands back the updated row, so nothing re-reads it.
+          // RETURNING hands back the updated row, so nothing re-reads it. The
+          // WHERE repeats the owner, so a listing that changed owner after the
+          // probe above is not written; that save fails with nothing changed.
           const [updated] = yield* dbQuery(() =>
             db
               .update(directoryVendors)
@@ -367,11 +369,14 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                 listed: "live",
                 updatedAt: now,
               })
-              .where(eq(directoryVendors.id, dvId))
+              .where(and(eq(directoryVendors.id, dvId), eq(directoryVendors.ownerOrgId, orgId)))
               .returning()
               .all(),
           );
-          dvRow = updated as DvRow;
+          if (!updated) {
+            return yield* Effect.die(new Error("listing changed owner during save"));
+          }
+          dvRow = updated;
         }
 
         yield* replaceCategories(dvId, body.categories);

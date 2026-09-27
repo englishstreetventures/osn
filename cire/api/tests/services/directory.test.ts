@@ -172,6 +172,50 @@ describe("directoryService.upsertListingForOrg", () => {
     expect(res.value.categories).toEqual(["cake", "venue"]);
   });
 
+  it("writes nothing when the listing changes owner between the probe and the update", async () => {
+    const db = db0();
+    const first = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta", ["venue"])),
+    );
+    if (!Exit.isSuccess(first)) throw new Error("first save failed");
+    // Another org takes the listing after this save has found it by owner.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (/^update "directory_vendors"/i.test(sql)) {
+          prepare("UPDATE directory_vendors SET owner_org_id = 'org_other' WHERE id = ?1").run(
+            first.value.id,
+          );
+        }
+        return prepare(sql);
+      },
+    });
+
+    const res = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta Renamed", ["cake"])),
+    );
+    expect(Exit.isFailure(res)).toBe(true);
+
+    const row = db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, first.value.id))
+      .get();
+    expect(row!.ownerOrgId).toBe("org_other");
+    expect(row!.name).toBe("Delta");
+    const cats = db
+      .select({ category: directoryVendorCategories.category })
+      .from(directoryVendorCategories)
+      .where(eq(directoryVendorCategories.directoryVendorId, first.value.id))
+      .all()
+      .map((r) => r.category);
+    expect(cats).toEqual(["venue"]);
+  });
+
   // Answering from the body is correct only because a duplicate category
   // fails the replace batch on the (directory_vendor_id, category) key. That
   // the stored set survives the failure is D1's batch atomicity, tested in
