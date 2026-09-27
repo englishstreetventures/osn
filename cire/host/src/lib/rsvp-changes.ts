@@ -9,6 +9,8 @@
  * for it.
  */
 
+import { createResource } from "solid-js";
+
 import { apiUrl } from "./api";
 
 /** The kinds this build words. The API may send one it does not know yet. */
@@ -165,4 +167,13 @@ export async function setRsvpDigest(
   } catch {
     return false;
   }
+}
+
+/**
+ * The feed as a Solid resource keyed on the wedding: what the Overview starts
+ * beside its other reads and hands to the card, so the card's request does not
+ * wait for the rest of the page. Resolves to null when the feed cannot be read.
+ */
+export function createRsvpChangesResource(authFetch: AuthFetch, weddingId: () => string) {
+  return createResource(weddingId, (id) => fetchRsvpChanges(authFetch, id));
 }

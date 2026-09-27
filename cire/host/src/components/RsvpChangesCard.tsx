@@ -1,11 +1,11 @@
 import Card, { CardCtaButton, CardEyebrow } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { type Accessor, createSignal, For, Show } from "solid-js";
 
 import {
   describeChangeKinds,
-  fetchRsvpChanges,
   formatChangeTime,
+  type RsvpChanges,
   setRsvpDigest,
 } from "../lib/rsvp-changes";
 
@@ -14,21 +14,22 @@ import {
  *
  * Counts the households that changed a reply since this organiser last opened
  * the RSVP table, names the latest few, and links to the table — opening it is
- * what marks them seen, not reading this card. It fetches on its own, so a
- * failed read hides this card and leaves the rest of the Overview alone.
+ * what marks them seen, not reading this card. The Overview starts the read
+ * beside its own (`createRsvpChangesResource`), and a failed read renders
+ * nothing, leaving the rest of the Overview alone.
  *
  * The daily email switch shows only when the API says this organiser is sent
  * one (the owner and editors). It is theirs alone: each co-host sets their own.
  */
 export default function RsvpChangesCard(props: {
   weddingId: string;
+  changes: Accessor<RsvpChanges | null | undefined>;
+  setChanges: (next: RsvpChanges) => void;
   onNavigate: (module: "guests", sub: string) => void;
 }) {
   const { authFetch } = useAuth();
-  const [changes, { mutate }] = createResource(
-    () => props.weddingId,
-    (weddingId) => fetchRsvpChanges(authFetch, weddingId),
-  );
+  const changes = () => props.changes();
+  const mutate = (next: RsvpChanges) => props.setChanges(next);
   const [saving, setSaving] = createSignal(false);
   const [saveFailed, setSaveFailed] = createSignal(false);
 

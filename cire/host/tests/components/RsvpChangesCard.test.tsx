@@ -21,7 +21,21 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import RsvpChangesCard from "../../src/components/RsvpChangesCard";
+import { createRsvpChangesResource } from "../../src/lib/rsvp-changes";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
+
+/** The card as the Overview mounts it: fed by the resource the page starts. */
+function Harness(props: { onNavigate: (module: "guests", sub: string) => void }) {
+  const [changes, { mutate }] = createRsvpChangesResource(authFetchMock, () => "wed_a");
+  return (
+    <RsvpChangesCard
+      weddingId="wed_a"
+      changes={changes}
+      setChanges={mutate}
+      onNavigate={props.onNavigate}
+    />
+  );
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -67,7 +81,7 @@ describe("RsvpChangesCard", () => {
 
   it("counts the households and names the latest with what they changed", async () => {
     routeFetch(FEED);
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     expect(await screen.findByText("RSVP changes since your last visit")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("households changed their RSVPs")).toBeInTheDocument();
@@ -79,21 +93,21 @@ describe("RsvpChangesCard", () => {
 
   it("says when the count is a floor", async () => {
     routeFetch({ ...FEED, households: 500, truncated: true });
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     expect(await screen.findByText("500+")).toBeInTheDocument();
   });
 
   it("sends the organiser to the RSVP table", async () => {
     routeFetch(FEED);
     const onNavigate = vi.fn();
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={onNavigate} />);
+    render(() => <Harness onNavigate={onNavigate} />);
     fireEvent.click(await screen.findByRole("button", { name: /See the RSVP table/ }));
     expect(onNavigate).toHaveBeenCalledWith("guests", "rsvps");
   });
 
   it("says plainly when nothing changed", async () => {
     routeFetch({ ...FEED, markSeq: 0, households: 0, items: [], rows: [] });
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     expect(await screen.findByText("Nothing new since your last visit.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /See the RSVP table/ })).toBeNull();
   });
@@ -102,7 +116,7 @@ describe("RsvpChangesCard", () => {
     // A positive control first, so an empty container below means the failure
     // was handled, not that the answer had not arrived yet.
     routeFetch(FEED);
-    const good = render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    const good = render(() => <Harness onNavigate={() => {}} />);
     await screen.findByText("Sharma");
     good.unmount();
 
@@ -111,7 +125,7 @@ describe("RsvpChangesCard", () => {
       answered = true;
       return json({ error: "boom" }, 500);
     });
-    const { container } = render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    const { container } = render(() => <Harness onNavigate={() => {}} />);
     await waitFor(() => expect(answered).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(container).toBeEmptyDOMElement();
@@ -124,7 +138,7 @@ describe("RsvpChangesCard", () => {
       items: [FEED.items[0]],
       digest: { available: true, enabled: false },
     });
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     expect(await screen.findByText("household changed their RSVP")).toBeInTheDocument();
     const box = screen.getByRole("checkbox", { name: "Email me a daily summary" });
     expect(box).not.toBeChecked();
@@ -136,14 +150,14 @@ describe("RsvpChangesCard", () => {
 
   it("offers the digest switch only when the API says this organiser gets one", async () => {
     routeFetch({ ...FEED, digest: { available: false, enabled: true } });
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     await screen.findByText("Sharma");
     expect(screen.queryByRole("checkbox", { name: "Email me a daily summary" })).toBeNull();
   });
 
   it("saves the switch, and puts it back when the save fails", async () => {
     routeFetch(FEED);
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     const box = await screen.findByRole("checkbox", { name: "Email me a daily summary" });
     expect(box).toBeChecked();
     fireEvent.click(box);
@@ -153,7 +167,7 @@ describe("RsvpChangesCard", () => {
 
     cleanup();
     routeFetch(FEED, 200, 500);
-    render(() => <RsvpChangesCard weddingId="wed_a" onNavigate={() => {}} />);
+    render(() => <Harness onNavigate={() => {}} />);
     const again = await screen.findByRole("checkbox", { name: "Email me a daily summary" });
     fireEvent.click(again);
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save");
