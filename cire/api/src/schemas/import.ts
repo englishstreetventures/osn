@@ -1,10 +1,21 @@
+import { isSafeCssColor } from "@cire/theme";
 import { Schema } from "effect";
 
 // ── Parsed sheet shapes ───────────────────────────────────────────────────────
 
+/**
+ * One dress-code swatch. The colour must pass the same allow-list the guest
+ * site checks before it paints one (`isSafeCssColor`), so neither front door
+ * can store a value such as `url(...)` that a renderer using the `background`
+ * shorthand would fetch.
+ */
 export const PaletteSwatch = Schema.Struct({
   name: Schema.String,
-  color: Schema.String,
+  color: Schema.String.check(
+    Schema.makeFilter((s) =>
+      isSafeCssColor(s) ? undefined : "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
+    ),
+  ),
 });
 export type PaletteSwatch = Schema.Schema.Type<typeof PaletteSwatch>;
 

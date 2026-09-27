@@ -20,6 +20,7 @@ import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import {
   type AccountLinkGate,
   claimService,
+  decodePalette,
   InvalidCredentials,
   withPlusOnesAfterInviters,
 } from "../../src/services/claim";
@@ -903,5 +904,33 @@ describe("withPlusOnesAfterInviters", () => {
   it("leaves a household with no plus-one as it is", () => {
     const members = [m("a"), m("b")];
     expect(withPlusOnesAfterInviters(members)).toEqual(members);
+  });
+});
+
+describe("decodePalette", () => {
+  it("keeps swatches whose colour is on the allow-list", () => {
+    const raw = JSON.stringify([
+      { name: "Blush", color: "#f4c2c2" },
+      { name: "Marigold", color: "oklch(76% 0.15 75)" },
+    ]);
+    expect(decodePalette(raw)).toEqual({
+      palette: [
+        { name: "Blush", color: "#f4c2c2" },
+        { name: "Marigold", color: "oklch(76% 0.15 75)" },
+      ],
+      malformed: false,
+    });
+  });
+
+  it("drops a stored swatch whose colour is not a colour, so no renderer ever sees it", () => {
+    const raw = JSON.stringify([
+      { name: "Blue", color: "url(https://attacker.example/p.gif)" },
+      { name: "Gold", color: "gold" },
+      { name: "Sage", color: "#b2ac88" },
+    ]);
+    expect(decodePalette(raw)).toEqual({
+      palette: [{ name: "Sage", color: "#b2ac88" }],
+      malformed: false,
+    });
   });
 });

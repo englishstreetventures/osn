@@ -116,6 +116,87 @@ describe("POST /changes/preview + /apply — spreadsheet (CSV) front door", () =
   });
 });
 
+// ── Dress-code palette colours ─────────────────────────────────────────────
+
+describe("dress-code palette colours are checked on the server", () => {
+  const BEACON = "url(https://attacker.example/p.gif)";
+
+  function editorEvent(color: string) {
+    return {
+      name: "Mehndi",
+      startAt: "2026-09-18T16:00:00+10:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      location: null,
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [{ name: "Blue", color }],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder: 0,
+    };
+  }
+
+  it("400s an editor draft carrying a palette colour that is not a colour, and stores nothing", async () => {
+    const { app, db } = buildApp();
+    const res = await editorPreview(app, {
+      desiredState: { events: [editorEvent(BEACON)], families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(400);
+    expect(db.select().from(imports).all()).toHaveLength(0);
+
+    const ok = await editorPreview(app, {
+      desiredState: { events: [editorEvent("#00f")], families: [] },
+      scope: "events",
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("drops a spreadsheet palette pair whose colour is not a colour, keeping the rest", async () => {
+    const { app, db } = buildApp();
+    const eventsCsv = [
+      "Event Name,Start,End,Timezone,Dress Code Palette",
+      `Mehndi,2026-09-18T16:00,,Australia/Sydney,Blue:${BEACON}|Sage:#b2ac88`,
+    ].join("\n");
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv });
+    expect(preview.status).toBe(200);
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+
+    const [row] = db.select({ palette: events.dressCodePalette }).from(events).all();
+    expect(JSON.parse(row!.palette!)).toEqual([{ name: "Sage", color: "#b2ac88" }]);
+  });
+
+  it("never serves a stored swatch whose colour is not a colour", async () => {
+    const { app, db } = buildApp();
+    db.insert(events)
+      .values({
+        id: "evt_bad_palette",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "mehndi",
+        name: "Mehndi",
+        description: "",
+        startAt: "2026-09-18T16:00:00+10:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        dressCodePalette: JSON.stringify([
+          { name: "Blue", color: BEACON },
+          { name: "Sage", color: "#b2ac88" },
+        ]),
+        sortOrder: 0,
+      })
+      .run();
+
+    const res = await ownerGet(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; dressCodePalette: unknown }[];
+    expect(body.find((e) => e.id === "evt_bad_palette")!.dressCodePalette).toEqual([
+      { name: "Sage", color: "#b2ac88" },
+    ]);
+  });
+});
+
 // ── Partial (single-sheet) uploads ──────────────────────────────────────────
 
 /**
