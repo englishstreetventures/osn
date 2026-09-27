@@ -11,6 +11,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   For,
   mapArray,
   onCleanup,
@@ -558,6 +559,12 @@ export default function RsvpView(props: RsvpViewProps) {
     /** What the household gave for a plus-one, which a save here replaces. */
     const storedDietary = () =>
       target.plusOne ? formatDietaryCell(target.dietaryPresets, target.dietary) : "";
+    // Read with Save, so a keyboard or screen-reader user hears what a save
+    // does to a plus-one's reply where they decide, not only a sighted one.
+    const noDietaryId = createUniqueId();
+    const clearsId = createUniqueId();
+    const saveDescribedBy = () =>
+      target.plusOne ? [noDietaryId, ...(storedDietary() ? [clearsId] : [])].join(" ") : undefined;
     return (
       <form
         class="border-gold/30 bg-surface/60 flex flex-col gap-3 rounded-sm border p-4"
@@ -591,12 +598,12 @@ export default function RsvpView(props: RsvpViewProps) {
             invite; the organiser route refuses them. Where the household has
             given some, a save here replaces their reply, so say what goes. */}
         <Show when={target.plusOne}>
-          <p class="font-body text-text-muted text-ui-sm">
+          <p id={noDietaryId} class="font-body text-text-muted text-ui-sm">
             Dietary requirements can't be recorded here for a plus-one.
           </p>
           <Show when={storedDietary()}>
             {(stored) => (
-              <Notice tone="warn">
+              <Notice id={clearsId} tone="warn">
                 Saving replaces their household's reply and clears the dietary requirements it gave:{" "}
                 {stored()}.
               </Notice>
@@ -664,7 +671,12 @@ export default function RsvpView(props: RsvpViewProps) {
           {/* Both at the default size, which they were not: Cancel was already a
               `<Button>` at `md` and Save was hand-written at `px-3 py-1.5`, so
               the two controls in this one row were different heights. */}
-          <Button variant="primary" type="submit" disabled={saving()}>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={saving()}
+            aria-describedby={saveDescribedBy()}
+          >
             {saving() ? "Saving…" : "Save reply"}
           </Button>
           <Button variant="quiet" type="button" onClick={closeEditor} disabled={saving()}>

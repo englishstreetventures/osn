@@ -191,9 +191,15 @@ export const rsvpExportService = {
   buildView(weddingId: string): Effect.Effect<RsvpView, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // The member who brought a plus-one, joined by primary key. Only a
-      // plus-one's row has a key to join on, so the rest cost no lookup.
+      // The member who brought a plus-one, joined by primary key and held to
+      // the plus-one's own household, so the joined row is as wedding-scoped as
+      // the one it hangs off. Only a plus-one's row has a key to join on, so
+      // the rest cost no lookup.
       const inviter = alias(guests, "inviter");
+      const inviterOf = and(
+        eq(guests.plusOneOfGuestId, inviter.id),
+        eq(inviter.familyId, guests.familyId),
+      );
 
       // All four reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts
@@ -237,7 +243,7 @@ export const rsvpExportService = {
               .from(rsvps)
               .innerJoin(guests, eq(rsvps.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
-              .leftJoin(inviter, eq(guests.plusOneOfGuestId, inviter.id))
+              .leftJoin(inviter, inviterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),
@@ -261,7 +267,7 @@ export const rsvpExportService = {
               .from(guestEvents)
               .innerJoin(guests, eq(guestEvents.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
-              .leftJoin(inviter, eq(guests.plusOneOfGuestId, inviter.id))
+              .leftJoin(inviter, inviterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),

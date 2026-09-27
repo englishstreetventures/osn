@@ -870,6 +870,15 @@ const findRow = (name: string) =>
   );
 const rowOf = (name: string) => findRow(name)!;
 
+/** The text of every element an `aria-describedby` names, in order. */
+function describedText(el: HTMLElement): string {
+  return (el.getAttribute("aria-describedby") ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+}
+
 describe("RsvpView — plus-ones", () => {
   afterEach(() => {
     cleanup();
@@ -930,8 +939,11 @@ describe("RsvpView — plus-ones", () => {
     expect(screen.getByText(/can't be recorded here for a plus-one/i)).toBeTruthy();
     expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
-    // Nothing stored to lose, so no warning.
+    // Nothing stored to lose, so no warning, and Save says only what it is.
     expect(screen.queryByText(/clears the dietary requirements/i)).toBeNull();
+    const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
+    expect(described).toContain("can't be recorded here for a plus-one");
+    expect(described).not.toContain("clears");
 
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
@@ -972,6 +984,10 @@ describe("RsvpView — plus-ones", () => {
       fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
       const warning = await screen.findByText(/clears the dietary requirements/i);
       expect(warning.textContent).toContain(named);
+      // Save carries both sentences, so it is heard where the host decides.
+      const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
+      expect(described).toContain("can't be recorded here for a plus-one");
+      expect(described).toContain(named);
       // No attestation to tick for data this path will not store.
       expect(screen.queryByRole("checkbox")).toBeNull();
       expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
@@ -1003,5 +1019,8 @@ describe("RsvpView — plus-ones", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit reply for Bo Jones" }));
     expect(await screen.findByLabelText(/Anything else/i)).toBeTruthy();
     expect(screen.queryByText(/can't be recorded here for a plus-one/i)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Save reply/i }).hasAttribute("aria-describedby"),
+    ).toBe(false);
   });
 });

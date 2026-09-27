@@ -928,6 +928,59 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     expect(line.at(-2)).toBe("Organiser");
   });
 
+  it("names no inviter outside the plus-one's own household", async () => {
+    // A plus-one always shares their inviter's household, and the join says so
+    // itself rather than trusting every writer: a link pointing at a guest in
+    // another wedding, or in another household, yields no name.
+    const { db, run, hindu } = setUp();
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_other",
+        slug: "other-wedding",
+        displayName: "Other",
+        ownerOsnProfileId: "usr_other",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: "fam_other",
+        weddingId: "wed_other",
+        publicId: "OTHER-XXXX",
+        familyName: "Outsider",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: "gst_outsider",
+        familyId: "fam_other",
+        firstName: "Outsider",
+        lastName: "Person",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    const kitId = seedPlusOne(db, guestNamed(db, "Cleo").id, { firstName: "Kit" });
+    db.update(guests).set({ plusOneOfGuestId: "gst_outsider" }).where(eq(guests.id, samId)).run();
+    db.update(guests)
+      .set({ plusOneOfGuestId: guestNamed(db, "Ada").id })
+      .where(eq(guests.id, kitId))
+      .run();
+    replyAs(db, samId, "attending");
+
+    const event = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    const entries = [...event.guests, ...event.unresponded];
+    expect(entries.find((g) => g.guestId === samId)?.plusOneOfName).toBeNull();
+    expect(entries.find((g) => g.guestId === kitId)?.plusOneOfName).toBeNull();
+    expect(JSON.stringify(event)).not.toContain("Outsider");
+  });
+
   it("names an inviter with no last name without a trailing space", async () => {
     const { db, run, hindu } = setUp();
     const bo = guestNamed(db, "Bo");
