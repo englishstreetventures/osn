@@ -194,4 +194,25 @@ describe("PulseAccountLink", () => {
     // The indicator flips back to unlinked.
     await waitFor(() => expect(screen.getByText(/Not linked/i)).toBeTruthy());
   });
+
+  /**
+   * The picker asks "Which guest are you?" of the people holding the code. A
+   * plus-one's seat was typed in by someone else and goes when the member who
+   * brought them removes them, so it is not offered — unless it is already
+   * linked, when it stays listed so its Unlink is still reachable.
+   */
+  it("offers no plus-one seat, but keeps a linked one so it can be unlinked", async () => {
+    sessionRef.current = { accessToken: "t" };
+    const sam: FamilyMember = { ...member("Sam"), plusOneOf: "g-Chidi" };
+    const alex: FamilyMember = { ...member("Alex"), plusOneOf: "g-Ada" };
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse(200, { links: [{ guestId: "g-Alex", linkedAt: 1 }] }),
+    ) as typeof fetch;
+    renderLink([member("Chidi"), sam, member("Ada"), alex]);
+    await waitFor(() => expect(screen.getByText(/Which guest are you/i)).toBeTruthy());
+
+    const seats = screen.getAllByRole("radio").map((r) => r.id);
+    expect(seats).toEqual(["pulse-link-g-Chidi", "pulse-link-g-Ada", "pulse-link-g-Alex"]);
+    expect(screen.getByRole("button", { name: /Unlink/i })).toBeTruthy();
+  });
 });

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { isValidClaimResponse, isValidRsvpSaveResponse } from "../../src/components/utils";
+import {
+  isValidClaimResponse,
+  isValidPlusOneSaveResponse,
+  isValidRsvpSaveResponse,
+} from "../../src/components/utils";
 
 describe("isValidClaimResponse", () => {
   const baseEvent = {
@@ -333,6 +337,43 @@ describe("isValidClaimResponse", () => {
     });
   });
 
+  describe("the two plus-one fields", () => {
+    const withMember = (extra: Record<string, unknown>) => ({
+      ...validResponse,
+      members: [{ ...validResponse.members[0], ...extra }],
+    });
+
+    // The API sends `plusOneOf: null` for every member who is not a plus-one —
+    // nearly everyone. A guard that read "present means string" would send
+    // every signed-in household back to the code form.
+    it("accepts a member who is not a plus-one, as the API sends them", () => {
+      expect(isValidClaimResponse(withMember({ plusOneAllowed: true, plusOneOf: null }))).toBe(
+        true,
+      );
+    });
+
+    it("accepts a plus-one", () => {
+      expect(
+        isValidClaimResponse(withMember({ plusOneAllowed: false, plusOneOf: "guest-2" })),
+      ).toBe(true);
+    });
+
+    it("accepts a member carrying neither, as an API that predates them sends it", () => {
+      expect(isValidClaimResponse(withMember({}))).toBe(true);
+    });
+
+    it("rejects either field present with the wrong type", () => {
+      for (const extra of [
+        { plusOneAllowed: "yes" },
+        { plusOneAllowed: null },
+        { plusOneOf: 7 },
+        { plusOneOf: false },
+      ]) {
+        expect(isValidClaimResponse(withMember(extra))).toBe(false);
+      }
+    });
+  });
+
   it("rejects events with non-number sortOrder", () => {
     expect(
       isValidClaimResponse({
@@ -376,5 +417,46 @@ describe("isValidRsvpSaveResponse", () => {
     expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, dietaryConsentCurrent: "yes" }] })).toBe(
       false,
     );
+  });
+});
+
+describe("isValidPlusOneSaveResponse", () => {
+  const body = {
+    plusOne: {
+      guestId: "g-sam",
+      firstName: "Sam",
+      lastName: "",
+      plusOneOf: "g-bo",
+      eventIds: ["e1", "e2"],
+    },
+    created: true,
+    dietaryCleared: false,
+  };
+
+  it("accepts the answer to a naming or a rename", () => {
+    expect(isValidPlusOneSaveResponse(body)).toBe(true);
+  });
+
+  // An API that predates `dietaryCleared` also clears nothing on a rename.
+  it("accepts an answer without dietaryCleared", () => {
+    const { dietaryCleared: _d, ...older } = body;
+    expect(isValidPlusOneSaveResponse(older)).toBe(true);
+  });
+
+  it("rejects anything the page could not place", () => {
+    for (const bad of [
+      null,
+      {},
+      { ...body, created: "yes" },
+      { ...body, dietaryCleared: 1 },
+      { ...body, plusOne: null },
+      { ...body, plusOne: { ...body.plusOne, guestId: 3 } },
+      { ...body, plusOne: { ...body.plusOne, firstName: undefined } },
+      { ...body, plusOne: { ...body.plusOne, lastName: null } },
+      { ...body, plusOne: { ...body.plusOne, plusOneOf: null } },
+      { ...body, plusOne: { ...body.plusOne, eventIds: ["e1", 2] } },
+    ]) {
+      expect(isValidPlusOneSaveResponse(bad)).toBe(false);
+    }
   });
 });
