@@ -1,11 +1,24 @@
 // A `weddingId`-keyed cache for the organiser's budget — sibling of
 // `tasks-store.ts`/`guests-store.ts`. Fetch-lift so switching modules doesn't
-// refetch, and so the Overview budget widget + the Budget view share ONE fetch.
-// Effect is deliberately NOT imported (frontend code). Money is minor units.
+// refetch, and so the Overview budget widget + the Budget view share one fetch.
+// The exception is a budget holding a per-head line: its figures follow the
+// RSVPs, so the Budget view refetches it each time it opens
+// (`revalidateBudget`). Effect is deliberately NOT imported (frontend code).
+// Money is minor units.
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
 import { isWeddingClosed } from "./wedding-scope";
 
+/** Guests at a per-head line's events. */
+export interface Headcount {
+  /** Invited and not declined: attending, maybe, or no reply yet. */
+  expected: number;
+  /** Replied "attending". */
+  confirmed: number;
+}
+
+// The per-head fields below are optional because the portal can deploy before
+// the API that serves them; an older API leaves them out.
 export interface BudgetItemRow {
   id: string;
   weddingId: string;
@@ -18,6 +31,19 @@ export interface BudgetItemRow {
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
+  /** Price per guest. Set on a per-head line. */
+  unitPriceMinor?: number | null;
+  /** The events a per-head line counts: `null` = every event; a list = the
+   *  picked events that still exist, empty once all of them are deleted. */
+  eventIds?: string[] | null;
+  /** Guests at the line's events; `null` on a fixed line. */
+  headcount?: Headcount | null;
+}
+
+/** One of the wedding's events, as the per-head event picker lists it. */
+export interface BudgetEvent {
+  id: string;
+  name: string;
 }
 
 export interface PaymentRow {
@@ -36,6 +62,12 @@ export interface BudgetSnapshot {
   payments: PaymentRow[];
   budgetTotalMinor: number | null;
   currency: string;
+  /** The wedding's events. Absent from an API older than per-head lines, which
+   *  is how the Budget view knows not to offer them: that API would drop the
+   *  settings and still answer 200. */
+  events?: BudgetEvent[];
+  /** The RSVP deadline has passed, so a per-head line prices confirmed guests. */
+  rsvpsClosed?: boolean;
 }
 
 interface CacheEntry {
@@ -55,10 +87,28 @@ function entryFor(weddingId: string): CacheEntry {
   return entry;
 }
 
+/** A per-head line's amount: the expected guests while RSVPs are open, the
+ *  confirmed ones after. Mirror of the server's `perHeadMinor`. */
+export function perHeadMinor(
+  unitPriceMinor: number,
+  headcount: Headcount,
+  rsvpsClosed: boolean,
+): number {
+  return unitPriceMinor * (rsvpsClosed ? headcount.confirmed : headcount.expected);
+}
+
+/** What stands in a line's estimate column: the computed amount on a per-head
+ *  line, the stored figure on a fixed one. Mirror of the server's `lineEstimate`. */
+export function lineEstimate(item: BudgetItemRow, rsvpsClosed: boolean): number | null {
+  if (item.unitPriceMinor == null || item.headcount == null) return item.estimateMinor;
+  return perHeadMinor(item.unitPriceMinor, item.headcount, rsvpsClosed);
+}
+
 /** The `actual ?? quoted ?? estimate ?? 0` spend rule — mirror of the server's
- *  computeRollup so an optimistic edit reflects instantly. */
-export function itemSpend(item: BudgetItemRow): number {
-  return item.actualMinor ?? item.quotedMinor ?? item.estimateMinor ?? 0;
+ *  computeRollup so an optimistic edit reflects instantly. A per-head line's
+ *  computed amount is its estimate. */
+export function itemSpend(item: BudgetItemRow, rsvpsClosed: boolean): number {
+  return item.actualMinor ?? item.quotedMinor ?? lineEstimate(item, rsvpsClosed) ?? 0;
 }
 
 export function budgetAccessor(weddingId: string): Accessor<BudgetSnapshot | null> {
@@ -118,7 +168,8 @@ const stale = new Set<string>();
 export function spentSoFar(weddingId: string): number | null {
   const snap = entryFor(weddingId).snapshot();
   if (snap == null) return null;
-  return snap.items.reduce((sum, it) => sum + itemSpend(it), 0);
+  const closed = snap.rsvpsClosed ?? false;
+  return snap.items.reduce((sum, it) => sum + itemSpend(it, closed), 0);
 }
 
 /** Unpaid payments, earliest `due_at` first (nulls last). Reactive; `[]` until
@@ -182,6 +233,26 @@ export function ensureBudgetLoaded(
     inflight.set(weddingId, pending);
   }
   return pending;
+}
+
+/**
+ * Load the budget for the Budget view. A per-head line's figures follow the
+ * RSVPs, which change without anyone touching the budget, so a cached snapshot
+ * holding one is marked stale and refetched; its rows stay on screen meanwhile,
+ * and a refused refetch blanks them as any other does. A budget with no
+ * per-head line keeps the load-once contract.
+ */
+export function revalidateBudget(
+  weddingId: string,
+  fetcher: () => Promise<BudgetSnapshot>,
+): Promise<boolean> {
+  // A load already in flight is as fresh as a new one would be, so a second
+  // open joins it rather than throwing it away.
+  const pending = inflight.get(weddingId);
+  if (pending) return pending;
+  const cached = peekCachedBudget(weddingId);
+  if (cached?.items.some((it) => it.unitPriceMinor != null)) invalidateBudget(weddingId);
+  return ensureBudgetLoaded(weddingId, fetcher);
 }
 
 /**

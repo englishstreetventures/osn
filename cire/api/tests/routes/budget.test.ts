@@ -1,10 +1,21 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvps,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -18,7 +29,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp() {
+function setupDb() {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -52,9 +63,30 @@ function buildApp() {
       updatedAt: now,
     })
     .run();
-  return createApp(db, { osnTestKey: auth.key });
+  return db;
+}
+
+function buildApp() {
+  return createApp(setupDb(), { osnTestKey: auth.key });
 }
 type App = ReturnType<typeof buildApp>;
+
+/** The app plus its database, with one event on the other wedding. */
+function buildAppWithDb() {
+  const db = setupDb();
+  db.insert(events)
+    .values({
+      id: "evt_other",
+      weddingId: "wed_other",
+      slug: "other-reception",
+      name: "Reception",
+      startAt: "2027-03-01T15:00:00+11:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+    })
+    .run();
+  return { db, app: createApp(db, { osnTestKey: auth.key }) };
+}
 
 async function req(
   app: App,
@@ -196,5 +228,196 @@ describe("budget routes", () => {
 
     const snap = await req(app, "GET", base, OWNER);
     expect(((await snap.json()) as { budgetTotalMinor: number }).budgetTotalMinor).toBe(4500000);
+  });
+});
+
+describe("budget routes — per-head lines", () => {
+  interface ItemBody {
+    id: string;
+    estimateMinor: number | null;
+    unitPriceMinor: number | null;
+    eventIds: string[] | null;
+    headcount: { expected: number; confirmed: number } | null;
+  }
+
+  it("creates a per-head line, returns its headcount, and prices it in the snapshot", async () => {
+    const { db, app } = buildAppWithDb();
+    // A fresh event with a known guest list: three seeded guests invited, one
+    // attending, one declined, one yet to reply → 2 expected, 1 confirmed.
+    const now = new Date();
+    db.insert(events)
+      .values({
+        id: "evt_welcome",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "welcome-drinks",
+        name: "Welcome drinks",
+        startAt: "2027-03-01T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+      })
+      .run();
+    const [g1, g2, g3] = db
+      .select({ id: guests.id })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all();
+    for (const g of [g1!, g2!, g3!]) {
+      db.insert(guestEvents).values({ guestId: g.id, eventId: "evt_welcome" }).run();
+    }
+    for (const [g, status] of [
+      [g1!, "attending"],
+      [g2!, "declined"],
+    ] as const) {
+      db.insert(rsvps)
+        .values({
+          id: `rsvp_${g.id}`,
+          guestId: g.id,
+          eventId: "evt_welcome",
+          status,
+          createdAt: now,
+        })
+        .run();
+    }
+
+    const res = await req(app, "POST", `${base}/items`, OWNER, {
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 8_500, eventIds: ["evt_welcome"] },
+    });
+    expect(res.status).toBe(200);
+    const { item } = (await res.json()) as { item: ItemBody };
+    expect(item.unitPriceMinor).toBe(8_500);
+    expect(item.eventIds).toEqual(["evt_welcome"]);
+    expect(item.headcount).toEqual({ expected: 2, confirmed: 1 });
+
+    const snap = (await (await req(app, "GET", base, VIEWER)).json()) as {
+      events: { id: string; name: string }[];
+      rsvpsClosed: boolean;
+      rollup: { totals: { estimateMinor: number } };
+    };
+    expect(snap.events).toContainEqual({ id: "evt_welcome", name: "Welcome drinks" });
+    expect(snap.rsvpsClosed).toBe(false);
+    expect(snap.rollup.totals.estimateMinor).toBe(17_000);
+  });
+
+  // The portal reaches these writes with the organiser session cookie, so the
+  // cookie path has to hold for them, not only the bearer the tests above send.
+  it("accepts a per-head write on a session cookie and refuses a dead one or none", async () => {
+    const { db, app } = buildAppWithDb();
+    const perHeadBody = JSON.stringify({
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 100 },
+    });
+    const token = await seedOrganiserSession(db, EDITOR);
+    const ok = await appRequest(app, `${base}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
+      body: perHeadBody,
+    });
+    expect(ok.status).toBe(200);
+    const { item } = (await ok.json()) as { item: ItemBody };
+    expect(item.unitPriceMinor).toBe(100);
+
+    const dead = await appRequest(app, `${base}/items`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: "cire_org_session=not-a-live-session-token",
+      },
+      body: perHeadBody,
+    });
+    expect(dead.status).toBe(401);
+
+    const none = await req(app, "PATCH", `${base}/items/${item.id}`, undefined, {
+      perHead: { unitPriceMinor: 5 },
+    });
+    expect(none.status).toBe(401);
+    const stranger = await req(app, "PATCH", `${base}/items/${item.id}`, STRANGER, {
+      perHead: { unitPriceMinor: 5 },
+    });
+    expect(stranger.status).toBe(403);
+  });
+
+  it("400 unknown_event for another wedding's event, on create and on edit", async () => {
+    const { app } = buildAppWithDb();
+    const created = await req(app, "POST", `${base}/items`, EDITOR, {
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 100, eventIds: ["evt_other"] },
+    });
+    expect(created.status).toBe(400);
+    expect(((await created.json()) as { error: string }).error).toBe("unknown_event");
+
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const patched = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: { unitPriceMinor: 100, eventIds: ["evt_other"] },
+    });
+    expect(patched.status).toBe(400);
+    expect(((await patched.json()) as { error: string }).error).toBe("unknown_event");
+  });
+
+  it("400 for an empty event list, a negative price, or a per-head line with a fixed estimate", async () => {
+    const app = buildApp();
+    for (const perHead of [
+      { unitPriceMinor: 100, eventIds: [] },
+      { unitPriceMinor: -1 },
+      { unitPriceMinor: 1.5 },
+    ]) {
+      const res = await req(app, "POST", `${base}/items`, EDITOR, {
+        category: "catering",
+        name: "Dinner",
+        perHead,
+      });
+      expect(res.status).toBe(400);
+    }
+    const both = await req(app, "POST", `${base}/items`, EDITOR, {
+      category: "catering",
+      name: "Dinner",
+      estimateMinor: 500,
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(both.status).toBe(400);
+
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const patched = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      estimateMinor: 500,
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(patched.status).toBe(400);
+  });
+
+  it("turns a fixed line per head and back, carrying the last figure as its estimate", async () => {
+    const app = buildApp();
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+
+    const perHead = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: { unitPriceMinor: 100, eventIds: null },
+    });
+    expect(perHead.status).toBe(200);
+    const on = ((await perHead.json()) as { item: ItemBody }).item;
+    expect(on).toMatchObject({ unitPriceMinor: 100, eventIds: null, estimateMinor: null });
+
+    const back = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: null,
+      estimateMinor: 4_200,
+    });
+    expect(back.status).toBe(200);
+    const off = ((await back.json()) as { item: ItemBody }).item;
+    expect(off).toMatchObject({ unitPriceMinor: null, headcount: null, estimateMinor: 4_200 });
+  });
+
+  it("viewer may NOT make a line per head (403 read_only_role)", async () => {
+    const app = buildApp();
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const res = await req(app, "PATCH", `${base}/items/${item.id}`, VIEWER, {
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(res.status).toBe(403);
   });
 });

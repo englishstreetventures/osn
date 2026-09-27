@@ -36,6 +36,13 @@ const itemNotFound = (set: { status?: number | string }) =>
     return { error: "budget_item_not_found" };
   });
 
+// A per-head line named an event that is not one of this wedding's.
+const unknownEvent = (set: { status?: number | string }) =>
+  Effect.sync(() => {
+    set.status = 400;
+    return { error: "unknown_event" };
+  });
+
 const paymentNotFound = (set: { status?: number | string }) =>
   Effect.sync(() => {
     set.status = 404;
@@ -94,6 +101,7 @@ export const createBudgetReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
  *   DELETE /budget/items/:itemId/payments/:paymentId       (weddingEditor)
  *   PUT    /budget/total                                   (weddingOwner)
  *
+ * A per-head line naming an event outside the wedding is a 400 `unknown_event`.
  * A viewer gets 403 `read_only_role` on the editor writes; an editor gets 403 on
  * `PUT /budget/total` (owner-only, matching the Settings save it replaces). The
  * service re-scopes every write by wedding_id (payments via their parent item),
@@ -126,6 +134,7 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
+                Effect.catchTag("EventNotInWedding", () => unknownEvent(set)),
                 Effect.catchDefect(() => internal(set)),
               ),
             );
@@ -169,6 +178,7 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+                Effect.catchTag("EventNotInWedding", () => unknownEvent(set)),
                 Effect.catchDefect(() => internal(set)),
               ),
             );

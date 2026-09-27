@@ -539,15 +539,22 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
     ): Effect.Effect<{ budgetItemId: string }, EnquiryError, DbService> {
       return Effect.gen(function* () {
         const { enquiry } = input;
-        const item = yield* budgetService.createItem({
-          weddingId: enquiry.weddingId,
-          category: input.category,
-          name: input.vendorName,
-          estimateMinor: null,
-          quotedMinor: enquiry.quotedMinor,
-          actualMinor: null,
-          notes: null,
-        });
+        const item = yield* budgetService
+          .createItem({
+            weddingId: enquiry.weddingId,
+            category: input.category,
+            name: input.vendorName,
+            estimateMinor: null,
+            quotedMinor: enquiry.quotedMinor,
+            actualMinor: null,
+            notes: null,
+          })
+          .pipe(
+            // Unreachable: a fixed line names no events, so there is nothing to
+            // check against the wedding. A defect rather than an EnquiryError, so
+            // it surfaces instead of being mapped to a reason shown to the couple.
+            Effect.catchTag("EventNotInWedding", (error) => Effect.die(error)),
+          );
         return { budgetItemId: item.id };
       }).pipe(Effect.withSpan("cire.enquiries.addToBudget"));
     },
