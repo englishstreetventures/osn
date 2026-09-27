@@ -751,6 +751,25 @@ describe("co-host writes publish members-changed", () => {
     seedHostSeat(db, COHOST, role);
   }
 
+  /** Make every delete from `wedding_hosts` throw, as a failed D1 statement does. */
+  function failHostDeletes(db: ReturnType<typeof createDb>) {
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    client.prepare = ((sql: string) => {
+      const statement = prepare(sql);
+      if (!sql.startsWith('delete from "wedding_hosts"')) return statement;
+      const fail = () => {
+        throw new Error("D1_ERROR: delete failed");
+      };
+      return new Proxy(statement, {
+        get: (target, key) =>
+          key === "all" || key === "values" || key === "get" || key === "run"
+            ? fail
+            : Reflect.get(target, key),
+      });
+    }) as typeof client.prepare;
+  }
+
   // Its own limiter: the file's earlier cases spend the owner's share of the
   // module-level default (`defaultHostLimiter` in src/app.ts, 20 a minute per
   // organiser), and without this every case here answers 429.
@@ -807,6 +826,18 @@ describe("co-host writes publish members-changed", () => {
     const res = await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER);
     expect(res.status).toBe(200);
     expect(publishes).toEqual([]);
+  });
+
+  it("not for a removal the database fails, which answers 500", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildPublishingApp(hub);
+    seedCohost(db);
+    failHostDeletes(db);
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not remove host" });
+    expect(publishes).toEqual([]);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
   });
 
   it("does not fail the write when the hub rejects", async () => {

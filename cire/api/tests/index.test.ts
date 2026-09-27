@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
-import { weddings } from "@cire/db";
+import { weddingHosts, weddings } from "@cire/db";
 import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
@@ -9,6 +9,7 @@ import { createD1Db } from "../src/db/index";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { jsonBody } from "./test-helpers";
+import { captureLogs } from "./test-helpers/capture-logs";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
@@ -418,6 +419,47 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
+  it("answers a realtime upgrade inside the request's session", async () => {
+    // `/realtime/*` runs before the Elysia app, so it is the one entry point
+    // this describe's other cases cannot reach. An unknown session cookie
+    // still costs the session lookup that answers 401.
+    const portal = "https://host.example.com";
+    const probe = probeD1();
+    const env = {
+      ...BASE_ENV,
+      DB: probe.binding,
+      WEB_ORIGIN: `https://invite.example.com,${portal}`,
+      REALTIME_HUB: {
+        getByName: () => ({
+          fetch: async () => new Response(null, { status: 101 }),
+          publish: async () => 0,
+        }),
+      },
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+
+    const res = await handler.fetch!(
+      new Request(`https://api.example.com/realtime/${encodeURIComponent("cire:wedding:wed_rt")}`, {
+        headers: {
+          upgrade: "websocket",
+          origin: portal,
+          cookie: "cire_org_session=no-such-session",
+        },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      env,
+      ctx,
+    );
+
+    expect(res.status).toBe(401);
+    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
+    const statements = (probe.sessionQueries[0] ?? []).filter(
+      (entry) => !entry.startsWith("bind:"),
+    );
+    expect(
+      statements.filter((sql) => /^select .* from "organiser_sessions"/i.test(sql)),
+    ).toHaveLength(1);
+    expect(probe.bindingQueries).toEqual([]);
+  });
+
   it("gives each scheduled sweep its own session", async () => {
     // Six sweeps, six sessions — deliberately NOT one shared by all of them.
     // Sharing would couple six unrelated delete-heavy sweeps to a single
@@ -549,17 +591,24 @@ describe("realtime subscribe at the Worker entry", () => {
     expect(res.status).toBe(429);
   });
 
+  const HUB_MISSING = "REALTIME_HUB binding missing in a deployed tier";
+
   it("serves a deployed tier without the hub binding, answering 503 for realtime only", async () => {
     const env = envWith();
     const token = await seedOwner();
-    const realtime = await handler.fetch!(
-      new Request(`https://api.example.com${TOPIC_PATH}`, {
-        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
-      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
-      env,
-      ctx,
-    );
+    let realtime = new Response();
+    const logs = await captureLogs(async () => {
+      realtime = await handler.fetch!(
+        new Request(`https://api.example.com${TOPIC_PATH}`, {
+          headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+        }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+    });
     expect(realtime.status).toBe(503);
+    // Loud in a deployed tier: the missing binding is logged as an error.
+    expect(logs).toMatch(new RegExp(`ERROR \\(#\\d+\\): ${HUB_MISSING}`));
     const list = await handler.fetch!(
       new Request("https://api.example.com/api/organiser/weddings", {
         headers: { cookie: `cire_org_session=${token}` },
@@ -568,5 +617,106 @@ describe("realtime subscribe at the Worker entry", () => {
       ctx,
     );
     expect(list.status).toBe(200);
+  });
+
+  it("says nothing about a missing hub in the local tier", async () => {
+    const env = {
+      ...(envWith() as unknown as Record<string, unknown>),
+      OSN_ENV: "local",
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    const token = await seedOwner();
+    let realtime = new Response();
+    const logs = await captureLogs(async () => {
+      realtime = await handler.fetch!(
+        new Request(`https://api.example.com${TOPIC_PATH}`, {
+          headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+        }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+    });
+    expect(realtime.status).toBe(503);
+    expect(logs).not.toContain(HUB_MISSING);
+  });
+
+  it("hands a co-host write's publish to ctx.waitUntil, so the response never waits on the hub", async () => {
+    const token = await seedOwner();
+    await createD1Db(DB_REALTIME)
+      .insert(weddingHosts)
+      .values({
+        id: "whost_rt_cohost",
+        weddingId: "wed_rt",
+        osnProfileId: "usr_rt_cohost",
+        addedByOsnProfileId: "usr_rt_owner",
+        role: "editor",
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing();
+
+    // A hub whose publish is held until the test lets it go. Run inline, it
+    // would hold the response with it.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const published: string[] = [];
+    const scheduled: Promise<unknown>[] = [];
+    const env = {
+      ...BASE_ENV,
+      DB: freshBinding(),
+      WEB_ORIGIN: `https://invite.example.com,${PORTAL}`,
+      REALTIME_HUB: {
+        getByName: (name: string) => ({
+          fetch: async () => new Response(null, { status: 101 }),
+          publish: async () => {
+            published.push(name);
+            await held;
+            return 1;
+          },
+        }),
+      },
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    const recordingCtx = {
+      ...ctx,
+      waitUntil: (promise: Promise<unknown>) => {
+        scheduled.push(promise);
+      },
+    } as ExecutionContext;
+
+    try {
+      const response = handler.fetch!(
+        new Request("https://api.example.com/api/organiser/weddings/wed_rt/hosts/usr_rt_cohost", {
+          method: "DELETE",
+          headers: { origin: PORTAL, cookie: `cire_org_session=${token}` },
+        }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        recordingCtx,
+      );
+      // Well under the publish timeout (2 s), which an inline publish would
+      // hold the response for.
+      const timedOut = new Promise<"timed out">((resolve) =>
+        setTimeout(() => resolve("timed out"), 500),
+      );
+      const first = await Promise.race([response, timedOut]);
+
+      expect(first).not.toBe("timed out");
+      expect((first as Response).status).toBe(200);
+      expect(published).toEqual(["cire:wedding:wed_rt"]);
+      // The held publish is one of the promises the Worker handed to
+      // `waitUntil`, still running after the response went out.
+      const states = await Promise.all(
+        scheduled.map((promise) =>
+          Promise.race([
+            promise.then(
+              () => "settled",
+              () => "settled",
+            ),
+            new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 0)),
+          ]),
+        ),
+      );
+      expect(states).toContain("pending");
+    } finally {
+      release();
+      await Promise.allSettled(scheduled);
+    }
   });
 });
