@@ -14,6 +14,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { flushCireTelemetry, runCire } from "./observability";
+import { createRealtimeRoute, type RealtimeRoute } from "./routes/realtime";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
@@ -189,7 +190,9 @@ export interface Env {
 // request. `env` bindings are stable within an isolate; the guard on the D1
 // binding identity rebuilds defensively if that ever changes. The ARC account
 // resolver (which imports the signing key) is built alongside it, once.
-let cached: { app: ReturnType<typeof createApp>; dbBinding: D1Database } | undefined;
+let cached:
+  | { app: ReturnType<typeof createApp>; realtime: RealtimeRoute; dbBinding: D1Database }
+  | undefined;
 
 const misconfigured = (detail: string) =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -505,9 +508,26 @@ const handler: ExportedHandler<Env> = {
         appOptions.registryPreviewLimiter = registryPreviewEdgeLimiter;
       if (registryImageEdgeLimiter) appOptions.registryImageLimiter = registryImageEdgeLimiter;
       if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
+      // Realtime push rides the same options as the app, so its subscribe
+      // route authenticates exactly as the organiser routes do. No hub bound ⇒
+      // push is off: the route answers 503, host changes publish nothing, and
+      // tabs keep their own refetch triggers — loud in a deployed tier.
+      if (env.REALTIME_HUB) appOptions.realtimeHub = env.REALTIME_HUB;
+      if (env.REALTIME_RATE_LIMITER) {
+        appOptions.realtimeLimiter = createWorkersRateLimiter(env.REALTIME_RATE_LIMITER);
+      }
+      if (!env.REALTIME_HUB && isDeployedTier(env)) {
+        await runCire(
+          Effect.logError("REALTIME_HUB binding missing in a deployed tier", {
+            detail:
+              "push is off: /realtime answers 503 and host changes reach open tabs on their next refetch",
+          }),
+        );
+      }
       cached = {
         dbBinding: env.DB,
         app: createApp(db, appOptions),
+        realtime: createRealtimeRoute(db, appOptions),
       };
     }
 
@@ -522,8 +542,11 @@ const handler: ExportedHandler<Env> = {
     // the session on the async context every handler inherits.
     // Bound out of the mutable module-level cache before the closure, so the
     // narrowing above survives into it.
-    const { app } = cached;
-    const response = await runInD1Session(env.DB, () => app.fetch(request));
+    const { app, realtime } = cached;
+    // `/realtime/*` is answered before Elysia and inside the same D1 session:
+    // the hub's 101 must reach the runtime as the very object the hub returned,
+    // and Elysia rebuilds any Response once a plugin has set a header.
+    const response = await runInD1Session(env.DB, () => realtime(request) ?? app.fetch(request));
 
     // Drain this request's spans to the OTLP collector. Awaited-then-scheduled,
     // in that order, for two reasons: every span the request opened has ended

@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import { weddings } from "@cire/db";
 import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
+import { createD1Db } from "../src/db/index";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { jsonBody } from "./test-helpers";
+import { seedOrganiserSession } from "./test-helpers/organiser-session";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -27,6 +30,7 @@ import { jsonBody } from "./test-helpers";
 
 let mf: Miniflare;
 let DB: D1Database;
+let DB_REALTIME: D1Database;
 let savedOsnEnv: string | undefined;
 
 const MF_HOOK_TIMEOUT_MS = 30_000;
@@ -108,7 +112,7 @@ beforeAll(async () => {
   mf = new Miniflare({
     modules: true,
     script: "export default { fetch() { return new Response('ok'); } };",
-    d1Databases: { DB: "cire-test-index" },
+    d1Databases: { DB: "cire-test-index", DB_REALTIME: "cire-test-index-realtime" },
   });
   DB = await mf.getD1Database("DB");
   // Apply the schema the migrations would produce — crucially with NO seeded
@@ -120,6 +124,8 @@ beforeAll(async () => {
     .filter(Boolean)
     .join(";\n");
   await DB.exec(ddl);
+  DB_REALTIME = await mf.getD1Database("DB_REALTIME");
+  await DB_REALTIME.exec(ddl);
 }, MF_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -442,5 +448,125 @@ describe("D1 session routing at the entry points", () => {
     expect(pending).toHaveLength(6);
     expect(probe.constraints).toEqual(Array.from({ length: 6 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
+  });
+});
+
+describe("realtime subscribe at the Worker entry", () => {
+  const PORTAL = "https://host.example.com";
+  const TOPIC_PATH = `/realtime/${encodeURIComponent("cire:wedding:wed_rt")}`;
+
+  /**
+   * A new object over the same database. The Worker caches its app keyed on
+   * the identity of `env.DB`, so a fresh binding makes it rebuild with this
+   * test's env — the same trick as `probeD1` above. Methods are bound to the
+   * real binding, as `probeD1` does, so nothing reaches Miniflare's internals
+   * through the proxy.
+   */
+  const freshBinding = (): D1Database =>
+    new Proxy(DB_REALTIME, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+  async function seedOwner(): Promise<string> {
+    const db = createD1Db(DB_REALTIME);
+    const now = new Date();
+    await db
+      .insert(weddings)
+      .values({
+        id: "wed_rt",
+        slug: "rt",
+        displayName: "RT",
+        ownerOsnProfileId: "usr_rt_owner",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
+    return seedOrganiserSession(db, "usr_rt_owner");
+  }
+
+  function envWith(hubResponse?: Response) {
+    const hub = hubResponse
+      ? {
+          getByName: () => ({
+            fetch: async () => hubResponse,
+            publish: async () => 0,
+          }),
+        }
+      : undefined;
+    return {
+      ...BASE_ENV,
+      DB: freshBinding(),
+      WEB_ORIGIN: `https://invite.example.com,${PORTAL}`,
+      ...(hub ? { REALTIME_HUB: hub } : {}),
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+  }
+
+  it("hands an admitted upgrade the hub's own response, not one Elysia rebuilt", async () => {
+    const token = await seedOwner();
+    const hubResponse = new Response(null, { status: 101 });
+    const res = await handler.fetch!(
+      new Request(`https://api.example.com${TOPIC_PATH}`, {
+        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      envWith(hubResponse),
+      ctx,
+    );
+    expect(res).toBe(hubResponse);
+  });
+
+  it("refuses by itself, before Elysia: no 404, and no CORS headers even for the portal", async () => {
+    // The portal's own origin with no session: Elysia's CORS plugin would echo
+    // this origin on any response it built, so a missing header proves the
+    // refusal never went through the app.
+    const res = await handler.fetch!(
+      new Request(`https://api.example.com${TOPIC_PATH}`, {
+        headers: { upgrade: "websocket", origin: PORTAL },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      envWith(new Response(null, { status: 101 })),
+      ctx,
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(await res.text()).toBe("");
+  });
+
+  it("limits with the REALTIME_RATE_LIMITER binding when one is bound", async () => {
+    const token = await seedOwner();
+    const env = {
+      ...(envWith(new Response(null, { status: 101 })) as unknown as Record<string, unknown>),
+      REALTIME_RATE_LIMITER: { limit: async () => ({ success: false }) },
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    const res = await handler.fetch!(
+      new Request(`https://api.example.com${TOPIC_PATH}`, {
+        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(429);
+  });
+
+  it("serves a deployed tier without the hub binding, answering 503 for realtime only", async () => {
+    const env = envWith();
+    const token = await seedOwner();
+    const realtime = await handler.fetch!(
+      new Request(`https://api.example.com${TOPIC_PATH}`, {
+        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      env,
+      ctx,
+    );
+    expect(realtime.status).toBe(503);
+    const list = await handler.fetch!(
+      new Request("https://api.example.com/api/organiser/weddings", {
+        headers: { cookie: `cire_org_session=${token}` },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      env,
+      ctx,
+    );
+    expect(list.status).toBe(200);
   });
 });
