@@ -185,8 +185,8 @@ const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 6
 /**
  * Default per-IP limiter for the public realtime fallback beacon. In memory,
  * per isolate, like the CSP collector's. A tab sends at most one beacon per
- * subscription, so 10/min is far above real use, and a flood past it costs
- * only a log line and a count.
+ * subscription, so 10/min is far above real use. Beacons past it are dropped;
+ * each one within it costs one log line and one count.
  */
 const defaultRealtimeFallbackLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 /**

@@ -28,7 +28,8 @@ export interface OsnAuthOptions extends SharedOsnAuthOptions {
  *    `osn_profile_id` claim, so everything downstream keys on it unchanged.
  * 2. **`Authorization: Bearer` with an OSN access token** — for callers that are
  *    not this browser (a first-party OSN surface holding `aud: "osn-access"`,
- *    and the route tests, which inject the verifying key).
+ *    and the route tests, which inject the verifying key). The shared client
+ *    verifies it, enforcing the audience inside the single `jwtVerify` pass.
  *
  * `osnAuth()` derives from this; the realtime subscribe route, which runs
  * before the Elysia app, calls it directly.

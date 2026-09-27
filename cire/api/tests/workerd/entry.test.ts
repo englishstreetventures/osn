@@ -12,6 +12,9 @@ import { Miniflare } from "miniflare";
  */
 
 const HOOK_TIMEOUT_MS = 60_000;
+const wrangler = Bun.TOML.parse(
+  await Bun.file(new URL("../../wrangler.toml", import.meta.url)).text(),
+) as { compatibility_date: string; compatibility_flags: string[] };
 let mf: Miniflare;
 
 beforeAll(async () => {
@@ -26,9 +29,8 @@ beforeAll(async () => {
   mf = new Miniflare({
     modules: true,
     scriptPath: `${outdir}/entry.js`,
-    // `cire/api/wrangler.toml` lines 3 and 18.
-    compatibilityDate: "2025-03-01",
-    compatibilityFlags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
+    compatibilityDate: wrangler.compatibility_date,
+    compatibilityFlags: wrangler.compatibility_flags,
     d1Databases: { DB: "cire-test-entry" },
     durableObjects: { REALTIME_HUB: { className: "TopicHub", useSQLite: true } },
     bindings: {

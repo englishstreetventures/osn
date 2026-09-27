@@ -1,14 +1,18 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { weddingHosts, weddings } from "@cire/db";
+import { hashToken } from "@shared/crypto/tokens";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
+import { DrizzleQueryError } from "drizzle-orm";
+import { Effect } from "effect";
 
 import type { AppOptions } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { createRealtimeRoute } from "../../src/routes/realtime";
 import type { AssignableHostRole } from "../../src/services/hosts";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth, type OsnTestAuth } from "../test-helpers/osn-token";
@@ -194,5 +198,62 @@ describe("createRealtimeRoute — refused", () => {
   it("503s when no hub is bound", async () => {
     const { route } = setup({ realtimeHub: undefined });
     expect((await upgrade(route, await bearer(OWNER))).status).toBe(503);
+  });
+});
+
+/**
+ * Make every statement that names `table` fail as Drizzle's D1 driver does:
+ * with a `DrizzleQueryError` whose message ends in the bound params. The
+ * bun:sqlite driver throws its own error, which names no params, so a dropped
+ * table could not show what a failed D1 lookup would put in the log.
+ */
+function failLikeD1(db: ReturnType<typeof createDb>, table: string) {
+  const client = db.$client;
+  const prepare = client.prepare.bind(client);
+  client.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    if (!sql.includes(`"${table}"`)) return statement;
+    const fail = (...params: unknown[]) => {
+      throw new DrizzleQueryError(sql, params, new Error("D1_ERROR"));
+    };
+    return new Proxy(statement, {
+      get: (target, key) =>
+        key === "all" || key === "values" || key === "get" || key === "run"
+          ? fail
+          : Reflect.get(target, key),
+    });
+  }) as typeof client.prepare;
+}
+
+describe("createRealtimeRoute — a lookup that fails", () => {
+  it("503s when the membership lookup fails, and logs no profile id", async () => {
+    const { db, route, hub } = setup();
+    seat(db, "usr_cohost", "editor");
+    const headers = await bearer("usr_cohost");
+    failLikeD1(db, "wedding_hosts");
+    let status = 0;
+    const out = await captureLogs(async () => {
+      status = (await upgrade(route, headers)).status;
+    });
+    expect(status).toBe(503);
+    expect(hub.upgrades).toEqual([]);
+    expect(out).toContain("wedding membership lookup failed");
+    expect(out).not.toContain("usr_");
+  });
+
+  it("503s when the session lookup fails, and logs neither the token nor its hash", async () => {
+    const { db, route, hub } = setup();
+    const token = await seedOrganiserSession(db, OWNER);
+    const tokenHash = await Effect.runPromise(hashToken(token));
+    failLikeD1(db, "organiser_sessions");
+    let status = 0;
+    const out = await captureLogs(async () => {
+      status = (await upgrade(route, { cookie: `cire_org_session=${token}` })).status;
+    });
+    expect(status).toBe(503);
+    expect(hub.upgrades).toEqual([]);
+    expect(out).toContain("organiser lookup failed");
+    expect(out).not.toContain(token);
+    expect(out).not.toContain(tokenHash);
   });
 });

@@ -40,6 +40,18 @@ const canReadWedding = (weddingId: string, osnProfileId: string) =>
     );
 
 /**
+ * `run`'s result, or an error carrying only `message` — never the failed
+ * query's params (a session token hash, a profile id), which `subscribe` logs.
+ */
+async function withFixedError<A>(message: string, run: () => Promise<A>): Promise<A> {
+  try {
+    return await run();
+  } catch {
+    throw new Error(message);
+  }
+}
+
+/**
  * `GET /realtime/:topic` — a WebSocket onto one wedding's hub. It runs in the
  * Worker entry BEFORE the Elysia app and returns the hub's 101 response as the
  * very object the hub produced: Elysia rebuilds a returned Response whenever a
@@ -65,10 +77,16 @@ export function createRealtimeRoute(db: Db, options: AppOptions = {}): RealtimeR
         hub,
         allowedOrigins,
         acceptsTopic: (topic) => topic.entity === "wedding" && WEDDING_TOPIC_ID.test(topic.id),
-        authenticate: async (req) => (await resolveOsnProfileId(req, auth)) ?? null,
+        authenticate: (req) =>
+          withFixedError(
+            "organiser lookup failed",
+            async () => (await resolveOsnProfileId(req, auth)) ?? null,
+          ),
         allow: async (subject) => limiter.check(subject),
         authorize: (subject, topic) =>
-          runCire(canReadWedding(topic.id, subject).pipe(Effect.provideService(DbService, db))),
+          withFixedError("wedding membership lookup failed", () =>
+            runCire(canReadWedding(topic.id, subject).pipe(Effect.provideService(DbService, db))),
+          ),
       }),
     );
   };

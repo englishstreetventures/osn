@@ -82,7 +82,10 @@ export const PONG = "pong";
  * other close as a loss to recover from.
  */
 export const CLOSE_CODES = {
-  /** The topic is full, or the client sent a frame the protocol does not allow. */
+  /**
+   * The topic is full, the member's least recently seen socket was closed at
+   * their cap, or the client sent a frame the protocol does not allow.
+   */
   policy: 1008,
   /** The subject's membership changed: reconnect so it is checked again. */
   evicted: 4001,

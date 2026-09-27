@@ -7,11 +7,13 @@ import { metricClientFallback } from "./metrics";
 export const MAX_FALLBACK_BEACON_BYTES = 64;
 
 /**
- * The outcome a beacon body names, or null. Surrounding whitespace is ignored;
- * anything else must be exactly one outcome, so an empty body, an unknown
- * word, JSON or a longer string is refused.
+ * The outcome a beacon body names, or null. A body longer than
+ * `MAX_FALLBACK_BEACON_BYTES`, padding included, is refused. Within that,
+ * surrounding whitespace is ignored and the rest must be exactly one outcome,
+ * so an empty body, an unknown word or JSON is refused.
  */
 export function readFallbackOutcome(body: string): FallbackOutcome | null {
+  if (body.length > MAX_FALLBACK_BEACON_BYTES) return null;
   const trimmed = body.trim();
   return isFallbackOutcome(trimmed) ? trimmed : null;
 }

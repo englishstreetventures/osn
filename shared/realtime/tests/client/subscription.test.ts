@@ -154,7 +154,7 @@ describe("createTopicSubscription", () => {
     }
   });
 
-  it("stops at once on 1008 — the topic is full or a frame was refused", () => {
+  it("stops at once on 1008 — the topic is full, the member's least recently seen socket was closed at their cap, or a frame was refused", () => {
     const onFallback = vi.fn();
     createTopicSubscription(URL, onSignal, { ...base, onFallback });
     latest().serverOpen();

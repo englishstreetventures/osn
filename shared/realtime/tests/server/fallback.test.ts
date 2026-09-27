@@ -48,10 +48,18 @@ describe("readFallbackOutcome", () => {
     ["a capitalised outcome", "Refused"],
     ["the client's stopped signal", "stopped"],
     ["JSON", '{"outcome":"refused"}'],
-    ["a 65-character body that starts with an outcome", `refused${"x".repeat(58)}`],
     ["two outcomes", "refused exhausted"],
   ])("refuses %s", (_label, body) => {
     expect(readFallbackOutcome(body)).toBeNull();
+  });
+
+  it("reads an outcome padded to the cap, and refuses one padded a character past it", () => {
+    const atCap = `${" ".repeat(28)}refused${" ".repeat(29)}`;
+    const pastCap = ` ${atCap}`;
+    expect(atCap).toHaveLength(MAX_FALLBACK_BEACON_BYTES);
+    expect(pastCap).toHaveLength(MAX_FALLBACK_BEACON_BYTES + 1);
+    expect(readFallbackOutcome(atCap)).toBe("refused");
+    expect(readFallbackOutcome(pastCap)).toBeNull();
   });
 });
 
