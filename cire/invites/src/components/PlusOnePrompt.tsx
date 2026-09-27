@@ -168,7 +168,6 @@ function fullName(member: Pick<FamilyMember, "firstName" | "lastName">): string 
  * guest just pressed.
  */
 function PlusOneRow(props: PlusOneRowProps) {
-  const labelId = createUniqueId();
   const firstId = createUniqueId();
   const lastId = createUniqueId();
 
@@ -314,11 +313,14 @@ function PlusOneRow(props: PlusOneRowProps) {
   }
 
   return (
-    <div role="group" aria-labelledby={props.labelled ? labelId : undefined}>
+    // A fieldset, so a household's rows each carry whose guest they are to a
+    // screen reader as well as on screen. `min-w-0` lets it be narrower than
+    // its content, as a fieldset otherwise is not.
+    <fieldset class="m-0 min-w-0 border-0 p-0">
       <Show when={props.labelled}>
-        <p id={labelId} class="font-body text-text-muted text-ui-xs mb-1.5">
+        <legend class="font-body text-text-muted text-ui-xs mb-1.5 p-0">
           {props.inviter.firstName}&apos;s guest
-        </p>
+        </legend>
       </Show>
 
       <Show
@@ -452,6 +454,6 @@ function PlusOneRow(props: PlusOneRowProps) {
       <output class="text-text-muted text-ui-sm mt-2 block font-light empty:hidden">
         {notice() ?? ""}
       </output>
-    </div>
+    </fieldset>
   );
 }
