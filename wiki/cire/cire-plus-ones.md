@@ -68,7 +68,7 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 | `PUT /api/plus-one/:guestId` | `{ firstName, lastName? }` | `{ plusOne: { guestId, firstName, lastName, plusOneOf, eventIds }, created, dietaryCleared }` |
 | `DELETE /api/plus-one/:guestId` | — | `{ removed }` (idempotent) |
 
-`PUT` names the plus-one, or renames the one already named. **A rename that changes the name clears the plus-one's dietary answers and consent record** (`dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version`) in the same D1 batch as the name, and answers `dietaryCleared: true`; each reply's status stays. The household may be naming a different person — or a second device, still showing no plus-one, "adds" one over whoever is there — and the answers and the household's attestation were about the person before. The organiser's name correction is a spelling fix and clears nothing. Refusals, in the order they are checked:
+`PUT` names the plus-one, or renames the one already named. **A rename that changes the name clears the plus-one's dietary answers and consent record** (`dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version`) in the same D1 batch as the name — on every such rename, not only when the read before it saw answers, since a reply can land in between — and answers `dietaryCleared: true` when there were answers to clear; each reply's status stays. The household may be naming a different person — or a second device, still showing no plus-one, "adds" one over whoever is there — and the answers and the household's attestation were about the person before. The organiser's name correction is a spelling fix and clears nothing. Refusals, in the order they are checked:
 
 | Status | `error` | When |
 |---|---|---|
@@ -93,6 +93,7 @@ Names are trimmed and at most 100 characters each. They may not contain control,
 
 - The wording and version live together in `@cire/dietary` as `PLUS_ONE_DIETARY_ATTESTATION` (`cire/dietary/src/attestation.ts`), which both the invite and the API read. `cire/dietary/tests/attestation.test.ts` pins the two together.
 - Each reply may carry `dietaryAttestation`: the version of the words the sheet showed. A plus-one's dietary data is stored only when it equals the constant the API stamps; anything else — no attestation, or words from another build of the invite — answers `422 plus_one_dietary_unavailable`. The guest site and the API deploy separately, so this is what keeps a copy change from being stamped with a version whose words were not on screen. The general consent gate (`dietaryConsent`) runs first.
+- The reply also carries `dietaryAttestedName`: the full name the sheet showed the attestation for. A name the plus-one's row no longer carries answers `409 plus_one_changed`, and the sheet asks for a reload. A page opened before the household renamed its plus-one still holds the old person's answers, and without this a save from it would stamp a fresh attestation on the new person's row.
 - The row is stamped with the attestation's version (`dietaryConsentVersionFor` in `cire/api/src/services/rsvp.ts`), never the guest's own-consent `DIETARY_CONSENT_VERSION`.
 - A status-only reply needs no attestation.
 
@@ -125,14 +126,14 @@ A named plus-one is a guest row with invitations, so every read that counts gues
 The claim and welcome panel (`LoginSection`, [[cire-invite-designs]]) carries the household's plus-one prompt, `PlusOnePrompt`, in both design packs. It is its own lazy chunk, warmed with the account link and rendered only for a household with a permitted member or a named plus-one, never in host preview.
 
 - **Naming.** Each permitted member gets a first and last name form (100 characters each, as the API allows). In a household each form is labelled "Ana's guest"; a guest on their own is spoken to directly.
-- **A named plus-one** shows with "Change name" and "Remove". Removing asks first, naming the person, since their replies go too. A rename over dietary answers warns that it clears them, and says when it did. An "add" answered `created: false` (another device named someone first) says so and shows the name that stands.
+- **A named plus-one** shows with "Change name" and "Remove". Removing asks first, naming the person, since their replies go too. A rename over dietary answers warns that it clears them, and says when it did. An "add" answered `created: false` (another device named someone first) says so, shows the name that stands, and says when that cleared dietary answers. Removing a guest the member may no longer bring removes their row; the prompt stays for that household and carries the confirmation, with focus on its heading.
 - **The deadline.** Past the RSVP deadline the prompt shows named plus-ones without controls and offers nothing else, like the rest of the invite.
 - **Art. 14.** The prompt asks the household to share the privacy notice with their guest, who never sees the invite; the notice (`cire/invites/src/pages/privacy.astro`) has a section for a person a guest brings — where their details came from, the basis for each, and how to correct, withdraw or delete them without a code.
 - **State.** The prompt makes the request and hands the page an update (`onPlusOneChange`); the pack applies it to its claim result, so the Respond dialog, the greeting and every card read the one copy. The pure updates are in `cire/invites/src/components/plus-one.ts`.
 - **The Respond dialog** lists a plus-one after the member who brought them, labelled as their guest. Their dietary answers sit behind a second box — the attestation, naming only the plus-ones it covers — apart from the household's own consent box. Each box opens ticked only when every person it covers has a current record for that box.
 - **The greeting** counts the members the couple invited: a guest on their own who names a plus-one is still greeted by name.
 - **Completeness.** `hasHouseholdResponded` (the Respond button's tick) and the sheet's celebration leave plus-ones out, so naming a guest after answering never takes a tick back. The prompt says plainly while a named guest still has an event unanswered.
-- **Account linking** does not offer a plus-one's seat: it asks "Which guest are you?" of people holding the code. A plus-one seat that is already linked stays listed so its Unlink is reachable. The API still accepts such a link from the household.
+- **Account linking** does not take a plus-one's seat: the invite does not offer it ("Which guest are you?" is asked of people holding the code), and `POST /api/account/link` refuses it (`403 plus_one_seat`). A plus-one seat already linked stays listed so its Unlink is reachable.
 
 ---
 

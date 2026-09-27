@@ -320,6 +320,31 @@ describe("plusOneService.save — a household rename", () => {
     expect(db.select().from(guests).where(eq(guests.firstName, "Alex")).all()).toEqual([]);
   });
 
+  it("clears a reply given between the read and the rename", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    // Another tab saves Sam's dietary answer after the rename has read "no
+    // answers on file", before its writes run.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let raced = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!raced && (sql.startsWith('update "rsvps"') || sql.startsWith('update "guests"'))) {
+          raced = true;
+          giveDietary(samId);
+        }
+        return prepare(sql);
+      },
+    });
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(raced).toBe(true);
+    expect(replyOf(samId)).toMatchObject({ dietary: "", dietaryConsentVersion: null });
+  });
+
   it("renames over dietary answers in one read and one batch of three", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
@@ -710,9 +735,10 @@ describe("plusOneService — the host-preview household", () => {
 describe("plusOneService — statements per write", () => {
   // Every guest write reads its whole context in ONE statement. Naming adds
   // only the guest count (the cap comes from that context read) before a
-  // three-statement batch; a rename or a remove is one write; a remove with
-  // nothing named writes nothing.
-  it("names in five statements, renames and removes in two, and a repeat remove in one", async () => {
+  // three-statement batch; a rename is one batch of three (clear the dietary
+  // answers, write the name, read it back); an unchanged name writes nothing;
+  // a remove is one write; a remove with nothing named writes nothing.
+  it("names in five statements, renames in four, removes in two, and a repeat remove in one", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     const recorded = recordStatements(db);
@@ -726,7 +752,7 @@ describe("plusOneService — statements per write", () => {
     ).toBe(5);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
-    ).toBe(2);
+    ).toBe(4);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(1);

@@ -1,5 +1,5 @@
 import Button from "@cire/ui/button";
-import { createEffect, For, lazy, onMount, Show, Suspense } from "solid-js";
+import { createEffect, createMemo, For, lazy, onMount, Show, Suspense } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
 import { hasClaimedHint, noteClaimed, signOut } from "./claim-session";
@@ -245,13 +245,21 @@ export function LoginSection(props: LoginSectionProps) {
     return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
   };
 
-  // Whether this household has a plus-one prompt at all: someone may bring a
-  // guest, or one is named. Checked before the prompt renders so a household
-  // with neither never downloads it. Never in host preview.
-  const offersPlusOne = () =>
-    props.result !== null &&
-    props.result.preview !== true &&
-    members().some((m) => m.plusOneAllowed === true || isPlusOne(m));
+  // Whether this household has a plus-one prompt: someone may bring a guest,
+  // or one is named. Checked before the prompt renders so a household with
+  // neither never downloads it. Never in host preview. Once shown it stays for
+  // that household (by code), even when a removal leaves nothing to offer —
+  // the prompt still holds that removal's confirmation and the focus.
+  let plusOneShownFor: string | null = null;
+  const offersPlusOne = createMemo(() => {
+    const result = props.result;
+    if (result === null || result.preview === true) return false;
+    if (members().some((m) => m.plusOneAllowed === true || isPlusOne(m))) {
+      plusOneShownFor = result.publicId;
+      return true;
+    }
+    return plusOneShownFor === result.publicId;
+  });
 
   // "Not the Okafor family? Sign out" when we know who they are, so the control
   // names the household it ends rather than describing a mechanism. Falls back

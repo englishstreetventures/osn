@@ -12,6 +12,7 @@ import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { seedPlusOne } from "../test-helpers/plus-one";
 
 // Seeded families (see @cire/db/seed — cire/db/seed/data/guests.ts):
 //   TESTONE-IVY-AA11 Testfamily → Ada
@@ -186,6 +187,17 @@ describe("POST /api/account/link", () => {
     const bearer = await auth.sign("usr_alice");
     const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") }); // Bo ∈ Sampleton
     expect(res.status).toBe(403);
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
+  });
+
+  it("returns 403 for a plus-one's seat, which no account may take", async () => {
+    const { db, app } = buildApp();
+    const samId = seedPlusOne(db, guestIdByName(db, "Bo"), { firstName: "Sam" });
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bearer = await auth.sign("usr_alice");
+    const res = await postLink(app, { cookie, bearer, guestId: samId });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "plus_one_seat" });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 

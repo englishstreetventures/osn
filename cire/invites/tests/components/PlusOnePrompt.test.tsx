@@ -191,6 +191,20 @@ describe("PlusOnePrompt — naming a guest", () => {
     expect(screen.getByText("Alex")).toBeTruthy();
   });
 
+  // This page showed no guest, but another device had named one: the "add"
+  // renamed them, and their dietary answers went with the old name.
+  it("says so when adding over another device's guest cleared their dietary answers", async () => {
+    fetchMock.mockResolvedValue(json(200, savedSam({ created: false, dietaryCleared: true })));
+    renderPrompt(household([bo]));
+    fireEvent.input(firstName(), { target: { value: "Sam" } });
+    fireEvent.input(lastName(), { target: { value: "Park" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add guest" }));
+    await waitFor(() => expect(screen.getByText(/already added/)).toBeTruthy());
+    const notice = screen.getByText(/already added/).textContent ?? "";
+    expect(notice).toMatch(/changed to Sam Park/);
+    expect(notice).toMatch(/were cleared/);
+  });
+
   it("explains a refusal and keeps what was typed", async () => {
     fetchMock.mockResolvedValue(json(409, { error: "guest_capacity" }));
     renderPrompt(household([bo]));
@@ -332,6 +346,20 @@ describe("PlusOnePrompt — a named guest", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/RSVPs have closed/));
     expect(result().members.map((m) => m.guestId)).toEqual(["g-bo", "g-sam"]);
     expect(result().rsvps).toHaveLength(1);
+  });
+
+  // Without permission the row goes with the guest, and the prompt with it
+  // when that was the only row: focus and the confirmation must not go too.
+  it("keeps focus and says so when a guest the member may no longer bring is removed", async () => {
+    fetchMock.mockResolvedValue(json(200, { removed: true }));
+    const { result } = renderPrompt(household([{ ...bo, plusOneAllowed: false }, sam]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+    await waitFor(() => expect(result().members.map((m) => m.guestId)).toEqual(["g-bo"]));
+    expect(screen.getByText("Sam Park removed.")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Bringing a guest" }));
   });
 
   it("offers removal but not a rename once the member may no longer bring a guest", () => {

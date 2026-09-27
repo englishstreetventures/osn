@@ -2412,6 +2412,9 @@ describe("RsvpModal", () => {
           dietaryPresets: ["nuts"],
           dietaryConsent: true,
           dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+          // Who the attestation was shown for, so the API can refuse it once
+          // the household has renamed them.
+          dietaryAttestedName: "Sam Park",
         },
       ]);
     });
@@ -2435,6 +2438,7 @@ describe("RsvpModal", () => {
           dietaryPresets: [],
           dietaryConsent: false,
           dietaryAttestation: "",
+          dietaryAttestedName: "",
         },
       ]);
     });
@@ -2536,6 +2540,28 @@ describe("RsvpModal", () => {
       fireEvent.click(screen.getByText("Save"));
       await waitFor(() =>
         expect(screen.getByRole("alert").textContent).toMatch(/guest's dietary requirements/),
+      );
+    });
+
+    it("asks for a reload when the plus-one was renamed since the page opened", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "plus_one_changed" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      fireEvent.click(attestBox());
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toMatch(/name has changed.*reload/),
       );
     });
 

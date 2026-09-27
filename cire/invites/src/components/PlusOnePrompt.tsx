@@ -75,6 +75,21 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
     }),
   );
 
+  /**
+   * What the prompt says once a row has gone. Removing a guest the member may
+   * no longer bring removes their row — and the whole prompt, if it was the
+   * only one — so the confirmation and focus cannot stay with the row. While
+   * this is set the prompt stays on screen, with the confirmation, and focus
+   * rests on its heading.
+   */
+  const [announcement, setAnnouncement] = createSignal<string | null>(null);
+  let heading: HTMLHeadingElement | undefined;
+
+  function rowGone(message: string) {
+    setAnnouncement(message);
+    heading?.focus();
+  }
+
   /** A household of one is spoken to; a larger one is named. */
   const alone = () => invited().length === 1;
 
@@ -89,7 +104,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
   };
 
   return (
-    <Show when={rows().length > 0}>
+    <Show when={rows().length > 0 || announcement() !== null}>
       {/* `wrap-anywhere` is inherited: names are typed by guests and can be one
           long word, and every line here that carries one must still wrap
           inside the narrow panel card on a phone. */}
@@ -99,6 +114,9 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
       >
         <h3
           id={headingId}
+          ref={heading}
+          // Focusable by script only: where focus lands when a row goes.
+          tabIndex={-1}
           class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
         >
           {props.closed ? (rows().length === 1 ? "Your guest" : "Your guests") : "Bringing a guest"}
@@ -121,10 +139,14 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
                 labelled={!alone()}
                 rsvps={props.rsvps}
                 onChange={props.onChange}
+                onGone={rowGone}
               />
             )}
           </For>
         </div>
+        <output class="text-text-muted text-ui-sm block font-light empty:hidden">
+          {announcement() ?? ""}
+        </output>
 
         <p class="text-text-muted text-ui-xs leading-ui-normal mt-5 font-light">
           Your guest won&apos;t see this invitation, so please share our{" "}
@@ -154,6 +176,9 @@ interface PlusOneRowProps {
   labelled: boolean;
   rsvps: readonly RsvpSummary[];
   onChange: (update: (result: ClaimResult) => ClaimResult) => void;
+  /** This row is about to go (its guest removed, and nothing left to offer):
+   *  the prompt carries the confirmation and focus from here. */
+  onGone: (message: string) => void;
 }
 
 type Mode = "view" | "edit" | "confirm";
@@ -259,13 +284,22 @@ function PlusOneRow(props: PlusOneRowProps) {
     }
     props.onChange((result) => withPlusOneSaved(result, saved));
     setMode("view");
+    const cleared =
+      saved.dietaryCleared === true
+        ? " The dietary requirements given for them were cleared. Add them again under Respond."
+        : "";
+    const shown = fullName(saved.plusOne);
     if (adding && !saved.created) {
-      // Another device named someone first; theirs stands, now with this name.
-      setNotice(`A guest was already added: ${fullName(saved.plusOne)}.`);
-    } else if (saved.dietaryCleared === true) {
+      // Another device had named someone. Either this "add" renamed them —
+      // the name that stands is the one typed here — or theirs stands as it
+      // was.
       setNotice(
-        "The dietary requirements you gave for your guest were cleared. Add them again under Respond.",
+        shown === fullName({ firstName, lastName })
+          ? `A guest was already added, so their name was changed to ${shown}.${cleared}`
+          : `A guest was already added: ${shown}.`,
       );
+    } else if (cleared) {
+      setNotice(cleared.trim());
     }
     focusNamed();
   }
@@ -304,11 +338,20 @@ function PlusOneRow(props: PlusOneRowProps) {
     const guest = props.plusOne;
     const res = await request({ method: "DELETE" });
     if (!res) return;
+    const message = guest ? `${fullName(guest)} removed.` : "Guest removed.";
+    // Without permission there is no form to come back to: this row goes.
+    // The prompt takes the confirmation and focus first, so neither leaves
+    // with the row.
+    if (!props.allowed) {
+      props.onGone(message);
+      props.onChange((result) => withPlusOneRemoved(result, props.inviter.guestId));
+      return;
+    }
     props.onChange((result) => withPlusOneRemoved(result, props.inviter.guestId));
     setFirst("");
     setLast("");
     setMode("view");
-    if (guest) setNotice(`${fullName(guest)} removed.`);
+    setNotice(message);
     firstInput?.focus();
   }
 

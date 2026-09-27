@@ -316,7 +316,8 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
  *  passed; `preview` = the organiser's host-preview family, which never writes;
  *  `plus_one_dietary` = dietary data on a plus-one's reply without the
- *  household's attestation in the wording this API stamps. */
+ *  household's attestation in the wording this API stamps, or attested for a
+ *  name the plus-one no longer has. */
 export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent" | "plus_one_dietary";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 /** What happened to a plus-one row. Bounded, one per write path. */

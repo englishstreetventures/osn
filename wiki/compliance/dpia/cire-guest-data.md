@@ -179,10 +179,13 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     is the version it stamps (422 `plus_one_dietary_unavailable` otherwise), and
     stamps it on the row. So the stored record pins the attestation copy, never
     the guest's own-consent copy, and a guest site and API from different
-    builds cannot store evidence for words that were not on screen. **A
+    builds cannot store evidence for words that were not on screen. The reply
+    also names the person the sheet showed the attestation for, and the API
+    refuses (409 `plus_one_changed`) a name the row no longer carries, so a page
+    opened before a rename cannot attest for the person named since. **A
     household rename of a plus-one clears their dietary answers and consent
-    record** in the same write, since a new name may be a different person
-    (Art. 5(1)(d)). **The organiser's recording route still refuses dietary data
+    record** in the same write, on every rename, since a new name may be a
+    different person (Art. 5(1)(d)). **The organiser's recording route still refuses dietary data
     on a plus-one's reply**: its rows are stamped with the guest's own-consent
     version, not a version of the organiser's own attestation words, so for a
     person whose data comes from someone else it would store evidence naming

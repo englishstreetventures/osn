@@ -69,7 +69,7 @@ RSVP-by line, and the household's controls in this order:
 2. **Pulse account linking** — `PulseAccountLink` inside its own
    `AuthProvider`. Hidden in host preview, and it renders nothing while
    linking is off (`cire.account-linking`, [[feature-flags]]). It offers no
-   plus-one's seat.
+   plus-one's seat, and the API refuses one.
 3. **Sign-out** — "Not {name}? Sign out". The panel itself revokes
    `cire_session` (`POST /api/claim/signout`, see [[cire-auth]]), drops the
    restore hint, resets its form and clears the inline styles the unlock

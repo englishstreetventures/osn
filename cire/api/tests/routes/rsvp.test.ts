@@ -1036,6 +1036,7 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
           dietaryPresets: ["halal"],
           dietaryConsent: true,
           dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "Sam",
         },
         {
           guestId: bo.id,
@@ -1088,6 +1089,60 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
         "status",
       ].toSorted(),
     );
+  });
+
+  /**
+   * The attestation is about a person, not a row. A page opened before the
+   * household renamed its plus-one still shows the old name and the old
+   * answers, and a save from it would stamp a fresh attestation on the new
+   * person's row. The reply names who the sheet showed, and a name the row no
+   * longer carries is refused, so the page reloads instead.
+   */
+  it("refuses dietary data attested for a name the plus-one no longer has", async () => {
+    const { plusDb, samId, send } = await setUp();
+    const blocked = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" });
+    for (const dietaryAttestedName of ["Alex", "", undefined]) {
+      const res = await send({
+        rsvps: [
+          {
+            guestId: samId,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietaryPresets: ["halal"],
+            dietaryConsent: true,
+            dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+            dietaryAttestedName,
+          },
+        ],
+      });
+      expect(res.status).toBe(409);
+      expect((await res.json()) as unknown).toEqual({ error: "plus_one_changed" });
+    }
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" })).toBe(
+      blocked + 3,
+    );
+  });
+
+  it("matches the attested name to the plus-one's full name, trimmed", async () => {
+    const { plusDb, samId, send } = await setUp();
+    plusDb.update(guests).set({ lastName: "Park" }).where(eq(guests.id, samId)).run();
+    const reply = (dietaryAttestedName: string) =>
+      send({
+        rsvps: [
+          {
+            guestId: samId,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietaryPresets: ["halal"],
+            dietaryConsent: true,
+            dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+            dietaryAttestedName,
+          },
+        ],
+      });
+    expect((await reply("Sam")).status).toBe(409);
+    expect((await reply(" Sam Park ")).status).toBe(200);
   });
 
   it("400s an attestation that is not a short string, and writes nothing", async () => {

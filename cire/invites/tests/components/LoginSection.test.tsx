@@ -755,6 +755,26 @@ describe("LoginSection plus-one prompt", () => {
     expect((await findByTestId("plus-one-prompt-stub")).dataset.members).toBe("g-Chidi,g-Sam");
   });
 
+  // Removing the last guest a member may no longer bring leaves nobody to
+  // offer the prompt to; it stays mounted for this household, so its
+  // confirmation and focus survive the removal.
+  it("stays for the household once shown, even when nothing is left to offer", async () => {
+    const [current, setCurrent] = createSignal<ClaimResult>(
+      result([member("Chidi"), { ...member("Sam"), plusOneOf: "g-Chidi" }]),
+    );
+    const { findByTestId, queryByTestId } = render(() => (
+      <LoginSection apiUrl="http://x" result={current()} onClaimed={noop} onPlusOneChange={noop} />
+    ));
+    await findByTestId("plus-one-prompt-stub");
+
+    setCurrent(result([member("Chidi")]));
+    expect(queryByTestId("plus-one-prompt-stub")).not.toBeNull();
+
+    // Another household is another matter.
+    setCurrent({ ...result([member("Ada")], "Adeyemi"), publicId: "ADEYEMI-OAK-AB12" });
+    expect(queryByTestId("plus-one-prompt-stub")).toBeNull();
+  });
+
   it("is absent when nobody may bring a guest and none is named", async () => {
     const { queryByTestId } = render(() => (
       <LoginSection

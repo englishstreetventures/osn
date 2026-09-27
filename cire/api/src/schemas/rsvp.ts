@@ -46,12 +46,13 @@ const DietaryPresets = Schema.Array(Schema.Literals(DIETARY_PRESETS)).check(
 // it. A preset is not the safe half of the pair: `halal` and `kosher` reveal
 // religious belief, `nuts` and `shellfish` reveal health.
 //
-// `dietaryAttestation` matters only on a plus-one's reply: the version of the
-// household's attestation wording the sheet showed
-// (`PLUS_ONE_DIETARY_ATTESTATION.version` in `@cire/dietary`). The route
-// refuses a plus-one's dietary data unless it is the version this API stamps,
-// and stamps its own constant, never this string. Bounded because it is
-// compared, not stored.
+// `dietaryAttestation` and `dietaryAttestedName` matter only on a plus-one's
+// reply: the version of the household's attestation wording the sheet showed
+// (`PLUS_ONE_DIETARY_ATTESTATION.version` in `@cire/dietary`), and the full name
+// of the person it showed it for. The route refuses a plus-one's dietary data
+// unless the version is the one this API stamps and the name is the one the
+// row carries now, and stamps its own constant, never these strings. Bounded
+// because they are compared, not stored.
 const RsvpItem = Schema.Struct({
   guestId: Schema.NonEmptyString,
   eventId: Schema.NonEmptyString,
@@ -60,6 +61,9 @@ const RsvpItem = Schema.Struct({
   dietaryPresets: DietaryPresets.pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
   dietaryAttestation: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("")),
+  ),
+  dietaryAttestedName: Schema.String.check(Schema.isMaxLength(256)).pipe(
     Schema.withDecodingDefaultType(Effect.succeed("")),
   ),
 });

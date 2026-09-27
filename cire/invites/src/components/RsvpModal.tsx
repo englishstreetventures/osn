@@ -476,10 +476,13 @@ export function RsvpModal(props: RsvpModalProps) {
           return { guestId, eventId, status, dietary, dietaryPresets, dietaryConsent };
         }
         // A plus-one's reply carries the household's attestation: the box,
-        // and the version of the words beside it, which the API must stamp
-        // or refuse.
+        // the version of the words beside it, and the name it was shown for.
+        // The API stamps that version or refuses it, and refuses a name the
+        // plus-one no longer has, so a page opened before a rename cannot
+        // attest for the person named since.
         const dietaryConsent = hasDietaryData && attestation.checked();
         const dietaryAttestation = dietaryConsent ? PLUS_ONE_DIETARY_ATTESTATION.version : "";
+        const dietaryAttestedName = dietaryConsent ? `${m.firstName} ${m.lastName}`.trim() : "";
         return {
           guestId,
           eventId,
@@ -488,6 +491,7 @@ export function RsvpModal(props: RsvpModalProps) {
           dietaryPresets,
           dietaryConsent,
           dietaryAttestation,
+          dietaryAttestedName,
         };
       }),
     };
@@ -550,6 +554,8 @@ export function RsvpModal(props: RsvpModalProps) {
             ? "RSVPs have closed for this wedding. Please contact the couple directly."
             : "You're not authorised to RSVP for one of those guests.",
         );
+      } else if (res.status === 409 && (await failureCode(res)) === "plus_one_changed") {
+        setError("Your guest's name has changed since this page opened. Please reload the page.");
       } else if (
         res.status === 422 &&
         (await failureCode(res)) === "plus_one_dietary_unavailable"

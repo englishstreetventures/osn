@@ -92,6 +92,40 @@ describe("accountLinkService.link", () => {
     expect(err._tag).toBe("GuestNotInFamily");
   });
 
+  /**
+   * A plus-one never holds the household's code: their row was typed in by the
+   * member who brought them. Linking it would bind someone else's seat to the
+   * account of whoever is signed in, so it is refused whichever client asks.
+   */
+  it("refuses to link a plus-one's seat, and writes no link", async () => {
+    const db = fixture();
+    db.insert(guests)
+      .values({
+        id: "gst_plus",
+        familyId: "fam_a",
+        firstName: "Sam",
+        lastName: "",
+        sortOrder: 0,
+        plusOneOfGuestId: "gst_a1",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const err = await run(
+      db,
+      accountLinkService
+        .link({
+          familyId: "fam_a",
+          guestId: "gst_plus",
+          osnAccountId: "acc_1",
+          osnProfileId: "usr_1",
+        })
+        .pipe(Effect.flip),
+    );
+    expect(err._tag).toBe("PlusOneSeatNotLinkable");
+    expect(await run(db, accountLinkService.listByAccount("acc_1"))).toEqual([]);
+  });
+
   it("maps the two UNIQUE violations to the right AccountLinkConflict reason", async () => {
     const db = fixture();
     const link = (guestId: string, osnAccountId: string) =>

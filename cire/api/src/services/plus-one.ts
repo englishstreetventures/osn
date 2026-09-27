@@ -216,8 +216,8 @@ function readGuestContext(familyId: string, inviterGuestId: string) {
           plusOneLastName: plusOneRow.lastName,
           plusOneEventId: guestEvents.eventId,
           // Whether the plus-one has a dietary answer or a consent record on
-          // file. A household rename clears them (see `save`); knowing here
-          // keeps a rename with nothing to clear to its one write.
+          // file, which a household rename clears (see `save`): what the
+          // household is told was cleared.
           plusOneHasDietary: sql<number>`EXISTS (SELECT 1 FROM ${rsvps} WHERE ${rsvps.guestId} = ${plusOneRow.id} AND (${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL))`,
           capacity500: holds("capacity_500"),
           capacity1000: holds("capacity_1000"),
@@ -281,18 +281,21 @@ function readGuestContext(familyId: string, inviterGuestId: string) {
  * checked: a plus-one removed since the read changes no row, and answers
  * {@link PlusOneNotFound}.
  *
- * With `clearDietary`, a changed name also clears the plus-one's dietary
- * answers and their consent record, in the same batch as the name, so no
- * moment exists where the new name carries the old person's answers. The
- * replies' status stays. The name write is then checked by reading the row
- * back at the end of that batch rather than by its change count, which a batch
- * does not return.
+ * With `clear.dietary`, a changed name also clears the plus-one's dietary
+ * answers and their consent record, in the same batch as the name, so the new
+ * name never carries the old person's answers. The clear runs on every such
+ * rename rather than only when the caller's read saw answers on file, since a
+ * reply can land between that read and this write. The replies' status stays.
+ * The name write is then checked by reading the row back at the end of that
+ * batch rather than by its change count, which a batch does not return.
+ * `dietaryCleared` reports what the caller's read saw on file, for the
+ * household's notice.
  */
 function writeName(
   plusOne: PlusOneRecord,
   scope: SQL | undefined,
   clean: PlusOneName,
-  clearDietary: boolean,
+  clear: { dietary: boolean; sawDietary: boolean },
 ): Effect.Effect<
   { plusOne: PlusOneRecord; changed: boolean; dietaryCleared: boolean },
   PlusOneNotFound,
@@ -308,13 +311,13 @@ function writeName(
       .set({ firstName: clean.firstName, lastName: clean.lastName, updatedAt: new Date() })
       .where(and(eq(guests.id, plusOne.guestId), scope));
 
-    if (!clearDietary) {
+    if (!clear.dietary) {
       const result = yield* dbQuery(() => rename.run());
       if (rowsChanged(result) === 0) return yield* Effect.fail(new PlusOneNotFound());
       return { plusOne: { ...plusOne, ...clean }, changed: true, dietaryCleared: false };
     }
 
-    const clear = db
+    const clearAnswers = db
       .update(rsvps)
       .set({ dietary: "", dietaryPresets: "", dietaryConsentAt: null, dietaryConsentVersion: null })
       .where(eq(rsvps.guestId, plusOne.guestId));
@@ -325,12 +328,12 @@ function writeName(
     const rows = yield* dbQuery(() =>
       commitGroupedBatchesReturning<{ id: string }>(
         db,
-        [[clear, rename]],
+        [[clearAnswers, rename]],
         readBack as ReturningTail<{ id: string }>,
       ),
     );
     if (rows.length === 0) return yield* Effect.fail(new PlusOneNotFound());
-    return { plusOne: { ...plusOne, ...clean }, changed: true, dietaryCleared: true };
+    return { plusOne: { ...plusOne, ...clean }, changed: true, dietaryCleared: clear.sawDietary };
   });
 }
 
@@ -374,12 +377,10 @@ export const plusOneService = {
       if (context.plusOne !== null) {
         // Rename. An unchanged name writes nothing. Removed since the read:
         // nothing left to rename.
-        const renamed = yield* writeName(
-          context.plusOne,
-          eq(guests.familyId, familyId),
-          clean,
-          context.plusOneHasDietary,
-        ).pipe(Effect.catchTag("PlusOneNotFound", () => Effect.fail(new PlusOneGuestNotFound())));
+        const renamed = yield* writeName(context.plusOne, eq(guests.familyId, familyId), clean, {
+          dietary: true,
+          sawDietary: context.plusOneHasDietary,
+        }).pipe(Effect.catchTag("PlusOneNotFound", () => Effect.fail(new PlusOneGuestNotFound())));
         if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "guest"));
         return { plusOne: renamed.plusOne, created: false, dietaryCleared: renamed.dietaryCleared };
       }
@@ -493,7 +494,10 @@ export const plusOneService = {
       const current = toRecord(rows, inviterGuestId);
       if (!current) return yield* Effect.fail(new PlusOneNotFound());
       // A correction of the same person's name: their answers stay.
-      const renamed = yield* writeName(current, undefined, clean, false);
+      const renamed = yield* writeName(current, undefined, clean, {
+        dietary: false,
+        sawDietary: false,
+      });
       if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "organiser"));
       return { plusOne: renamed.plusOne };
     }).pipe(Effect.withSpan("cire.plus_one.renameAsOrganiser"));
