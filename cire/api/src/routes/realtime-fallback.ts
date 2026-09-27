@@ -4,8 +4,9 @@
  * When a portal tab's push subscription gives up — refused by the server, or
  * out of reconnect attempts — the tab POSTs the outcome (`refused` or
  * `exhausted`) here as a plain-text body, and this route counts it by product
- * and outcome. Nothing else is read or kept: no wedding, no profile, no
- * session, so the count cannot say who fell back.
+ * and outcome. Nothing else is recorded: no wedding, no profile, no session,
+ * so the count cannot say who fell back. The client IP keys the per-IP limit
+ * in memory for its window and is never logged or counted.
  *
  *  - **Unauthenticated.** A fallback caused by an expired session must still
  *    be counted, and nothing here records who sent it, so there is nothing a
