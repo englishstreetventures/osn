@@ -209,6 +209,7 @@ describe("plusOneRefusalMessage", () => {
     expect(messages[0]).toMatch(/check the name/i);
     expect(messages[1]).toMatch(/re-enter your code/);
     expect(messages[2]).toMatch(/reload/i);
+    expect(messages[3]).toMatch(/can't bring a guest of their own/);
     expect(messages[4]).toMatch(/shorter/);
     expect(messages[5]).toMatch(/try again in a moment/);
     expect(messages[6]).toMatch(/try again/);

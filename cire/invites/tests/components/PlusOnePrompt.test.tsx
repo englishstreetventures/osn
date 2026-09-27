@@ -202,6 +202,15 @@ describe("PlusOnePrompt — naming a guest", () => {
     expect(firstName().value).toBe("Sam");
   });
 
+  it("asks for a reload when a saved guest comes back in a shape it cannot place", async () => {
+    fetchMock.mockResolvedValue(json(200, { plusOne: null, created: true }));
+    const { result } = renderPrompt(household([bo]));
+    fireEvent.input(firstName(), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add guest" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/reload the page/));
+    expect(result().members.map((m) => m.guestId)).toEqual(["g-bo"]);
+  });
+
   it("explains a network failure", async () => {
     fetchMock.mockRejectedValue(new TypeError("offline"));
     renderPrompt(household([bo]));
@@ -311,6 +320,18 @@ describe("PlusOnePrompt — a named guest", () => {
     expect(result().members.map((m) => m.guestId)).toEqual(["g-bo"]);
     expect(result().rsvps).toEqual([]);
     expect(document.activeElement).toBe(firstName());
+  });
+
+  it("keeps the guest, and says why, when the removal is refused", async () => {
+    fetchMock.mockResolvedValue(json(403, { error: "rsvp_closed" }));
+    const { result } = renderPrompt(household([bo, sam], [reply("g-sam", "e1")]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, remove" }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/RSVPs have closed/));
+    expect(result().members.map((m) => m.guestId)).toEqual(["g-bo", "g-sam"]);
+    expect(result().rsvps).toHaveLength(1);
   });
 
   it("offers removal but not a rename once the member may no longer bring a guest", () => {

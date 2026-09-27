@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  formatNames,
   isValidClaimResponse,
   isValidPlusOneSaveResponse,
   isValidRsvpSaveResponse,
@@ -458,5 +459,18 @@ describe("isValidPlusOneSaveResponse", () => {
     ]) {
       expect(isValidPlusOneSaveResponse(bad)).toBe(false);
     }
+  });
+});
+
+describe("formatNames", () => {
+  // The consent and attestation boxes name whose data they cover with this.
+  it("joins one, two and three names as a sentence does", () => {
+    expect(formatNames(["Ana"])).toBe("Ana");
+    expect(formatNames(["Ana", "Ravi"])).toBe("Ana and Ravi");
+    expect(formatNames(["Ana", "Ravi", "Tom"])).toBe("Ana, Ravi and Tom");
+  });
+
+  it("gives nothing for nobody", () => {
+    expect(formatNames([])).toBe("");
   });
 });

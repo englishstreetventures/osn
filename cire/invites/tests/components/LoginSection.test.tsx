@@ -741,6 +741,20 @@ describe("LoginSection plus-one prompt", () => {
     expect((await findByTestId("plus-one-prompt-stub")).dataset.closed).toBe("true");
   });
 
+  // Permission can be taken away while a guest is named; the prompt still
+  // appears, so the household can remove them.
+  it("appears for a named guest even once the member may no longer bring one", async () => {
+    const { findByTestId } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi"), { ...member("Sam"), plusOneOf: "g-Chidi" }])}
+        onClaimed={noop}
+        onPlusOneChange={noop}
+      />
+    ));
+    expect((await findByTestId("plus-one-prompt-stub")).dataset.members).toBe("g-Chidi,g-Sam");
+  });
+
   it("is absent when nobody may bring a guest and none is named", async () => {
     const { queryByTestId } = render(() => (
       <LoginSection

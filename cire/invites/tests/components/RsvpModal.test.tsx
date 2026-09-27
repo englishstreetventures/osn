@@ -2542,6 +2542,25 @@ describe("RsvpModal", () => {
     // The Respond button's tick does not wait for a plus-one's reply
     // (`hasHouseholdResponded`), so the celebration that marks crossing into it
     // must not either.
+    it("does not celebrate a save that answers only for the plus-one", async () => {
+      vi.stubGlobal("fetch", okResponse());
+      vi.useFakeTimers();
+      const onConfirmed = vi.fn();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      fireEvent.click(screen.getByText("Save"));
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onConfirmed).not.toHaveBeenCalled();
+    });
+
     it("celebrates the save that completes the household's own answers", async () => {
       vi.stubGlobal("fetch", okResponse());
       vi.useFakeTimers();

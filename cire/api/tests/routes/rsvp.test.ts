@@ -1090,6 +1090,26 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     );
   });
 
+  it("400s an attestation that is not a short string, and writes nothing", async () => {
+    const { plusDb, samId, send } = await setUp();
+    for (const dietaryAttestation of ["x".repeat(65), 7, null]) {
+      const res = await send({
+        rsvps: [
+          {
+            guestId: samId,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietaryPresets: ["halal"],
+            dietaryConsent: true,
+            dietaryAttestation,
+          },
+        ],
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(plusDb.select().from(rsvps).all()).toEqual([]);
+  });
+
   it("answers the missing-consent refusal first when both apply", async () => {
     const { plusDb, samId, send } = await setUp();
     const res = await send({

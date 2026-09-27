@@ -298,6 +298,28 @@ describe("plusOneService.save — a household rename", () => {
     expect(result).toMatchObject({ created: true, dietaryCleared: false });
   });
 
+  it("answers not-found, and names nobody, when the plus-one goes between the read and the rename", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    // Remove Sam just as the rename's batch starts: after the context read,
+    // before the writes.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('update "rsvps"')) prepare("delete from guests where id = ?").run(samId);
+        return prepare(sql);
+      },
+    });
+
+    expect(
+      await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" })),
+    ).toBe("PlusOneGuestNotFound");
+    expect(db.select().from(guests).where(eq(guests.firstName, "Alex")).all()).toEqual([]);
+  });
+
   it("renames over dietary answers in one read and one batch of three", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
