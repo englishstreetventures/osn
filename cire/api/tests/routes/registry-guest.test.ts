@@ -954,6 +954,28 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     });
   });
 
+  it("revalidates with a 304 only after the gate, never instead of it", async () => {
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+    const url = `${guestBase()}/image/${PAN_IMAGE}`;
+    const first = await appRequest(app, url);
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/"/);
+
+    // The browser's hour ran out; it asks with the tag it holds.
+    const again = { headers: { "If-None-Match": etag! } };
+    const fresh = await appRequest(app, url, again);
+    expect(fresh.status).toBe(304);
+    expect(fresh.headers.get("cache-control")).toBe("public, max-age=3600");
+
+    // The gift is withdrawn: the same question now gets the same 404 as
+    // everything else, not a 304 telling the browser to keep the picture.
+    db.delete(registryItems).where(eq(registryItems.id, PAN)).run();
+    const gone = await appRequest(app, url, again);
+    expect(gone.status).toBe(404);
+    expect(await jsonBody(gone)).toEqual({ error: "registry_not_found" });
+  });
+
   it("gates each request with one statement, through the image index", async () => {
     const { app, assets, db } = buildApp();
     plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);

@@ -441,3 +441,151 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     expect(res.status).toBe(200);
   });
 });
+
+describe("serveTransformedImage — revalidating a revocable image", () => {
+  const KEY = "assets/wed_1/registry-abc";
+  const VERSION = "5f3a9c1e";
+  const TAG = `W/"${VERSION}-thumb-jpeg"`;
+
+  afterEach(() => {
+    delete (globalThis as { caches?: unknown }).caches;
+  });
+
+  /** Everything a full answer would spend, counted. */
+  function harness() {
+    const assets = createAssetsStub();
+    const spent = { r2: 0, match: 0, transforms: 0 };
+    const get = assets.get.bind(assets);
+    assets.get = (key: string) => {
+      spent.r2 += 1;
+      return get(key);
+    };
+    let stored: Response | null = null;
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        match: () => {
+          spent.match += 1;
+          return Promise.resolve(stored?.clone());
+        },
+        put: (_key: Request, res: Response) => {
+          stored = res;
+          return Promise.resolve();
+        },
+      },
+    };
+    const images: ImagesBindingLike = {
+      input() {
+        const handle: ImageTransformHandle = {
+          transform: () => handle,
+          output: ({ format }) => {
+            spent.transforms += 1;
+            return Promise.resolve({
+              response: () =>
+                new Response(new Uint8Array([9, 9]), { headers: { "Content-Type": format } }),
+              contentType: () => format,
+            });
+          },
+        };
+        return handle;
+      },
+    };
+    return { assets, spent, images };
+  }
+
+  async function serve(
+    h: ReturnType<typeof harness>,
+    opts: {
+      ifNoneMatch?: string;
+      lifetime?: ImageClientLifetime;
+      withImages?: boolean;
+    } = {},
+  ) {
+    await h.assets.put(KEY, new Uint8Array([1, 2, 3]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const headers = new Headers();
+    if (opts.ifNoneMatch !== undefined) headers.set("If-None-Match", opts.ifNoneMatch);
+    return Effect.runPromise(
+      serveTransformedImage({
+        request: new Request("https://api.example/api/invite/s/registry/image/registry-abc", {
+          headers,
+        }),
+        key: KEY,
+        version: VERSION,
+        cacheSlot: "s:registry:registry-abc",
+        variant: "thumb",
+        format: "image/jpeg",
+        visibility: "public",
+        lifetime: opts.lifetime ?? "revocable",
+        images: opts.withImages === false ? undefined : h.images,
+      }).pipe(Effect.provideService(AssetsR2Service, h.assets)),
+    );
+  }
+
+  it("names what it served with a weak tag, on the miss, the hit and the original path", async () => {
+    const h = harness();
+    const miss = await serve(h);
+    expect(miss.headers.get("ETag")).toBe(TAG);
+    const hit = await serve(h);
+    expect(h.spent.transforms).toBe(1);
+    expect(hit.headers.get("ETag")).toBe(TAG);
+
+    const original = await serve(harness(), { withImages: false });
+    expect(original.headers.get("ETag")).toBe(TAG);
+  });
+
+  it("answers a matching If-None-Match with 304 and spends nothing else", async () => {
+    // The browser's hour is up and it asks again with the tag it holds. The
+    // bytes under a key never change, so the gate the route already ran is the
+    // only thing worth paying for.
+    const h = harness();
+    const res = await serve(h, { ifNoneMatch: TAG });
+    expect(res.status).toBe(304);
+    expect(await res.arrayBuffer()).toHaveProperty("byteLength", 0);
+    expect(res.headers.get("ETag")).toBe(TAG);
+    // Another hour for the copy the browser already has, and the same Vary, so
+    // it refreshes the entry it asked about and no other.
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(res.headers.get("Vary")).toBe("Accept, Origin");
+    expect(h.spent).toEqual({ r2: 0, match: 0, transforms: 0 });
+  });
+
+  it("matches the tag inside a list, and whichever way the weak marker is spelt", async () => {
+    for (const header of [
+      `"other", ${TAG}`,
+      `${TAG},"other"`,
+      `"${VERSION}-thumb-jpeg"`,
+      `  ${TAG}  `,
+    ]) {
+      expect((await serve(harness(), { ifNoneMatch: header })).status).toBe(304);
+    }
+  });
+
+  it("answers in full when the tag held is another one", async () => {
+    // A different variant, a different format, a different image, a wildcard
+    // (no browser sends one on a GET; the full answer is the safe side).
+    for (const header of [
+      `W/"${VERSION}-card-jpeg"`,
+      `W/"${VERSION}-thumb-webp"`,
+      `W/"00000000-thumb-jpeg"`,
+      "*",
+      "",
+    ]) {
+      const h = harness();
+      const res = await serve(h, { ifNoneMatch: header });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("ETag")).toBe(TAG);
+    }
+  });
+
+  it("leaves every immutable image as it was: no tag, and no 304", async () => {
+    // A year-long image is never revalidated, so a tag would be bytes on every
+    // response for nothing — and the three other routes stay exactly as they are.
+    const h = harness();
+    const res = await serve(h, { lifetime: "immutable", ifNoneMatch: TAG });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("ETag")).toBeNull();
+    const hit = await serve(h, { lifetime: "immutable" });
+    expect(hit.headers.get("ETag")).toBeNull();
+  });
+});
