@@ -102,8 +102,8 @@ describe("guest-event-validation rules", () => {
   });
 
   it("parseDressCodePalette skips a pair whose colour is not on the colour allow-list", () => {
-    // Everything after the first colon used to be kept, so a cell could store a
-    // CSS `url(...)` that any renderer using the `background` shorthand fetches.
+    // A CSS `url(...)` is fetched by any renderer that paints the swatch with
+    // the `background` shorthand, so it must never be stored as a colour.
     expect(parseDressCodePalette("Blue:url(https://attacker.example/p.gif)|Sage:#b2ac88")).toEqual([
       { name: "Sage", color: "#b2ac88" },
     ]);
