@@ -9,9 +9,11 @@
 // before it shows anything at all.
 //
 // All amounts are MINOR units of the wedding's currency (AUD — see
-// wedding.ts). The estimates sum to A$99,450, just under the wedding's
-// A$100,000 `budget_total_minor`, so the meter renders its normal state; nudge
-// one line up if you want to exercise the `over` tone.
+// wedding.ts). The fixed estimates sum to A$71,450. The catering line is priced
+// per head instead, so its estimate follows the seeded RSVPs; its quote still
+// wins in the spend total, which stays just under the wedding's A$100,000
+// `budget_total_minor`, so the meter renders its normal state. Nudge one line
+// up if you want to exercise the `over` tone.
 //
 // `category` is a key from cire/api/src/lib/service-categories.ts — the closed
 // set the Budget HTTP schema validates against. A key that is not on that list
@@ -34,6 +36,8 @@ export type SeedBudgetItem = {
   readonly estimateMinor: number | null;
   readonly quotedMinor: number | null;
   readonly actualMinor: number | null;
+  /** Price per guest; set only on a per-head line, whose estimate is null. */
+  readonly unitPriceMinor?: number;
   readonly notes: string | null;
   readonly payments: readonly SeedPayment[];
 };
@@ -67,10 +71,12 @@ export const budgetItems = [
     id: item(2),
     category: "catering",
     name: "Dinner and canapés",
-    estimateMinor: 2_800_000,
+    // Per head across every event: the Budget tab counts the guests.
+    estimateMinor: null,
     quotedMinor: 2_940_000,
     actualMinor: null,
-    notes: "Per head, 560 guests. Final numbers due with the balance.",
+    unitPriceMinor: 5_000,
+    notes: "Final numbers due with the balance.",
     payments: [
       { id: pay(3), label: "Deposit", amountMinor: 588_000, dueAt: null, paidDaysAgo: 90 },
       {
