@@ -224,7 +224,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   evidence + the RSVP report ("Recorded By" column / dashboard badge).
 - **Plus-ones (migration 0066).** A plus-one's reply is stamped
   `consent_source = 'inviter_attested'`, distinct from a guest's own and an
-  organiser's, so the stored evidence says who attested. The API refuses
+  organiser's, so the stored evidence says who attested. The RSVP report keeps
+  it apart too: the dashboard badges such a reply "Household-entered", the
+  report's "Recorded By" column says "Household", and a "Plus-one Of" column
+  names the guest who brought them. The API refuses
   dietary data on a plus-one's reply, from the invite and the organiser's
   recording route alike, until the invite carries wording for that
   attestation and its own consent version. Turning a guest's permission off
