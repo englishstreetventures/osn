@@ -609,7 +609,10 @@ export default function GuestTable(props: GuestTableProps) {
   function requestPermission(scope: PlusOneScope, allowed: boolean) {
     if (!canEdit() || plusOneBusy() !== null) return;
     if (!allowed && plusOnesRemovedBy(guests(), scope).length > 0) {
-      askToRemove(guests(), scope, false);
+      // Opened once the gesture has finished, not inside it: a switch pressed
+      // with a pointer asks for the change before it takes focus, and the
+      // dialog returns focus to whatever held it when it opened.
+      queueMicrotask(() => askToRemove(guests(), scope, false));
       return;
     }
     void exclusively(scope, () => sendPermission(scope, allowed, false, 0));
@@ -998,9 +1001,8 @@ export default function GuestTable(props: GuestTableProps) {
 
       {/* Asks before a turn-off that deletes named plus-ones. `onClose` is the
           one place the pending removal is dropped: the dialog also closes on
-          Escape and a backdrop click. Cancel comes first, so it is what the
-          dialog focuses on opening; closing hands focus back to the control
-          that asked. */}
+          Escape and a backdrop click. It opens on Cancel, and closing hands
+          focus back to the control that asked. */}
       <Modal
         open={pendingRemoval() !== null}
         onClose={() => setPendingRemoval(null)}
@@ -1009,6 +1011,12 @@ export default function GuestTable(props: GuestTableProps) {
       >
         <Show when={shownRemoval()}>
           {(removal) => {
+            // The body mounts just after `showModal()` has run, which by then
+            // has found nothing inside to focus and focused the dialog itself.
+            // So Cancel takes focus here; `autofocus` covers a reopen during the
+            // exit, when the body is still mounted as the dialog opens.
+            let cancel: HTMLButtonElement | undefined;
+            onMount(() => cancel?.focus());
             const single = () =>
               removal().scope.kind === "guest" && removal().plusOnes.length === 1
                 ? removal().plusOnes[0]!
@@ -1069,7 +1077,15 @@ export default function GuestTable(props: GuestTableProps) {
                   </Show>
                 </div>
                 <div class="flex flex-wrap justify-end gap-2">
-                  <Button variant="quiet" type="button" onClick={() => setPendingRemoval(null)}>
+                  {/* First, and focused on opening: the safe answer is the
+                      one under the keyboard. */}
+                  <Button
+                    ref={cancel}
+                    variant="quiet"
+                    type="button"
+                    autofocus
+                    onClick={() => setPendingRemoval(null)}
+                  >
                     Cancel
                   </Button>
                   <Button
