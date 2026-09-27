@@ -32,6 +32,7 @@
         "@shared/observability": "workspace:*",
         "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
+        "@shared/realtime": "workspace:*",
         "@shared/turnstile": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "4.0.0-rc.112",

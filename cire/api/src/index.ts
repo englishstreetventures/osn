@@ -3,6 +3,7 @@ import { createFeatureFlags } from "@shared/feature-flags";
 import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
+import type { TopicHub } from "@shared/realtime/hub";
 import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 
@@ -125,6 +126,15 @@ export interface Env {
   // couple needs to edit it. Absent ⇒ the per-isolate in-memory default; the
   // route is session-authenticated, so an unbound limiter degrades a throttle.
   REGISTRY_GUEST_RATE_LIMITER?: WorkersRateLimitBinding;
+  // Realtime push hub (`@shared/realtime`): one Durable Object per wedding
+  // topic. Absent ⇒ `/realtime/*` answers 503 and host changes publish
+  // nothing; tabs keep their own refetch triggers. In a deployed tier its
+  // absence is logged once per isolate. Deleting this binding from a tier is
+  // the off switch — see `wiki/cire/cire.md`.
+  REALTIME_HUB?: DurableObjectNamespace<TopicHub>;
+  // Per-organiser limiter for `/realtime/*` upgrades. Absent ⇒ the per-isolate
+  // in-memory default in `routes/realtime.ts`.
+  REALTIME_RATE_LIMITER?: WorkersRateLimitBinding;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
