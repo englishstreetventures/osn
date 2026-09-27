@@ -97,8 +97,9 @@ export class TopicHub extends DurableObject<unknown> {
     server.serializeAttachment({ acceptedAt: Date.now() });
     if (this.overSubjectCap(subject) || this.overTopicCap()) {
       this.closeStale(server);
-      if (this.overSubjectCap(subject))
-        this.evictLeastRecentlySeen(subject, server, parsed.product);
+      const subjectSockets = this.open(subjectTag(subject));
+      if (subjectSockets.length > (this.constructor as typeof TopicHub).subjectCap)
+        this.evictLeastRecentlySeen(subjectSockets, server, parsed.product);
       if (this.overTopicCap()) this.refuse(server, parsed.product);
     }
     return new Response(null, { status: 101, webSocket: client });
@@ -175,15 +176,27 @@ export class TopicHub extends DurableObject<unknown> {
   }
 
   /**
-   * Close `subject`'s own least recently seen socket other than `keep`, so a
-   * member over their cap loses a dead socket rather than the newcomer.
+   * Close the least recently seen socket in `subjectSockets` other than
+   * `keep`, so a member over their cap loses a dead socket rather than the
+   * newcomer. `subjectSockets` is the subject's open sockets as of one fetch
+   * the caller already made, and each candidate's `lastSeen` is read once.
    */
-  private evictLeastRecentlySeen(subject: string, keep: WebSocket, product: RealtimeProduct): void {
-    const others = this.open(subjectTag(subject)).filter((ws) => ws !== keep);
-    if (others.length === 0) return;
-    const oldest = others.reduce((least, ws) =>
-      this.lastSeen(ws) < this.lastSeen(least) ? ws : least,
-    );
+  private evictLeastRecentlySeen(
+    subjectSockets: readonly WebSocket[],
+    keep: WebSocket,
+    product: RealtimeProduct,
+  ): void {
+    let oldest: WebSocket | undefined;
+    let oldestSeen = Number.POSITIVE_INFINITY;
+    for (const ws of subjectSockets) {
+      if (ws === keep) continue;
+      const seen = this.lastSeen(ws);
+      if (seen < oldestSeen) {
+        oldest = ws;
+        oldestSeen = seen;
+      }
+    }
+    if (!oldest) return;
     metricHubCapacityRefused(product);
     closeQuietly(oldest, CLOSE_CODES.policy, "subject full");
   }
