@@ -1,11 +1,14 @@
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { formatDietaryCell, parsePresets, type DietaryPreset } from "@cire/dietary";
 import { and, asc, eq, ne } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { sanitiseCsvCell, serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
+import { withPlusOnesAfterInviters } from "./claim";
+import type { ConsentSource } from "./rsvp";
 import { invitedCountsByEvent } from "./table-export";
 
 // Re-exported for existing importers (tests + `download.ts` docs reference this
@@ -54,13 +57,28 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply was self-submitted.
+   *   - "guest"     — every reply came through the invite, from the guest's
+   *     own household.
+   *   - "household" — the guest is a plus-one and at least one reply was the
+   *     household's (`consent_source='inviter_attested'`): answered on the
+   *     plus-one's behalf, on the household's word.
    *   - "organiser" — at least one reply was organiser-recorded
    *     (`consent_source='organiser_attested'`), so the dietary/consent story is
    *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
-   *     RSVPs. "" when the guest has no RSVP at all. */
-  recordedBy: "" | "guest" | "organiser";
+   *     RSVPs. Outranks the other two.
+   *   "" when the guest has no RSVP at all. */
+  recordedBy: RecordedBy;
+  /** The full name of the guest who brought this one, when this guest is a
+   *  plus-one; "" for everyone else. */
+  plusOneOfName: string;
 }
+
+/** Who recorded a guest's replies — see {@link RsvpExportRow.recordedBy}. */
+export type RecordedBy = "" | "guest" | "household" | "organiser";
+
+/** A guest's name as one string, the way the portal prints it. */
+const fullName = (person: { firstName: string; lastName: string }) =>
+  `${person.firstName} ${person.lastName}`.trim();
 
 export interface RsvpExportEvent {
   id: string;
@@ -108,11 +126,21 @@ export interface RsvpViewGuest {
    *  these beside whatever they typed under "Other", and the search filter
    *  matches on their labels. */
   dietaryPresets: readonly DietaryPreset[];
-  /** Provenance of this reply (migration 0037): `guest` (self-submitted) vs
+  /** Provenance of this reply (migration 0037): `guest` (self-submitted),
    *  `organiser_attested` (an organiser recorded a phone/paper RSVP on the
-   *  guest's behalf). The dashboard badges organiser-entered answers so an
+   *  guest's behalf) or `inviter_attested` (the household recorded its
+   *  plus-one's reply). The dashboard badges organiser-entered answers so an
    *  overwrite of a guest reply is visible. */
-  consentSource: "guest" | "organiser_attested";
+  consentSource: ConsentSource;
+  /** Set when the guest is a plus-one: the guest id of the member who brought
+   *  them. A named plus-one is an ordinary guest, so they already count in the
+   *  event's tallies; this only says who they came with. */
+  plusOneOf: string | null;
+  /** The full name of the member who brought them, beside `plusOneOf`. Read
+   *  from the inviter's own row, so it is there even when the inviter has no
+   *  entry under this event — a reply kept after the household was dropped
+   *  from the event, say. */
+  plusOneOfName: string | null;
 }
 
 /** An invited guest with no reply yet — the pool an organiser can record a
@@ -124,6 +152,10 @@ export interface RsvpViewInvitedGuest {
   lastName: string;
   familyName: string;
   familyCode: string;
+  /** As on {@link RsvpViewGuest}. */
+  plusOneOf: string | null;
+  /** As on {@link RsvpViewGuest}. */
+  plusOneOfName: string | null;
 }
 
 /** One event with its responded guests + a status tally. `invited` is how many
@@ -159,6 +191,15 @@ export const rsvpExportService = {
   buildView(weddingId: string): Effect.Effect<RsvpView, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      // The member who brought a plus-one, joined by primary key and held to
+      // the plus-one's own household, so the joined row is as wedding-scoped as
+      // the one it hangs off. Only a plus-one's row has a key to join on, so
+      // the rest cost no lookup.
+      const inviter = alias(guests, "inviter");
+      const inviterOf = and(
+        eq(guests.plusOneOfGuestId, inviter.id),
+        eq(inviter.familyId, guests.familyId),
+      );
 
       // All four reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts
@@ -193,12 +234,16 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
+                inviterFirstName: inviter.firstName,
+                inviterLastName: inviter.lastName,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
               .from(rsvps)
               .innerJoin(guests, eq(rsvps.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
+              .leftJoin(inviter, inviterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),
@@ -213,12 +258,16 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
+                inviterFirstName: inviter.firstName,
+                inviterLastName: inviter.lastName,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
               .from(guestEvents)
               .innerJoin(guests, eq(guestEvents.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
+              .leftJoin(inviter, inviterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),
@@ -227,6 +276,14 @@ export const rsvpExportService = {
       );
 
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
+
+      const inviterName = (row: {
+        inviterFirstName: string | null;
+        inviterLastName: string | null;
+      }): string | null =>
+        row.inviterFirstName === null
+          ? null
+          : fullName({ firstName: row.inviterFirstName, lastName: row.inviterLastName ?? "" });
 
       interface Acc {
         guests: (RsvpViewGuest & { sortOrder: number })[];
@@ -258,6 +315,8 @@ export const rsvpExportService = {
           dietary: row.dietary,
           dietaryPresets: parsePresets(row.dietaryPresets),
           consentSource: row.consentSource,
+          plusOneOf: row.plusOneOf,
+          plusOneOfName: inviterName(row),
           sortOrder: row.sortOrder,
         });
         if (row.status === "attending") acc.attending += 1;
@@ -285,31 +344,37 @@ export const rsvpExportService = {
           lastName: row.lastName,
           familyName: row.familyName,
           familyCode: row.familyCode,
+          plusOneOf: row.plusOneOf,
+          plusOneOfName: inviterName(row),
           sortOrder: row.sortOrder,
         });
       }
 
+      // Family code, then household order, then id — and each plus-one moved
+      // to sit after the member who brought them, whose place in the household
+      // may have moved since the plus-one's own number was copied from it.
+      const byHousehold = <T extends { familyCode: string; sortOrder: number; guestId: string }>(
+        a: T,
+        b: T,
+      ) => {
+        if (a.familyCode !== b.familyCode) return a.familyCode < b.familyCode ? -1 : 1;
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.guestId < b.guestId ? -1 : a.guestId > b.guestId ? 1 : 0;
+      };
+
       const viewEvents: RsvpViewEvent[] = orderedEvents.map((e) => {
         const acc = byEvent.get(e.id);
-        const guestList = (acc?.guests ?? [])
-          .toSorted((a, b) => {
-            if (a.familyCode !== b.familyCode) return a.familyCode < b.familyCode ? -1 : 1;
-            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-            return a.guestId < b.guestId ? -1 : a.guestId > b.guestId ? 1 : 0;
-          })
-          .map(({ sortOrder: _sortOrder, ...g }) => g);
+        const guestList = withPlusOnesAfterInviters((acc?.guests ?? []).toSorted(byHousehold)).map(
+          ({ sortOrder: _sortOrder, ...g }) => g,
+        );
         const attending = acc?.attending ?? 0;
         const declined = acc?.declined ?? 0;
         const maybe = acc?.maybe ?? 0;
         const responded = attending + declined + maybe;
         const invited = invitedByEvent.get(e.id) ?? 0;
-        const unresponded = (unrespondedByEvent.get(e.id) ?? [])
-          .toSorted((a, b) => {
-            if (a.familyCode !== b.familyCode) return a.familyCode < b.familyCode ? -1 : 1;
-            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-            return a.guestId < b.guestId ? -1 : a.guestId > b.guestId ? 1 : 0;
-          })
-          .map(({ sortOrder: _sortOrder, ...g }) => g);
+        const unresponded = withPlusOnesAfterInviters(
+          (unrespondedByEvent.get(e.id) ?? []).toSorted(byHousehold),
+        ).map(({ sortOrder: _sortOrder, ...g }) => g);
         return {
           id: e.id,
           name: e.name,
@@ -336,7 +401,8 @@ export const rsvpExportService = {
    *
    * ONE ROW PER GUEST, including guests with no RSVP at all. Ordered
    * alphabetically by family code (`families.public_id`), stable within a family
-   * (by guest `sort_order`, then id).
+   * (by guest `sort_order`), with each plus-one straight after the guest who
+   * brought them.
    */
   build(weddingId: string): Effect.Effect<RsvpExport, never, DbService> {
     return Effect.gen(function* () {
@@ -372,6 +438,7 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 publicId: families.publicId,
                 familyName: families.familyName,
                 eventId: guestEvents.eventId,
@@ -412,6 +479,7 @@ export const rsvpExportService = {
         firstName: string;
         lastName: string;
         sortOrder: number;
+        plusOneOf: string | null;
         publicId: string;
         familyName: string;
         invited: Set<string>;
@@ -425,6 +493,7 @@ export const rsvpExportService = {
             firstName: row.firstName,
             lastName: row.lastName,
             sortOrder: row.sortOrder,
+            plusOneOf: row.plusOneOf,
             publicId: row.publicId,
             familyName: row.familyName,
             invited: new Set<string>(),
@@ -443,7 +512,7 @@ export const rsvpExportService = {
             status: "attending" | "declined" | "maybe";
             dietary: string;
             dietaryPresets: string;
-            consentSource: "guest" | "organiser_attested";
+            consentSource: ConsentSource;
           }
         >
       >();
@@ -461,8 +530,19 @@ export const rsvpExportService = {
         });
       }
 
+      // SORT: alphabetically by family code. `byGuest` preserves the
+      // sort_order'd insertion order, and `toSorted` is stable, so members of
+      // one family stay together and in their seeded order. Then each plus-one
+      // moves to sit after the guest who brought them — same household, so the
+      // move never crosses a family.
+      const orderedGuests = withPlusOnesAfterInviters(
+        Array.from(byGuest.values()).toSorted((a, b) =>
+          a.publicId < b.publicId ? -1 : a.publicId > b.publicId ? 1 : 0,
+        ),
+      );
+
       const rows: RsvpExportRow[] = [];
-      for (const g of byGuest.values()) {
+      for (const g of orderedGuests) {
         const cells: EventCell[] = orderedEvents.map((e) => {
           if (!g.invited.has(e.id)) return "not_invited";
           const rsvp = rsvpByGuest.get(g.guestId)?.get(e.id);
@@ -488,9 +568,10 @@ export const rsvpExportService = {
 
         // Writer provenance across the guest's replies: "organiser" if ANY
         // reply was organiser-recorded (so the dietary/consent is attested),
-        // "guest" if the guest has replies but all self-submitted, "" if none.
+        // else "household" if any was the household's for its plus-one, else
+        // "guest" if the guest has replies at all, "" if none.
         const perGuest = rsvpByGuest.get(g.guestId);
-        let recordedBy: "" | "guest" | "organiser" = "";
+        let recordedBy: RecordedBy = "";
         if (perGuest && perGuest.size > 0) {
           recordedBy = "guest";
           for (const rsvp of perGuest.values()) {
@@ -498,8 +579,11 @@ export const rsvpExportService = {
               recordedBy = "organiser";
               break;
             }
+            if (rsvp.consentSource === "inviter_attested") recordedBy = "household";
           }
         }
+
+        const inviter = g.plusOneOf === null ? undefined : byGuest.get(g.plusOneOf);
 
         rows.push({
           familyCode: g.publicId,
@@ -509,19 +593,13 @@ export const rsvpExportService = {
           cells,
           dietary,
           recordedBy,
+          plusOneOfName: inviter ? fullName(inviter) : "",
         });
       }
 
-      // SORT: alphabetically by family code. `byGuest` preserves the
-      // sort_order'd insertion order, and `toSorted` is stable, so members of
-      // one family stay together and in their seeded order.
-      const sortedRows = rows.toSorted((a, b) =>
-        a.familyCode < b.familyCode ? -1 : a.familyCode > b.familyCode ? 1 : 0,
-      );
-
       return {
         events: orderedEvents.map((e) => ({ id: e.id, name: e.name })),
-        rows: sortedRows,
+        rows,
       };
     }).pipe(Effect.withSpan("cire.rsvp-export.build"));
   },
@@ -535,12 +613,15 @@ export const rsvpExportService = {
 const RECORDED_BY_LABEL = {
   "": "",
   guest: "Guest",
+  household: "Household",
   organiser: "Organiser",
-} satisfies Record<RsvpExportRow["recordedBy"], string>;
+} satisfies Record<RecordedBy, string>;
 
 /**
  * Fixed leading columns, then a PAIR per event — the status and that event's
- * dietary note, side by side — then recorded-by.
+ * dietary note, side by side — then recorded-by, then the name of the guest who
+ * brought a plus-one. That last column is appended after the rest so an
+ * organiser's saved formulas keep their column letters.
  *
  * Interleaved rather than a block of statuses followed by a block of dietary
  * notes: the person reading this is catering one event, and wants that event's
@@ -563,6 +644,7 @@ export function toCsv(data: RsvpExport): string {
     // same way, keeping the pair readable as a unit.
     ...data.events.flatMap((e) => [e.name, `${e.name} Dietary`]),
     "Recorded By",
+    "Plus-one Of",
   ];
 
   const rows = data.rows.map((row) => [
@@ -574,6 +656,7 @@ export function toCsv(data: RsvpExport): string {
     // index is the join key.
     ...row.cells.flatMap((c, i) => [CELL_LABEL[c], row.dietary[i] ?? ""]),
     RECORDED_BY_LABEL[row.recordedBy],
+    row.plusOneOfName,
   ]);
   return serialiseCsv(header, rows);
 }

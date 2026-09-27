@@ -99,6 +99,19 @@ export interface RsvpDeadline {
   closed: boolean;
 }
 
+/**
+ * The household's Pulse account-link state when linking is offered to it —
+ * everything the account-link box needs for its first paint. `readAccountLink`
+ * derives it from the claim payload's `accountLink` (cire/api's
+ * `AccountLinkState`, its `enabled: true` half).
+ */
+export interface AccountLinkState {
+  /** Whether this browser holds a live OSN sign-in on cire-api. */
+  signedIn: boolean;
+  /** The household's seats already linked to an OSN account. */
+  linkedGuestIds: readonly string[];
+}
+
 /** One entry of the invite's FAQ section. Mirrors `GuestFaqEntry` in cire/api:
  *  the text alone, since the page keys nothing on an id. */
 export interface FaqEntry {
@@ -154,4 +167,12 @@ export interface ClaimResult {
    * behaves as it always did — no deadline, no lock.
    */
   rsvpDeadline?: RsvpDeadline | null;
+  /**
+   * The household's account-link state, exactly as it arrived. Unproven on
+   * purpose: `isValidClaimResponse` does not check it, because a bad value must
+   * cost the guest the optional account-link box, never the invite. Read it
+   * only through `readAccountLink`, which answers `null` (no box) for anything
+   * absent, off or malformed.
+   */
+  accountLink?: unknown;
 }

@@ -41,7 +41,7 @@ The change row rides the reply's own batch, after the upserts and before the rea
 
 A plus-one is a `guests` row once the plus-one work lands. Its own replies go through `POST /api/rsvp` and are logged like anyone's. The three `plus_one_*` kinds need one call in the guest plus-one write — `buildRecordStatement` from `cire/api/src/services/rsvp-changes.ts`, with `eventId: null` and the inviter's guest id — which is englishstventures/osn#1258. The feed, badges and email already word all three kinds.
 
-## Storage — migration 0066
+## Storage — migration 0068
 
 `rsvp_changes`: `seq INTEGER PRIMARY KEY AUTOINCREMENT`, `wedding_id` and `family_id` (both cascade), `guest_id`, `event_id` (both plain text, no foreign key), `kind`, `created_at`.
 

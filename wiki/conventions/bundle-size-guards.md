@@ -172,7 +172,7 @@ the guard regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 163332 B | 175000 B *(pre-existing, tracker #287/#616)* |
-| cire/host | static | 253640 B | 265340 B *(re-baselined, englishstventures/osn#1254 — see below)* |
+| cire/host | static | 256259 B | 267959 B *(re-baselined, englishstventures/osn#1238 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -225,17 +225,17 @@ the same 50 files.
 *Measured 2026-09-23 — `rm -rf cire/host/dist && bun run --cwd cire/host build`,
 before and after, on `chore/module-icons`, reading the total the guard prints.*
 
-The next raise, for englishstventures/osn#1254 (the Overview's RSVP-changes card
-and the RSVP table's "New" badges), measured `main` at **252268 B** — 385 B
-under its 252653 B threshold, so any feature would have tripped it — and the
-branch at **253640 B**, **+1372 B** across the same 53 files. The threshold is
-that plus the usual ~11.7 KB. CI's Linux build reads `main` about 470 B lower
-than this macOS one (251800 B in the Build & Test log of the run that merged
-englishstventures/osn#1236), so the recorded figure errs high.
+The plus-one controls (englishstventures/osn#1238) raised it again. By then the
+portal had grown to **252496 B** against the 252653 B threshold, 157 B of
+headroom, and the Households tab's switches, household buttons, removal dialog
+and `plus-one-permission.ts` came to **256259 B**, **+3763 B**. Built on
+Kobalte's switch the same change measured 257162 B, which is why `@shared/ui`'s
+`Switch` is a native checkbox.
 
 *Measured 2026-09-27 — `rm -rf cire/host/dist && bun run --cwd cire/host build`
-on macOS, with `cire/host/src` checked out from `origin/main` and then from the
-branch, on `feat/cire-rsvp-change-digest`, reading the total the guard prints.*
+on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
+`ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
+total the guard prints.*
 
 The threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
 — a raise like this one is reviewed rather than waved through, which is the

@@ -85,10 +85,13 @@ CREATE TABLE IF NOT EXISTS guests (
   sort_order INTEGER NOT NULL DEFAULT 0,
   external_id TEXT,
   source TEXT NOT NULL DEFAULT 'import',
+  plus_one_allowed INTEGER NOT NULL DEFAULT 0,
+  plus_one_of_guest_id TEXT REFERENCES guests(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id) WHERE plus_one_of_guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -300,6 +303,8 @@ CREATE TABLE IF NOT EXISTS budget_items (
   estimate_minor INTEGER,
   quoted_minor INTEGER,
   actual_minor INTEGER,
+  unit_price_minor INTEGER,
+  per_head_event_ids TEXT,
   notes TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,

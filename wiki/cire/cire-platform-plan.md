@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-09-27
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -136,6 +136,7 @@ Seed from a versioned template (`cire/api/src/lib/checklist-template.ts`) resolv
 ```
 budget_items: id, wedding_id FK↘, category (service-category enum), name,
               estimate_minor (nullable), quoted_minor (nullable), actual_minor (nullable),
+              unit_price_minor (nullable; per-head line), per_head_event_ids (nullable JSON),
               vendor_id (nullable FK, Phase 2), notes, created_at, updated_at
 payments:     id, budget_item_id FK↘, label ('deposit'|'balance'|free text), amount_minor,
               due_at, paid_at (nullable), created_at

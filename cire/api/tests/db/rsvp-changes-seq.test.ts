@@ -19,7 +19,7 @@ const MIGRATION = join(
   "..",
   "db",
   "migrations",
-  "0066_rsvp_change_digest.sql",
+  "0068_rsvp_change_digest.sql",
 );
 
 function createStatementFor(sqlText: string, table: string): string {

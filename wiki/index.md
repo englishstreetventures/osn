@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-27
 ---
 
 # OSN Wiki
@@ -115,6 +115,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-invite-designs]] — the invite design selector
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
+- [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
 - [[cire-rsvp-changes]] — the RSVP change log, the organisers' daily digest email and the "since your last visit" card and badges
 - [[cire-vendors]] — vendor directory, CRM, and the email-verification claim
 - [[cire-workerd]] — what cire does differently on workerd (no OTel SDK, deferred export)

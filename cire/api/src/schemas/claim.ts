@@ -61,6 +61,11 @@ export const FamilyMember = Schema.Struct({
   firstName: Schema.String,
   lastName: Schema.String,
   eventIds: Schema.Array(Schema.String),
+  // Whether this member may bring a plus-one — what the invite asks the
+  // household about. Always false on a plus-one.
+  plusOneAllowed: Schema.Boolean,
+  // Set on a plus-one: the member who brought them, who is listed just before.
+  plusOneOf: Schema.NullOr(Schema.String),
 });
 export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
 
@@ -94,6 +99,29 @@ export const RsvpDeadline = Schema.Struct({
 });
 export type RsvpDeadline = Schema.Schema.Type<typeof RsvpDeadline>;
 
+/**
+ * The household's Pulse account-link state, carried in the claim and restore
+ * responses so the guest site can draw the account-link box in the same pass
+ * as the welcome panel, with no request of its own after the invite lands.
+ *
+ * - `enabled: false` — linking is not offered to this household: the flag is
+ *   off for it, the deployment cannot complete a link, it is the organiser's
+ *   host preview, or its state could not be read in time.
+ * - `enabled: true` — `linkedGuestIds` are the household's seats already
+ *   linked (never the OSN account id, which stays server-to-server), and
+ *   `signedIn` says whether this request carried a live `cire_org_session`,
+ *   the OSN sign-in a link is made with.
+ */
+export const AccountLinkState = Schema.Union([
+  Schema.Struct({ enabled: Schema.Literal(false) }),
+  Schema.Struct({
+    enabled: Schema.Literal(true),
+    signedIn: Schema.Boolean,
+    linkedGuestIds: Schema.Array(Schema.String),
+  }),
+]);
+export type AccountLinkState = Schema.Schema.Type<typeof AccountLinkState>;
+
 export const ClaimResponse = Schema.Struct({
   // Internal/operational. The frontend uses the session cookie for follow-up
   // calls and never echoes this back, but exposing it keeps `/api/claim` a
@@ -120,6 +148,7 @@ export const ClaimResponse = Schema.Struct({
     visible: Schema.Boolean,
     entries: Schema.Array(Schema.Struct({ question: Schema.String, answer: Schema.String })),
   }),
+  accountLink: AccountLinkState,
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
@@ -139,6 +168,13 @@ export const OrganiserGuestRow = Schema.Struct({
   // this an untouched nickname would be blanked on the next save.
   nickname: Schema.NullOr(Schema.String),
   events: Schema.Array(Schema.String),
+  // Whether this guest may bring a plus-one (per guest; the household control
+  // writes every member's). Always false on a plus-one's own row.
+  plusOneAllowed: Schema.Boolean,
+  // Set on a plus-one's row: the guest id of the member who brought them. A
+  // plus-one belongs to the household, not to the organiser's sheet, so the
+  // guest editor leaves these rows out of its draft.
+  plusOneOf: Schema.NullOr(Schema.String),
   // Epoch-ms timestamp the organiser last copied this family's invite message
   // (the per-family "Copy message" button), or `null` if never shared. Drives
   // the dashboard's "Sent" indicator + the remint "already sent out" warning.

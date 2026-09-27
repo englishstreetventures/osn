@@ -64,6 +64,27 @@
       "when": 1790437128059,
       "tag": "0065_invite_sections_switched_on",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "6",
+      "when": 1790448123644,
+      "tag": "0066_plus_ones",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1790506397009,
+      "tag": "0067_budget_per_head",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1790517424596,
+      "tag": "0068_rsvp_change_digest",
+      "breakpoints": true
     }
   ]
 }

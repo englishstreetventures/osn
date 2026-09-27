@@ -21,6 +21,7 @@ import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { rsvpService } from "../services/rsvp";
+import type { RsvpInput } from "../services/rsvp";
 import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
 // S-L2: RSVP payloads are small (a family's worth of events). Reject obviously
@@ -160,6 +161,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
                       priorStatus: rsvps.status,
                       priorDietary: rsvps.dietary,
                       priorDietaryPresets: rsvps.dietaryPresets,
+                      plusOneOf: guests.plusOneOfGuestId,
                     })
                     .from(guests)
                     .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
@@ -259,9 +261,27 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
               }
             }
 
+            // A plus-one's reply is typed by the household that brought them,
+            // so its dietary data would rest on the household's attestation,
+            // not the plus-one's own consent — and the invite has no wording
+            // for that attestation yet. Refuse it rather than stamp a consent
+            // version whose copy says something else. Status-only replies for a
+            // plus-one are accepted. See [[wiki/compliance/dpia/cire-guest-data]]
+            // → inviter-attested variant.
+            const plusOneIds = new Set(
+              familyGuestEvents.filter((row) => row.plusOneOf !== null).map((row) => row.guestId),
+            );
+            for (const rsvp of body.rsvps) {
+              if (plusOneIds.has(rsvp.guestId) && hasDietaryData(rsvp)) {
+                set.status = 422;
+                yield* Effect.sync(() => metricRsvpBlocked("plus_one_dietary"));
+                return { error: "plus_one_dietary_unavailable" };
+              }
+            }
+
             // Normalised once, after every gate has passed: the write and the
             // preset counter below both read these replies.
-            const replies = body.rsvps.map((rsvp) => ({
+            const replies = body.rsvps.map((rsvp): RsvpInput => ({
               guestId: rsvp.guestId,
               eventId: rsvp.eventId,
               status: rsvp.status,
@@ -271,6 +291,9 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
               // data to authorise; clearing the whole answer clears the
               // record too.
               dietaryConsent: hasDietaryData(rsvp) && rsvp.dietaryConsent,
+              // Who recorded it: the household for its plus-one, else the
+              // guest's own reply.
+              consentSource: plusOneIds.has(rsvp.guestId) ? "inviter_attested" : "guest",
             }));
 
             // What the organisers' change feed and digest will see: each pair

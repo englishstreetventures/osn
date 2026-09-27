@@ -116,3 +116,47 @@ describe("SetBudgetTotalBody", () => {
     expect(decode(SetBudgetTotalBody, { budgetTotalMinor: -1 })._tag).toBe("Failure");
   });
 });
+
+describe("per-head bodies", () => {
+  const create = (perHead: unknown, extra: Record<string, unknown> = {}) =>
+    decode(CreateBudgetItemBody, { category: "catering", name: "Dinner", perHead, ...extra });
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `evt_${i}`);
+
+  it("defaults an absent perHead to null", () => {
+    const r = decode(CreateBudgetItemBody, { category: "catering", name: "Dinner" });
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.perHead).toBeNull();
+  });
+
+  it("takes 1 to 50 event ids, and null or absent for every event", () => {
+    expect(create({ unitPriceMinor: 1, eventIds: ids(50) })._tag).toBe("Success");
+    expect(create({ unitPriceMinor: 1, eventIds: ids(51) })._tag).toBe("Failure");
+    expect(create({ unitPriceMinor: 1, eventIds: [] })._tag).toBe("Failure");
+    expect(create({ unitPriceMinor: 1, eventIds: null })._tag).toBe("Success");
+    expect(create({ unitPriceMinor: 1 })._tag).toBe("Success");
+  });
+
+  it("rejects an empty or oversized event id", () => {
+    expect(create({ unitPriceMinor: 1, eventIds: [""] })._tag).toBe("Failure");
+    expect(create({ unitPriceMinor: 1, eventIds: ["e".repeat(64)] })._tag).toBe("Success");
+    expect(create({ unitPriceMinor: 1, eventIds: ["e".repeat(65)] })._tag).toBe("Failure");
+  });
+
+  // The ceiling keeps price x headcount far inside Number.MAX_SAFE_INTEGER.
+  it("caps the price per head at the budget total's ceiling", () => {
+    expect(create({ unitPriceMinor: 100_000_000_000 })._tag).toBe("Success");
+    expect(create({ unitPriceMinor: 100_000_000_001 })._tag).toBe("Failure");
+    expect(create({ unitPriceMinor: 0 })._tag).toBe("Success");
+  });
+
+  it("refuses a fixed estimate beside a per-head setting, and allows one when turning it off", () => {
+    expect(create({ unitPriceMinor: 1 }, { estimateMinor: 500 })._tag).toBe("Failure");
+    expect(create({ unitPriceMinor: 1 }, { estimateMinor: null })._tag).toBe("Success");
+    expect(
+      decode(UpdateBudgetItemBody, { perHead: { unitPriceMinor: 1 }, estimateMinor: 500 })._tag,
+    ).toBe("Failure");
+    expect(decode(UpdateBudgetItemBody, { perHead: null, estimateMinor: 500 })._tag).toBe(
+      "Success",
+    );
+  });
+});

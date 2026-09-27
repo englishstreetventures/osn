@@ -15,6 +15,7 @@ import { DbService, dbQuery } from "../db";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import { measureClaimLookup, metricClaimAttempt, metricInviteOpened } from "../metrics";
 import type {
+  AccountLinkState,
   ClaimResponse,
   OrganiserGuestRow,
   OrganiserHouseholdRow,
@@ -22,6 +23,7 @@ import type {
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
+import { accountLinkService } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 
@@ -113,21 +115,127 @@ function eventImageCrop(key: string | null, raw: string | null): ImageCrop | nul
 }
 
 /**
+ * The household in its sort order, each plus-one moved to sit right after the
+ * member who brought them. A plus-one's own `sort_order` is a copy of their
+ * inviter's taken when they were named, and a later reorder of the household
+ * does not touch it, so placement goes by the link rather than by that number.
+ * A plus-one whose inviter is somehow not in the list keeps its place.
+ */
+export function withPlusOnesAfterInviters<T extends { guestId: string; plusOneOf: string | null }>(
+  members: readonly T[],
+): T[] {
+  const present = new Set(members.map((m) => m.guestId));
+  const placed = members.filter((m) => m.plusOneOf === null || !present.has(m.plusOneOf));
+  const byInviter = new Map(
+    members.flatMap((m) =>
+      m.plusOneOf !== null && present.has(m.plusOneOf) ? [[m.plusOneOf, m] as const] : [],
+    ),
+  );
+  return placed.flatMap((m) => {
+    const plusOne = byInviter.get(m.guestId);
+    return plusOne ? [m, plusOne] : [m];
+  });
+}
+
+/**
  * The row shape both entry points below resolve before building a response —
  * `lookup` by claim code, `restore` by the session's family id.
  */
 type FamilyRow = typeof families.$inferSelect;
 
 /**
- * Build the invite payload for an already-resolved household. Shared by
+ * What the claim payload needs to report the household's account-link state.
+ * The route builds it from the request, since both halves come from there.
+ */
+export interface AccountLinkGate {
+  /** Whether linking is offered to this household. Never rejects. */
+  enabledFor(familyId: string): Promise<boolean>;
+  /** The raw `cire_org_session` token on this request, or null. */
+  osnSessionToken: string | null;
+}
+
+const LINKING_OFF: AccountLinkState = { enabled: false };
+
+/**
+ * How long the payload waits for the account-linking flag. On a warm isolate
+ * the flag answers in a microtask; it can take longer only while the flag
+ * provider refreshes its payload from GrowthBook (at most once per cache
+ * window per isolate, bounded at 5 s by the provider itself). Past this the
+ * household is told linking is off for this one response, so a slow flag
+ * service can never hold an invite back. The refresh carries on — the route
+ * hands the check to the request's `waitUntil` — and serves the requests after
+ * it. Chosen, not measured: well above a healthy CDN fetch, well below what a
+ * guest would notice as a stalled invite.
+ */
+export const ACCOUNT_LINK_FLAG_WAIT = "250 millis";
+
+/**
+ * The household's account-link state. Always succeeds: the box it draws is
+ * optional, so any failure here — the flag slow, a read throwing, the link
+ * table missing — reports linking as off for this response rather than
+ * failing the invite beside it. Host preview families are never offered it:
+ * a host is not a guest seat, and the page never shows the box in preview.
+ */
+function accountLinkState(
+  family: FamilyRow,
+  gate: AccountLinkGate | undefined,
+): Effect.Effect<AccountLinkState, never, DbService> {
+  if (!gate || family.kind === "host") return Effect.succeed(LINKING_OFF);
+  return Effect.promise(() => gate.enabledFor(family.id)).pipe(
+    Effect.timeoutOrElse({
+      duration: ACCOUNT_LINK_FLAG_WAIT,
+      orElse: () =>
+        Effect.logWarning("account-linking flag timed out; reporting linking off").pipe(
+          Effect.as(false),
+        ),
+    }),
+    Effect.flatMap((on): Effect.Effect<AccountLinkState, never, DbService> =>
+      on
+        ? accountLinkService.householdState(family.id, gate.osnSessionToken)
+        : Effect.succeed(LINKING_OFF),
+    ),
+    // Inside this branch, not around the whole payload: a defect here must
+    // never reach the `Effect.all` that joins it to the invite.
+    Effect.catchCause(() =>
+      Effect.logWarning("account link state unavailable; reporting linking off").pipe(
+        Effect.as(LINKING_OFF),
+      ),
+    ),
+  );
+}
+
+/**
+ * Build the claim payload for an already-resolved household. Shared by
  * `claimService.lookup` (code entry) and `claimService.restore` (an existing
  * `cire_session` re-reading its own invite), so the two can never drift into
  * serving different views of the same household — which matters because this
  * payload is the ONLY delivery point for the events list and the closing
- * section (S-H1). Pure read: the caller owns the credential check, the
- * first-open write and the metrics.
+ * section.
+ *
+ * The caller owns the household credential check, the first-open write and
+ * the metrics. The one credential read here is the account-link state's check
+ * of whether the caller's OSN sign-in is live, which it reports as a boolean
+ * and never acts on.
+ *
+ * The account-link state runs beside the whole invite build rather than inside
+ * its first group of reads, so the events read never waits on the flag.
  */
-function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, never, DbService> {
+function buildClaimResponse(
+  family: FamilyRow,
+  gate: AccountLinkGate | undefined,
+): Effect.Effect<ClaimResponse, never, DbService> {
+  return Effect.all([buildInvite(family), accountLinkState(family, gate)], {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.map(([invite, accountLink]) => ({ ...invite, accountLink })),
+    Effect.withSpan("cire.claim.buildResponse"),
+  );
+}
+
+/** Everything in the claim payload except the account-link state. Pure read. */
+function buildInvite(
+  family: FamilyRow,
+): Effect.Effect<Omit<ClaimResponse, "accountLink">, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
@@ -196,6 +304,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
               lastName: guests.lastName,
               nickname: guests.nickname,
               sortOrder: guests.sortOrder,
+              plusOneAllowed: guests.plusOneAllowed,
+              plusOneOf: guests.plusOneOfGuestId,
               eventId: guestEvents.eventId,
             })
             .from(guests)
@@ -233,6 +343,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
         lastName: string;
         nickname: string | null;
         eventIds: string[];
+        plusOneAllowed: boolean;
+        plusOneOf: string | null;
       }
     >();
     const eventIds = new Set<string>();
@@ -245,6 +357,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
           lastName: row.lastName,
           nickname: row.nickname,
           eventIds: [],
+          plusOneAllowed: row.plusOneAllowed,
+          plusOneOf: row.plusOneOf,
         };
         memberMap.set(row.guestId, member);
       }
@@ -308,7 +422,7 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
       publicId: family.publicId,
       familyName: family.familyName,
       preview: family.kind === "host",
-      members: Array.from(memberMap.values()),
+      members: withPlusOnesAfterInviters(Array.from(memberMap.values())),
       events: eventList,
       // The stored key list becomes an array at the boundary, and the stored
       // consent VERSION collapses to "is this the copy we show now?" — the sheet
@@ -343,11 +457,19 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
         entries: faqEntries,
       },
     };
-  }).pipe(Effect.withSpan("cire.claim.buildResponse"));
+  });
 }
 
 export const claimService = {
-  lookup(publicId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
+  /**
+   * Resolve a claim code to its household's invite. `gate` supplies the
+   * account-link state; without one (service tests, the D1 tier) the payload
+   * reports linking as off.
+   */
+  lookup(
+    publicId: string,
+    gate?: AccountLinkGate,
+  ): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
@@ -398,7 +520,7 @@ export const claimService = {
         );
       }
 
-      return yield* buildClaimResponse(family);
+      return yield* buildClaimResponse(family, gate);
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricClaimAttempt("ok"))),
       Effect.tapError(() => Effect.sync(() => metricClaimAttempt("invalid_credentials"))),
@@ -428,8 +550,13 @@ export const claimService = {
    *    braces — if a session ever survives (a partial write, a future code path
    *    that sets the marker without the revoke), the restore still refuses.
    *    Same generic `InvalidCredentials` as `lookup`, so it is not an oracle.
+   *
+   * `gate` works as it does for `lookup`.
    */
-  restore(familyId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
+  restore(
+    familyId: string,
+    gate?: AccountLinkGate,
+  ): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
@@ -441,7 +568,7 @@ export const claimService = {
       if (!family) return yield* Effect.fail(new InvalidCredentials());
       if (family.deactivatedAt !== null) return yield* Effect.fail(new InvalidCredentials());
 
-      return yield* buildClaimResponse(family);
+      return yield* buildClaimResponse(family, gate);
     }).pipe(measureClaimLookup, Effect.withSpan("cire.claim.restore"));
   },
 
@@ -521,6 +648,8 @@ export const claimService = {
             firstName: guests.firstName,
             lastName: guests.lastName,
             nickname: guests.nickname,
+            plusOneAllowed: guests.plusOneAllowed,
+            plusOneOf: guests.plusOneOfGuestId,
             publicId: families.publicId,
             familyName: families.familyName,
             codeSharedAt: families.codeSharedAt,
@@ -556,6 +685,8 @@ export const claimService = {
             lastName: row.lastName,
             nickname: row.nickname,
             events: [],
+            plusOneAllowed: row.plusOneAllowed,
+            plusOneOf: row.plusOneOf,
             // Drizzle decodes the `timestamp`-mode column to a `Date | null`;
             // surface epoch-ms (or null) so the JSON wire stays a plain number.
             codeSharedAt: row.codeSharedAt === null ? null : row.codeSharedAt.getTime(),

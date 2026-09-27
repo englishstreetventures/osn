@@ -8,8 +8,11 @@ import {
   ensureBudgetLoaded,
   hasCachedBudget,
   invalidateBudget,
+  itemSpend,
+  lineEstimate,
   type PaymentRow,
   peekCachedBudget,
+  revalidateBudget,
   setCachedBudget,
   spentSoFar,
   upcomingPayments,
@@ -339,5 +342,93 @@ describe("budget-store", () => {
 
     await expect(pending).rejects.toBe(refusal);
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
+  });
+});
+
+describe("per-head lines", () => {
+  const perHead = (over: Partial<BudgetItemRow> = {}) =>
+    item({
+      id: "bit_ph",
+      category: "catering",
+      unitPriceMinor: 5_000,
+      eventIds: null,
+      headcount: { expected: 120, confirmed: 80 },
+      ...over,
+    });
+
+  it("prices expected guests while RSVPs are open and confirmed guests once closed", () => {
+    expect(lineEstimate(perHead(), false)).toBe(600_000);
+    expect(lineEstimate(perHead(), true)).toBe(400_000);
+    // A fixed line keeps its stored estimate; a row from an older API has no
+    // per-head fields at all and reads as fixed.
+    expect(lineEstimate(item({ estimateMinor: 7_000 }), false)).toBe(7_000);
+  });
+
+  it("lets a quote or an actual win over the per-head amount", () => {
+    expect(itemSpend(perHead(), false)).toBe(600_000);
+    expect(itemSpend(perHead({ quotedMinor: 550_000 }), false)).toBe(550_000);
+    expect(itemSpend(perHead({ actualMinor: 1 }), true)).toBe(1);
+  });
+
+  it("spentSoFar follows the snapshot's RSVP state", () => {
+    setCachedBudget("wed_1", snap({ items: [perHead()], rsvpsClosed: false }));
+    expect(spentSoFar("wed_1")).toBe(600_000);
+    setCachedBudget("wed_1", snap({ items: [perHead()], rsvpsClosed: true }));
+    expect(spentSoFar("wed_1")).toBe(400_000);
+  });
+
+  it("revalidateBudget refetches a cached budget that holds a per-head line", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return snap({ items: [perHead({ headcount: { expected: calls, confirmed: 0 } })] });
+    };
+    await revalidateBudget("wed_1", fetcher);
+    await revalidateBudget("wed_1", fetcher);
+    expect(calls).toBe(2);
+    expect(peekCachedBudget("wed_1")?.items[0]?.headcount?.expected).toBe(2);
+  });
+
+  it("revalidateBudget loads a budget with no per-head line once", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return snap({ items: [item({})] });
+    };
+    await revalidateBudget("wed_1", fetcher);
+    await revalidateBudget("wed_1", fetcher);
+    expect(calls).toBe(1);
+  });
+
+  it("revalidateBudget blanks a cached per-head budget when the refetch is refused", async () => {
+    setCachedBudget("wed_1", snap({ items: [perHead()] }));
+    const refusal = new Error("403");
+    await expect(
+      revalidateBudget("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(peekCachedBudget("wed_1")).toBeNull();
+  });
+
+  it("revalidateBudget joins a load already in flight instead of discarding it", async () => {
+    setCachedBudget("wed_1", snap({ items: [perHead()] }));
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const fetcher = async () => {
+      calls += 1;
+      await gate;
+      return snap({ items: [perHead({ headcount: { expected: 7, confirmed: 7 } })] });
+    };
+    const first = revalidateBudget("wed_1", fetcher);
+    const second = revalidateBudget("wed_1", fetcher);
+    release();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(calls).toBe(1);
+    expect(peekCachedBudget("wed_1")?.items[0]?.headcount?.expected).toBe(7);
   });
 });

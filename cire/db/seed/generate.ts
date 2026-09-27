@@ -31,6 +31,7 @@ import {
   syntheticFamilies,
   syntheticRsvps,
   tasks,
+  type SeedBudgetItem,
   type SeedFamily,
   type SeedRsvp,
 } from "./data";
@@ -400,11 +401,14 @@ function describeEvents(ids: readonly string[]): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function budgetBlock(): string {
-  const rows = budgetItems.map(
+  // Read through the declared row type, so the optional per-head price exists
+  // on every line rather than only on the one literal that sets it.
+  const lines: readonly SeedBudgetItem[] = budgetItems;
+  const rows = lines.map(
     (b, index) => `  (
     ${sql(b.id)}, ${sql(bootstrapWedding.id)}, ${sql(b.category)}, ${sql(b.name)},
     ${numOrNull(b.estimateMinor)}, ${numOrNull(b.quotedMinor)}, ${numOrNull(b.actualMinor)},
-    ${sqlOrNull(b.notes)}, ${index}, unixepoch(), unixepoch()
+    ${numOrNull(b.unitPriceMinor ?? null)}, ${sqlOrNull(b.notes)}, ${index}, unixepoch(), unixepoch()
   )`,
   );
   return section(
@@ -415,7 +419,7 @@ function budgetBlock(): string {
 INSERT OR IGNORE INTO budget_items (
   id, wedding_id, category, name,
   estimate_minor, quoted_minor, actual_minor,
-  notes, sort_order, created_at, updated_at
+  unit_price_minor, notes, sort_order, created_at, updated_at
 ) VALUES
 ${rows.join(",\n")};`,
   );
