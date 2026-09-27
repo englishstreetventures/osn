@@ -1,8 +1,16 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddingFaqs, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  families,
+  guestAccountLinks,
+  guests,
+  rsvps,
+  weddingFaqs,
+  weddings,
+} from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Db } from "../../src/db";
@@ -10,12 +18,15 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import {
+  type AccountLinkGate,
   claimService,
   InvalidCredentials,
   withPlusOnesAfterInviters,
 } from "../../src/services/claim";
+import { hostCodeService } from "../../src/services/host-code";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
@@ -640,6 +651,170 @@ describe("claimService.restore", () => {
 
         const err = yield* Effect.flip(claimService.restore(id));
         expect(err).toBeInstanceOf(InvalidCredentials);
+      }),
+    ),
+  );
+});
+
+describe("claim payload account-link state", () => {
+  /** A gate that answers the flag with `on` and counts how often it was asked. */
+  function gate(on: boolean | (() => Promise<boolean>), osnSessionToken: string | null = null) {
+    const calls: string[] = [];
+    const g: AccountLinkGate = {
+      enabledFor: (familyId) => {
+        calls.push(familyId);
+        return typeof on === "function" ? on() : Promise.resolve(on);
+      },
+      osnSessionToken,
+    };
+    return { gate: g, calls };
+  }
+
+  /** Link Bo's seat in the Sampleton household directly, as the link POST would. */
+  function linkBo(db: Db): Effect.Effect<string> {
+    return Effect.promise(async () => {
+      const [family] = await db
+        .select()
+        .from(families)
+        .where(eq(families.publicId, "TESTTWO-OAK-BB22"))
+        .all();
+      const [bo] = await db
+        .select()
+        .from(guests)
+        .where(and(eq(guests.familyId, family!.id), eq(guests.firstName, "Bo")))
+        .all();
+      const now = new Date();
+      await db
+        .insert(guestAccountLinks)
+        .values({
+          id: "gal_test",
+          guestId: bo!.id,
+          familyId: family!.id,
+          weddingId: family!.weddingId,
+          osnAccountId: "acc_secret",
+          osnProfileId: "usr_bo",
+          linkedAt: now,
+          updatedAt: now,
+        })
+        .run();
+      return bo!.id;
+    });
+  }
+
+  it(
+    "reports linking off when the caller supplies no gate",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.accountLink).toEqual({ enabled: false });
+      }),
+    ),
+  );
+
+  it(
+    "reports linking off when the flag is off for the household",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g, calls } = gate(false);
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11", g);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(calls).toEqual([result.familyId]);
+      }),
+    ),
+  );
+
+  it(
+    "carries the linked seats and the OSN sign-in when linking is on",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const boId = yield* linkBo(db);
+        const token = yield* Effect.promise(() => seedOrganiserSession(db, "usr_bo"));
+
+        const signedOut = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true).gate);
+        expect(signedOut.accountLink).toEqual({
+          enabled: true,
+          signedIn: false,
+          linkedGuestIds: [boId],
+        });
+
+        const signedIn = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true, token).gate);
+        expect(signedIn.accountLink).toEqual({
+          enabled: true,
+          signedIn: true,
+          linkedGuestIds: [boId],
+        });
+        // The account id stays server-to-server.
+        expect(JSON.stringify(signedIn)).not.toContain("acc_secret");
+
+        // The restore reports the same state as the claim.
+        const restored = yield* claimService.restore(signedIn.familyId, gate(true, token).gate);
+        expect(restored.accountLink).toEqual(signedIn.accountLink);
+      }),
+    ),
+  );
+
+  it(
+    "never offers linking to the host preview, and never reads the organiser's sign-in for it",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const { publicId } = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
+        // The organiser opening the preview holds a live OSN session.
+        const token = yield* Effect.promise(() => seedOrganiserSession(db, "usr_owner"));
+        const { gate: g, calls } = gate(true, token);
+
+        const result = yield* claimService.lookup(publicId, g);
+        expect(result.preview).toBe(true);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(calls).toEqual([]);
+      }),
+    ),
+  );
+
+  it(
+    "still opens the invite, with linking off, when the link state cannot be read",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        // A deploy whose link table is missing: the read throws.
+        db.run(sql`DROP TABLE guest_account_links`);
+        const result = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true).gate);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(result.members).toHaveLength(3);
+      }),
+    ),
+  );
+
+  it(
+    "still opens the invite, with linking off, when the flag provider throws",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g } = gate(() => Promise.reject(new Error("flag outage")));
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11", g);
+        expect(result.accountLink).toEqual({ enabled: false });
+      }),
+    ),
+  );
+
+  it(
+    "does not hold the invite for a flag that never answers",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g } = gate(() => new Promise<boolean>(() => {}));
+        const { familyId } = yield* claimService.lookup("TESTONE-IVY-AA11");
+        const started = Date.now();
+        const result = yield* claimService.restore(familyId, g);
+        const waited = Date.now() - started;
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(result.events.length).toBeGreaterThan(0);
+        // It waited for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no
+        // longer, with room either side for a slow test machine's timers.
+        expect(waited).toBeGreaterThanOrEqual(200);
+        expect(waited).toBeLessThan(1_000);
       }),
     ),
   );

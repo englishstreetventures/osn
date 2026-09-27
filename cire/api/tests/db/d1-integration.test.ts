@@ -7,6 +7,7 @@ import {
   directoryVendors,
   events,
   families,
+  guestAccountLinks,
   guestEvents,
   guests,
   registryClaims,
@@ -24,19 +25,25 @@ import { asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 import { Miniflare } from "miniflare";
 
-import { createSessionRoutedClient, runInD1Session } from "../../src/db/d1-session";
+import {
+  createSessionRoutedClient,
+  D1_SESSION_CONSTRAINT,
+  runInD1Session,
+  withD1Session,
+} from "../../src/db/d1-session";
 import { createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
-import { claimService } from "../../src/services/claim";
+import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
@@ -251,6 +258,116 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(res.familyId).toBe(FAMILY_ID);
       expect(res.members).toHaveLength(2);
       expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "claim.lookup reads the account-link state over D1, every query inside the session",
+    async () => {
+      const now = new Date();
+      await db.insert(guestAccountLinks).values({
+        id: "gal_d1",
+        guestId: GUEST_2,
+        familyId: FAMILY_ID,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnAccountId: "acc_d1",
+        osnProfileId: "usr_d1",
+        linkedAt: now,
+        updatedAt: now,
+      });
+      const { token } = await run(
+        organiserSessionService.create({
+          osnProfileId: "usr_d1",
+          osnSub: "pw_usr_d1",
+          email: null,
+          handle: null,
+          displayName: null,
+          avatarUrl: null,
+        }),
+      );
+
+      // Record where every query goes: the session, or the raw binding the
+      // routed client falls back to when a query escapes the request's context.
+      const onBinding: string[] = [];
+      const inSession: string[] = [];
+      const fallback: Pick<D1Database, "prepare" | "batch"> = {
+        prepare: (query) => {
+          onBinding.push(query);
+          return d1.prepare(query);
+        },
+        batch: (statements) => d1.batch(statements),
+      };
+      const raw = d1.withSession(D1_SESSION_CONSTRAINT);
+      const session: Pick<D1Database, "prepare" | "batch"> = {
+        prepare: (query) => {
+          inSession.push(query);
+          return raw.prepare(query);
+        },
+        batch: (statements) => raw.batch(statements),
+      };
+      const routed = createD1Db(createSessionRoutedClient(fallback, "fetch"));
+
+      // The flag answers after a timer, as a payload refresh from the CDN would,
+      // so the link reads start from a resumed fiber rather than in step.
+      const gate: AccountLinkGate = {
+        enabledFor: () => new Promise((resolve) => setTimeout(() => resolve(true), 20)),
+        osnSessionToken: token,
+      };
+      const res = await withD1Session(session, () =>
+        Effect.runPromise(
+          claimService.lookup(PUBLIC_ID, gate).pipe(Effect.provideService(DbService, routed)),
+        ),
+      );
+
+      expect(res.accountLink).toEqual({ enabled: true, signedIn: true, linkedGuestIds: [GUEST_2] });
+      expect(res.members).toHaveLength(2);
+      expect(inSession.some((q) => q.includes("guest_account_links"))).toBe(true);
+      expect(inSession.some((q) => q.includes("organiser_sessions"))).toBe(true);
+      expect(onBinding).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "claim.lookup never holds the events read for the account-linking flag",
+    async () => {
+      const inSession: string[] = [];
+      const raw = d1.withSession(D1_SESSION_CONSTRAINT);
+      const session: Pick<D1Database, "prepare" | "batch"> = {
+        prepare: (query) => {
+          inSession.push(query);
+          return raw.prepare(query);
+        },
+        batch: (statements) => raw.batch(statements),
+      };
+      const routed = createD1Db(createSessionRoutedClient(d1, "fetch"));
+      const eventsRead = () => inSession.some((q) => q.includes('from "events"'));
+
+      // The flag answers only once the invite's events read has gone out. If
+      // the account-link branch sat ahead of that read, the flag would never
+      // answer in time and the payload would report linking off.
+      const gate: AccountLinkGate = {
+        enabledFor: () =>
+          new Promise((resolve) => {
+            let polls = 0;
+            const poll = () => {
+              if (eventsRead()) return resolve(true);
+              if (++polls > 200) return resolve(false);
+              setTimeout(poll, 5);
+            };
+            poll();
+          }),
+        osnSessionToken: null,
+      };
+      const res = await withD1Session(session, () =>
+        Effect.runPromise(
+          claimService.lookup(PUBLIC_ID, gate).pipe(Effect.provideService(DbService, routed)),
+        ),
+      );
+
+      expect(eventsRead()).toBe(true);
+      expect(res.accountLink).toEqual({ enabled: true, signedIn: false, linkedGuestIds: [] });
     },
     MF_TIMEOUT_MS,
   );

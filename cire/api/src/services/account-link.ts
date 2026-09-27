@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { organiserSessionService } from "./organiser-session";
 
 /** The requested guest does not belong to the session's family (or is unknown). */
 export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
@@ -34,11 +35,15 @@ export interface CreatedAccountLink {
   linkedAt: Date;
 }
 
-/** Per-guest link status surfaced to the owning household (no account id). */
-export interface FamilyAccountLink {
-  guestId: string;
-  osnProfileId: string;
-  linkedAt: Date;
+/**
+ * A household's account-link state when linking is offered to it — what the
+ * claim and restore responses carry. Never the OSN account id.
+ */
+export interface HouseholdLinkState {
+  enabled: true;
+  /** Whether the request carried a live `cire_org_session`. */
+  signedIn: boolean;
+  linkedGuestIds: string[];
 }
 
 /** Reverse-lookup row for the Pulse feed integration (account → invitations). */
@@ -92,14 +97,23 @@ export const accountLinkService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // Guest must exist AND belong to the session's family. The join yields the
-      // wedding id for the tenant-scope column in one query.
+      // Guest must exist AND belong to the session's family, and that family
+      // must be a guest household: the organiser's host-preview family is not a
+      // guest seat, so it is never linkable, even by a request crafted around
+      // the box the preview never shows. The join yields the wedding id for the
+      // tenant-scope column in the same query.
       const [scope] = yield* dbQuery(() =>
         db
           .select({ weddingId: families.weddingId })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(guests.id, input.guestId), eq(guests.familyId, input.familyId)))
+          .where(
+            and(
+              eq(guests.id, input.guestId),
+              eq(guests.familyId, input.familyId),
+              eq(families.kind, "guest"),
+            ),
+          )
           .all(),
       );
       if (!scope) {
@@ -143,23 +157,48 @@ export const accountLinkService = {
     }).pipe(Effect.withSpan("cire.accountLink.link"));
   },
 
-  /** Lists the account links for every invitee in a household. */
-  listByFamily(familyId: string): Effect.Effect<FamilyAccountLink[], never, DbService> {
+  /**
+   * The household's linked seats, and whether the caller is signed in to the
+   * OSN session a link is made with — the two facts the guest site needs to
+   * draw the account-link box without asking for them.
+   *
+   * `osnSessionToken` is the raw `cire_org_session` value from the request, or
+   * null. It is only checked for being live; the answer is one boolean and
+   * authorises nothing. An unknown or expired token is `signedIn: false`. Both
+   * reads are independent, so they run together.
+   */
+  householdState(
+    familyId: string,
+    osnSessionToken: string | null,
+  ): Effect.Effect<HouseholdLinkState, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: guestAccountLinks.guestId,
-            osnProfileId: guestAccountLinks.osnProfileId,
-            linkedAt: guestAccountLinks.linkedAt,
-          })
-          .from(guestAccountLinks)
-          .where(eq(guestAccountLinks.familyId, familyId))
-          .all(),
+      const signedInRead: Effect.Effect<boolean, never, DbService> =
+        osnSessionToken === null
+          ? Effect.succeed(false)
+          : organiserSessionService.validate(osnSessionToken).pipe(
+              Effect.as(true),
+              Effect.catchTag("OrganiserSessionInvalid", () => Effect.succeed(false)),
+            );
+      const { links, signedIn } = yield* Effect.all(
+        {
+          links: dbQuery(() =>
+            db
+              .select({ guestId: guestAccountLinks.guestId })
+              .from(guestAccountLinks)
+              .where(eq(guestAccountLinks.familyId, familyId))
+              .all(),
+          ),
+          signedIn: signedInRead,
+        },
+        { concurrency: "unbounded" },
       );
-      return rows;
-    }).pipe(Effect.withSpan("cire.accountLink.listByFamily"));
+      return {
+        enabled: true as const,
+        signedIn,
+        linkedGuestIds: links.map((l) => l.guestId),
+      };
+    }).pipe(Effect.withSpan("cire.accountLink.householdState"));
   },
 
   /**

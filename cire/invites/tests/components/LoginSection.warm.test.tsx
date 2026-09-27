@@ -35,6 +35,8 @@ describe("LoginSection warms the account link for a returning household", () => 
     document.cookie = "cire_claimed=1; Path=/";
     const { LoginSection } = await import("../../src/components/LoginSection");
     render(() => <LoginSection apiUrl="http://x" result={null} onClaimed={() => {}} />);
-    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 1 }));
+    await waitFor(() => expect(loads.pulse).toBe(1));
+    // The Solid auth binding is never needed: the restore carries the sign-in.
+    expect(loads.auth).toBe(0);
   });
 });

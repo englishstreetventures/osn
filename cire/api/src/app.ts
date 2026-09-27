@@ -13,6 +13,7 @@ import { Elysia } from "elysia";
 import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
+import type { AccountLinking } from "./lib/account-linking";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
@@ -651,6 +652,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
     db,
   };
 
+  // What decides whether a household is offered account linking. The claim and
+  // restore responses report it, and a link can only complete with a resolver.
+  const accountLinking: AccountLinking = { flags, canLink: resolveOsnAccountId !== undefined };
+
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
@@ -752,11 +757,24 @@ export function createApp(db: Db, options: AppOptions = {}) {
           sessionLimiter: oidcSessionLimiter,
         }),
       )
-      .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
+      .use(
+        createClaimRoutes(db, {
+          webOrigin,
+          limiter: claimLimiter,
+          turnstileVerifier,
+          accountLinking,
+        }),
+      )
       // Session RESTORE for a household that already claimed. A sibling instance
       // so it gets its own (page-load-sized) limiter instead of the claim
       // endpoint's brute-force budget — same split as the hosts read/write pair.
-      .use(createClaimSessionRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
+      .use(
+        createClaimSessionRoutes(db, {
+          webOrigin,
+          limiter: claimSessionLimiter,
+          accountLinking,
+        }),
+      )
       .use(createClaimSignoutRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
@@ -924,11 +942,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // The invite FAQ's writes. Same limiter instance as the builder's other
       // writes, so an organiser's invite edits share one per-IP budget.
       .use(createInviteFaqRoutes(db, osnAuthOptions, inviteLimiter))
-      // Account linking. Two sibling instances on the same prefix: GET/DELETE
-      // need only the guest session; the POST link additionally requires an OSN
+      // Account linking. Two sibling instances on the same prefix: DELETE needs
+      // only the guest session; the POST link additionally requires an OSN
       // token. Splitting them is what method-gates `osnAuth` to POST without
-      // gating the guest-only reads (same sibling pattern as rsvp + organiser).
-      .use(createAccountLinkRoutes(db, accountLinkLimiter, flags))
+      // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
+      // The household's link state is read through the claim and restore
+      // responses, not here.
+      .use(createAccountLinkRoutes(db, accountLinkLimiter))
       .use(
         createAccountLinkPostRoute(
           db,

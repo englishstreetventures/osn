@@ -14,9 +14,14 @@ import type { ClaimResult } from "../../src/components/types";
  *
  * The cases run in order in one module registry, and the counts only ever
  * rise, so each case proves its own step: nothing on import, nothing for an
- * unclaimed visitor, nothing for a host preview, then both as soon as a code is
- * submitted — while the claim is still in flight, so the account link does not
+ * unclaimed visitor, nothing for a host preview, then the account link as soon
+ * as a code is submitted — while the claim is still in flight, so it does not
  * appear late and push the events down.
+ *
+ * The auth client's Solid binding is never loaded at all. Its provider asks
+ * the API for the OSN session on mount, and the account link would wait for
+ * that answer before drawing — one request after the events are on screen.
+ * The claim payload carries the sign-in state instead.
  */
 const loads = vi.hoisted(() => ({ pulse: 0, auth: 0, authCore: 0 }));
 
@@ -49,6 +54,7 @@ const claim: ClaimResult = {
   ],
   events: [],
   rsvps: [],
+  accountLink: { enabled: true, signedIn: false, linkedGuestIds: [] },
 };
 
 async function settle() {
@@ -92,7 +98,7 @@ describe("LoginSection keeps account linking out of the first download", () => {
     ));
     fireEvent.input(getByLabelText("Invitation code"), { target: { value: "OKAFOR-LILY-AB12CD" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 1, authCore: 0 }));
+    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0 }));
   });
 
   it("renders it once a household has claimed", async () => {
@@ -102,6 +108,6 @@ describe("LoginSection keeps account linking out of the first download", () => {
       <LoginSection apiUrl="http://x" result={claim} onClaimed={() => {}} />
     ));
     await findByTestId("pulse-account-link-stub");
-    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 1, authCore: 0 }));
+    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0 }));
   });
 });
