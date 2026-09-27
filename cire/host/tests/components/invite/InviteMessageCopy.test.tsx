@@ -66,6 +66,7 @@ const HOUSEHOLDS = [
     familyId: "fam_b",
     publicId: "JONES-BELL-12AB",
     familyName: "Jones",
+    guestCount: 1,
     codeSharedAt: 1_700_000_000_000,
   }),
   // A code-only household (no guests yet) and a deactivated one: neither code
@@ -188,6 +189,28 @@ describe("InviteMessageCopy", () => {
     expect(picker().selectedOptions[0]!.textContent).toBe("Sharma · SHARMA-KITE-77Q2 · sent");
   });
 
+  it("leaves the household unmarked when the server refuses or cannot be reached", async () => {
+    withClipboard();
+    for (const refuse of [
+      () => authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403)),
+      () => authFetchMock.mockRejectedValueOnce(new TypeError("network down")),
+    ]) {
+      mount();
+      await loaded();
+      fireEvent.change(picker(), { target: { value: "fam_a" } });
+      refuse();
+      fireEvent.click(copyButton());
+
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledWith(MARK_URL, { method: "POST" }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      // The copy happened; only the mark failed, and that is not the organiser's to fix.
+      expect(optionLabels()[1]).toBe("Sharma · SHARMA-KITE-77Q2");
+      expect(toastError).not.toHaveBeenCalled();
+      cleanup();
+      resetOrganiserMocks();
+    }
+  });
+
   it("for a co-host, copies the message but marks nothing, since only the owner may", async () => {
     withClipboard();
     mount(json(HOUSEHOLDS), { canManage: false });
@@ -244,6 +267,13 @@ describe("InviteMessageCopy", () => {
     mount(json({ error: "unauthorised" }, 401));
 
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+  });
+
+  it("sends an organiser whose session cannot be refreshed to sign in", async () => {
+    mount(new Error("AuthExpiredError"));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(screen.queryByText("Could not load the households. Refresh to try again.")).toBeNull();
   });
 
   it("says when there is no household to choose yet", async () => {

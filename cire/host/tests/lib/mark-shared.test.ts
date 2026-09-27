@@ -130,7 +130,8 @@ describe("markHouseholdShared", () => {
   it("leaves a cold list cold, and makes the next load ask the server", async () => {
     const authFetch = vi.fn(async () => answer({ familyId: "fam_a", codeSharedAt: 5 }));
 
-    await markHouseholdShared(authFetch, "wed_1", "fam_a");
+    // Recorded by the server, so still a success for the caller.
+    await expect(markHouseholdShared(authFetch, "wed_1", "fam_a")).resolves.toBe(true);
 
     expect(guestsAccessor("wed_1")()).toBeNull();
     const fetcher = vi.fn(async () => ROWS);
@@ -143,7 +144,7 @@ describe("markHouseholdShared", () => {
     invalidateGuests("wed_1");
     const authFetch = vi.fn(async () => answer({ familyId: "fam_a", codeSharedAt: 5 }));
 
-    await markHouseholdShared(authFetch, "wed_1", "fam_a");
+    await expect(markHouseholdShared(authFetch, "wed_1", "fam_a")).resolves.toBe(true);
 
     expect(guestsAccessor("wed_1")()).toBe(ROWS);
     expect(hasCachedGuests("wed_1")).toBe(false);

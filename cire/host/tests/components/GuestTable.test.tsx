@@ -201,6 +201,36 @@ describe("GuestTable", () => {
     expect(screen.getAllByText("Sent")).toHaveLength(2);
   });
 
+  it("keeps an owner's copy Sent and quiet when the server does not record it", async () => {
+    withClipboard();
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    const copy = screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(copy);
+
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/mark-shared"))).toBe(
+        true,
+      ),
+    );
+    // A missed mark only under-counts the re-mint warning: the copy worked, so
+    // the row reads as sent and no error is raised.
+    expect(screen.getAllByText("Sent")).toHaveLength(2);
+    expect(toastSuccess).toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("marks nothing sent for a co-host, who may copy but not record it", async () => {
     withClipboard();
     primeLoad();
