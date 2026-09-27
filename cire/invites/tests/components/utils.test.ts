@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { isValidClaimResponse, isValidRsvpSaveResponse } from "../../src/components/utils";
+import {
+  isValidClaimResponse,
+  isValidRsvpSaveResponse,
+  readAccountLink,
+} from "../../src/components/utils";
 
 describe("isValidClaimResponse", () => {
   const baseEvent = {
@@ -342,6 +346,46 @@ describe("isValidClaimResponse", () => {
         events: [{ ...baseEvent, sortOrder: "0" }],
       }),
     ).toBe(false);
+  });
+
+  it.each([
+    ["linking on", { enabled: true, signedIn: false, linkedGuestIds: ["guest-1"] }],
+    ["linking off", { enabled: false }],
+    ["a malformed link state", { enabled: true, signedIn: "yes", linkedGuestIds: [7] }],
+    ["a link state this build does not know", "partly"],
+  ])("admits a claim carrying %s — the link state can never cost the invite", (_, accountLink) => {
+    expect(isValidClaimResponse({ ...validResponse, accountLink })).toBe(true);
+  });
+});
+
+describe("readAccountLink", () => {
+  it("reads the state when linking is offered", () => {
+    expect(
+      readAccountLink({ enabled: true, signedIn: true, linkedGuestIds: ["g-1", "g-2"] }),
+    ).toEqual({ signedIn: true, linkedGuestIds: ["g-1", "g-2"] });
+  });
+
+  it("ignores fields it does not know", () => {
+    expect(
+      readAccountLink({ enabled: true, signedIn: false, linkedGuestIds: [], reason: "new" }),
+    ).toEqual({ signedIn: false, linkedGuestIds: [] });
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["null", null],
+    ["linking off", { enabled: false }],
+    [
+      "an enabled value that is not `true`",
+      { enabled: "true", signedIn: true, linkedGuestIds: [] },
+    ],
+    ["no sign-in state", { enabled: true, linkedGuestIds: [] }],
+    ["a sign-in state that is not a boolean", { enabled: true, signedIn: 1, linkedGuestIds: [] }],
+    ["no linked seats list", { enabled: true, signedIn: true }],
+    ["a linked seat that is not a string", { enabled: true, signedIn: true, linkedGuestIds: [1] }],
+    ["a string", "enabled"],
+  ])("answers null (no box) for %s", (_, value) => {
+    expect(readAccountLink(value)).toBeNull();
   });
 });
 

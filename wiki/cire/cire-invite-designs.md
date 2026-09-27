@@ -59,14 +59,15 @@ in every layout.
 Before a claim the panel shows the code entry. After it, the greeting, the
 RSVP-by line, and the household's controls in this order:
 
-1. **Pulse account linking** — `PulseAccountLink` inside its own
-   `AuthProvider`, both `lazy()`. Their chunks start downloading when a claim
-   begins (a typed code or the `?code=` deep link) or, when the restore hint is
-   present, at mount beside the session restore — never for a visitor who does
-   not submit a code. `tests/components/LoginSection.lazy.test.tsx` fails if an
-   import turns static, and it and `LoginSection.warm.test.tsx` pin when the
-   download starts. Hidden in host preview, and it renders nothing while
-   linking is off (`cire.account-linking`, [[feature-flags]]).
+1. **Pulse account linking** — `PulseAccountLink`, `lazy()`, with the OSN
+   auth client's core inside its chunk. The chunk starts downloading when a
+   claim begins (a typed code or the `?code=` deep link) or, when the restore
+   hint is present, at mount beside the session restore — never for a visitor
+   who does not submit a code. `tests/components/LoginSection.lazy.test.tsx`
+   fails if an import turns static, and it and `LoginSection.warm.test.tsx`
+   pin when the download starts. The panel draws it only when the claim
+   payload's `accountLink` offers linking (`cire.account-linking`,
+   [[feature-flags]]; never in host preview), and hands it that state.
 2. **Plus-one prompt** — the slot is reserved;
    `englishstventures/osn#1084` fills it.
 3. **Sign-out** — "Not {name}? Sign out". The panel itself revokes
@@ -84,11 +85,15 @@ claimed. The pack keeps the claim result, the reveal choreography
 (`revealed`, `formRef`, `welcomeRef`), the session restore and the events
 section.
 
-When account linking is on, the Pulse box appears once its probe answers, and
-it sits above the events. On the code-entry path the probe usually finishes
-during the form's fade; on a session restore the box can still push the events
-down one request after they appear, until the claim and session responses carry
-the link state themselves.
+The Pulse box sits above the events, so it must never arrive after them. It
+makes no request to draw itself: the claim and restore responses say whether
+linking is offered, which seats are linked and whether the browser is signed
+in to OSN ([[cire-auth]]), so the box appears in the same pass as the welcome
+panel. It does not mount the auth client's Solid `AuthProvider`, whose session
+request on mount would hold it back one request. Only its chunk can delay it,
+and that download starts as the claim or restore begins.
+`tests/components/LoginSection.link-state.test.tsx` renders the real panel with
+every request held unanswered and fails if the box waits on one.
 
 ## Adding a design
 

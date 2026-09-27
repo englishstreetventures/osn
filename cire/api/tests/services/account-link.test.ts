@@ -1,12 +1,13 @@
 import { describe, it, expect } from "bun:test";
 
-import { families, guests, weddings } from "@cire/db";
+import { families, guests, organiserSessions, weddings } from "@cire/db";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, type Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { accountLinkService, conflictReason } from "../../src/services/account-link";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 
 const now = new Date();
 
@@ -56,6 +57,19 @@ function fixture(): Db {
 
 const run = <A, E>(db: Db, eff: Effect.Effect<A, E, DbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+/** The household's linked seats, as the claim payload reports them. */
+async function linkedIds(db: Db, familyId: string): Promise<string[]> {
+  const state = await run(db, accountLinkService.householdState(familyId, null));
+  return state.linkedGuestIds.toSorted();
+}
+
+function linkSeat(db: Db, familyId: string, guestId: string, osnAccountId: string) {
+  return run(
+    db,
+    accountLinkService.link({ familyId, guestId, osnAccountId, osnProfileId: `usr_${guestId}` }),
+  );
+}
 
 describe("accountLinkService.link", () => {
   it("derives the wedding id from the guest's family", async () => {
@@ -228,12 +242,12 @@ describe("accountLinkService.unlink", () => {
     );
     // Wrong family can't remove it.
     await run(db, accountLinkService.unlink({ familyId: "fam_b", guestId: "gst_a1" }));
-    expect(await run(db, accountLinkService.listByFamily("fam_a"))).toHaveLength(1);
+    expect(await linkedIds(db, "fam_a")).toEqual(["gst_a1"]);
 
     // Correct family removes it; a second removal still succeeds.
     await run(db, accountLinkService.unlink({ familyId: "fam_a", guestId: "gst_a1" }));
     await run(db, accountLinkService.unlink({ familyId: "fam_a", guestId: "gst_a1" }));
-    expect(await run(db, accountLinkService.listByFamily("fam_a"))).toHaveLength(0);
+    expect(await linkedIds(db, "fam_a")).toEqual([]);
   });
 
   it("surfaces a delete failure as AccountLinkWriteError (op: delete)", async () => {
@@ -246,5 +260,37 @@ describe("accountLinkService.unlink", () => {
     );
     expect(err._tag).toBe("AccountLinkWriteError");
     expect((err as { op: string }).op).toBe("delete");
+  });
+});
+
+describe("accountLinkService.householdState", () => {
+  it("lists only this household's linked seats, and nothing about the accounts", async () => {
+    const db = fixture();
+    await linkSeat(db, "fam_a", "gst_a2", "acc_a2");
+    await linkSeat(db, "fam_b", "gst_b1", "acc_b1");
+
+    const state = await run(db, accountLinkService.householdState("fam_a", null));
+    expect(state).toEqual({ enabled: true, signedIn: false, linkedGuestIds: ["gst_a2"] });
+    // The account and profile ids stay server-side.
+    expect(JSON.stringify(state)).not.toContain("acc_");
+    expect(JSON.stringify(state)).not.toContain("usr_");
+  });
+
+  it("reports signed in only for a live OSN session", async () => {
+    const db = fixture();
+    const token = await seedOrganiserSession(db, "usr_guest");
+
+    const live = await run(db, accountLinkService.householdState("fam_a", token));
+    expect(live.signedIn).toBe(true);
+
+    const unknown = await run(db, accountLinkService.householdState("fam_a", "not-a-session"));
+    expect(unknown.signedIn).toBe(false);
+
+    // Expired: the row is still there, but past its end.
+    db.update(organiserSessions)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .run();
+    const expired = await run(db, accountLinkService.householdState("fam_a", token));
+    expect(expired.signedIn).toBe(false);
   });
 });

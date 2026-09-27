@@ -8,36 +8,28 @@ import type { RsvpDeadlineState } from "./rsvp-deadline";
 import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
+import { readAccountLink } from "./utils";
 
 // Account linking, split out of the invite's first download. Most households
 // never link an account, and nothing here renders before a claim, so a visitor
-// who never submits a code never downloads these chunks. Module scope, so every
-// render shares one promise and therefore one chunk. `.then` adapters because
-// `lazy` wants a default export and both are named.
+// who never submits a code never downloads it — nor the OSN auth client it
+// imports. Module scope, so every render shares one promise and therefore one
+// chunk. A `.then` adapter because `lazy` wants a default export and this one
+// is named.
 const PulseAccountLink = lazy(() =>
   import("./PulseAccountLink").then((m) => ({ default: m.PulseAccountLink })),
 );
-const AuthProvider = lazy(() => {
-  // Start the account link beside its provider rather than after it: the
-  // provider only asks for its children once it has rendered, which would put
-  // the two downloads one after the other. Only the link — `lazy` records this
-  // loader's promise after it returns, so preloading the provider from here
-  // would call this loader again.
-  void PulseAccountLink.preload().catch(() => {});
-  return import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider }));
-});
 
 /**
- * Start downloading the account link and its auth client, without rendering
- * either. Called as a claim or a session restore begins, so the chunks arrive
- * while that request is in flight: the account link sits above the events, and
- * the later it appears, the further it pushes events already on screen.
- * Idempotent — `lazy` keeps one promise per chunk. A failed download is left
- * for the render to meet, inside its own Suspense boundary.
+ * Start downloading the account link, without rendering it. Called as a claim
+ * or a session restore begins, so the chunk arrives while that request is in
+ * flight: the account link sits above the events, and the claim payload
+ * carries everything else it needs, so the chunk is the only thing it could
+ * wait for. Idempotent — `lazy` keeps one promise per chunk. A failed download
+ * is left for the render to meet, inside its own Suspense boundary.
  */
 function warmAccountLink(): void {
   void PulseAccountLink.preload().catch(() => {});
-  void AuthProvider.preload().catch(() => {});
 }
 
 /**
@@ -218,6 +210,10 @@ export function LoginSection(props: LoginSectionProps) {
   // the household ("The {familyName} Family"). For an individual, an optional
   // nickname overrides their first name.
   const members = () => props.result?.members ?? [];
+  // The account-link state the payload carries, or null when there is no box
+  // to draw: linking off, a host preview, or an API that did not send it.
+  const accountLink = () =>
+    props.result && !props.result.preview ? readAccountLink(props.result.accountLink) : null;
   const isIndividual = () => members().length === 1;
   const individualName = () => {
     const m = members()[0];
@@ -452,23 +448,23 @@ export function LoginSection(props: LoginSectionProps) {
         />
 
         {/* The household's controls. Account linking is optional and additive:
-            it renders nothing when linking is off (503) or unreachable, so it
-            can never break the invite. Never in host preview, since a host is
-            not a guest seat to link. Its own AuthProvider reads the cire OSN
-            session from cire-api, which keeps the rest of the guest site free
-            of any OSN dependency. The plus-one prompt joins these controls
-            here: englishstventures/osn#1084. Sign-out comes last — it ends the
-            session the others act on. */}
-        <Show when={props.result && !props.result.preview}>
-          <Suspense fallback={null}>
-            <AuthProvider config={{ apiBase: props.apiUrl }}>
+            it draws only when the claim payload offers it, and from that
+            payload alone, so it appears with this panel rather than a request
+            later above events already on screen. Never in host preview, since
+            a host is not a guest seat to link. The plus-one prompt joins these
+            controls here: englishstventures/osn#1084. Sign-out comes last — it
+            ends the session the others act on. */}
+        <Show when={accountLink()}>
+          {(state) => (
+            <Suspense fallback={null}>
               <PulseAccountLink
                 apiUrl={props.apiUrl}
                 members={members()}
+                state={state()}
                 class={`mb-8 ${layout().measure}`}
               />
-            </AuthProvider>
-          </Suspense>
+            </Suspense>
+          )}
         </Show>
         <Show when={props.onSignOut}>
           <Button variant="touchLink" type="button" onClick={handleSignOut}>

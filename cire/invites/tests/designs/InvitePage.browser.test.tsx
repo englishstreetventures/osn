@@ -26,17 +26,13 @@ import { noSession, withSession } from "../test-support/claim-fetch";
  * leftover inline `transform`, and the modal overlay that unmounts on top of it
  * all.
  *
- * Only `PulseAccountLink` and the OSN `AuthProvider` are stubbed here — they
- * reach the account API and have their own tests. Everything the confirmation
- * and the toast touch is the real thing.
+ * Only `PulseAccountLink` is stubbed here — it reaches the account API and has
+ * its own tests. Everything the confirmation and the toast touch is the real
+ * thing.
  */
 
 vi.mock("../../src/components/PulseAccountLink", () => ({
   PulseAccountLink: () => <div data-testid="pulse-account-link-stub" />,
-}));
-
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
 }));
 
 /** Two members on one event, so a partial save is possible. */

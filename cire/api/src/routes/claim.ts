@@ -5,17 +5,50 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { buildSessionCookie, clearSessionCookie, parseSessionToken } from "../lib/cookie";
+import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
+import {
+  buildSessionCookie,
+  clearSessionCookie,
+  parseOrganiserSessionToken,
+  parseSessionToken,
+} from "../lib/cookie";
+import { getWaitUntil } from "../lib/execution-ctx";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { ClaimBody } from "../schemas/claim";
-import { claimService } from "../services/claim";
+import { type AccountLinkGate, claimService } from "../services/claim";
 import { inviteService } from "../services/invite";
 import { sessionService } from "../services/session";
 
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * The account-link half of a claim payload, taken from this request: whether
+ * linking is offered to the household, and the OSN sign-in cookie whose
+ * liveness the payload reports. Both cookies ride the one credentialed
+ * request the page already makes, so the guest site learns everything its
+ * account-link box needs without a request of its own.
+ *
+ * The flag check is handed to the request's `waitUntil`. The payload stops
+ * waiting for it after `ACCOUNT_LINK_FLAG_WAIT`, but a GrowthBook refresh it
+ * started is shared with every later request in the isolate, and Workers
+ * cancels a finished request's outstanding I/O unless `waitUntil` holds it.
+ * Held, the refresh settles (the provider bounds it at 5 s) and serves the
+ * requests after it. The check never rejects, so holding it cannot fail.
+ */
+function accountLinkGate(linking: AccountLinking, request: Request): AccountLinkGate {
+  const waitUntil = getWaitUntil(request);
+  return {
+    enabledFor: (familyId) => {
+      const answer = isAccountLinkingOn(linking, familyId);
+      waitUntil?.(answer);
+      return answer;
+    },
+    osnSessionToken: parseOrganiserSessionToken(request.headers.get("cookie")),
+  };
+}
 
 export interface ClaimRouteOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -27,15 +60,23 @@ export interface ClaimRouteOptions {
    * a missing/invalid token fails closed (403) before the credential lookup.
    */
   turnstileVerifier?: TurnstileVerifier | null;
+  /** Decides the account-link state the payload carries. */
+  accountLinking: AccountLinking;
 }
 
 export const createClaimRoutes = (
   db: Db,
-  { webOrigin, limiter, turnstileVerifier = null }: ClaimRouteOptions,
+  { webOrigin, limiter, turnstileVerifier = null, accountLinking }: ClaimRouteOptions,
 ) =>
   new Elysia({ prefix: "/api/claim" }).use(rateLimitMiddleware(limiter)).post(
     "/",
     async ({ request, set }) => {
+      // The same payload the restore serves, under the same cache rules: it is
+      // the household's invite, and its `accountLink.signedIn` depends on a
+      // second cookie. Set first, so every outcome carries it.
+      set.headers["cache-control"] = "no-store";
+      set.headers.vary = "Origin, Cookie";
+
       const raw: unknown = await request.json().catch(() => null);
 
       // Turnstile bot gate (key-optional; no-op when unconfigured). Runs after
@@ -50,7 +91,10 @@ export const createClaimRoutes = (
       return runCire(
         Effect.gen(function* () {
           const { publicId } = yield* Schema.decodeUnknownEffect(ClaimBody)(raw);
-          const result = yield* claimService.lookup(publicId.trim().toUpperCase());
+          const result = yield* claimService.lookup(
+            publicId.trim().toUpperCase(),
+            accountLinkGate(accountLinking, request),
+          );
           // Session write may fail (DB transient error) — we still hand the user
           // their invite payload and skip Set-Cookie. Error is logged inside the
           // service. They can re-login to mint a fresh session.
@@ -167,6 +211,8 @@ export interface ClaimSessionRouteOptions {
    * sibling-instance split below.
    */
   limiter: RateLimiterBackend;
+  /** Decides the account-link state the payload carries. */
+  accountLinking: AccountLinking;
 }
 
 /**
@@ -192,7 +238,7 @@ export interface ClaimSessionRouteOptions {
  */
 export const createClaimSessionRoutes = (
   db: Db,
-  { webOrigin, limiter }: ClaimSessionRouteOptions,
+  { webOrigin, limiter, accountLinking }: ClaimSessionRouteOptions,
 ) =>
   new Elysia({ prefix: "/api/claim" })
     .use(rateLimitMiddleware(limiter))
@@ -210,7 +256,7 @@ export const createClaimSessionRoutes = (
       set.headers.vary = "Origin, Cookie";
     })
     .use(sessionAuth(db))
-    .get("/session", async ({ familyId, set, query }) => {
+    .get("/session", async ({ familyId, set, query, request }) => {
       // sessionAuth's onBeforeHandle guarantees this; the guard is a runtime
       // safety net (and narrows the type).
       if (!familyId) {
@@ -237,7 +283,7 @@ export const createClaimSessionRoutes = (
           // still discloses nothing beyond "not your invite".
           const ownsWedding = yield* inviteService.sessionOwnsWedding(familyId, slug);
           if (!ownsWedding) return yield* Effect.fail(new SessionNotForWedding());
-          return yield* claimService.restore(familyId);
+          return yield* claimService.restore(familyId, accountLinkGate(accountLinking, request));
         }).pipe(
           Effect.provideService(DbService, db),
           Effect.catchTag("InvalidCredentials", () =>

@@ -2,42 +2,40 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { FamilyMember } from "../../src/components/types";
+import type { AccountLinkState, FamilyMember } from "../../src/components/types";
 
 /**
  * PulseAccountLink owns the guest "Link my Pulse account" flow. Sign-in itself
- * is a redirect to the identity app, owned by `@shared/rp-auth` — stubbed here.
+ * is a redirect to the identity app, owned by `@shared/rp-auth` — its sign-in
+ * and credentialed fetch are stubbed here; `AuthExpiredError` and
+ * `isAuthExpired` are the real ones.
  * What this file asserts is the wiring the component introduces:
- *   - the affordance only appears when the household's link state probes "ready"
- *     (503 ⇒ disabled ⇒ hidden; the core invite is never affected)
+ *   - it draws from the claim payload's link state alone: no request on mount
  *   - signed-out ⇒ a "Sign in with musubi" control gates the picker, and it
- *     hands `signIn` the current invite URL so the guest lands back here
+ *     hands the sign-in the current invite URL so the guest lands back here
  *   - signed-in ⇒ pick a member → POST /api/account/link with { guestId }
- *   - the GET probe seeds the linked/unlinked indicators
+ *   - the payload's linked seats seed the linked/unlinked indicators
  *   - unlink issues DELETE /api/account/link/:guestId
  *   - 409 already-linked is treated as linked, not an error
+ *   - an expired sign-in falls back to the sign-in control; a network failure
+ *     does not
  */
 
-// A controllable session signal + authFetch spy, swapped per test via the
-// module-level holders below (vi.mock factories can't close over per-test state
-// directly, so they read through these mutable refs).
-const sessionRef = { current: null as unknown };
 const authFetchMock = vi.fn();
 const signInMock = vi.fn();
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
-  useAuth: () => ({
-    session: () => sessionRef.current,
-    authFetch: authFetchMock,
-    signIn: signInMock,
-  }),
+vi.mock("@shared/rp-auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@shared/rp-auth")>()),
+  createAuthFetch: () => authFetchMock,
+  startSignIn: (...args: unknown[]) => signInMock(...args),
 }));
 
 vi.mock("@shared/toast", () => ({
   Toaster: () => null,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+import { AuthExpiredError } from "@shared/rp-auth";
 
 import { PulseAccountLink } from "../../src/components/PulseAccountLink";
 
@@ -47,11 +45,14 @@ function member(firstName: string, id = `g-${firstName}`): FamilyMember {
   return { guestId: id, firstName, lastName: "Okafor", nickname: null, eventIds: [] };
 }
 
-function renderLink(members: FamilyMember[]) {
-  return render(() => <PulseAccountLink apiUrl={API} members={members} />);
+const SIGNED_OUT: AccountLinkState = { signedIn: false, linkedGuestIds: [] };
+const SIGNED_IN: AccountLinkState = { signedIn: true, linkedGuestIds: [] };
+
+function renderLink(members: FamilyMember[], state: AccountLinkState = SIGNED_IN) {
+  return render(() => <PulseAccountLink apiUrl={API} members={members} state={state} />);
 }
 
-/** Build a minimal Response-like object for the global fetch mock. */
+/** Build a minimal Response-like object for the fetch mocks. */
 function jsonResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -61,11 +62,13 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 const realFetch = globalThis.fetch;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  sessionRef.current = null;
   authFetchMock.mockReset();
   signInMock.mockReset();
+  fetchMock = vi.fn();
+  globalThis.fetch = fetchMock as typeof fetch;
 });
 
 afterEach(() => {
@@ -74,40 +77,41 @@ afterEach(() => {
 });
 
 describe("PulseAccountLink", () => {
-  it("hides the feature entirely when linking is disabled (probe 503)", async () => {
-    globalThis.fetch = vi.fn(async () => jsonResponse(503, { error: "disabled" })) as typeof fetch;
-    const { container } = renderLink([member("Chidi")]);
-    // Give the probe resource a tick to resolve.
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
-    await Promise.resolve();
-    expect(container.querySelector("#pulse-link-heading")).toBeNull();
-    expect(screen.queryByText(/Link your Pulse account/i)).toBeNull();
+  it("draws at once from the payload's state, with no request of its own", () => {
+    renderLink([member("Chidi"), member("Ada")], { signedIn: true, linkedGuestIds: ["g-Ada"] });
+
+    // Synchronously on first render: nothing to wait for.
+    expect(screen.getByText(/Link your Pulse account/i)).toBeTruthy();
+    expect(screen.getByText(/Which guest are you/i)).toBeTruthy();
+    expect(screen.getByText(/✓ Linked/i)).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 
-  it("shows the sign-in affordance post-probe when signed out", async () => {
-    globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
-    renderLink([member("Chidi")]);
-    await waitFor(() => expect(screen.getByText(/Link your Pulse account/i)).toBeTruthy());
+  it("shows the sign-in affordance when signed out", () => {
+    renderLink([member("Chidi")], SIGNED_OUT);
     // Signed out → the sign-in control gates the picker, and the picker itself
     // is nowhere on the page.
     const button = screen.getByRole("button", { name: /Sign in with musubi/i });
-    expect(button).toBeTruthy();
     expect(screen.queryByText(/Which guest are you/i)).toBeNull();
 
     fireEvent.click(button);
     // The return-to is the invite URL itself — the guest cookie re-opens the
     // claimed view when they come back.
-    expect(signInMock).toHaveBeenCalledWith(window.location.href);
+    expect(signInMock).toHaveBeenCalledWith({ apiBase: API }, window.location.href);
   });
 
-  it("takes its placement from the panel that hosts it, and keeps its own surface", async () => {
+  it("takes its placement from the panel that hosts it, and keeps its own surface", () => {
     // The claim and welcome panel decides width, centring and spacing per
     // layout; the component keeps only its bordered, tinted box.
-    globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     const { container } = render(() => (
-      <PulseAccountLink apiUrl={API} members={[member("Chidi")]} class="max-w-column-sm mb-8" />
+      <PulseAccountLink
+        apiUrl={API}
+        members={[member("Chidi")]}
+        state={SIGNED_OUT}
+        class="max-w-column-sm mb-8"
+      />
     ));
-    await waitFor(() => expect(screen.getByText(/Link your Pulse account/i)).toBeTruthy());
     const classes = container
       .querySelector("section[aria-labelledby='pulse-link-heading']")!
       .className.split(/\s+/);
@@ -118,13 +122,10 @@ describe("PulseAccountLink", () => {
   });
 
   it("links the picked member via POST when signed in", async () => {
-    sessionRef.current = { profileId: "usr_chidi" };
-    globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     // POST link → 201 created.
     authFetchMock.mockResolvedValue(jsonResponse(201, { linked: true, guestId: "g-Chidi" }));
 
     renderLink([member("Chidi"), member("Ada")]);
-    await waitFor(() => expect(screen.getByText(/Which guest are you/i)).toBeTruthy());
 
     // Pick Chidi, then link.
     fireEvent.click(screen.getByLabelText(/Chidi Okafor/i));
@@ -143,25 +144,18 @@ describe("PulseAccountLink", () => {
     await waitFor(() => expect(screen.getByText(/✓ Linked/i)).toBeTruthy());
   });
 
-  it("reflects already-linked members from the GET probe", async () => {
-    sessionRef.current = { profileId: "usr_chidi" };
-    globalThis.fetch = vi.fn(async () =>
-      jsonResponse(200, { links: [{ guestId: "g-Ada", linkedAt: 123 }] }),
-    ) as typeof fetch;
-
-    renderLink([member("Chidi"), member("Ada")]);
-    await waitFor(() => expect(screen.getByText(/✓ Linked/i)).toBeTruthy());
-    // An unlink control is offered for the already-linked seat.
+  it("offers unlink for the seats the payload says are linked", () => {
+    renderLink([member("Chidi"), member("Ada")], { signedIn: true, linkedGuestIds: ["g-Ada"] });
+    expect(screen.getAllByText(/✓ Linked/i)).toHaveLength(1);
     expect(screen.getByRole("button", { name: /^Unlink$/i })).toBeTruthy();
+    // A linked seat cannot be picked again.
+    expect((screen.getByLabelText(/Ada Okafor/i) as HTMLInputElement).disabled).toBe(true);
   });
 
   it("treats a 409 conflict as linked rather than an error", async () => {
-    sessionRef.current = { profileId: "usr_chidi" };
-    globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     authFetchMock.mockResolvedValue(jsonResponse(409, { error: "already_linked" }));
 
     renderLink([member("Chidi")]);
-    await waitFor(() => expect(screen.getByText(/Which guest are you/i)).toBeTruthy());
     fireEvent.click(screen.getByLabelText(/Chidi Okafor/i));
     fireEvent.click(screen.getByRole("button", { name: /Link my account/i }));
 
@@ -170,19 +164,38 @@ describe("PulseAccountLink", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("unlinks a linked member via DELETE", async () => {
-    sessionRef.current = { profileId: "usr_chidi" };
-    const fetchMock = vi.fn();
-    // First call: the GET probe (Ada already linked). Subsequent: the DELETE.
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { links: [{ guestId: "g-Ada", linkedAt: 1 }] }),
+  it("falls back to the sign-in control when the sign-in has expired", async () => {
+    authFetchMock.mockRejectedValue(new AuthExpiredError());
+
+    renderLink([member("Chidi")]);
+    fireEvent.click(screen.getByLabelText(/Chidi Okafor/i));
+    fireEvent.click(screen.getByRole("button", { name: /Link my account/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Sign in with musubi/i })).toBeTruthy(),
     );
+    expect(screen.getByRole("alert").textContent).toMatch(/sign-in expired/i);
+  });
+
+  it("keeps the picker, and says to retry, when the link request cannot be sent", async () => {
+    authFetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    renderLink([member("Chidi")]);
+    fireEvent.click(screen.getByLabelText(/Chidi Okafor/i));
+    fireEvent.click(screen.getByRole("button", { name: /Link my account/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(/Couldn't link your account/i),
+    );
+    // Still signed in: the picker stays, and no sign-in is offered.
+    expect(screen.getByText(/Which guest are you/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Sign in with musubi/i })).toBeNull();
+  });
+
+  it("unlinks a linked member via DELETE", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { linked: false, guestId: "g-Ada" }));
-    globalThis.fetch = fetchMock as typeof fetch;
 
-    renderLink([member("Ada")]);
-    await waitFor(() => expect(screen.getByText(/✓ Linked/i)).toBeTruthy());
-
+    renderLink([member("Ada")], { signedIn: true, linkedGuestIds: ["g-Ada"] });
     fireEvent.click(screen.getByRole("button", { name: /^Unlink$/i }));
 
     await waitFor(() =>
@@ -193,5 +206,7 @@ describe("PulseAccountLink", () => {
     );
     // The indicator flips back to unlinked.
     await waitFor(() => expect(screen.getByText(/Not linked/i)).toBeTruthy());
+    // The DELETE was the only request the component made.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

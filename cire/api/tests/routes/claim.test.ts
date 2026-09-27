@@ -4,19 +4,26 @@ import {
   BOOTSTRAP_WEDDING_ID,
   events,
   families,
+  guestAccountLinks,
+  guests,
   rsvps,
   weddingFaqs,
   weddingInviteCustomisations,
   weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { setExecutionCtx } from "../../src/lib/execution-ctx";
+import { hostCodeService } from "../../src/services/host-code";
 import { eff } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 
 interface FamilyMember {
   guestId: string;
@@ -40,6 +47,8 @@ interface ClaimOk {
   rsvpDeadline: unknown;
   closing: { message: string | null };
   faq: { visible: boolean; entries: { question: string; answer: string }[] };
+  preview: boolean;
+  accountLink: unknown;
 }
 
 const db = createDb(":memory:");
@@ -826,5 +835,207 @@ describe("POST /api/claim/signout", () => {
     expect(res.status).toBe(403);
     // And the session survives a blocked cross-origin attempt.
     expect((await getSession(cookie)).status).toBe(200);
+  });
+});
+
+// The account-link state rides both responses so the guest site draws the
+// account-link box in the same pass as the welcome panel, without asking for
+// it. Linking is offered only when the flag is on AND the deployment can
+// complete a link (an ARC resolver); `signedIn` reflects the OSN sign-in cookie
+// a link is made with.
+describe("account-link state on POST /api/claim and GET /api/claim/session", () => {
+  const SLUG = "cire-wedding";
+  const IP = "203.0.113.21";
+
+  function buildApp(opts: { flag: boolean; canLink?: boolean }) {
+    const linkDb = createDb(":memory:");
+    seedDb(linkDb);
+    const linkApp = createApp(linkDb, {
+      claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+      claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+      flags: createStaticFlags({ "cire.account-linking": opts.flag }),
+      resolveOsnAccountId:
+        opts.canLink === false ? undefined : async () => ({ ok: true, accountId: "acc_secret" }),
+    });
+    return { linkDb, linkApp };
+  }
+
+  async function claim(
+    linkApp: ReturnType<typeof createApp>,
+    publicId: string,
+    cookie?: string,
+  ): Promise<{ body: ClaimOk; household: string }> {
+    const res = await linkApp.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": IP,
+          Origin: "http://localhost:4321",
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        body: JSON.stringify({ publicId }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    return {
+      body: (await res.json()) as ClaimOk,
+      household: res.headers.get("Set-Cookie")!.split(";")[0]!,
+    };
+  }
+
+  async function restore(linkApp: ReturnType<typeof createApp>, cookie: string) {
+    const res = await linkApp.fetch(
+      new Request(`http://localhost/api/claim/session?slug=${SLUG}`, {
+        headers: { "cf-connecting-ip": IP, Cookie: cookie },
+      }),
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as ClaimOk;
+  }
+
+  function linkSeat(linkDb: ReturnType<typeof createDb>, firstName: string): string {
+    const [guest] = linkDb
+      .select({ id: guests.id, familyId: guests.familyId, weddingId: families.weddingId })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(and(eq(guests.firstName, firstName), eq(families.publicId, "TESTTWO-OAK-BB22")))
+      .all();
+    const now = new Date();
+    linkDb
+      .insert(guestAccountLinks)
+      .values({
+        id: `gal_${firstName}`,
+        guestId: guest!.id,
+        familyId: guest!.familyId,
+        weddingId: guest!.weddingId,
+        osnAccountId: "acc_secret",
+        osnProfileId: "usr_secret",
+        linkedAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return guest!.id;
+  }
+
+  it("keeps the claim response out of every cache, as the restore does", async () => {
+    // Both carry the same payload, and it now depends on a second cookie.
+    const { linkApp } = buildApp({ flag: true });
+    const res = await linkApp.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": IP,
+          Origin: "http://localhost:4321",
+        },
+        body: JSON.stringify({ publicId: "TESTTWO-OAK-BB22" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("vary")).toBe("Origin, Cookie");
+  });
+
+  it("keeps a slow flag refresh alive past the response that stopped waiting for it", async () => {
+    // The payload stops waiting for the flag after its cap, but the refresh it
+    // started is shared with every later request in the isolate. On Workers a
+    // finished request's outstanding I/O is cancelled unless it was handed to
+    // `waitUntil`, which would leave that shared refresh unsettled for good.
+    let release!: (on: boolean) => void;
+    const slowFlag = new Promise<boolean>((resolve) => (release = resolve));
+    const linkDb = createDb(":memory:");
+    seedDb(linkDb);
+    const linkApp = createApp(linkDb, {
+      claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+      resolveOsnAccountId: async () => ({ ok: true, accountId: "acc_secret" }),
+      flags: {
+        forRequest: async () => {
+          const on = await slowFlag;
+          return { isOn: () => on, getValue: () => false };
+        },
+      },
+    });
+    const request = new Request("http://localhost/api/claim", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "cf-connecting-ip": IP,
+        Origin: "http://localhost:4321",
+      },
+      body: JSON.stringify({ publicId: "TESTTWO-OAK-BB22" }),
+    });
+    const kept: Promise<unknown>[] = [];
+    setExecutionCtx(request, { waitUntil: (promise) => kept.push(promise) });
+
+    const res = await linkApp.fetch(request);
+    const body = (await res.json()) as ClaimOk;
+    // The response did not wait for the flag.
+    expect(body.accountLink).toEqual({ enabled: false });
+    // The flag check was handed to the request's context, and settles later.
+    expect(kept).toHaveLength(1);
+    release(true);
+    expect(await kept[0]).toBe(true);
+  });
+
+  it("reports linking off on both responses while the flag is off", async () => {
+    const { linkApp } = buildApp({ flag: false });
+    const { body, household } = await claim(linkApp, "TESTTWO-OAK-BB22");
+    expect(body.accountLink).toEqual({ enabled: false });
+    expect((await restore(linkApp, household)).accountLink).toEqual({ enabled: false });
+  });
+
+  it("reports linking off when the deployment cannot complete a link", async () => {
+    const { linkApp } = buildApp({ flag: true, canLink: false });
+    const { body } = await claim(linkApp, "TESTTWO-OAK-BB22");
+    expect(body.accountLink).toEqual({ enabled: false });
+  });
+
+  it("carries the linked seats, signed out, with no OSN sign-in cookie", async () => {
+    const { linkDb, linkApp } = buildApp({ flag: true });
+    const bo = linkSeat(linkDb, "Bo");
+    const { body, household } = await claim(linkApp, "TESTTWO-OAK-BB22");
+    expect(body.accountLink).toEqual({ enabled: true, signedIn: false, linkedGuestIds: [bo] });
+    expect((await restore(linkApp, household)).accountLink).toEqual(body.accountLink);
+  });
+
+  it("reports signed in when the request carries a live OSN sign-in", async () => {
+    const { linkDb, linkApp } = buildApp({ flag: true });
+    const bo = linkSeat(linkDb, "Bo");
+    const osn = `cire_org_session=${await seedOrganiserSession(linkDb, "usr_guest")}`;
+
+    const { body, household } = await claim(linkApp, "TESTTWO-OAK-BB22", osn);
+    expect(body.accountLink).toEqual({ enabled: true, signedIn: true, linkedGuestIds: [bo] });
+
+    // The restore carries both cookies, as the browser sends them.
+    const restored = await restore(linkApp, `${household}; ${osn}`);
+    expect(restored.accountLink).toEqual(body.accountLink);
+
+    // Neither response names the OSN account or profile behind a link.
+    expect(JSON.stringify(body)).not.toContain("acc_secret");
+    expect(JSON.stringify(body)).not.toContain("usr_secret");
+    expect(JSON.stringify(restored)).not.toContain("acc_secret");
+  });
+
+  it("reports signed out for an OSN sign-in cookie that is not a live session", async () => {
+    const { linkApp } = buildApp({ flag: true });
+    const { body } = await claim(linkApp, "TESTTWO-OAK-BB22", "cire_org_session=not-a-session");
+    expect(body.accountLink).toEqual({ enabled: true, signedIn: false, linkedGuestIds: [] });
+  });
+
+  it("never offers linking to the host preview, even with the organiser signed in", async () => {
+    const { linkDb, linkApp } = buildApp({ flag: true });
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, SLUG)
+        .pipe(Effect.provideService(DbService, linkDb)),
+    );
+    // The organiser opening their own preview holds a live OSN session, and
+    // the browser sends it with the preview claim.
+    const osn = `cire_org_session=${await seedOrganiserSession(linkDb, "usr_owner")}`;
+
+    const { body } = await claim(linkApp, publicId, osn);
+    expect(body.preview).toBe(true);
+    expect(body.accountLink).toEqual({ enabled: false });
   });
 });

@@ -476,7 +476,8 @@ const claimAttempts = createCounter<ClaimAttemptsAttrs>({
 
 const claimLookupDuration = createHistogram<ClaimLookupDurationAttrs>({
   name: CIRE_METRICS.claimLookupDuration,
-  description: "claimService.lookup latency (family + guests + events + rsvps reads)",
+  description:
+    "claimService.lookup and .restore latency (the invite reads, and beside them the account-link state)",
   unit: "s",
   boundaries: LATENCY_BUCKETS_SECONDS,
 });
@@ -1092,7 +1093,11 @@ const measureSecondsHelper =
       );
     });
 
-/** Time `claimService.lookup` into the `cire.claim.lookup.duration` histogram. */
+/**
+ * Time `claimService.lookup` and `.restore` into the `cire.claim.lookup.duration`
+ * histogram. That includes the account-link state, which runs beside the invite
+ * reads and waits at most `ACCOUNT_LINK_FLAG_WAIT` for its flag.
+ */
 export const measureClaimLookup = measureSecondsHelper((seconds, outcome) =>
   claimLookupDuration.record(seconds, { result: outcome }),
 );

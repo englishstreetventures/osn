@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[cire-organiser]]"
   - "[[cire-workerd]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-26
 ---
 # Feature flags — GrowthBook
 
@@ -59,12 +59,20 @@ with explicit values and no network.
 ## First gate — OSN account linking
 
 `cire.account-linking` (default **off**) gates the whole guest "Link your Pulse
-account" surface. Both `GET` and `POST /api/account/link` (`routes/account-link.ts`)
-call `flags.forRequest({ id: familyId })` and answer **503** ("disabled") when
-the flag is off. The guest UI (`cire/invites` `PulseAccountLink`) already treats a
-503 status probe as disabled and renders nothing, so the flag hides the section
-with **no frontend change** — independent of whether the ARC linking keys exist.
-The POST guard is defense in depth (a crafted request can't link while off).
+account" surface. cire-api evaluates it per household
+(`flags.forRequest({ id: familyId })`) in two places:
+
+- **The claim payload.** `POST /api/claim` and `GET /api/claim/session` report
+  `accountLink: { enabled: false }` while the flag is off, and the guest site
+  (`cire/invites` `PulseAccountLink`) draws no box. The check lives in
+  `cire/api/src/lib/account-linking.ts`; it also needs an ARC resolver, and it
+  never rejects — a flag provider that throws reads as off. The payload waits
+  at most 250 ms for the flag (`ACCOUNT_LINK_FLAG_WAIT` in
+  `cire/api/src/services/claim.ts`), so a slow GrowthBook refresh hides the box
+  for that one response rather than holding the invite back.
+- **`POST /api/account/link`** (`routes/account-link.ts`) answers **503**
+  ("disabled") while the flag is off, as defence in depth: a crafted request
+  can't link.
 Turn the flag on in the GrowthBook dashboard (feature key `cire.account-linking`)
 to reveal it. Add further flags to the registry + the dashboard as features land.
 

@@ -16,18 +16,10 @@ import type { ClaimResult } from "../../src/components/types";
  * out, so only this tier can see a row push past the card.
  *
  * The real `PulseAccountLink` renders here. It draws its member rows only when
- * the linking probe answers 200 and an OSN session is present, so both are
- * supplied; otherwise it would draw nothing, and every box below would pass by
- * being empty.
+ * the claim payload offers linking and says the browser is signed in, so the
+ * household below carries both; otherwise it would draw nothing, and every box
+ * below would pass by being empty.
  */
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
-  useAuth: () => ({
-    session: () => ({ accessToken: "t" }),
-    authFetch: (input: RequestInfo, init?: RequestInit) => fetch(input, init),
-    signIn: () => {},
-  }),
-}));
 
 const household: ClaimResult = {
   publicId: "FEATHERSTONEHAUGH-JOY-RK97",
@@ -50,6 +42,7 @@ const household: ClaimResult = {
   ],
   events: [],
   rsvps: [],
+  accountLink: { enabled: true, signedIn: true, linkedGuestIds: ["g-max"] },
 };
 
 afterEach(() => {
@@ -64,13 +57,7 @@ describe.each<LoginSectionLayout>(["band", "panel"])(
       await page.viewport(375, 900);
       vi.stubGlobal(
         "fetch",
-        vi.fn((input: RequestInfo | URL) =>
-          Promise.resolve(
-            String(input).endsWith("/api/account/link")
-              ? Response.json({ links: [{ guestId: "g-max", linkedAt: 1 }] })
-              : new Response(null, { status: 204 }),
-          ),
-        ),
+        vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
       );
 
       const view = render(() => (

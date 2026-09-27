@@ -35,14 +35,9 @@ vi.mock("../../../src/components/DetailsModal", () => ({
 }));
 
 // Stub the PulseAccountLink island to a marker so InvitePage's tests assert
-// only the mount wiring (post-claim, non-preview) without probing the account
-// API.
+// only the mount wiring (post-claim, non-preview, linking offered).
 vi.mock("../../../src/components/PulseAccountLink", () => ({
   PulseAccountLink: () => <div data-testid="pulse-account-link-stub" />,
-}));
-
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
 }));
 
 // Rendered as a marker, not `() => null`: WHERE the Toaster is mounted is the
@@ -56,6 +51,8 @@ vi.mock("@shared/toast", () => ({
 const claim: ClaimResult = {
   publicId: "SHARMA-JOY-RK97",
   familyName: "Sharma",
+  // Linking offered, so the account-link box has something to mount for.
+  accountLink: { enabled: true, signedIn: false, linkedGuestIds: [] },
   members: [
     {
       guestId: "guest-1",

@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { ACCOUNT_LINKING_FLAG } from "../lib/account-linking";
 import { buildSessionCookie, parseSessionToken } from "../lib/cookie";
 import {
   measureAccountLinkResolve,
@@ -25,62 +26,29 @@ const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const PREFIX = "/api/account/link";
 
-/**
- * Feature flag gating the whole OSN ("Pulse") account-linking surface. OFF ⇒
- * both the GET status probe and the POST link answer 503 ("disabled"); the
- * guest UI reads the 503 GET as "disabled" and hides the section. Default is OFF
- * (see the `FLAGS` registry), so linking stays hidden until it's turned on in
- * the GrowthBook dashboard — independent of whether the ARC linking keys exist.
- */
-const LINKING_FLAG = "cire.account-linking" as const;
-
 /** Transport failure resolving the OSN account id over ARC (osn-api down / 5xx). */
 class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
   reason: string;
 }> {}
 
 /**
- * Guest-only account-link routes (GET status + DELETE unlink). Gated by the
- * guest session cookie alone — an invitee reads/removes their own household's
- * links without needing a live OSN token. The POST link lives in a separate
- * instance ({@link createAccountLinkPostRoute}) because it additionally
- * requires an OSN token; keeping them apart is what method-gates `osnAuth` to
- * POST (the same sibling-instance pattern rsvp + organiser routes use).
+ * The guest-only account-link route (DELETE unlink). Gated by the guest session
+ * cookie alone — an invitee removes their own household's links without
+ * needing a live OSN token. The household's link state is not read here: the
+ * claim and restore responses carry it (`accountLink`), so the guest site
+ * draws the account-link box without a request of its own. The POST link
+ * lives in a separate instance ({@link createAccountLinkPostRoute}) because it
+ * additionally requires an OSN token; keeping them apart is what method-gates
+ * `osnAuth` to POST (the same sibling-instance pattern rsvp + organiser routes
+ * use).
  *
- * Both instances share a per-IP `limiter` (S-L1) so a session can't drive
- * unbounded membership probes / unlink churn.
+ * Both instances share a per-IP `limiter` so a session can't drive unbounded
+ * membership probes or unlink churn.
  */
-export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend, flags: FeatureFlags) =>
+export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
   new Elysia({ prefix: PREFIX })
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
-    // GET /api/account/link — link status for every invitee in the household.
-    // Returns presence + linked-at; never the OSN account id (S2S-only) nor the
-    // profile id (kept minimal).
-    .get("/", async ({ familyId, set }) => {
-      // sessionAuth guarantees this; the guard is a runtime safety net.
-      if (!familyId) {
-        set.status = 401;
-        return { error: "Unauthorized" };
-      }
-      // Feature gate: the account-linking flag hides this surface. A 503 here is
-      // read by the guest UI as "disabled" ⇒ the whole "Link your Pulse account"
-      // section renders nothing. Bucketed by household so a future percentage
-      // rollout is stable per family.
-      const linking = await flags.forRequest({ id: familyId });
-      if (!linking.isOn(LINKING_FLAG)) {
-        set.status = 503;
-        return { error: "Account linking is not available" };
-      }
-      return runCire(
-        accountLinkService.listByFamily(familyId).pipe(
-          Effect.provideService(DbService, db),
-          Effect.map((links) => ({
-            links: links.map((l) => ({ guestId: l.guestId, linkedAt: l.linkedAt.getTime() })),
-          })),
-        ),
-      );
-    })
     // DELETE /api/account/link/:guestId — remove an invitee's link, scoped to
     // the caller's household. Idempotent.
     .delete("/:guestId", ({ familyId, params, set }) => {
@@ -111,8 +79,9 @@ export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend, fla
  * The one deliberate dual-credential route: the guest session cookie (derives
  * `familyId`) proves the household; the OSN access token (derives
  * `osnProfileId`) proves the OSN identity. Both `sessionAuth` and `osnAuth`
- * gate this instance, so the OSN gate applies to POST only — GET/DELETE live in
- * the sibling instance above. The profile is resolved to its account id S2S
+ * gate this instance, so the OSN gate applies to POST only — DELETE lives in
+ * the sibling instance above. A seat in the organiser's host-preview family is
+ * never linkable (403, like a seat from another household). The profile is resolved to its account id S2S
  * over ARC so account-level linking lets any of the user's OSN profiles later
  * see the invitation in Pulse; the account id is never returned to the client.
  */
@@ -144,7 +113,7 @@ export const createAccountLinkPostRoute = (
         // while the feature is disabled. Same 503 "disabled" contract as the
         // no-ARC-key branch below.
         const linking = await flags.forRequest({ id: familyId });
-        if (!linking.isOn(LINKING_FLAG)) {
+        if (!linking.isOn(ACCOUNT_LINKING_FLAG)) {
           metricAccountLinkRequest("disabled");
           set.status = 503;
           return { error: "Account linking is not available" };

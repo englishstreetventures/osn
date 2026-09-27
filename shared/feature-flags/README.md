@@ -66,8 +66,9 @@ async ({ flags, session }) => {
 ```
 
 The first real gate is OSN account linking: `cire.account-linking` (default off)
-gates `GET`/`POST /api/account/link`, so the guest "Link your Pulse account"
-section stays hidden until the flag is turned on.
+decides whether cire-api's claim and restore responses offer a household
+linking, and gates `POST /api/account/link`, so the guest "Link your Pulse
+account" box stays hidden until the flag is turned on.
 
 ### Adding a flag
 
