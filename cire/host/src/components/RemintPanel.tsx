@@ -5,7 +5,9 @@ import { Fieldset } from "@shared/ui/ui/field";
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { invalidateGuests } from "../lib/guests-store";
 import { haptic } from "../lib/haptics";
+import { invalidateHouseholds } from "../lib/households-store";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
 interface RemintPanelProps {
@@ -95,6 +97,10 @@ export default function RemintPanel(props: RemintPanelProps) {
         toast.error("Could not re-mint the codes. Please try again.");
         return;
       }
+      // Every code just changed, so the cached rosters now hold dead codes:
+      // without this, Guests → Households would copy them until a reload.
+      invalidateGuests(props.weddingId);
+      invalidateHouseholds(props.weddingId);
       const body = (await res.json()) as { reminted: number };
       haptic("commit");
       toast.success(`Re-minted ${body.reminted} family codes`);
