@@ -13,7 +13,7 @@ import { makeLogEmailLive } from "@shared/email";
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createDirectoryService } from "../../src/services/directory";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -292,7 +292,7 @@ describe("vendor directory browse route", () => {
  *  - LA: live listing with categories [venue, catering] + a contact email/phone
  *  - LD: draft listing (rejected by add route)
  */
-function buildWriteApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
+function buildWriteFixture({ grantVendors = true }: { grantVendors?: boolean } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -368,11 +368,16 @@ function buildWriteApp({ grantVendors = true }: { grantVendors?: boolean } = {})
     vendorPortalOrigin: "https://vendor.test",
   });
 
-  return createApp(db, {
+  const app = createApp(db, {
     osnTestKey: auth.key,
     directoryService,
     emailLayer: logEmailLayer,
   });
+  return { app, db };
+}
+
+function buildWriteApp(options: { grantVendors?: boolean } = {}) {
+  return buildWriteFixture(options).app;
 }
 
 async function postAdd(
@@ -454,6 +459,29 @@ describe("vendor directory write routes (add-from-directory)", () => {
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: string };
     expect(body.error).toBe("already_in_wedding");
+  });
+
+  it("answers a duplicate add from the listing read, without trying the insert", async () => {
+    const { app, db } = buildWriteFixture();
+    expect((await postAdd(app, LA, { category: "venue" }, EDITOR)).status).toBe(201);
+    const statements = recordStatements(db);
+
+    const second = await postAdd(app, LA, { category: "venue" }, EDITOR);
+
+    expect(second.status).toBe(409);
+    // The unique index would also turn a second insert into a 409; this
+    // proves the route stopped before reaching it.
+    expect(statements.some((s) => /^insert into "vendors"/i.test(s.sql))).toBe(false);
+  });
+
+  it("checks the category before the duplicate (400, not 409)", async () => {
+    const app = buildWriteApp();
+    expect((await postAdd(app, LA, { category: "venue" }, EDITOR)).status).toBe(201);
+    // LA is already in the wedding AND photography is not one of its categories.
+    const res = await postAdd(app, LA, { category: "photography" }, EDITOR);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_category");
   });
 
   it("viewer gets 403 read_only_role", async () => {

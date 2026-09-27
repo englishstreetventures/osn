@@ -79,39 +79,6 @@ describe("vendorsService", () => {
     expect(row?.status).toBe("researching");
   });
 
-  it("existsForDirectory is true only when a CRM row links that listing in that wedding", async () => {
-    const db = db0();
-    // Create a vendor in W1 (BOOTSTRAP_WEDDING_ID) with directoryVendorId "DV1"
-    const created = await run(
-      db,
-      vendorsService.create({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        name: "Apex Venue",
-        category: "venue",
-        status: "researching",
-        contactName: null,
-        email: null,
-        phone: null,
-        notes: null,
-        quotedMinor: null,
-        directoryVendorId: "DV1",
-      }),
-    );
-    expect(Exit.isSuccess(created)).toBe(true);
-
-    // True: same wedding, same directoryVendorId
-    const r1 = await run(db, vendorsService.existsForDirectory(BOOTSTRAP_WEDDING_ID, "DV1"));
-    expect(Exit.isSuccess(r1) && r1.value).toBe(true);
-
-    // False: same wedding, different directoryVendorId
-    const r2 = await run(db, vendorsService.existsForDirectory(BOOTSTRAP_WEDDING_ID, "DVX"));
-    expect(Exit.isSuccess(r2) && r2.value).toBe(false);
-
-    // False: different wedding, same directoryVendorId (wedding-scoping)
-    const r3 = await run(db, vendorsService.existsForDirectory(OTHER, "DV1"));
-    expect(Exit.isSuccess(r3) && r3.value).toBe(false);
-  });
-
   it("reorder is wedding-scoped and sets sort_order by index within a status", async () => {
     const db = db0();
     const ids: string[] = [];
@@ -220,7 +187,7 @@ describe("vendorsService.create sort order", () => {
     const db = db0();
     const statements = recordStatements(db);
     await run(db, vendorsService.create(input));
-    const [read] = statements.filter((s) => /^select\b/i.test(s.sql));
+    const read = statements.find((s) => /^select\b/i.test(s.sql));
 
     const plan = db.$client
       .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${read!.sql}`)
