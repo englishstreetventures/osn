@@ -330,7 +330,10 @@ function PlusOneRow(props: PlusOneRowProps) {
                 when={mode() === "confirm" && open()}
                 fallback={
                   <>
-                    <p class="text-text text-ui-base font-light">{fullName(guest())}</p>
+                    {/* A name, so a page translator leaves it alone. */}
+                    <p class="text-text text-ui-base font-light" translate="no">
+                      {fullName(guest())}
+                    </p>
                     <Show when={open()}>
                       <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                         <Show when={props.allowed}>
@@ -390,10 +393,12 @@ function PlusOneRow(props: PlusOneRowProps) {
               class={INPUT}
               value={first()}
               onInput={(e) => setFirst(e.currentTarget.value)}
+              name="firstName"
               maxLength={NAME_MAX}
               // Someone else's name: the browser's autofill would offer the
-              // guest's own.
+              // guest's own, and a spellchecker marks most names as wrong.
               autocomplete="off"
+              spellcheck={false}
               disabled={busy()}
             />
           </div>
@@ -407,8 +412,10 @@ function PlusOneRow(props: PlusOneRowProps) {
               class={INPUT}
               value={last()}
               onInput={(e) => setLast(e.currentTarget.value)}
+              name="lastName"
               maxLength={NAME_MAX}
               autocomplete="off"
+              spellcheck={false}
               disabled={busy()}
             />
           </div>
