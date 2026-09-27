@@ -21,6 +21,15 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+// The change feed has its own suite (RsvpView.changes.test.tsx). Stubbed here so
+// this file's fetch order stays the RSVP read and the organiser's own writes;
+// the pure helpers stay real.
+vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
+  fetchRsvpChanges: async () => null,
+  markRsvpChangesSeen: async () => {},
+}));
+
 import RsvpView from "../../src/components/RsvpView";
 import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 import { mockViewport } from "../test-support/viewport";

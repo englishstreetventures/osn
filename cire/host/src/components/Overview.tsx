@@ -21,6 +21,7 @@ import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "..
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
 import ModuleIcon from "./ModuleIcon";
+import RsvpChangesCard from "./RsvpChangesCard";
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
  *  up across events, a Checklist card showing the live open-task count, and a
@@ -578,6 +579,11 @@ export default function Overview(props: {
                   })()}
                 </Show>
               </Card>
+
+              {/* ── RSVP changes since this organiser last looked ─────────── */}
+              {/* Reads on its own and renders nothing when it cannot, so it
+                  never holds up or blanks the rest of the grid. */}
+              <RsvpChangesCard weddingId={props.weddingId} onNavigate={props.onNavigate} />
 
               {/* ── Guests + events snapshot ─────────────────────────────── */}
               <Card>

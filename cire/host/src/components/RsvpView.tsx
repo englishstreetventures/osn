@@ -21,6 +21,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { fetchRsvpChanges, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
   filterRows,
   mergeRows,
@@ -108,22 +109,48 @@ export default function RsvpView(props: RsvpViewProps) {
   const [saving, setSaving] = createSignal(false);
   const [formError, setFormError] = createSignal<string | null>(null);
 
-  const load = async () => {
+  /** Loads the RSVPs; true when the table has something real to show. */
+  const load = async (): Promise<boolean> => {
     try {
       const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/rsvps`));
-      if (res.status === 401) return redirectToLogin();
+      if (res.status === 401) {
+        redirectToLogin();
+        return false;
+      }
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const body = (await res.json()) as { events: RsvpViewEvent[] };
       setState("events", reconcile(body.events, { key: "id" }));
+      return true;
     } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return false;
+      }
       setError("Could not load RSVPs. Is the API running?");
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
-  onMount(load);
+  // Rows a guest changed since this organiser last opened the table. Read once
+  // per visit beside the RSVPs, so the badges stay put while the organiser
+  // records replies; once the table has loaded, those changes are marked seen
+  // for this organiser, and the next visit starts clean.
+  const [isNewRow, setIsNewRow] = createSignal<(guestId: string, eventId: string) => boolean>(
+    () => false,
+  );
+
+  onMount(() => {
+    const changes = fetchRsvpChanges(authFetch, props.weddingId);
+    void Promise.all([load(), changes]).then(async ([loaded, feed]) => {
+      if (!feed) return false;
+      setIsNewRow(() => newRowCheck(feed.rows));
+      if (!loaded || feed.markSeq === 0) return false;
+      await markRsvpChangesSeen(authFetch, props.weddingId, feed.markSeq);
+      return true;
+    });
+  });
 
   const hasEvents = () => state.events.length > 0;
 
@@ -458,6 +485,15 @@ export default function RsvpView(props: RsvpViewProps) {
                                     next one. */}
                                 <Td valign="middle" class="wrap-break-word">
                                   {row.firstName} {row.lastName}
+                                  <Show when={isNewRow()(row.guestId, section.event.id)}>
+                                    {" "}
+                                    <span
+                                      class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase"
+                                      title="Changed by the guest since you last looked"
+                                    >
+                                      New
+                                    </span>
+                                  </Show>
                                   <Show when={row.consentSource === "organiser_attested"}>
                                     {" "}
                                     <span
