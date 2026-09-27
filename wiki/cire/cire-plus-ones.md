@@ -50,12 +50,15 @@ Editor-gated (`weddingEditor()`; a viewer gets `403 read_only_role`), like every
 
 | Route | Body | Answer |
 |---|---|---|
-| `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one` | `{ allowed, removePlusOne? }` | `{ guestId, plusOneAllowed, plusOneRemoved }` |
+| `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one` | `{ allowed, removePlusOnes? }` | `{ guestId, plusOneAllowed, plusOneRemoved }` |
 | `PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one` | `{ allowed, removePlusOnes? }` | `{ familyId, plusOneAllowed, guestsUpdated, plusOnesRemoved }` |
 | `PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name` | `{ firstName, lastName? }` | `{ plusOne }` |
 
 - The household route writes every member's flag and skips the household's plus-ones.
-- **Turning permission off where a plus-one is already named is refused** — `409 { error: "plus_one_named", named }` — unless the remove flag is set. With it, the plus-one and their replies go in the same batch as the switch. Deleting a guest's data is never a side effect of `allowed: false`, because this delete sits outside the change history: there is no preview and no revert. The portal names the plus-one and asks before it sends the flag — see [[#The portal]].
+- **Turning permission off deletes only plus-ones the organiser confirmed.** `removePlusOnes` lists the plus-ones the organiser was shown and agreed to remove, each as `{ guestId, firstName, lastName }` exactly as `GET …/guests` served them (default: none). The write goes through only if **every** plus-one in scope is on that list; they are then deleted, with their replies and invitations, in the same batch as the switch. Otherwise nothing is written and the answer is `409 { error: "plus_one_named", named }`, `named` being how many plus-ones are in scope now. So a plain `allowed: false` over a named plus-one is refused, and so is a confirmation that has gone stale — a plus-one named since, or renamed, since a household can replace its plus-one by renaming the row it has. A confirmed plus-one the household has already taken back does not block the write: everything deleted is still someone the organiser agreed to.
+  - The check runs **inside the write batch**, which D1 commits as one transaction: the UPDATE and the DELETE each carry it, and a read of the plus-ones still in scope ends the batch and decides the answer. A plus-one named or renamed while the organiser confirms cannot slip between the check and the delete, and a plain turn-off cannot commit over a plus-one named before it.
+  - Why a list and not a flag: this delete sits outside the change history — no preview, no revert — so it must never reach someone the organiser did not see. The portal sends the plus-ones its confirmation showed — see [[#The portal]].
+  - The body refuses any key it does not know with a `400`, so a misspelled confirmation is an error rather than "confirms nobody", refused as `plus_one_named` on every retry.
 - `404 guest_not_found` / `family_not_found` for a row outside the wedding or in the host-preview household; `409 plus_one_cannot_invite` on a plus-one's own row.
 - The name route corrects the name of the plus-one `:guestId` brought (`404 plus_one_not_found` if none). It is the one organiser write to a plus-one's own row, there so a name can be put right after the deadline has locked the household out (Art. 16).
 
@@ -107,11 +110,10 @@ The organiser portal sets the permission on the **Households** tab (`GuestTable`
 - A plus-one's row sits straight after the guest who brought them (the organiser list arrives in `sort_order`, so the portal places them by the link), marked "Plus-one of <inviter's full name>", with no switch.
 - The column is hidden when the API sends no `plusOneAllowed`: the portal can reach a tier before the API that serves the field.
 - **One write at a time across the table.** While a permission write, or a reload that goes with it, is in flight, any other switch or household button pressed does nothing and stays as it was, so a reload never paints over a newer write and a household write never races one of its members'. Only the switches the write covers show it (read-only and busy), so a write re-renders those rows and not the whole roster.
-- **Turning permission off over a named plus-one** opens a confirmation naming each plus-one it removes and whose they are, taken from the whole list rather than the rows a search shows. It opens on Cancel. On yes the portal reads the guest list again; if the household has changed those plus-ones meanwhile — compared by id and name, since a household can rename the plus-one it has — it asks again about the list as it now stands, and only when they match does it send the remove flag. It then compares the API's removed count with what it showed, and reloads and says so if they differ.
-- A `409 plus_one_named` to a plain turn-off (a plus-one named since the list loaded) reloads the list and opens the same confirmation.
+- **Turning permission off over a named plus-one** opens a confirmation naming each plus-one it removes and whose they are, taken from the whole list rather than the rows a search shows. It opens on Cancel. On yes the portal sends `removePlusOnes` as the confirmation's own snapshot — each plus-one's id and stored first and last name, captured when it opened — never a list read again at that moment, which would echo whatever is current and defeat the API's check.
+- A `409 plus_one_named` — to a plain turn-off over a plus-one named since the list loaded, or to a confirmation gone stale because the household named, swapped or renamed a plus-one meanwhile — reloads the list and opens the confirmation again, noting that the household changed its plus-ones.
+- A confirmed plus-one the household has already taken back is not an error: the API removes the rest and reports how many it removed.
 - The rows are reconciled into a store keyed by household code and guest id, so a write updates a row in place and focus stays on the switch that was pressed.
-
-A plus-one named in the moment between the portal's last read and its write is still removed without being shown: the routes take no list of the plus-ones the organiser confirmed. Having them refuse when that list has moved is englishstventures/osn#1246.
 
 The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 
@@ -148,7 +150,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 
 - A revert, or a spreadsheet first-name change without an id (a remove + create), re-creates a guest **without** their permission and without the plus-one that went with them.
 - Plus-ones named after a checkpoint **survive** a revert to it.
-- The guest-cap check and the permission check before naming are reads followed by an insert, and an organiser's revoke reads "no plus-one named" before its update. Concurrent requests can overshoot the cap by the number in flight, or leave a plus-one named under a permission revoked at the same moment. Tracked as a follow-up to check both inside the write.
+- Naming a plus-one checks the guest cap and the inviter's permission in reads before its insert. Concurrent requests can overshoot the cap by the number in flight, and a plus-one whose naming read the permission before an organiser's revoke committed is still inserted after it, under the revoked permission. The revoke side checks inside its own write; the naming side does not yet. Tracked as a follow-up to check both inside the insert.
 
 ---
 
