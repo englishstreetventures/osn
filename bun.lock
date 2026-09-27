@@ -644,6 +644,30 @@
         "vitest": "^4.1.11",
       },
     },
+    "shared/realtime": {
+      "name": "@shared/realtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@shared/observability": "workspace:*",
+        "effect": "4.0.0-rc.112",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20260903.1",
+        "@shared/typescript-config": "workspace:*",
+        "happy-dom": "^20.12.2",
+        "miniflare": "^4.20260730.0",
+        "solid-js": "^1.9.15",
+        "vite": "^8.2.2",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+      "peerDependencies": {
+        "solid-js": "^1.9.15",
+      },
+      "optionalPeers": [
+        "solid-js",
+      ],
+    },
     "shared/redis": {
       "name": "@shared/redis",
       "version": "0.8.1",
@@ -1620,6 +1644,8 @@
     "@shared/osn-auth-client": ["@shared/osn-auth-client@workspace:shared/osn-auth-client"],
 
     "@shared/rate-limit": ["@shared/rate-limit@workspace:shared/rate-limit"],
+
+    "@shared/realtime": ["@shared/realtime@workspace:shared/realtime"],
 
     "@shared/redis": ["@shared/redis@workspace:shared/redis"],
 
