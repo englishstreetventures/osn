@@ -42,7 +42,8 @@ import type { RsvpFilterGuest, RsvpFilterInvitedGuest } from "../../src/lib/rsvp
 // so a run can be repeated. The mix is what a real list carries: short and long
 // names, a name with no break in it, households of one to four, free-text
 // dietary notes up to a sentence, preset-only replies, host-entered replies,
-// and a third of the list still to answer.
+// plus-ones marked with their inviter's full name (the longest names included)
+// and badged Household-entered, and a third of the list still to answer.
 
 const FIRST = [
   "Ada",
@@ -150,12 +151,17 @@ function guestList(count: number): RsvpFilterInvitedGuest[] {
       household % 9 === 0 ? `${last} & ${LAST[(household + 7) % LAST.length]}` : last;
     for (let i = 0; i < size && guests.length < count; i += 1) {
       const n = guests.length;
+      // Every other household of two or more brings a plus-one, who is the
+      // household's last member and names the one before them as inviter.
+      const inviter = i === size - 1 && size > 1 && household % 2 === 0 ? guests[n - 1] : undefined;
       guests.push({
         guestId: `g${n}`,
         firstName: FIRST[(n * 7) % FIRST.length]!,
         lastName: last,
         familyName,
         familyCode: `${last.slice(0, 4).toUpperCase()}-${String(household).padStart(3, "0")}`,
+        plusOneOf: inviter?.guestId ?? null,
+        plusOneOfName: inviter ? `${inviter.firstName} ${inviter.lastName}` : null,
       });
     }
     household += 1;
@@ -178,7 +184,8 @@ function eventPayload(id: string, name: string, guests: RsvpFilterInvitedGuest[]
       status: STATUSES[k % STATUSES.length]!,
       dietary: presets.includes("other") || k % 5 === 0 ? NOTES[k % NOTES.length]! : "",
       dietaryPresets: presets,
-      consentSource: k % 10 === 0 ? "organiser_attested" : "guest",
+      consentSource:
+        k % 10 === 0 ? "organiser_attested" : guest.plusOneOf ? "inviter_attested" : "guest",
     });
   }
   const count = (s: string) => replied.filter((g) => g.status === s).length;
@@ -270,6 +277,21 @@ function spills(table: HTMLTableElement): string[] {
 }
 
 describe("the replies table's layout", () => {
+  it("carries plus-ones with the longest inviter names, so the checks below see them", async () => {
+    await page.viewport(1280, 900);
+    await renderList();
+    const markers = [...document.querySelectorAll("tbody td span")]
+      .map((span) => span.textContent?.trim() ?? "")
+      .filter((text) => text.startsWith("Plus-one of"));
+    expect(markers.length).toBeGreaterThan(30);
+    expect(markers.some((text) => text.includes("Wolfeschlegelsteinhausenbergerdorff"))).toBe(true);
+    expect(
+      [...document.querySelectorAll("tbody span.inline-block")].some(
+        (badge) => badge.textContent?.trim() === "Household-entered",
+      ),
+    ).toBe(true);
+  });
+
   it("is laid out fixed, from its own column widths rather than its rows", async () => {
     await page.viewport(1280, 900);
     await renderList();

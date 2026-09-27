@@ -16,7 +16,7 @@ import {
 } from "../../src/services/claim";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
-import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
 function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
@@ -688,6 +688,27 @@ describe("plus-ones in the claim payload and the organiser guest read", () => {
     });
     const ada = rows.find((r) => r.firstName === "Ada")!;
     expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
+});
+
+describe("plus-ones in the organiser household counts", () => {
+  it("counts a named plus-one in their household, and a permission alone not at all", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const count = async () =>
+      (await run(claimService.getAllHouseholds(BOOTSTRAP_WEDDING_ID))).find(
+        (h) => h.familyId === bo.familyId,
+      )!.guestCount;
+    const before = await count();
+
+    allowPlusOne(db, bo.id);
+    expect(await count()).toBe(before);
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    expect(await count()).toBe(before + 1);
   });
 });
 

@@ -28,6 +28,7 @@ import { organiserSessionService } from "../../src/services/organiser-session";
 import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 // Owner of the seeded sample wedding (see seedBootstrapWedding — the fixed local
 // dev id DEV_OWNER_PROFILE_ID).
@@ -1233,11 +1234,11 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
       "Guest First Name",
       "Guest Last Name",
     ]);
-    expect(columns.at(-1)).toBe("Recorded By");
+    expect(columns.slice(-2)).toEqual(["Recorded By", "Plus-one Of"]);
     expect(columns).not.toContain("Dietary Requirements");
     // The middle is pairs: every second column from index 4 is a dietary column
     // named after the status column immediately before it.
-    const middle = columns.slice(4, -1);
+    const middle = columns.slice(4, -2);
     expect(middle.length % 2).toBe(0);
     expect(middle.length).toBeGreaterThan(0);
     for (let i = 0; i < middle.length; i += 2) {
@@ -1762,6 +1763,26 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", (
     seedCohost(db);
     const res = await get(app, path, COHOST);
     expect(res.status).toBe(200);
+  });
+
+  it("carries a plus-one's link and their inviter's name over HTTP", async () => {
+    const { db, app } = buildApp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      events: {
+        unresponded: { guestId: string; plusOneOf: string | null; plusOneOfName: string | null }[];
+      }[];
+    };
+    const entries = body.events.flatMap((e) => e.unresponded);
+    const sam = entries.find((g) => g.guestId === samId);
+    expect(sam).toMatchObject({ plusOneOf: bo.id, plusOneOfName: "Bo Sampleton" });
+    expect(entries.find((g) => g.guestId === bo.id)).toMatchObject({
+      plusOneOf: null,
+      plusOneOfName: null,
+    });
   });
 });
 

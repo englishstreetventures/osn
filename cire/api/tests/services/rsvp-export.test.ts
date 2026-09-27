@@ -11,7 +11,7 @@ import {
 } from "@cire/db";
 import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Db } from "../../src/db";
@@ -390,7 +390,7 @@ describe("rsvpExportService.build", () => {
 
 describe("rsvp-export CSV serialisation", () => {
   it(
-    "emits the fixed columns + a status/dietary PAIR per event + Recorded By",
+    "emits the fixed columns + a status/dietary PAIR per event + Recorded By + Plus-one Of",
     withDb(
       Effect.gen(function* () {
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
@@ -402,17 +402,18 @@ describe("rsvp-export CSV serialisation", () => {
           "Guest First Name",
           "Guest Last Name",
         ]);
-        // One trailing column: writer provenance (0037). The aggregate
-        // "Dietary Requirements" column is gone — it could only show one of a
-        // guest's per-event answers.
-        expect(header[header.length - 1]).toBe("Recorded By");
+        // Two trailing columns: writer provenance (0037), then the plus-one's
+        // inviter, appended last so a saved spreadsheet's column letters hold.
+        // The aggregate "Dietary Requirements" column is gone — it could only
+        // show one of a guest's per-event answers.
+        expect(header.slice(-2)).toEqual(["Recorded By", "Plus-one Of"]);
         expect(header).not.toContain("Dietary Requirements");
         // Each event contributes a PAIR, interleaved so the caterer for one
         // event reads its status and its dietary note side by side.
-        expect(header.slice(4, -1)).toEqual(
+        expect(header.slice(4, -2)).toEqual(
           data.events.flatMap((e) => [e.name, `${e.name} Dietary`]),
         );
-        expect(header.length).toBe(4 + data.events.length * 2 + 1);
+        expect(header.length).toBe(4 + data.events.length * 2 + 2);
         // Every data row is the same width as the header — an off-by-one in the
         // interleave would shift every column after the first event.
         //
@@ -719,6 +720,25 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
   };
   const HINDU = eventsSeed.hindu.id;
 
+  /** The household's reply for `guestId` to the Hindu ceremony, as the invite
+   *  stamps a plus-one's. */
+  const replyAs = (db: Db, guestId: string, status: "attending" | "declined") =>
+    db
+      .insert(rsvps)
+      .values({
+        id: `r_${guestId}`,
+        guestId,
+        eventId: HINDU,
+        status,
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+
+  /** Reorder the household so `guestId` comes last. */
+  const moveLast = (db: Db, guestId: string) =>
+    db.update(guests).set({ sortOrder: 9 }).where(eq(guests.id, guestId)).run();
+
   it("adds nothing for a permission with no plus-one named", async () => {
     const { db, run, hindu } = setUp();
     const before = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
@@ -760,20 +780,216 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     ).toBe(true);
   });
 
-  it("files an inviter-attested reply as the guest's own in the CSV", async () => {
+  it("names the inviter on a plus-one's entries, and on no one else's", async () => {
+    const { db, run, hindu } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    const silent = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(silent.unresponded.find((g) => g.guestId === samId)?.plusOneOfName).toBe("Bo Sampleton");
+    expect(
+      silent.unresponded.filter((g) => g.guestId !== samId).every((g) => g.plusOneOfName === null),
+    ).toBe(true);
+
+    replyAs(db, samId, "attending");
+    const replied = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(replied.guests.find((g) => g.guestId === samId)?.plusOneOfName).toBe("Bo Sampleton");
+  });
+
+  it("names the inviter on a reply to an event neither is invited to any more", async () => {
+    // A change that drops the household from an event removes the invitations
+    // and keeps the replies, so the plus-one's reply is still listed under it
+    // while the inviter, who never replied, is in neither list.
+    const { db, run, hindu } = setUp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    replyAs(db, samId, "attending");
+    db.delete(guestEvents)
+      .where(and(eq(guestEvents.eventId, HINDU), inArray(guestEvents.guestId, [bo.id, samId])))
+      .run();
+
+    const event = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(event.unresponded.find((g) => g.guestId === bo.id)).toBeUndefined();
+    expect(event.guests.find((g) => g.guestId === samId)?.plusOneOfName).toBe("Bo Sampleton");
+  });
+
+  it("lists a plus-one straight after their inviter, not by the sort order copied at naming", async () => {
+    const { db, run, hindu } = setUp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    // The household reordered after Sam was named: Bo moved last, and Sam kept
+    // the number copied from Bo, now the lowest in the household.
+    moveLast(db, bo.id);
+
+    const event = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    const order = event.unresponded.map((g) => g.guestId);
+    expect(order.indexOf(samId)).toBe(order.indexOf(bo.id) + 1);
+
+    replyAs(db, bo.id, "attending");
+    replyAs(db, samId, "attending");
+    const replied = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    const repliedOrder = replied.guests.map((g) => g.guestId);
+    expect(repliedOrder.indexOf(samId)).toBe(repliedOrder.indexOf(bo.id) + 1);
+  });
+
+  it("marks a plus-one's CSV row with their inviter, last column, straight after the inviter", async () => {
+    const { db, run } = setUp();
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    moveLast(db, bo.id);
+
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    const names = data.rows.map((r) => r.firstName);
+    expect(names.indexOf("Sam")).toBe(names.indexOf("Bo") + 1);
+    expect(data.rows.find((r) => r.firstName === "Sam")?.plusOneOfName).toBe("Bo Sampleton");
+    expect(
+      data.rows.filter((r) => r.firstName !== "Sam").every((r) => r.plusOneOfName === ""),
+    ).toBe(true);
+
+    const lines = toCsv(data).split("\r\n");
+    expect(lines[0]!.split(",").at(-1)).toBe("Plus-one Of");
+    expect(
+      lines
+        .find((l) => l.includes(",Sam,Lee,"))!
+        .split(",")
+        .at(-1),
+    ).toBe("Bo Sampleton");
+    expect(
+      lines
+        .find((l) => l.includes(",Bo,Sampleton,"))!
+        .split(",")
+        .at(-1),
+    ).toBe("");
+  });
+
+  it("files a reply the household typed for its plus-one as 'Household' in the CSV", async () => {
     const { db, run } = setUp();
     const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    replyAs(db, samId, "attending");
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    const sam = data.rows.find((r) => r.firstName === "Sam")!;
+    expect(sam.recordedBy).toBe("household");
+    const line = toCsv(data)
+      .split("\r\n")
+      .find((l) => l.includes(",Sam,"))!
+      .split(",");
+    // Recorded By sits before the appended Plus-one Of column.
+    expect(line.at(-2)).toBe("Household");
+  });
+
+  it("files a plus-one as 'Organiser' once an organiser has recorded any of their replies", async () => {
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    replyAs(db, samId, "attending");
     db.insert(rsvps)
       .values({
-        id: "r_sam",
+        id: "r_sam_reception",
         guestId: samId,
-        eventId: HINDU,
-        status: "attending",
-        consentSource: "inviter_attested",
+        eventId: eventsSeed.reception.id,
+        status: "declined",
+        consentSource: "organiser_attested",
         createdAt: new Date(),
       })
       .run();
     const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
-    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("guest");
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("organiser");
+  });
+
+  it("keeps 'Organiser' when the household's reply is read after the organiser's", async () => {
+    // The mirror of the case above: the organiser recorded the Hindu ceremony
+    // and the household answered the reception, so the rows come back the
+    // other way round.
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values([
+        {
+          id: "r_sam_hindu",
+          guestId: samId,
+          eventId: HINDU,
+          status: "declined",
+          consentSource: "organiser_attested",
+          createdAt: new Date(),
+        },
+        {
+          id: "r_sam_reception",
+          guestId: samId,
+          eventId: eventsSeed.reception.id,
+          status: "attending",
+          consentSource: "inviter_attested",
+          createdAt: new Date(),
+        },
+      ])
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("organiser");
+    const line = toCsv(data)
+      .split("\r\n")
+      .find((l) => l.includes(",Sam,"))!
+      .split(",");
+    expect(line.at(-2)).toBe("Organiser");
+  });
+
+  it("names no inviter outside the plus-one's own household", async () => {
+    // A plus-one always shares their inviter's household, and the join says so
+    // itself rather than trusting every writer: a link pointing at a guest in
+    // another wedding, or in another household, yields no name.
+    const { db, run, hindu } = setUp();
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_other",
+        slug: "other-wedding",
+        displayName: "Other",
+        ownerOsnProfileId: "usr_other",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: "fam_other",
+        weddingId: "wed_other",
+        publicId: "OTHER-XXXX",
+        familyName: "Outsider",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: "gst_outsider",
+        familyId: "fam_other",
+        firstName: "Outsider",
+        lastName: "Person",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    const kitId = seedPlusOne(db, guestNamed(db, "Cleo").id, { firstName: "Kit" });
+    db.update(guests).set({ plusOneOfGuestId: "gst_outsider" }).where(eq(guests.id, samId)).run();
+    db.update(guests)
+      .set({ plusOneOfGuestId: guestNamed(db, "Ada").id })
+      .where(eq(guests.id, kitId))
+      .run();
+    replyAs(db, samId, "attending");
+
+    const event = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    const entries = [...event.guests, ...event.unresponded];
+    expect(entries.find((g) => g.guestId === samId)?.plusOneOfName).toBeNull();
+    expect(entries.find((g) => g.guestId === kitId)?.plusOneOfName).toBeNull();
+    expect(JSON.stringify(event)).not.toContain("Outsider");
+  });
+
+  it("names an inviter with no last name without a trailing space", async () => {
+    const { db, run, hindu } = setUp();
+    const bo = guestNamed(db, "Bo");
+    db.update(guests).set({ lastName: "" }).where(eq(guests.id, bo.id)).run();
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+
+    const view = hindu(await run(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID)));
+    expect(view.unresponded.find((g) => g.guestId === samId)?.plusOneOfName).toBe("Bo");
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.plusOneOfName).toBe("Bo");
   });
 });

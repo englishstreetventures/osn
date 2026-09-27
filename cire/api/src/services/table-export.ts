@@ -6,7 +6,7 @@ import { DbService, dbQuery } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
 import { formatWallTime } from "../lib/event-time";
-import { decodePalette, safeHttpUrl } from "./claim";
+import { decodePalette, safeHttpUrl, withPlusOnesAfterInviters } from "./claim";
 
 /**
  * Invited-guest count per event for one wedding, aggregated IN SQL (`GROUP BY`
@@ -49,12 +49,15 @@ export const tableExportService = {
    * cross-tenant leak (mirrors `getAllGuests`). Host-kind families (the
    * organiser's own preview family) are excluded. Rows are ordered
    * alphabetically by family code, stable within a family (by guest
-   * `sort_order`, then id) — the same ordering as the RSVP export.
+   * `sort_order`), each plus-one straight after the guest who brought them —
+   * the same ordering as the RSVP export.
    *
    * The `Events` column lists the event NAMES the guest is invited to (in
    * chronological event order); the timestamp columns are ISO-8601 UTC or
    * blank, matching the dashboard's Sent / Opened badges; `Code Status` is
-   * `Active` or `Deactivated` (a withdrawn invite).
+   * `Active` or `Deactivated` (a withdrawn invite); `Plus-one Of` names the
+   * guest who brought a plus-one, appended last so an organiser's saved
+   * formulas keep their column letters.
    */
   guestsCsv(weddingId: string): Effect.Effect<string, never, DbService> {
     return Effect.gen(function* () {
@@ -86,6 +89,7 @@ export const tableExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 publicId: families.publicId,
                 familyName: families.familyName,
                 codeSharedAt: families.codeSharedAt,
@@ -106,6 +110,8 @@ export const tableExportService = {
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
 
       interface GuestAcc {
+        guestId: string;
+        plusOneOf: string | null;
         firstName: string;
         lastName: string;
         publicId: string;
@@ -120,6 +126,8 @@ export const tableExportService = {
         let acc = byGuest.get(row.guestId);
         if (!acc) {
           acc = {
+            guestId: row.guestId,
+            plusOneOf: row.plusOneOf,
             firstName: row.firstName,
             lastName: row.lastName,
             publicId: row.publicId,
@@ -135,10 +143,18 @@ export const tableExportService = {
       }
 
       // Stable sort by family code keeps a family's members together and in
-      // their seeded sort_order (byGuest preserves insertion order).
-      const sorted = Array.from(byGuest.values()).toSorted((a, b) =>
-        a.publicId < b.publicId ? -1 : a.publicId > b.publicId ? 1 : 0,
+      // their seeded sort_order (byGuest preserves insertion order); then each
+      // plus-one moves to sit after the guest who brought them, in the same
+      // family.
+      const sorted = withPlusOnesAfterInviters(
+        Array.from(byGuest.values()).toSorted((a, b) =>
+          a.publicId < b.publicId ? -1 : a.publicId > b.publicId ? 1 : 0,
+        ),
       );
+      const fullName = (guestId: string | null) => {
+        const guest = guestId === null ? undefined : byGuest.get(guestId);
+        return guest ? `${guest.firstName} ${guest.lastName}`.trim() : "";
+      };
 
       const header = [
         "Family Code",
@@ -149,6 +165,7 @@ export const tableExportService = {
         "Invite Sent At",
         "Invite Opened At",
         "Code Status",
+        "Plus-one Of",
       ];
       const rows = sorted.map((g) => [
         g.publicId,
@@ -162,6 +179,7 @@ export const tableExportService = {
         g.codeSharedAt?.toISOString() ?? "",
         g.firstOpenedAt?.toISOString() ?? "",
         g.deactivatedAt === null ? "Active" : "Deactivated",
+        fullName(g.plusOneOf),
       ]);
 
       return serialiseCsv(header, rows);
