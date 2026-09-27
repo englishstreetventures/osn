@@ -8,10 +8,12 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { AppOptions } from "../../src/app";
+import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
-import { createRealtimeRoute } from "../../src/routes/realtime";
+import { createRealtimeRoute, WEDDING_TOPIC_ID } from "../../src/routes/realtime";
 import type { AssignableHostRole } from "../../src/services/hosts";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -44,19 +46,24 @@ function fakeHub() {
   return { hub, upgrades, response };
 }
 
-function setup(overrides: Partial<AppOptions> = {}) {
-  const db = createDb(":memory:");
+/** A wedding `OWNER` owns, under `id`. */
+function addWedding(db: Db, id: string, slug: string) {
   const now = new Date();
   db.insert(weddings)
     .values({
-      id: WEDDING_ID,
-      slug: "live",
+      id,
+      slug,
       displayName: "Live",
       ownerOsnProfileId: OWNER,
       createdAt: now,
       updatedAt: now,
     })
     .run();
+}
+
+function setup(overrides: Partial<AppOptions> = {}) {
+  const db = createDb(":memory:");
+  addWedding(db, WEDDING_ID, "live");
   const hub = fakeHub();
   const route = createRealtimeRoute(db, {
     osnTestKey: auth.key,
@@ -101,6 +108,20 @@ const bearer = async (profileId: string) => ({
 const accepted = () =>
   counterValue("realtime.subscribe.attempts", { product: "cire", outcome: "accepted" });
 
+describe("WEDDING_TOPIC_ID", () => {
+  // Pinned on the pattern itself as well as through the route: the shared
+  // topic parser caps any id at 64 characters, which is where this one's
+  // 60-character tail ends, so a route case alone cannot tell the two apart.
+  it.each([
+    ["the shape cire mints", `wed_${"0123456789abcdef".repeat(2)}`, true],
+    ["a tail exactly at the cap", `wed_${"a".repeat(60)}`, true],
+    ["a tail one past the cap", `wed_${"a".repeat(61)}`, false],
+    ["the prefix alone", "wed_", false],
+  ])("%s", (_label, id, matches) => {
+    expect(WEDDING_TOPIC_ID.test(id)).toBe(matches);
+  });
+});
+
 describe("createRealtimeRoute — which requests it takes", () => {
   it.each(["/api/organiser/weddings", "/realtime", "/realtime/", "/realtime/a/b", "/realtimex/a"])(
     "leaves %s to the app",
@@ -133,6 +154,18 @@ describe("createRealtimeRoute — admitted", () => {
     seat(db, "usr_cohost", role);
     expect(await upgrade(route, await bearer("usr_cohost"))).toBe(hub.response);
   });
+
+  it.each([
+    // `mintWeddingId` in src/services/weddings.ts: `wed_` and a UUID's 32 hex.
+    ["the shape cire mints", `wed_${crypto.randomUUID().replace(/-/g, "")}`],
+    ["an id exactly at the length cap", `wed_${"a".repeat(60)}`],
+  ])("admits a wedding id of %s", async (_label, weddingId) => {
+    const { db, route, hub } = setup();
+    addWedding(db, weddingId, "capped");
+    const res = await upgrade(route, await bearer(OWNER), topicPath(`cire:wedding:${weddingId}`));
+    expect(res).toBe(hub.response);
+    expect(hub.upgrades).toEqual([{ name: `cire:wedding:${weddingId}`, subject: OWNER }]);
+  });
 });
 
 describe("createRealtimeRoute — refused", () => {
@@ -155,6 +188,34 @@ describe("createRealtimeRoute — refused", () => {
     expect((await upgrade(route, {})).status).toBe(401);
   });
 
+  it("401s a session cookie that names no session", async () => {
+    const { route, hub } = setup();
+    expect((await upgrade(route, { cookie: "cire_org_session=not-a-session" })).status).toBe(401);
+    expect(hub.upgrades).toEqual([]);
+  });
+
+  it("401s the cookie of a session that was signed out", async () => {
+    const { db, route, hub } = setup();
+    const token = await seedOrganiserSession(db, OWNER);
+    await Effect.runPromise(
+      organiserSessionService.revoke(token).pipe(Effect.provideService(DbService, db)),
+    );
+    expect((await upgrade(route, { cookie: `cire_org_session=${token}` })).status).toBe(401);
+    expect(hub.upgrades).toEqual([]);
+  });
+
+  it.each([
+    [
+      "signed by a key the route does not trust",
+      () => makeOsnTestAuth().then((other) => other.sign(OWNER)),
+    ],
+    ["expired", () => auth.sign(OWNER, { expiresIn: "-120s" })],
+  ])("401s a Bearer token %s", async (_label, mint) => {
+    const { route, hub } = setup();
+    expect((await upgrade(route, { authorization: `Bearer ${await mint()}` })).status).toBe(401);
+    expect(hub.upgrades).toEqual([]);
+  });
+
   it.each([
     ["the guest site", { origin: "https://invite.example.test" }],
     ["no Origin at all", { origin: "" }],
@@ -173,6 +234,8 @@ describe("createRealtimeRoute — refused", () => {
     ["another product's topic", "osn:org:org_1"],
     ["an entity cire does not publish", "cire:vendor:ven_1"],
     ["an id that is not a wedding id", "cire:wedding:WED_1"],
+    ["a wedding id with nothing after its prefix", "cire:wedding:wed_"],
+    ["a wedding id one character past the cap", `cire:wedding:wed_${"a".repeat(61)}`],
   ])("404s %s", async (_label, topic) => {
     const { route } = setup();
     expect((await upgrade(route, await bearer(OWNER), topicPath(topic))).status).toBe(404);

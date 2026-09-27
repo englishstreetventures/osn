@@ -889,8 +889,11 @@ describe("hostsService.remove", () => {
         createdAt: now,
       })
       .run();
-    // Removing ALICE scoped to WEDDING_ID must NOT touch wed_b's row.
-    await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    // Removing ALICE scoped to WEDDING_ID must NOT touch wed_b's row, and must
+    // say nothing was removed.
+    expect(await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }))).toBe(
+      false,
+    );
     expect(
       db
         .select()
@@ -898,6 +901,26 @@ describe("hostsService.remove", () => {
         .where(and(eq(weddingHosts.weddingId, "wed_b"), eq(weddingHosts.osnProfileId, ALICE)))
         .all(),
     ).toHaveLength(1);
+  });
+
+  it("fails HostWriteError when the delete throws", async () => {
+    const db = buildDb();
+    // The real database for everything but the delete, which throws as a
+    // failed D1 statement does.
+    const failingDeletes = new Proxy(db, {
+      get: (target, key) =>
+        key === "delete"
+          ? () => {
+              throw new Error("D1_ERROR: delete failed");
+            }
+          : Reflect.get(target, key, target),
+    });
+    const err = await run(
+      failingDeletes,
+      hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }).pipe(Effect.flip),
+    );
+    expect(err._tag).toBe("HostWriteError");
+    expect(err.op).toBe("delete");
   });
 });
 

@@ -5,6 +5,7 @@ import { Effect } from "effect";
 
 import { setExecutionCtx } from "../../src/lib/execution-ctx";
 import { createWeddingSignals, weddingTopic } from "../../src/services/realtime";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 function recordingHub(answer: () => Promise<number> = async () => 1) {
   const calls: { name: string; kind: string; evict: readonly string[] }[] = [];
@@ -43,12 +44,20 @@ describe("wedding signals", () => {
     expect(calls[0]?.evict).toEqual(["usr_bob"]);
   });
 
-  it("does nothing, and never fails, with no hub", async () => {
+  it("sends nothing and never fails with no hub, counting the signal as disabled", async () => {
+    const disabled = () =>
+      counterValue("realtime.signal.published", {
+        product: "cire",
+        kind: "members-changed",
+        result: "disabled",
+      });
+    const before = await disabled();
     await expect(
       Effect.runPromise(
         createWeddingSignals(undefined).membersChanged("wed_1", undefined, request()),
       ),
     ).resolves.toBeUndefined();
+    expect(await disabled()).toBe(before + 1);
   });
 
   it("hands the publish to waitUntil, so the write does not wait on a hung hub", async () => {
