@@ -79,7 +79,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 - **Subprocessors.** Cloudflare (D1 + R2 store) and — on the guest site,
   **desktop-only and opt-in only** — Pinterest's `pinit_main.js` embed (touch
   devices get a plain link-out to Pinterest with no embed and no tracker). See
-  [[subprocessors]].
+  [[subprocessors]]. The organisers' RSVP change notices add none: the change
+  log (`rsvp_changes`) holds ids and a kind, never the dietary content, and the
+  daily digest email through Resend carries counts only — no household or guest
+  name — so no guest data reaches the mail provider ([[cire-rsvp-changes]]).
 
 ## 2. Necessity and proportionality
 

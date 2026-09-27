@@ -995,6 +995,90 @@ export const rsvps = sqliteTable(
   ],
 );
 
+/**
+ * What a guest-side RSVP change was. `reply_new` — the pair had no reply;
+ * `reply_edited` — its status, dietary text or dietary picks changed. The
+ * `plus_one_*` kinds are written by the writes that name, rename or remove a
+ * plus-one, with no event. Organiser-recorded replies are never logged.
+ */
+export const RSVP_CHANGE_KINDS = [
+  "reply_new",
+  "reply_edited",
+  "plus_one_added",
+  "plus_one_renamed",
+  "plus_one_removed",
+] as const;
+
+export type RsvpChangeKind = (typeof RSVP_CHANGE_KINDS)[number];
+
+// The RSVP change log (migration 0068): one row per guest-side change, read by
+// the organiser portal's unseen-changes feed and by the daily digest email.
+//
+// `seq` is the cursor both readers keep (`host_rsvp_notices`). It is an
+// AUTOINCREMENT rowid, so a number is never handed out twice even after the
+// newest rows are cascaded away — a reused seq would sit at or below someone's
+// cursor and count as already seen. Commit order is seq order, which a
+// timestamp cursor cannot promise.
+//
+// Holds ids, the kind and the time — never a name and never dietary data.
+// `guest_id` and `event_id` are deliberately not foreign keys: a removed
+// guest's change stays under their household until the row ages out, and
+// `plus_one_removed` names a guest row that is gone by design. Rows go after
+// 90 days (the daily cron) or with their household or wedding (cascade), so the
+// 1-year guest-data sweep reaches them.
+export const rsvpChanges = sqliteTable(
+  "rsvp_changes",
+  {
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    // The guest the change concerns. For a plus-one change, the guest who
+    // brought them.
+    guestId: text("guest_id").notNull(),
+    // NULL for the plus-one kinds, which concern no single event.
+    eventId: text("event_id"),
+    kind: text("kind", { enum: RSVP_CHANGE_KINDS }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // Every index entry ends in the rowid, so this one also serves
+    // `wedding_id = ? AND seq > ?` as a range — the feed's read.
+    index("rsvp_changes_wedding_idx").on(t.weddingId),
+    // The digest's look-back and the 90-day purge.
+    index("rsvp_changes_created_at_idx").on(t.createdAt),
+    // The families cascade probe.
+    index("rsvp_changes_family_idx").on(t.familyId),
+  ],
+);
+
+// Per organiser, per wedding: how far through the change log they have read,
+// and their digest email setting (migration 0068). No row reads as "nothing
+// seen, digest on".
+//
+// `osn_profile_id` is an opaque cross-database reference, like
+// `wedding_hosts.osn_profile_id` — not a foreign key. The row goes when the
+// host is removed from the wedding, and with the wedding.
+export const hostRsvpNotices = sqliteTable(
+  "host_rsvp_notices",
+  {
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    osnProfileId: text("osn_profile_id").notNull(),
+    // Highest `rsvp_changes.seq` this organiser has seen in the RSVP table.
+    seenSeq: integer("seen_seq").notNull().default(0),
+    // Highest `rsvp_changes.seq` included in a digest sent to them.
+    digestSeq: integer("digest_seq").notNull().default(0),
+    digestEnabled: integer("digest_enabled", { mode: "boolean" }).notNull().default(true),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.weddingId, t.osnProfileId] })],
+);
+
 export const sessions = sqliteTable(
   "sessions",
   {

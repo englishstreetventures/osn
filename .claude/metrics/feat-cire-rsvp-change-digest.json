@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1261,
+    "branch": "feat/cire-rsvp-change-digest",
+    "base_sha": "8c1bc36c38cf38d9160bfcb246bc5689f5aa92e4",
+    "head_sha": "658366600175bca25a7106795b0cb1980281ca39",
+    "generated_at": "2026-09-27T09:04:51.783Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1254,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 15,
+    "first_ts": "2026-09-27T06:56:12.747Z",
+    "last_ts": "2026-09-27T09:04:47.236Z",
+    "span_seconds": 7714,
+    "active_seconds": 7904,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 88.41061894999993,
+    "tokens": {
+      "input": 1279,
+      "output": 25608,
+      "thinking": 187,
+      "cache_write_5m": 2520094,
+      "cache_write_1h": 0,
+      "cache_read": 187698453
+    },
+    "by_model": {
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 10
+      },
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 27,
+          "output": 12232,
+          "thinking": 0,
+          "cache_write_5m": 87029,
+          "cache_write_1h": 0,
+          "cache_read": 435185
+        },
+        "usd_equivalent": 1.0674587500000001,
+        "messages": 12
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1252,
+          "output": 13376,
+          "thinking": 187,
+          "cache_write_5m": 2433065,
+          "cache_write_1h": 0,
+          "cache_read": 187263268
+        },
+        "usd_equivalent": 87.34316019999993,
+        "messages": 623
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 27,
+          "output": 12232,
+          "thinking": 0,
+          "cache_write_5m": 87029,
+          "cache_write_1h": 0,
+          "cache_read": 435185
+        },
+        "usd_equivalent": 1.0674587500000001,
+        "messages": 22
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1252,
+          "output": 13376,
+          "thinking": 187,
+          "cache_write_5m": 2433065,
+          "cache_write_1h": 0,
+          "cache_read": 187263268
+        },
+        "usd_equivalent": 87.34316019999993,
+        "messages": 623
+      }
+    },
+    "effort": {
+      "xhigh": 525,
+      "high": 98
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 22,
+      "docs": 12,
+      "config": 2,
+      "source": 30
+    },
+    "loc": {
+      "generated": {
+        "added": 22,
+        "deleted": 0
+      },
+      "test": {
+        "added": 2974,
+        "deleted": 10
+      },
+      "docs": {
+        "added": 167,
+        "deleted": 17
+      },
+      "config": {
+        "added": 3818,
+        "deleted": 0
+      },
+      "source": {
+        "added": 2115,
+        "deleted": 84
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/invites",
+      "osn/api",
+      "shared/email"
+    ],
+    "touches_migration": true,
+    "commits": 15
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 579,
+      "Edit": 28,
+      "Read": 24,
+      "Write": 23,
+      "Skill": 9,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "WebFetch": 4,
+      "ToolSearch": 2,
+      "StructuredOutput": 2,
+      "Grep": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 9
+    },
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "superpowers:test-driven-development": 1,
+      "web-design-guidelines": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

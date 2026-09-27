@@ -191,6 +191,64 @@ describe("Overview", () => {
     expect(guestsCard.textContent).toContain("2");
   });
 
+  it("starts the RSVP-changes read with its own and shows the card once the page loads", async () => {
+    let feedStartedBeforePageLoaded = false;
+    let settingsRequested = false;
+    const inner = (url: string) => {
+      if (url.endsWith("/rsvp-changes")) {
+        feedStartedBeforePageLoaded = !settingsRequested;
+        return Promise.resolve(
+          json({
+            markSeq: 3,
+            households: 1,
+            truncated: false,
+            items: [
+              {
+                familyId: "fam_a",
+                familyName: "A",
+                kinds: ["reply_new"],
+                at: new Date().toISOString(),
+              },
+            ],
+            rows: [],
+            digest: { available: false, enabled: true },
+          }),
+        );
+      }
+      return null;
+    };
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    const routed = authFetchMock.getMockImplementation()!;
+    authFetchMock.mockImplementation((url: string) => {
+      const feed = inner(url);
+      if (feed) return feed;
+      if (url.endsWith("/settings")) settingsRequested = true;
+      return routed(url);
+    });
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    expect(await screen.findByText("RSVP changes since your last visit")).toBeTruthy();
+    expect(feedStartedBeforePageLoaded).toBe(true);
+    // The rest of the page is there too.
+    expect(screen.getByText(/No date yet/i)).toBeTruthy();
+  });
+
+  it("keeps the page when the RSVP-changes read fails", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+    });
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
+    expect(screen.queryByText("RSVP changes since your last visit")).toBeNull();
+  });
+
   it("prompts to set a date when none is set (no fabricated countdown)", async () => {
     routeFetch({
       settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },

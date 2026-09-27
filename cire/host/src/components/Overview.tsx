@@ -17,10 +17,12 @@ import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
+import { createRsvpChangesResource } from "../lib/rsvp-changes";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
 import ModuleIcon from "./ModuleIcon";
+import RsvpChangesCard from "./RsvpChangesCard";
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
  *  up across events, a Checklist card showing the live open-task count, and a
@@ -156,6 +158,14 @@ export default function Overview(props: {
   const { authFetch } = useAuth();
 
   const vendorsLocked = () => isModuleLocked("vendors", props.entitlements);
+
+  // Started now, beside the reads below rather than after them: the card that
+  // shows it mounts only once `data` has settled, and the feed needs none of
+  // that data. It is not part of `data`, so the page never waits on it.
+  const [rsvpChanges, { mutate: setRsvpChanges }] = createRsvpChangesResource(
+    authFetch,
+    () => props.weddingId,
+  );
 
   const [data] = createResource<OverviewData>(async () => {
     try {
@@ -578,6 +588,16 @@ export default function Overview(props: {
                   })()}
                 </Show>
               </Card>
+
+              {/* ── RSVP changes since this organiser last looked ─────────── */}
+              {/* Renders nothing when its read failed, so it never blanks the
+                  rest of the grid. */}
+              <RsvpChangesCard
+                weddingId={props.weddingId}
+                changes={rsvpChanges}
+                setChanges={setRsvpChanges}
+                onNavigate={props.onNavigate}
+              />
 
               {/* ── Guests + events snapshot ─────────────────────────────── */}
               <Card>

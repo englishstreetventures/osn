@@ -33,6 +33,13 @@ vi.mock("../../src/lib/api", () => ({
   isAuthExpired: () => false,
   redirectToLogin: () => {},
 }));
+// The change feed is not what this suite measures; stub its two calls so the
+// only request is the RSVP read.
+vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
+  fetchRsvpChanges: async () => null,
+  markRsvpChangesSeen: async () => {},
+}));
 
 import RsvpView from "../../src/components/RsvpView";
 import type { RsvpFilterGuest, RsvpFilterInvitedGuest } from "../../src/lib/rsvp-filter";

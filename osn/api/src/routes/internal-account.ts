@@ -57,10 +57,12 @@ function wireEmail(e: ProfileEmail) {
  *   to mark a user as having left an app. Idempotent.
  *
  *   POST /internal/accounts/emails — resolves OSN profile ids to the address
- *   of the account that owns each. The only caller is cire-api's retention
- *   sweep, which has to reach a couple whose gift detail it is about to
- *   delete and holds no address of its own. Minimisation rules live on the
- *   handler; the short version is a cap, an omit-list, and no oracle.
+ *   of the account that owns each. The only caller is cire-api, which holds
+ *   no address of its own and mails a wedding's organisers: its retention
+ *   sweep reaches a couple whose gift detail it is about to delete, and its
+ *   daily RSVP digest reaches a wedding's owner and editor co-hosts.
+ *   Minimisation rules live on the handler; the short version is a cap, an
+ *   omit-list, and no oracle.
  *
  * Pulse / Zap must register their ARC public keys with osn-api in advance
  * (via /graph/internal/register-service) and request the `step-up:verify`
