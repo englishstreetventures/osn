@@ -41,6 +41,11 @@ export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
  *  `guest_events` row) — an organiser must not RSVP them to it. 409/4xx-class. */
 export class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToEvent") {}
 
+/** Dietary data on a plus-one's reply. Refused on this path as on the guest
+ *  path until the invite carries wording for the household's attestation — the
+ *  household that named the plus-one reads their replies back. 422-class. */
+export class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
+
 export interface OrganiserRsvpInput {
   weddingId: string;
   guestId: string;
@@ -71,7 +76,7 @@ export const organiserRsvpService = {
     input: OrganiserRsvpInput,
   ): Effect.Effect<
     OrganiserRsvpResult,
-    GuestNotInWedding | EventNotInWedding | GuestNotInvitedToEvent,
+    GuestNotInWedding | EventNotInWedding | GuestNotInvitedToEvent | PlusOneDietaryUnavailable,
     DbService
   > {
     const { weddingId, guestId, eventId, status, dietary, dietaryPresets } = input;
@@ -91,7 +96,7 @@ export const organiserRsvpService = {
       // a cross-tenant guest id or the organiser's own preview can't be written.
       const [guestRow] = yield* dbQuery(() =>
         db
-          .select({ id: guests.id })
+          .select({ id: guests.id, plusOneOf: guests.plusOneOfGuestId })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
           .where(
@@ -104,6 +109,9 @@ export const organiserRsvpService = {
           .all(),
       );
       if (!guestRow) return yield* Effect.fail(new GuestNotInWedding());
+      if (guestRow.plusOneOf !== null && (dietary.length > 0 || dietaryPresets.length > 0)) {
+        return yield* Effect.fail(new PlusOneDietaryUnavailable());
+      }
 
       // (2) Event ∈ this wedding. A foreign or unknown event id fails here
       // rather than leaking whether it exists in another wedding.

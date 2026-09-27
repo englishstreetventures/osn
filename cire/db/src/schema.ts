@@ -7,6 +7,7 @@ import {
   index,
   uniqueIndex,
   check,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 // Tenant id of the original bespoke wedding (seeded by migration 0006 and
@@ -260,16 +261,45 @@ export const guests = sqliteTable(
     externalId: text("external_id"),
     // Provenance (guest+event editor E4, migration 0035). Mirrors
     // `families.source`: `'import'` (spreadsheet-created) | `'manual'`
-    // (editor-created, E5/E6), DEFAULT 'import' back-fills legacy rows. A CSV
-    // re-import removes only `source = 'import'` guests by default; the editor
-    // manages all shown guests. See the import diff's provenance filter.
+    // (created in the portal or by a guest — a plus-one row is `'manual'`),
+    // DEFAULT 'import' back-fills legacy rows. A CSV re-import removes only
+    // `source = 'import'` guests by default; the editor manages all shown
+    // guests. See the import diff's provenance filter. A plus-one is told apart
+    // by `plus_one_of_guest_id`, never by this column.
     source: text("source", { enum: ["import", "manual"] })
       .notNull()
       .default("import"),
+    // ── Plus-ones (migration 0066, [[wiki/cire/cire-plus-ones]]) ───────────
+    // Whether this guest may bring a plus-one. Set by an editor co-host, per
+    // guest or for a whole household at once. Always false on a plus-one's own
+    // row: a plus-one cannot bring one. Permission alone creates nothing and
+    // counts toward nothing; only a named plus-one is a guest.
+    plusOneAllowed: integer("plus_one_allowed", { mode: "boolean" }).notNull().default(false),
+    // Set on a plus-one's row: the guest who brought them. Same household
+    // (`family_id`) as that guest, invited to that guest's events. The guest
+    // who brought them names, renames and removes them; the change pipeline
+    // (spreadsheet upload, editor save, revert) never matches, edits or removes
+    // one directly, because a plus-one is the guest's data, not the organiser's
+    // sheet. Deleting the inviter deletes the plus-one (cascade).
+    plusOneOfGuestId: text("plus_one_of_guest_id").references((): AnySQLiteColumn => guests.id, {
+      onDelete: "cascade",
+    }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder)],
+  (t) => [
+    index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder),
+    // One plus-one per guest. Also the probe the FK cascade runs on every
+    // guest delete — without an index there, each delete scans `guests`.
+    // PARTIAL: almost every row is NULL here. A full index costs NULL as a
+    // near-unique lookup, so the planner took it for `plus_one_of_guest_id IS
+    // NULL` and walked every tenant's guests instead of this wedding's. With the
+    // NULLs out of the index an `IS NULL` filter cannot use it, and every
+    // `= ?` probe (the cascade's included) still can.
+    uniqueIndex("guests_plus_one_of_uniq")
+      .on(t.plusOneOfGuestId)
+      .where(sql`plus_one_of_guest_id IS NOT NULL`),
+  ],
 );
 
 // `id` is a UUID v4 string. The canonical timing is `startAt` / `endAt` /
@@ -927,14 +957,19 @@ export const rsvps = sqliteTable(
     // → C-H2 organiser-attested variant). `'guest'` — the guest RSVP'd
     // themselves and gave their own Art. 9(2)(a) consent. `'organiser_attested'`
     // — an organiser recorded a phone/paper RSVP on the guest's behalf and
-    // *attests* the guest consented to storing dietary requirements. One column
-    // carries both facts because the writer and the consent-attester are always
-    // the same principal here, so a separate `recorded_by` would be 1:1
+    // *attests* the guest consented to storing dietary requirements.
+    // `'inviter_attested'` (migration 0066) — the reply is about a plus-one and
+    // the household that brought them recorded it. A plus-one never holds the
+    // household's code or sees the invite and its privacy notice, so the
+    // household attests for them; see the DPIA's inviter-attested variant.
+    // Plain text with no CHECK constraint, so a new value needs no DDL. One
+    // column carries both facts because the writer and the consent-attester are
+    // always the same principal here, so a separate `recorded_by` would be 1:1
     // redundant. Legacy rows back-fill to `'guest'` (the form was the only
     // writer pre-0037). The dashboard reads this to badge organiser-entered
     // answers distinctly and show they overwrite a prior guest reply.
     consentSource: text("consent_source", {
-      enum: ["guest", "organiser_attested"],
+      enum: ["guest", "organiser_attested", "inviter_attested"],
     })
       .notNull()
       .default("guest"),

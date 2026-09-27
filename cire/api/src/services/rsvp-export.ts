@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { sanitiseCsvCell, serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
+import type { ConsentSource } from "./rsvp";
 import { invitedCountsByEvent } from "./table-export";
 
 // Re-exported for existing importers (tests + `download.ts` docs reference this
@@ -54,7 +55,8 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply was self-submitted.
+   *   - "guest"     — every reply came through the invite (a plus-one's is
+   *     written by the household that brought them).
    *   - "organiser" — at least one reply was organiser-recorded
    *     (`consent_source='organiser_attested'`), so the dietary/consent story is
    *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
@@ -108,11 +110,16 @@ export interface RsvpViewGuest {
    *  these beside whatever they typed under "Other", and the search filter
    *  matches on their labels. */
   dietaryPresets: readonly DietaryPreset[];
-  /** Provenance of this reply (migration 0037): `guest` (self-submitted) vs
+  /** Provenance of this reply (migration 0037): `guest` (self-submitted),
    *  `organiser_attested` (an organiser recorded a phone/paper RSVP on the
-   *  guest's behalf). The dashboard badges organiser-entered answers so an
+   *  guest's behalf) or `inviter_attested` (the household recorded its
+   *  plus-one's reply). The dashboard badges organiser-entered answers so an
    *  overwrite of a guest reply is visible. */
-  consentSource: "guest" | "organiser_attested";
+  consentSource: ConsentSource;
+  /** Set when the guest is a plus-one: the guest id of the member who brought
+   *  them. A named plus-one is an ordinary guest, so they already count in the
+   *  event's tallies; this only says who they came with. */
+  plusOneOf: string | null;
 }
 
 /** An invited guest with no reply yet — the pool an organiser can record a
@@ -124,6 +131,8 @@ export interface RsvpViewInvitedGuest {
   lastName: string;
   familyName: string;
   familyCode: string;
+  /** As on {@link RsvpViewGuest}. */
+  plusOneOf: string | null;
 }
 
 /** One event with its responded guests + a status tally. `invited` is how many
@@ -193,6 +202,7 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
@@ -213,6 +223,7 @@ export const rsvpExportService = {
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
+                plusOneOf: guests.plusOneOfGuestId,
                 familyName: families.familyName,
                 familyCode: families.publicId,
               })
@@ -258,6 +269,7 @@ export const rsvpExportService = {
           dietary: row.dietary,
           dietaryPresets: parsePresets(row.dietaryPresets),
           consentSource: row.consentSource,
+          plusOneOf: row.plusOneOf,
           sortOrder: row.sortOrder,
         });
         if (row.status === "attending") acc.attending += 1;
@@ -285,6 +297,7 @@ export const rsvpExportService = {
           lastName: row.lastName,
           familyName: row.familyName,
           familyCode: row.familyCode,
+          plusOneOf: row.plusOneOf,
           sortOrder: row.sortOrder,
         });
       }
@@ -443,7 +456,7 @@ export const rsvpExportService = {
             status: "attending" | "declined" | "maybe";
             dietary: string;
             dietaryPresets: string;
-            consentSource: "guest" | "organiser_attested";
+            consentSource: ConsentSource;
           }
         >
       >();

@@ -5,12 +5,14 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
 import type { ParsedFamily } from "../../src/schemas/import";
 import { diffAgainstDb } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const withDb = effWith(TestDbLayer);
 
@@ -510,4 +512,45 @@ describe("empty wedding (T-S4)", () => {
       }),
     ),
   );
+});
+
+/**
+ * A plus-one belongs to the household, not to the organiser's sheet, so the
+ * round-trip export leaves them out — and the round trip still changes
+ * nothing, plus-one included: the diff neither re-creates them as an organiser
+ * guest nor removes them for being absent.
+ */
+describe("round trip with a plus-one named", () => {
+  for (const fidelity of ["import", "full", "snapshot"] as const) {
+    it(`is still a fixpoint at ${fidelity} fidelity, and the sheet omits the plus-one`, async () => {
+      const db = createDb(":memory:");
+      seedDb(db);
+      const bo = guestNamed(db, "Bo");
+      const samId = seedPlusOne(db, bo.id, { firstName: "Samwise", lastName: "Plusone" });
+
+      const plan = await Effect.runPromise(
+        Effect.gen(function* () {
+          const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
+          const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
+          expect(guestsCsv).not.toContain("Samwise");
+          expect(guestsCsv).not.toContain(samId);
+          const parsedEvents = yield* parseEventsCsv(eventsCsv);
+          const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents, {
+            snapshot: fidelity === "snapshot",
+          });
+          return yield* diffAgainstDb(
+            parsedEvents,
+            parsedFamilies as ParsedFamily[],
+            BOOTSTRAP_WEDDING_ID,
+          );
+        }).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(plan.guestCreates).toHaveLength(0);
+      expect(plan.guestUpdates).toHaveLength(0);
+      expect(plan.guestRemoves).toHaveLength(0);
+      expect(plan.eventLinkCreates).toHaveLength(0);
+      expect(plan.eventLinkRemoves).toHaveLength(0);
+      expect(plan.warnings).toHaveLength(0);
+    });
+  }
 });
