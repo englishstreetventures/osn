@@ -111,6 +111,15 @@ describe("GuestTable — plus-one removal focus", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("sends nothing and hands focus back when the dialog is closed with Escape", async () => {
+    const toggle = await openRemoval();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(document.activeElement).toBe(toggle));
+    expect(document.querySelector("dialog")?.open).toBe(false);
+    expect(authFetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
   it("hands focus back to the same switch once the removal has been written", async () => {
     const toggle = await openRemoval();
     await userEvent.click(screen.getByRole("button", { name: "Remove Sam Lee" }));

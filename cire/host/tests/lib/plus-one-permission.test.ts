@@ -12,7 +12,7 @@ import {
   placePlusOnesAfterInviters,
   plusOnesRemovedBy,
   putPlusOnePermission,
-  sameGuests,
+  samePeople,
   supportsPlusOnes,
   withPermission,
 } from "../../src/lib/plus-one-permission";
@@ -132,12 +132,18 @@ describe("withPermission", () => {
   });
 });
 
-describe("sameGuests", () => {
-  it("compares by id in any order", () => {
-    expect(sameGuests([sam, kit], [kit, sam])).toBe(true);
-    expect(sameGuests([sam], [kit])).toBe(false);
-    expect(sameGuests([sam], [sam, kit])).toBe(false);
-    expect(sameGuests([], [])).toBe(true);
+describe("samePeople", () => {
+  const sam = { guestId: "g_sam", name: "Sam Lee" };
+  const kit = { guestId: "g_kit", name: "Kit Ng" };
+  it("compares by id and name, in any order", () => {
+    expect(samePeople([sam, kit], [kit, sam])).toBe(true);
+    expect(samePeople([], [])).toBe(true);
+    expect(samePeople([sam], [kit])).toBe(false);
+    expect(samePeople([sam], [sam, kit])).toBe(false);
+  });
+
+  it("tells a renamed plus-one from the one that was shown, though the id is the same", () => {
+    expect(samePeople([sam], [{ guestId: "g_sam", name: "Kit Ng" }])).toBe(false);
   });
 });
 
@@ -248,6 +254,18 @@ describe("putPlusOnePermission", () => {
     expect(
       await putPlusOnePermission(broken, "w", { kind: "guest", guestId: "g" }, true, false),
     ).toEqual({ kind: "refused", status: 502, error: null });
+  });
+
+  it("falls back to one named plus-one, and to none removed, when the body leaves the count out", async () => {
+    const named = vi.fn().mockResolvedValue(json({ error: "plus_one_named" }, 409));
+    expect(
+      await putPlusOnePermission(named, "w", { kind: "guest", guestId: "g" }, false, false),
+    ).toEqual({ kind: "named", named: 1 });
+
+    const saved = vi.fn().mockResolvedValue(json({ familyId: "fam_a" }));
+    expect(
+      await putPlusOnePermission(saved, "w", { kind: "household", familyId: "fam_a" }, false, true),
+    ).toEqual({ kind: "saved", removed: 0 });
   });
 
   it("encodes the ids into the path", async () => {

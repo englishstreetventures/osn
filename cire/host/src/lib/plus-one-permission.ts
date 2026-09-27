@@ -133,14 +133,18 @@ export function withPermission<T extends PermissionRow>(
   return next;
 }
 
-/** Do the two lists hold the same guests, in any order? */
-export function sameGuests(
-  a: readonly { guestId: string }[],
-  b: readonly { guestId: string }[],
+/**
+ * Do the two lists name the same people, in any order? Compared by id AND name:
+ * a household can replace its plus-one by renaming the row it already has, so
+ * the id alone would pass a removal of someone the organiser was never shown.
+ */
+export function samePeople(
+  a: readonly { guestId: string; name: string }[],
+  b: readonly { guestId: string; name: string }[],
 ): boolean {
   if (a.length !== b.length) return false;
-  const ids = new Set(a.map((row) => row.guestId));
-  return b.every((row) => ids.has(row.guestId));
+  const seen = new Set(a.map((person) => `${person.guestId}\u0000${person.name}`));
+  return b.every((person) => seen.has(`${person.guestId}\u0000${person.name}`));
 }
 
 /** What the API said to a permission write. */

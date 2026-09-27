@@ -11,6 +11,7 @@ import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import {
   createComputed,
+  createSelector,
   createSignal,
   createUniqueId,
   onCleanup,
@@ -47,7 +48,7 @@ import {
   plusOnesRemovedBy,
   type PlusOneScope,
   putPlusOnePermission,
-  sameGuests,
+  samePeople,
   supportsPlusOnes,
   withPermission,
 } from "../lib/plus-one-permission";
@@ -245,8 +246,13 @@ export default function GuestTable(props: GuestTableProps) {
   // The one plus-one write — or the reload that goes with one — in flight, by
   // what it covers: `guest:<id>`, `family:<id>`. One at a time across the
   // table, so a reload never lands over a write that finished after it read,
-  // and a household write never races one of its members'.
+  // and a household write never races one of its members'. A control asked
+  // for meanwhile does nothing, and a switch stays as it was.
   const [plusOneBusy, setPlusOneBusy] = createSignal<string | null>(null);
+  // Which controls show the write as theirs. A selector, so a write re-renders
+  // only the switches it covers rather than every row in the roster; the lock
+  // itself is the check in `exclusively` and `requestPermission`.
+  const isBusy = createSelector(plusOneBusy);
   const [pendingRemoval, setPendingRemoval] = createSignal<PendingRemoval | null>(null);
   // What the dialog renders while it fades out: its body names people.
   const shownRemoval = heldWhileClosing(pendingRemoval);
@@ -632,9 +638,9 @@ export default function GuestTable(props: GuestTableProps) {
     void exclusively(scope, async () => {
       const fresh = await reloadGuests();
       if (!fresh) return;
-      const now = plusOnesRemovedBy(fresh, scope);
+      const now = namePlusOnes(fresh, scope);
       if (now.length === 0) return sendPermission(scope, false, false, 0);
-      if (!sameGuests(now, pending.plusOnes)) return askToRemove(fresh, scope, true);
+      if (!samePeople(now, pending.plusOnes)) return askToRemove(fresh, scope, true);
       return sendPermission(scope, false, true, now.length);
     });
   }
@@ -829,13 +835,8 @@ export default function GuestTable(props: GuestTableProps) {
                                     variant="quiet"
                                     size="sm"
                                     type="button"
-                                    aria-disabled={
-                                      plusOneBusy() !== null ||
-                                      permission().allowed === permission().total
-                                    }
-                                    aria-busy={
-                                      plusOneBusy() === busyKey(householdScope) ? "true" : undefined
-                                    }
+                                    aria-disabled={permission().allowed === permission().total}
+                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
                                     onClick={() => requestPermission(householdScope, true)}
                                   >
                                     Allow everyone
@@ -844,12 +845,8 @@ export default function GuestTable(props: GuestTableProps) {
                                     variant="quiet"
                                     size="sm"
                                     type="button"
-                                    aria-disabled={
-                                      plusOneBusy() !== null || permission().allowed === 0
-                                    }
-                                    aria-busy={
-                                      plusOneBusy() === busyKey(householdScope) ? "true" : undefined
-                                    }
+                                    aria-disabled={permission().allowed === 0}
+                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
                                     onClick={() => requestPermission(householdScope, false)}
                                   >
                                     Allow no one
@@ -969,10 +966,10 @@ export default function GuestTable(props: GuestTableProps) {
                                     checked={member.plusOneAllowed === true}
                                     label={`${fullName(member)} may bring a plus-one`}
                                     labelHidden
-                                    readOnly={!canEdit() || plusOneBusy() !== null}
+                                    readOnly={!canEdit()}
                                     busy={
-                                      plusOneBusy() === `guest:${member.guestId}` ||
-                                      plusOneBusy() === busyKey(householdScope)
+                                      isBusy(`guest:${member.guestId}`) ||
+                                      isBusy(busyKey(householdScope))
                                     }
                                     onChange={(allowed) =>
                                       requestPermission(

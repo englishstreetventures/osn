@@ -38,7 +38,13 @@ import GuestTable from "../../src/components/GuestTable";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache, type OrganiserGuestRow } from "../../src/lib/guests-store";
 import {
+  __resetHouseholdsCache,
+  ensureHouseholdsLoaded,
+  hasCachedHouseholds,
+} from "../../src/lib/households-store";
+import {
   authFetchMock,
+  redirectSpy,
   resetOrganiserMocks,
   toastError,
   toastSuccess,
@@ -172,6 +178,7 @@ afterEach(() => {
   resetOrganiserMocks();
   __resetGuestsCache();
   __resetEventsCache();
+  __resetHouseholdsCache();
 });
 
 async function mount(canEdit = true) {
@@ -305,6 +312,17 @@ describe("GuestTable — plus-one permission", () => {
     expect(puts()[0]!.body).toEqual({ allowed: false, removePlusOne: true });
   });
 
+  it("asks again when the household renamed its plus-one before the yes, though the id is the same", async () => {
+    await mount();
+    fireEvent.click(switchFor("Ada Sharma"));
+    // A rename keeps the row, so only the name tells the two apart.
+    server = [guest(SHARMA, "g_sam", "Kit", "Ng", { plusOneOf: "g_ada" }), ada(), bo(), cy()];
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
+
+    await waitFor(() => expect(screen.getByText("Remove Kit Ng?")).toBeTruthy());
+    expect(puts()).toEqual([]);
+  });
+
   it("sends a plain turn-off when the plus-one was already taken back before the yes", async () => {
     await mount();
     fireEvent.click(switchFor("Ada Sharma"));
@@ -334,6 +352,33 @@ describe("GuestTable — plus-one permission", () => {
     expect(screen.getByText(/Plus-one of Cy Jones/)).toBeTruthy();
   });
 
+  it("asks the organiser to try again when a named plus-one is gone by the reload", async () => {
+    await mount();
+    answerPut = () => json({ error: "plus_one_named", named: 1 }, 409);
+    fireEvent.click(switchFor("Cy Jones"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("The guest list changed. Try again."),
+    );
+    expect(screen.queryByText(/cannot be undone/)).toBeNull();
+  });
+
+  it("shows an error, not an empty list, when the reload after a refusal fails", async () => {
+    await mount();
+    answerPut = () => json({ error: "plus_one_named", named: 1 }, 409);
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      Promise.resolve(
+        init?.method === "PUT"
+          ? json({ error: "plus_one_named", named: 1 }, 409)
+          : url.endsWith("/guests")
+            ? json({}, 500)
+            : json({}),
+      ),
+    );
+    fireEvent.click(switchFor("Cy Jones"));
+    await waitFor(() => expect(screen.getByText(/Could not reload the guest list/)).toBeTruthy());
+    expect(screen.queryByText("No guests yet")).toBeNull();
+  });
+
   it("allows everyone in a household at once", async () => {
     await mount();
     const group = householdGroup("Sharma");
@@ -354,6 +399,40 @@ describe("GuestTable — plus-one permission", () => {
         .getAttribute("aria-disabled"),
     ).toBe("true");
     expect(toastSuccess).toHaveBeenCalledWith("Everyone in Sharma may bring a plus-one");
+  });
+
+  it("turns a household off at once when it has named no one", async () => {
+    await mount();
+    const group = householdGroup("Jones");
+    expect(
+      within(group).getByRole("button", { name: "Allow everyone" }).getAttribute("aria-disabled"),
+    ).toBe("true");
+    fireEvent.click(within(group).getByRole("button", { name: "Allow no one" }));
+
+    await waitFor(() => expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("false"));
+    expect(puts()).toEqual([
+      {
+        url: "https://api.test/api/organiser/weddings/wed_a/families/fam_b/plus-one",
+        body: { allowed: false },
+      },
+    ]);
+    expect(screen.queryByText(/cannot be undone/)).toBeNull();
+    expect(toastSuccess).toHaveBeenCalledWith("No one in Jones may bring a plus-one");
+    expect(
+      within(householdGroup("Jones"))
+        .getByRole("button", { name: "Allow no one" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
+  it("marks the household list stale after a removal, since its guest count changed", async () => {
+    await ensureHouseholdsLoaded("wed_a", () => Promise.resolve([]));
+    expect(hasCachedHouseholds("wed_a")).toBe(true);
+    await mount();
+    fireEvent.click(switchFor("Ada Sharma"));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Sam Lee" }));
+    await waitFor(() => expect(screen.queryByText(/Plus-one of Ada Sharma/)).toBeNull());
+    expect(hasCachedHouseholds("wed_a")).toBe(false);
   });
 
   it("names every plus-one a household turn-off removes, even ones a search hides", async () => {
@@ -386,12 +465,16 @@ describe("GuestTable — plus-one permission", () => {
       server = [...server, guest(SHARMA, "g_zed", "Zed", "Fox", { plusOneOf: "g_bo" })];
       return applyPut(url, body);
     };
-    fireEvent.click(await screen.findByRole("button", { name: "Turn off and remove Sam Lee" }));
+    const confirm = await screen.findByRole("button", { name: "Turn off and remove Sam Lee" });
+    const readsBefore = guestReads();
+    fireEvent.click(confirm);
 
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(String(toastError.mock.calls[0]![0])).toMatch(
       /Removed 2 plus-ones, not the 1 you confirmed/,
     );
+    // Read once before the write and once more after the mismatch.
+    expect(guestReads()).toBe(readsBefore + 2);
     expect(screen.queryByText(/Zed Fox/)).toBeNull();
   });
 
@@ -418,14 +501,72 @@ describe("GuestTable — plus-one permission", () => {
     fireEvent.click(switchFor("Bo Sharma"));
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(switchFor("Bo Sharma").getAttribute("aria-busy")).toBe("true");
-    expect(switchFor("Cy Jones").getAttribute("aria-readonly")).toBe("true");
+    expect(switchFor("Bo Sharma").getAttribute("aria-readonly")).toBe("true");
+    // Only the switch the write covers shows it; the rest of the roster is
+    // left alone rather than re-rendered.
+    expect(switchFor("Cy Jones").hasAttribute("aria-busy")).toBe(false);
+    expect(switchFor("Cy Jones").hasAttribute("aria-readonly")).toBe(false);
 
+    // A second write asked for meanwhile does nothing, and its switch stays put.
     fireEvent.click(switchFor("Cy Jones"));
+    fireEvent.click(within(householdGroup("Jones")).getByRole("button", { name: "Allow no one" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(puts()).toHaveLength(1);
+    expect(switchFor("Cy Jones").getAttribute("aria-checked")).toBe("true");
 
     finish(json({ guestId: "g_bo", plusOneAllowed: true, plusOneRemoved: false }));
     await waitFor(() => expect(switchFor("Bo Sharma").hasAttribute("aria-busy")).toBe(false));
-    expect(switchFor("Cy Jones").hasAttribute("aria-readonly")).toBe(false);
+
+    // And once it lands the next one goes through.
+    answerPut = applyPut;
+    fireEvent.click(switchFor("Cy Jones"));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+  });
+
+  it("frees the table again when a write fails on the network", async () => {
+    await mount();
+    answerPut = () => Promise.reject(new TypeError("Failed to fetch"));
+    fireEvent.click(switchFor("Bo Sharma"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Could not change the plus-one setting. Try again."),
+    );
+    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+    expect(switchFor("Bo Sharma").hasAttribute("aria-busy")).toBe(false);
+
+    answerPut = applyPut;
+    fireEvent.click(switchFor("Bo Sharma"));
+    await waitFor(() => expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("sends a signed-out organiser to sign in", async () => {
+    await mount();
+    answerPut = () => new Response("", { status: 401 });
+    fireEvent.click(switchFor("Bo Sharma"));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("reloads the list when the guest has gone, and says so", async () => {
+    await mount();
+    answerPut = () => {
+      server = server.filter((g) => g.familyId !== "fam_b");
+      return json({ error: "guest_not_found" }, 404);
+    };
+    fireEvent.click(switchFor("Cy Jones"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("That guest is no longer on the list."),
+    );
+    await waitFor(() => expect(screen.queryByText("Jones")).toBeNull());
+  });
+
+  it("reports any other refusal without changing the switch", async () => {
+    await mount();
+    answerPut = () => json({ error: "Internal error" }, 500);
+    fireEvent.click(switchFor("Bo Sharma"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Could not change the plus-one setting. Try again."),
+    );
+    expect(switchFor("Bo Sharma").getAttribute("aria-checked")).toBe("false");
   });
 
   it("tells a demoted organiser the write was refused and leaves the switch as it was", async () => {
@@ -451,6 +592,15 @@ describe("GuestTable — plus-one permission", () => {
     expect(puts()).toEqual([]);
     expect(screen.queryByText("Remove Sam Lee?")).toBeNull();
     expect(adaSwitch.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("reads a missing `canEdit` as read-only", async () => {
+    render(() => (
+      <GuestTable weddingId="wed_a" canManage weddingName="Nadia & Sam" weddingSlug="nadia-sam" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    expect(switchFor("Bo Sharma").getAttribute("aria-readonly")).toBe("true");
+    expect(screen.queryByRole("group", { name: /Plus-ones for the/ })).toBeNull();
   });
 
   it("shows no plus-one column when the API does not send the permission", async () => {

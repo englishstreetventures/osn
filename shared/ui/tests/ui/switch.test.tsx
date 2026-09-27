@@ -103,6 +103,14 @@ describe("Switch", () => {
     expect(input.disabled).toBe(true);
   });
 
+  it("passes its name to the input and its class to the root", () => {
+    const { container } = render(() => (
+      <Switch checked label="Allow" name="plus-one" class="justify-end" />
+    ));
+    expect((control() as HTMLInputElement).name).toBe("plus-one");
+    expect((container.firstElementChild as HTMLElement).className).toContain("justify-end");
+  });
+
   it("points at a description it is given", () => {
     render(() => (
       <>
