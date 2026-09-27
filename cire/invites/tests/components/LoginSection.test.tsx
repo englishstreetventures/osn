@@ -1,33 +1,35 @@
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
-import { createSignal, type JSX } from "solid-js";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CLAIM_SESSION_EVENT } from "../../src/components/claim-session";
 import { LoginSection, type LoginSectionLayout } from "../../src/components/LoginSection";
 import type { RsvpDeadlineState } from "../../src/components/rsvp-deadline";
-import type { ClaimResult, FamilyMember, RsvpDeadline } from "../../src/components/types";
+import type {
+  AccountLinkState,
+  ClaimResult,
+  FamilyMember,
+  RsvpDeadline,
+} from "../../src/components/types";
 
-// The account-link panel and the OSN auth client are stubbed file-wide: every
-// claimed render below mounts them, and the real ones would probe the account
-// API and the auth session over the network. Their own behaviour is covered in
-// PulseAccountLink.test.tsx; what this file asserts is where the panel puts
-// them and when.
+// The account-link panel is stubbed file-wide. Its own behaviour is covered in
+// PulseAccountLink.test.tsx; what this file asserts is where the panel puts it,
+// when, and what it hands it.
 vi.mock("../../src/components/PulseAccountLink", () => ({
-  PulseAccountLink: (props: { apiUrl: string; members: FamilyMember[]; class?: string }) => (
+  PulseAccountLink: (props: {
+    apiUrl: string;
+    members: FamilyMember[];
+    state: AccountLinkState;
+    class?: string;
+  }) => (
     <div
       data-testid="pulse-account-link-stub"
       class={props.class}
       data-api-url={props.apiUrl}
       data-members={props.members.map((m) => m.guestId).join(",")}
+      data-signed-in={String(props.state.signedIn)}
+      data-linked={props.state.linkedGuestIds.join(",")}
     />
-  ),
-}));
-
-vi.mock("@shared/rp-auth/solid", () => ({
-  AuthProvider: (props: { config: { apiBase: string }; children: JSX.Element }) => (
-    <div data-testid="auth-provider-stub" data-api-base={props.config.apiBase}>
-      {props.children}
-    </div>
   ),
 }));
 
@@ -77,6 +79,14 @@ function member(firstName: string, nickname: string | null = null): FamilyMember
 
 function result(members: FamilyMember[], familyName = "Okafor"): ClaimResult {
   return { publicId: "OKAFOR-LILY-AB12CD", familyName, members, events: [], rsvps: [] };
+}
+
+/** A claim payload that offers this household account linking. */
+function offeringLink(
+  claim: ClaimResult,
+  state: { signedIn: boolean; linkedGuestIds: string[] } = { signedIn: false, linkedGuestIds: [] },
+): ClaimResult {
+  return { ...claim, accountLink: { enabled: true, ...state } };
 }
 
 const noop = () => {};
@@ -559,7 +569,7 @@ describe("LoginSection household controls", () => {
     const { findByTestId, getByText, container } = render(() => (
       <LoginSection
         apiUrl="http://x"
-        result={result([member("Chidi"), member("Ada")])}
+        result={offeringLink(result([member("Chidi"), member("Ada")]))}
         onClaimed={noop}
         onSignOut={noop}
       />
@@ -587,7 +597,7 @@ describe("LoginSection household controls", () => {
       const { findByTestId } = render(() => (
         <LoginSection
           apiUrl="http://x"
-          result={result([member("Chidi")])}
+          result={offeringLink(result([member("Chidi")]))}
           onClaimed={noop}
           layout={layout}
         />
@@ -598,18 +608,42 @@ describe("LoginSection household controls", () => {
     },
   );
 
-  it("points the account link and its auth client at the invite's API", async () => {
-    // The account link hides itself on any failure, so a wrong or missing
-    // origin here would make it vanish for every household with nothing to
-    // report it.
-    const { findByTestId, getByTestId } = render(() => (
-      <LoginSection apiUrl="https://api.test" result={result([member("Chidi")])} onClaimed={noop} />
+  it("points the account link at the invite's API and hands it the payload's state", async () => {
+    // A wrong or missing origin here would send every link and sign-in to the
+    // wrong place with nothing to report it.
+    const { findByTestId } = render(() => (
+      <LoginSection
+        apiUrl="https://api.test"
+        result={offeringLink(result([member("Chidi"), member("Ada")]), {
+          signedIn: true,
+          linkedGuestIds: ["g-Ada"],
+        })}
+        onClaimed={noop}
+      />
     ));
     const link = await findByTestId("pulse-account-link-stub");
     expect(link.dataset.apiUrl).toBe("https://api.test");
-    const auth = getByTestId("auth-provider-stub");
-    expect(auth.dataset.apiBase).toBe("https://api.test");
-    expect(auth.contains(link)).toBe(true);
+    expect(link.dataset.signedIn).toBe("true");
+    expect(link.dataset.linked).toBe("g-Ada");
+  });
+
+  it.each([
+    ["linking is off for the household", { enabled: false }],
+    ["the payload carries no link state (an API older than the site)", undefined],
+    ["the link state is malformed", { enabled: true, signedIn: "yes", linkedGuestIds: [] }],
+    ["the link state is a shape this build does not know", { enabled: "partly" }],
+  ])("offers no account link when %s", async (_, accountLink) => {
+    const { queryByTestId, getByText } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...result([member("Chidi")]), accountLink }}
+        onClaimed={noop}
+      />
+    ));
+    await settle();
+    // The invite itself opens as normal: only the optional box is missing.
+    expect(getByText(/Dear Chidi/)).toBeTruthy();
+    expect(queryByTestId("pulse-account-link-stub")).toBeNull();
   });
 
   it("offers no account link before a claim", async () => {
@@ -624,7 +658,7 @@ describe("LoginSection household controls", () => {
     const { queryByTestId, getByText } = render(() => (
       <LoginSection
         apiUrl="http://x"
-        result={{ ...result([member("Chidi")]), preview: true }}
+        result={{ ...offeringLink(result([member("Chidi")])), preview: true }}
         onClaimed={noop}
       />
     ));

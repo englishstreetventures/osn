@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { guestAccountLinks, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guestAccountLinks, guests } from "@cire/db";
 import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { hostCodeService } from "../../src/services/host-code";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -149,21 +153,18 @@ describe("POST /api/account/link", () => {
     expect(newToken).not.toBeNull();
     expect(newToken).not.toBe(oldToken);
 
-    // The old token is revoked: a request bearing it is now 401 on a guest route.
-    const stale = await app.fetch(
-      new Request("http://localhost/api/account/link", {
-        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
-      }),
-    );
-    expect(stale.status).toBe(401);
+    // The old token is revoked: a request bearing it is now 401 on a guest
+    // route (the session restore).
+    const restore = (householdCookie: string) =>
+      app.fetch(
+        new Request("http://localhost/api/claim/session?slug=cire-wedding", {
+          headers: { Cookie: householdCookie, "cf-connecting-ip": TEST_CF_IP },
+        }),
+      );
+    expect((await restore(cookie)).status).toBe(401);
 
     // The rotated cookie still works.
-    const fresh = await app.fetch(
-      new Request("http://localhost/api/account/link", {
-        headers: { Cookie: `cire_session=${newToken}`, "cf-connecting-ip": TEST_CF_IP },
-      }),
-    );
-    expect(fresh.status).toBe(200);
+    expect((await restore(`cire_session=${newToken}`)).status).toBe(200);
   });
 
   it("returns 401 without an OSN token (guest cookie alone is not enough)", async () => {
@@ -259,37 +260,32 @@ describe("POST /api/account/link", () => {
   });
 });
 
-describe("GET /api/account/link", () => {
-  it("lists linked invitees for the household (no account id leaked)", async () => {
+describe("POST /api/account/link — host preview", () => {
+  it("never links the organiser's preview seat", async () => {
+    // A host code opens the organiser's preview as a synthetic household with
+    // one seat. That seat is not a guest, so it can never be linked, even by a
+    // request crafted around the hidden box.
     const { db, app } = buildApp();
-    const cookie = await claimCookie(app, SAMPLETON);
-    const guestId = guestIdByName(db, "Bo");
-    const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
-    // The link rotated the session — read links with the fresh cookie.
-    const cookie2 = rotatedCookie(linked, cookie);
-
-    const res = await app.fetch(
-      new Request("http://localhost/api/account/link", {
-        headers: { Cookie: cookie2, "cf-connecting-ip": TEST_CF_IP },
-      }),
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
+        .pipe(Effect.provideService(DbService, db)),
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { links: Array<{ guestId: string; linkedAt: number }> };
-    expect(body.links).toHaveLength(1);
-    expect(body.links[0]!.guestId).toBe(guestId);
-    expect(typeof body.links[0]!.linkedAt).toBe("number");
-    // account id is S2S-only and must never appear in a client response.
-    expect(JSON.stringify(body)).not.toContain("acc_default");
-  });
+    const cookie = await claimCookie(app, publicId);
+    const [hostSeat] = db
+      .select({ id: guests.id })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(eq(families.publicId, publicId))
+      .all();
 
-  it("returns 401 without a guest session", async () => {
-    const { app } = buildApp();
-    const res = await app.fetch(
-      new Request("http://localhost/api/account/link", {
-        headers: { "cf-connecting-ip": TEST_CF_IP },
-      }),
-    );
-    expect(res.status).toBe(401);
+    const res = await postLink(app, {
+      cookie,
+      bearer: await auth.sign("usr_owner"),
+      guestId: hostSeat!.id,
+    });
+    expect(res.status).toBe(403);
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 });
 
@@ -357,19 +353,6 @@ describe("DELETE /api/account/link/:guestId", () => {
 });
 
 describe("account-linking feature flag (cire.account-linking OFF)", () => {
-  it("GET returns 503 so the guest UI hides the linking section", async () => {
-    // Flag off — even with a working resolver + a valid session, the probe must
-    // report disabled (the frontend `<Show when={ready}>` reads 503 as hidden).
-    const { app } = buildApp(okResolver, false);
-    const cookie = await claimCookie(app, SAMPLETON);
-    const res = await app.fetch(
-      new Request("http://localhost/api/account/link", {
-        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
-      }),
-    );
-    expect(res.status).toBe(503);
-  });
-
   it("POST returns 503 (defense in depth — a crafted request can't link)", async () => {
     const { db, app } = buildApp(okResolver, false);
     const cookie = await claimCookie(app, SAMPLETON);
@@ -394,16 +377,18 @@ describe("account-link rate limiting (S-L1)", () => {
       flags: createStaticFlags({ "cire.account-linking": true }),
     });
     const cookie = await claimCookie(app, SAMPLETON);
-    const get = () =>
+    // Unlink is idempotent, so the same request can spend the budget.
+    const unlink = () =>
       app.fetch(
-        new Request("http://localhost/api/account/link", {
-          headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
+        new Request(`http://localhost/api/account/link/${guestIdByName(db, "Bo")}`, {
+          method: "DELETE",
+          headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
         }),
       );
 
-    expect((await get()).status).toBe(200);
-    expect((await get()).status).toBe(200);
-    const limited = await get();
+    expect((await unlink()).status).toBe(200);
+    expect((await unlink()).status).toBe(200);
+    const limited = await unlink();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("60");
   });

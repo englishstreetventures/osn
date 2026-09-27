@@ -13,6 +13,7 @@ import { Elysia } from "elysia";
 import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
+import type { AccountLinking } from "./lib/account-linking";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
@@ -34,6 +35,7 @@ import {
   createOrganiserHostsReadRoutes,
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
+import { createOrganiserPlusOneRoutes } from "./routes/organiser-plus-one";
 import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
@@ -43,6 +45,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createPlusOneRoutes } from "./routes/plus-one";
 import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
@@ -229,6 +232,16 @@ const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowM
  * indexed statement.
  */
 const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the household's plus-one writes (name, rename,
+ * remove). Same shape and budget as the guest registry writes, for the same
+ * reasons: it sits behind the household cookie, and a household names a
+ * plus-one once and fixes a typo or two. Without it, naming and removing in a
+ * loop writes a guest row and its invitations, then cascade-deletes them, as
+ * fast as a client can send — a cheap way to spend the D1 write quota every
+ * wedding shares.
+ */
+const defaultPlusOneLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 // Per-organiser, and sized like the image limiter beside it: an authenticated
 // couple at hand-speed, whose every press costs an outbound Stripe call.
 const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
@@ -457,6 +470,8 @@ export interface AppOptions {
   registryImageLimiter?: RateLimiterBackend;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
+  /** Override the household plus-one write limiter (useful for testing). */
+  plusOneLimiter?: RateLimiterBackend;
   /** Override the guest "give money" limiter (useful for testing). */
   registryContributeLimiter?: RateLimiterBackend;
   /**
@@ -565,6 +580,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
     registryGuestLimiter = defaultRegistryGuestLimiter,
+    plusOneLimiter = defaultPlusOneLimiter,
     registryContributeLimiter = defaultRegistryContributeLimiter,
     stripe = null,
     stripeWebhookSecret = null,
@@ -635,6 +651,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
     _testKey: osnTestKey,
     db,
   };
+
+  // What decides whether a household is offered account linking. The claim and
+  // restore responses report it, and a link can only complete with a resolver.
+  const accountLinking: AccountLinking = { flags, canLink: resolveOsnAccountId !== undefined };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -737,16 +757,32 @@ export function createApp(db: Db, options: AppOptions = {}) {
           sessionLimiter: oidcSessionLimiter,
         }),
       )
-      .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
+      .use(
+        createClaimRoutes(db, {
+          webOrigin,
+          limiter: claimLimiter,
+          turnstileVerifier,
+          accountLinking,
+        }),
+      )
       // Session RESTORE for a household that already claimed. A sibling instance
       // so it gets its own (page-load-sized) limiter instead of the claim
       // endpoint's brute-force budget — same split as the hosts read/write pair.
-      .use(createClaimSessionRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
+      .use(
+        createClaimSessionRoutes(db, {
+          webOrigin,
+          limiter: claimSessionLimiter,
+          accountLinking,
+        }),
+      )
       .use(createClaimSignoutRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
       .use(createRsvpRoutes(db))
+      // The household's plus-ones: same cookie, same no-Turnstile argument, and
+      // a per-IP limiter like the guest registry writes.
+      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);
@@ -812,6 +848,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'`. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // Plus-one permission, per guest or per household. weddingEditor()-gated.
+      .use(createOrganiserPlusOneRoutes(db, osnAuthOptions))
       // Checklist tasks (platform Phase 1). Reads admit any member role
       // (weddingMember); writes require editor or owner (weddingEditor; viewer
       // gets 403 read_only_role). Split into sibling instances so the read gate
@@ -904,11 +942,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // The invite FAQ's writes. Same limiter instance as the builder's other
       // writes, so an organiser's invite edits share one per-IP budget.
       .use(createInviteFaqRoutes(db, osnAuthOptions, inviteLimiter))
-      // Account linking. Two sibling instances on the same prefix: GET/DELETE
-      // need only the guest session; the POST link additionally requires an OSN
+      // Account linking. Two sibling instances on the same prefix: DELETE needs
+      // only the guest session; the POST link additionally requires an OSN
       // token. Splitting them is what method-gates `osnAuth` to POST without
-      // gating the guest-only reads (same sibling pattern as rsvp + organiser).
-      .use(createAccountLinkRoutes(db, accountLinkLimiter, flags))
+      // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
+      // The household's link state is read through the claim and restore
+      // responses, not here.
+      .use(createAccountLinkRoutes(db, accountLinkLimiter))
       .use(
         createAccountLinkPostRoute(
           db,

@@ -1,4 +1,4 @@
-import type { ClaimResult, RsvpSummary } from "./types";
+import type { AccountLinkState, ClaimResult, RsvpSummary } from "./types";
 
 // These guards read an untrusted payload one field at a time. Each field is
 // proven with `key in value` before it is read, which is what lets the checks
@@ -49,6 +49,27 @@ function isRsvpSummary(r: unknown): r is RsvpSummary {
     if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;
   }
   return !("dietaryConsentCurrent" in r) || typeof r.dietaryConsentCurrent === "boolean";
+}
+
+/**
+ * The account-link state a claim payload carries, when linking is offered to
+ * the household; `null` otherwise.
+ *
+ * `null` covers every reason there is no box to draw: the API left the field
+ * out (a site that deployed before its API), linking is off for the
+ * household, or the value is malformed or a shape this build does not know.
+ * The claim guard deliberately does not check this field, so none of these
+ * ever costs the household its invite — only the optional box.
+ */
+export function readAccountLink(value: unknown): AccountLinkState | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("enabled" in value) || value.enabled !== true) return null;
+  if (!("signedIn" in value) || typeof value.signedIn !== "boolean") return null;
+  if (!("linkedGuestIds" in value) || !Array.isArray(value.linkedGuestIds)) return null;
+  const ids: unknown[] = value.linkedGuestIds;
+  const linkedGuestIds = ids.filter((id): id is string => typeof id === "string");
+  if (linkedGuestIds.length !== ids.length) return null;
+  return { signedIn: value.signedIn, linkedGuestIds };
 }
 
 /** The body of a 200 from `POST /api/rsvp`: the household's rows after the write. */

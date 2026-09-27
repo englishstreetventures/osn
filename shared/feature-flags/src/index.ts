@@ -45,12 +45,12 @@ import { instrumentedFetch } from "@shared/observability/fetch";
 const REGISTRY = {
   /**
    * OSN ("Pulse") account linking on the guest invite — the "Link your Pulse
-   * account" section (`cire/invites` `PulseAccountLink`, mounted in `InvitePage`).
-   * Default OFF ⇒ `cire-api`'s `GET`/`POST /api/account/link` answer 503
-   * ("disabled") and the guest UI hides itself (its `<Show when={ready}>` treats
-   * a 503 probe as disabled), even where the ARC linking keys are configured.
-   * Flip on in the GrowthBook dashboard (feature key `cire.account-linking`) to
-   * reveal it — no deploy needed.
+   * account" box (`cire/invites` `PulseAccountLink`, in the claim and welcome
+   * panel). Default OFF ⇒ `cire-api`'s claim and restore responses report
+   * linking as off, so the guest site draws no box, and `POST
+   * /api/account/link` answers 503, even where the ARC linking keys are
+   * configured. Flip on in the GrowthBook dashboard (feature key
+   * `cire.account-linking`) to reveal it — no deploy needed.
    */
   "cire.account-linking": false,
 } as const satisfies Record<string, boolean | string | number>;

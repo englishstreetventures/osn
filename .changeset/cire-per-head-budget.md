@@ -13,7 +13,7 @@ passed it prices the confirmed guests. A guest at several of the line's events
 counts once, and the host preview household and withdrawn invites are left
 out.
 
-- `@cire/db`: migration 0066 adds `budget_items.unit_price_minor` and
+- `@cire/db`: migration 0067 adds `budget_items.unit_price_minor` and
   `budget_items.per_head_event_ids`. The sample wedding's catering line is
   seeded per head.
 - `@cire/api`: the budget create and update bodies take

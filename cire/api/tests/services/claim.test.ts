@@ -1,17 +1,33 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddingFaqs, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  families,
+  guestAccountLinks,
+  guests,
+  rsvps,
+  weddingFaqs,
+  weddings,
+} from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
-import { claimService, InvalidCredentials } from "../../src/services/claim";
+import {
+  type AccountLinkGate,
+  claimService,
+  InvalidCredentials,
+  withPlusOnesAfterInviters,
+} from "../../src/services/claim";
+import { hostCodeService } from "../../src/services/host-code";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
 function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
@@ -638,4 +654,254 @@ describe("claimService.restore", () => {
       }),
     ),
   );
+});
+
+describe("claim payload account-link state", () => {
+  /** A gate that answers the flag with `on` and counts how often it was asked. */
+  function gate(on: boolean | (() => Promise<boolean>), osnSessionToken: string | null = null) {
+    const calls: string[] = [];
+    const g: AccountLinkGate = {
+      enabledFor: (familyId) => {
+        calls.push(familyId);
+        return typeof on === "function" ? on() : Promise.resolve(on);
+      },
+      osnSessionToken,
+    };
+    return { gate: g, calls };
+  }
+
+  /** Link Bo's seat in the Sampleton household directly, as the link POST would. */
+  function linkBo(db: Db): Effect.Effect<string> {
+    return Effect.promise(async () => {
+      const [family] = await db
+        .select()
+        .from(families)
+        .where(eq(families.publicId, "TESTTWO-OAK-BB22"))
+        .all();
+      const [bo] = await db
+        .select()
+        .from(guests)
+        .where(and(eq(guests.familyId, family!.id), eq(guests.firstName, "Bo")))
+        .all();
+      const now = new Date();
+      await db
+        .insert(guestAccountLinks)
+        .values({
+          id: "gal_test",
+          guestId: bo!.id,
+          familyId: family!.id,
+          weddingId: family!.weddingId,
+          osnAccountId: "acc_secret",
+          osnProfileId: "usr_bo",
+          linkedAt: now,
+          updatedAt: now,
+        })
+        .run();
+      return bo!.id;
+    });
+  }
+
+  it(
+    "reports linking off when the caller supplies no gate",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.accountLink).toEqual({ enabled: false });
+      }),
+    ),
+  );
+
+  it(
+    "reports linking off when the flag is off for the household",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g, calls } = gate(false);
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11", g);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(calls).toEqual([result.familyId]);
+      }),
+    ),
+  );
+
+  it(
+    "carries the linked seats and the OSN sign-in when linking is on",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const boId = yield* linkBo(db);
+        const token = yield* Effect.promise(() => seedOrganiserSession(db, "usr_bo"));
+
+        const signedOut = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true).gate);
+        expect(signedOut.accountLink).toEqual({
+          enabled: true,
+          signedIn: false,
+          linkedGuestIds: [boId],
+        });
+
+        const signedIn = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true, token).gate);
+        expect(signedIn.accountLink).toEqual({
+          enabled: true,
+          signedIn: true,
+          linkedGuestIds: [boId],
+        });
+        // The account id stays server-to-server.
+        expect(JSON.stringify(signedIn)).not.toContain("acc_secret");
+
+        // The restore reports the same state as the claim.
+        const restored = yield* claimService.restore(signedIn.familyId, gate(true, token).gate);
+        expect(restored.accountLink).toEqual(signedIn.accountLink);
+      }),
+    ),
+  );
+
+  it(
+    "never offers linking to the host preview, and never reads the organiser's sign-in for it",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const { publicId } = yield* hostCodeService.ensureForWedding(
+          BOOTSTRAP_WEDDING_ID,
+          "cire-wedding",
+        );
+        // The organiser opening the preview holds a live OSN session.
+        const token = yield* Effect.promise(() => seedOrganiserSession(db, "usr_owner"));
+        const { gate: g, calls } = gate(true, token);
+
+        const result = yield* claimService.lookup(publicId, g);
+        expect(result.preview).toBe(true);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(calls).toEqual([]);
+      }),
+    ),
+  );
+
+  it(
+    "still opens the invite, with linking off, when the link state cannot be read",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        // A deploy whose link table is missing: the read throws.
+        db.run(sql`DROP TABLE guest_account_links`);
+        const result = yield* claimService.lookup("TESTTWO-OAK-BB22", gate(true).gate);
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(result.members).toHaveLength(3);
+      }),
+    ),
+  );
+
+  it(
+    "still opens the invite, with linking off, when the flag provider throws",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g } = gate(() => Promise.reject(new Error("flag outage")));
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11", g);
+        expect(result.accountLink).toEqual({ enabled: false });
+      }),
+    ),
+  );
+
+  it(
+    "does not hold the invite for a flag that never answers",
+    withDb(
+      Effect.gen(function* () {
+        const { gate: g } = gate(() => new Promise<boolean>(() => {}));
+        const { familyId } = yield* claimService.lookup("TESTONE-IVY-AA11");
+        const started = Date.now();
+        const result = yield* claimService.restore(familyId, g);
+        const waited = Date.now() - started;
+        expect(result.accountLink).toEqual({ enabled: false });
+        expect(result.events.length).toBeGreaterThan(0);
+        // It waited for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no
+        // longer, with room either side for a slow test machine's timers.
+        expect(waited).toBeGreaterThanOrEqual(200);
+        expect(waited).toBeLessThan(1_000);
+      }),
+    ),
+  );
+});
+
+describe("plus-ones in the claim payload and the organiser guest read", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    return { db, bo, samId, run };
+  };
+
+  it("lists the plus-one straight after the member who brought them", async () => {
+    const { db, bo, samId, run } = setUp();
+    // Reorder the household so Bo is last: the plus-one still follows Bo, not
+    // the stale sort order copied when they were named.
+    db.update(guests).set({ sortOrder: 9 }).where(eq(guests.id, bo.id)).run();
+
+    const claim = await run(claimService.lookup("TESTTWO-OAK-BB22"));
+    const order = claim.members.map((m) => m.firstName);
+    expect(order).toEqual(["Cleo", "Dot", "Bo", "Sam"]);
+
+    const sam = claim.members.find((m) => m.guestId === samId)!;
+    expect(sam).toMatchObject({ plusOneOf: bo.id, plusOneAllowed: false, lastName: "Guest" });
+    expect(sam.eventIds.toSorted()).toEqual(eventIdsOf(db, bo.id));
+    expect(claim.members.find((m) => m.guestId === bo.id)).toMatchObject({
+      plusOneAllowed: true,
+      plusOneOf: null,
+    });
+  });
+
+  it("carries both fields on every organiser guest row", async () => {
+    const { bo, samId, run } = setUp();
+    const rows = await run(claimService.getAllGuests(BOOTSTRAP_WEDDING_ID));
+    expect(rows.find((r) => r.guestId === samId)).toMatchObject({
+      plusOneOf: bo.id,
+      plusOneAllowed: false,
+    });
+    expect(rows.find((r) => r.guestId === bo.id)).toMatchObject({
+      plusOneOf: null,
+      plusOneAllowed: true,
+    });
+    const ada = rows.find((r) => r.firstName === "Ada")!;
+    expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
+});
+
+describe("plus-ones in the organiser household counts", () => {
+  it("counts a named plus-one in their household, and a permission alone not at all", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const count = async () =>
+      (await run(claimService.getAllHouseholds(BOOTSTRAP_WEDDING_ID))).find(
+        (h) => h.familyId === bo.familyId,
+      )!.guestCount;
+    const before = await count();
+
+    allowPlusOne(db, bo.id);
+    expect(await count()).toBe(before);
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    expect(await count()).toBe(before + 1);
+  });
+});
+
+describe("withPlusOnesAfterInviters", () => {
+  const m = (guestId: string, plusOneOf: string | null = null) => ({ guestId, plusOneOf });
+
+  it("moves each plus-one to sit right after their inviter", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("b"), m("q", "a"), m("p", "b")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "b", "p"]);
+  });
+
+  it("keeps a plus-one whose inviter is not in the list, where it was", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("p", "gone"), m("b"), m("q", "a")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "p", "b"]);
+  });
+
+  it("leaves a household with no plus-one as it is", () => {
+    const members = [m("a"), m("b")];
+    expect(withPlusOnesAfterInviters(members)).toEqual(members);
+  });
 });

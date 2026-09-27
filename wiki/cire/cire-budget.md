@@ -27,8 +27,8 @@ Per-wedding line-item tracker, keyed by category.
 - `estimate_minor` — optional estimate amount (minor currency units, NULL allowed). Always NULL on a per-head line
 - `quoted_minor` — optional quoted amount from vendor
 - `actual_minor` — optional actual amount paid
-- `unit_price_minor` — price per guest (migration 0066). Non-null marks a per-head line
-- `per_head_event_ids` — JSON array of the event ids a per-head line counts; NULL means every event (migration 0066). NULL whenever `unit_price_minor` is NULL
+- `unit_price_minor` — price per guest (migration 0067). Non-null marks a per-head line
+- `per_head_event_ids` — JSON array of the event ids a per-head line counts; NULL means every event (migration 0067). NULL whenever `unit_price_minor` is NULL
 - `notes` — free text
 - `sort_order` — reorder within category
 - `created_at`, `updated_at` — timestamps

@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1000   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-cors-patch @ 2026-09-27 — after merging main at 1002: comments rewritten on this branch no longer carry finding tags. No rule was disabled and nothing was suppressed.
+998   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-pulse-link-state merged with main @ 2026-09-27 — this branch's two removed finding tags on top of main's count. No rule was disabled.

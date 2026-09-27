@@ -5,9 +5,23 @@ import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { createSignal, onCleanup, onMount, Show, For, createMemo, type JSX } from "solid-js";
+import {
+  createComputed,
+  createSelector,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+  onMount,
+  Show,
+  For,
+  createMemo,
+  type JSX,
+} from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
@@ -20,18 +34,103 @@ import {
   ensureGuestsLoaded,
   guestsAccessor,
   hasCachedGuests,
+  invalidateGuests,
   type OrganiserGuestRow,
+  peekCachedGuests,
+  setCachedGuests,
 } from "../lib/guests-store";
+import { invalidateHouseholds } from "../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
+import {
+  type ConfirmedPlusOne,
+  householdPermission,
+  isPlusOne,
+  placePlusOnesAfterInviters,
+  plusOnesRemovedBy,
+  type PlusOneScope,
+  putPlusOnePermission,
+  supportsPlusOnes,
+  withPermission,
+} from "../lib/plus-one-permission";
 import SectionIntro from "./SectionIntro";
+
+interface FamilyMember {
+  /** Identity for `reconcile`: the guest id. */
+  key: string;
+  guestId: string;
+  firstName: string;
+  lastName: string;
+  events: string[];
+  plusOneAllowed?: boolean;
+  plusOneOf: string | null;
+}
+
 interface FamilyGroup {
+  /** Identity for `reconcile`: the household's code, which is what groups it. */
+  key: string;
   familyId: string;
   publicId: string;
   familyName: string;
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
   deactivatedAt: number | null;
-  members: { firstName: string; lastName: string; events: string[] }[];
+  members: FamilyMember[];
+}
+
+/** The guest rows grouped into households, each plus-one after the guest who
+ *  brought them. */
+function groupIntoFamilies(rows: readonly OrganiserGuestRow[]): FamilyGroup[] {
+  const map = new Map<string, FamilyGroup>();
+  for (const guest of rows) {
+    let family = map.get(guest.publicId);
+    if (!family) {
+      family = {
+        key: guest.publicId,
+        familyId: guest.familyId,
+        publicId: guest.publicId,
+        familyName: guest.familyName,
+        codeSharedAt: guest.codeSharedAt,
+        firstOpenedAt: guest.firstOpenedAt,
+        deactivatedAt: guest.deactivatedAt,
+        members: [],
+      };
+      map.set(guest.publicId, family);
+    }
+    family.members.push({
+      // A row always carries its id; the fallback only keeps two id-less rows
+      // from being taken for one.
+      key: guest.guestId ?? `${guest.publicId}#${family.members.length}`,
+      guestId: guest.guestId,
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      events: guest.events,
+      plusOneAllowed: guest.plusOneAllowed,
+      plusOneOf: guest.plusOneOf ?? null,
+    });
+  }
+  for (const family of map.values()) family.members = placePlusOnesAfterInviters(family.members);
+  return Array.from(map.values());
+}
+
+const fullName = (person: { firstName: string; lastName: string }) =>
+  `${person.firstName} ${person.lastName}`.trim();
+
+/** One plus-one a confirmation names, and whose they are. Carries the first
+ *  and last name exactly as the guest list served them: that is what the
+ *  removal sends back for the API to check against. */
+interface NamedPlusOne extends ConfirmedPlusOne {
+  name: string;
+  inviterName: string;
+}
+
+/** A turn-off that would delete named plus-ones, waiting on the organiser. */
+interface PendingRemoval {
+  scope: PlusOneScope;
+  /** The household, for the household-wide wording. */
+  familyName: string;
+  plusOnes: NamedPlusOne[];
+  /** Asked again because the household changed its plus-ones meanwhile. */
+  changed: boolean;
 }
 
 /** Friendly date for the "Opened" tooltip (e.g. "19 Jun 2026"). */
@@ -76,6 +175,10 @@ interface GuestTableProps {
    *  guest credential, so cutting one off (deactivate/reactivate) is owner-only
    *  — the API gates it with weddingOwner(), this just hides the buttons. */
   canManage: boolean;
+  /** Owner or editor? Who may bring a plus-one is an editor write (the API
+   *  gates it with weddingEditor()); anyone else sees each guest's switch
+   *  read-only and no household controls. Absent reads as read-only. */
+  canEdit?: boolean;
   /** Display name of the wedding — used in the copied invite message. */
   weddingName: string;
   /** URL slug of the wedding — the copied invite message links to this wedding's
@@ -128,30 +231,34 @@ export default function GuestTable(props: GuestTableProps) {
   const [togglingId, setTogglingId] = createSignal<string | null>(null);
   const [confirmingId, setConfirmingId] = createSignal<string | null>(null);
 
-  const families = createMemo(() => {
-    const map = new Map<string, FamilyGroup>();
-    for (const guest of guests()) {
-      let family = map.get(guest.publicId);
-      if (!family) {
-        family = {
-          familyId: guest.familyId,
-          publicId: guest.publicId,
-          familyName: guest.familyName,
-          codeSharedAt: guest.codeSharedAt,
-          firstOpenedAt: guest.firstOpenedAt,
-          deactivatedAt: guest.deactivatedAt,
-          members: [],
-        };
-        map.set(guest.publicId, family);
-      }
-      family.members.push({
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        events: guest.events,
-      });
-    }
-    return Array.from(map.values());
-  });
+  // Households live in a store that each new set of rows is RECONCILED into,
+  // keyed by household code and guest id, rather than rebuilt: a household or
+  // guest that is still there keeps its object, so `<For>` keeps its row and
+  // the DOM inside it. Rebuilding would remount every row on any change to the
+  // cached rows — a plus-one switch the organiser just pressed would leave the
+  // page, and focus with it.
+  const [families, setFamilies] = createStore<FamilyGroup[]>([]);
+  createComputed(() => setFamilies(reconcile(groupIntoFamilies(guests()), { key: "key" })));
+
+  // Whether the API serving this list knows about plus-ones (see
+  // `supportsPlusOnes`), and so whether the column shows at all.
+  const plusOnesShown = createMemo(() => supportsPlusOnes(guests()));
+  const canEdit = () => props.canEdit === true;
+  // The one plus-one write — or the reload that goes with one — in flight, by
+  // what it covers: `guest:<id>`, `family:<id>`. One at a time across the
+  // table, so a reload never lands over a write that finished after it read,
+  // and a household write never races one of its members'. A control asked
+  // for meanwhile does nothing, and a switch stays as it was.
+  const [plusOneBusy, setPlusOneBusy] = createSignal<string | null>(null);
+  // Which controls show the write as theirs. A selector, so a write re-renders
+  // only the switches it covers rather than every row in the roster; the lock
+  // itself is the check in `exclusively` and `requestPermission`.
+  const isBusy = createSelector(plusOneBusy);
+  const [pendingRemoval, setPendingRemoval] = createSignal<PendingRemoval | null>(null);
+  // What the dialog renders while it fades out: its body names people.
+  const shownRemoval = heldWhileClosing(pendingRemoval);
+  const removalTitleId = `plus-one-removal-title-${createUniqueId()}`;
+  const removalBodyId = `plus-one-removal-body-${createUniqueId()}`;
 
   // Free-text search over the already-loaded roster — the whole list is
   // fetched up front for this wedding (bounded by guest-list size, not
@@ -176,17 +283,17 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   // Membership only — which households have a match. Returns the ORIGINAL
-  // `family` references from `families()` unchanged (never a copy), so a
+  // `family` references from `families` unchanged (never a copy), so a
   // household whose visibility doesn't change between two searches keeps its
   // identity and `<For>` reuses its row instead of tearing it down and
   // remounting it. Which of a matched household's members are actually shown
   // is a separate, per-row computation below (`visibleMembers`).
   const visibleFamilies = createMemo(() => {
     const query = search().trim();
-    if (!query) return families();
+    if (!query) return families;
     const tokens = tokeniseQuery(query);
     const lowerQuery = query.toLowerCase();
-    return families().filter(
+    return families.filter(
       (family) =>
         householdMatches(family, tokens, lowerQuery) ||
         family.members.some((m) => tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens)),
@@ -204,6 +311,17 @@ export default function GuestTable(props: GuestTableProps) {
     return family.deactivatedAt !== null;
   };
 
+  /** The guest list, fresh from the API — the fetcher behind the guest cache. */
+  async function fetchGuests(): Promise<OrganiserGuestRow[]> {
+    const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthenticated");
+    }
+    if (!res.ok) throw new Error("Failed to load");
+    return (await res.json()) as OrganiserGuestRow[];
+  }
+
   onMount(async () => {
     try {
       // Guests + events both flow through their shared caches (one fetch each per
@@ -211,15 +329,7 @@ export default function GuestTable(props: GuestTableProps) {
       // for the chip map; a Schedule visit may already have them. The invite
       // message is a light per-mount read (no store — it's tiny + non-essential).
       const [, , inviteRes] = await Promise.all([
-        ensureGuestsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error("Failed to load");
-          return (await res.json()) as OrganiserGuestRow[];
-        }),
+        ensureGuestsLoaded(props.weddingId, fetchGuests),
         ensureEventsLoaded(props.weddingId, async () => {
           const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
           if (res.status === 401) {
@@ -358,7 +468,173 @@ export default function GuestTable(props: GuestTableProps) {
     }
   }
 
-  const hasGuests = () => families().length > 0;
+  // ── Plus-one permission ─────────────────────────────────────────────────
+  // Contract: `wiki/cire/cire-plus-ones.md`. Turning permission off where a
+  // plus-one is named deletes them with their replies, outside the change
+  // history, so it is never sent without the organiser having been shown who
+  // and said yes. The write carries the plus-ones the confirmation showed, and
+  // the API refuses it if the household has changed them since.
+
+  /** The plus-ones `scope` would delete, named with whose they are. Built from
+   *  the whole list, never the search-filtered rows. */
+  function namePlusOnes(rows: readonly OrganiserGuestRow[], scope: PlusOneScope): NamedPlusOne[] {
+    const byId = new Map(rows.map((row) => [row.guestId, row]));
+    return plusOnesRemovedBy(rows, scope).map((plusOne) => {
+      const inviter = plusOne.plusOneOf ? byId.get(plusOne.plusOneOf) : undefined;
+      return {
+        guestId: plusOne.guestId,
+        firstName: plusOne.firstName,
+        lastName: plusOne.lastName,
+        name: fullName(plusOne),
+        inviterName: inviter ? fullName(inviter) : "",
+      };
+    });
+  }
+
+  /** The household a scope sits in, for the wording. */
+  function familyNameOf(rows: readonly OrganiserGuestRow[], scope: PlusOneScope): string {
+    const row =
+      scope.kind === "guest"
+        ? rows.find((r) => r.guestId === scope.guestId)
+        : rows.find((r) => r.familyId === scope.familyId);
+    return row?.familyName ?? "";
+  }
+
+  const busyKey = (scope: PlusOneScope) =>
+    scope.kind === "guest" ? `guest:${scope.guestId}` : `family:${scope.familyId}`;
+
+  /** Run one plus-one write at a time; a second asked for meanwhile is dropped. */
+  async function exclusively(scope: PlusOneScope, work: () => Promise<void>) {
+    if (plusOneBusy() !== null) return;
+    setPlusOneBusy(busyKey(scope));
+    try {
+      await work();
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error("Could not change the plus-one setting. Try again.");
+    } finally {
+      setPlusOneBusy(null);
+    }
+  }
+
+  /** Read the guest list again. `null` when it could not be read — the error
+   *  is then on screen, in place of a list that would read as empty. */
+  async function reloadGuests(): Promise<OrganiserGuestRow[] | null> {
+    invalidateGuests(props.weddingId);
+    try {
+      const loaded = await ensureGuestsLoaded(props.weddingId, fetchGuests);
+      const rows = peekCachedGuests(props.weddingId);
+      if (!loaded || rows == null) throw new Error("guest list unavailable");
+      return rows;
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return null;
+      }
+      setError("Could not reload the guest list. Refresh to try again.");
+      return null;
+    }
+  }
+
+  /** Ask for the removal, naming everyone it deletes. */
+  function askToRemove(rows: readonly OrganiserGuestRow[], scope: PlusOneScope, changed: boolean) {
+    setPendingRemoval({
+      scope,
+      familyName: familyNameOf(rows, scope),
+      plusOnes: namePlusOnes(rows, scope),
+      changed,
+    });
+  }
+
+  /**
+   * Send one permission write and apply its answer. `remove` is the plus-ones
+   * the organiser confirmed, as the confirmation captured them; `null` for a
+   * write that confirms nobody.
+   */
+  async function sendPermission(
+    scope: PlusOneScope,
+    allowed: boolean,
+    remove: readonly NamedPlusOne[] | null,
+  ): Promise<void> {
+    const familyName = familyNameOf(guests(), scope);
+    const answer = await putPlusOnePermission(authFetch, props.weddingId, scope, allowed, remove);
+    switch (answer.kind) {
+      case "unauthenticated":
+        redirectToLogin();
+        return;
+      case "saved": {
+        const rows = peekCachedGuests(props.weddingId);
+        if (rows) setCachedGuests(props.weddingId, withPermission(rows, scope, allowed));
+        // A removal changes the household's guest count.
+        if (answer.removed > 0) invalidateHouseholds(props.weddingId);
+        // Fewer than confirmed is not an error: the household took one back
+        // meanwhile, and the API deletes only people on the confirmed list.
+        if (answer.removed > 0) {
+          toast.success(
+            answer.removed === 1 && remove?.length === 1
+              ? `Removed ${remove[0]!.name}`
+              : `Removed ${answer.removed} ${answer.removed === 1 ? "plus-one" : "plus-ones"}`,
+          );
+        }
+        if (scope.kind === "household") {
+          toast.success(
+            allowed
+              ? `Everyone in ${familyName} may bring a plus-one`
+              : `No one in ${familyName} may bring a plus-one`,
+          );
+        }
+        return;
+      }
+      case "named": {
+        // A plus-one in scope was not among those confirmed: named after this
+        // list was read, or swapped or renamed since the confirmation opened.
+        // Show who is there now, and ask.
+        const fresh = await reloadGuests();
+        if (!fresh) return;
+        if (plusOnesRemovedBy(fresh, scope).length > 0) askToRemove(fresh, scope, true);
+        else toast.error("The guest list changed. Try again.");
+        return;
+      }
+      case "refused":
+        if (answer.status === 404) {
+          await reloadGuests();
+          toast.error("That guest is no longer on the list.");
+        } else if (answer.status === 403) {
+          toast.error("Only the owner and editors can change plus-ones.");
+        } else {
+          toast.error("Could not change the plus-one setting. Try again.");
+        }
+        return;
+    }
+  }
+
+  /** A switch or household button asked for `allowed` on `scope`. */
+  function requestPermission(scope: PlusOneScope, allowed: boolean) {
+    if (!canEdit() || plusOneBusy() !== null) return;
+    if (!allowed && plusOnesRemovedBy(guests(), scope).length > 0) {
+      // Opened once the gesture has finished, not inside it: a switch pressed
+      // with a pointer asks for the change before it takes focus, and the
+      // dialog returns focus to whatever held it when it opened.
+      queueMicrotask(() => askToRemove(guests(), scope, false));
+      return;
+    }
+    void exclusively(scope, () => sendPermission(scope, allowed, null));
+  }
+
+  /**
+   * The organiser said yes to removing the plus-ones the dialog named. The
+   * write carries the dialog's own snapshot of them — never the list as it is
+   * now, which would confirm whoever the household has named since. If they
+   * have changed, the API refuses and the organiser is asked again.
+   */
+  function confirmRemoval() {
+    const pending = pendingRemoval();
+    if (!pending) return;
+    setPendingRemoval(null);
+    void exclusively(pending.scope, () => sendPermission(pending.scope, false, pending.plusOnes));
+  }
+
+  const hasGuests = () => families.length > 0;
 
   return (
     <div class="flex flex-col gap-8">
@@ -417,8 +693,8 @@ export default function GuestTable(props: GuestTableProps) {
       <Show when={!loading() && !error() && hasGuests()}>
         <div class="flex flex-wrap items-end justify-between gap-3">
           <p class="font-body text-text-muted text-ui-sm">
-            {guests().length} {guests().length === 1 ? "guest" : "guests"} across{" "}
-            {families().length} {families().length === 1 ? "household" : "households"}
+            {guests().length} {guests().length === 1 ? "guest" : "guests"} across {families.length}{" "}
+            {families.length === 1 ? "household" : "households"}
           </p>
           <Field label="Search guests" labelHidden class="w-full max-w-64">
             {(field) => (
@@ -446,6 +722,9 @@ export default function GuestTable(props: GuestTableProps) {
               <tr>
                 <Th>Guest Name</Th>
                 <Th>Events</Th>
+                <Show when={plusOnesShown()}>
+                  <Th>Plus-one</Th>
+                </Show>
                 <Th>Family Code</Th>
               </tr>
             </thead>
@@ -453,8 +732,8 @@ export default function GuestTable(props: GuestTableProps) {
               <For each={visibleFamilies()}>
                 {(family) => {
                   // Which of this household's members to show — reactive on
-                  // `search()` alone, so a keystroke that leaves this
-                  // household's own visibility unchanged (see
+                  // `search()` and the household's own members, so a keystroke
+                  // that leaves this household's own visibility unchanged (see
                   // `visibleFamilies` above) still updates its member rows
                   // without the outer `<For>` remounting the whole row.
                   const visibleMembers = createMemo(() => {
@@ -467,11 +746,21 @@ export default function GuestTable(props: GuestTableProps) {
                       tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens),
                     );
                   });
+                  // Counted over every member, whatever the search shows.
+                  const permission = createMemo(() => householdPermission(family.members));
+                  const householdScope: PlusOneScope = {
+                    kind: "household",
+                    familyId: family.familyId,
+                  };
+                  const inviterName = (member: FamilyMember) => {
+                    const inviter = family.members.find((m) => m.guestId === member.plusOneOf);
+                    return inviter ? fullName(inviter) : "";
+                  };
                   return (
                     <>
                       <tr>
                         <td
-                          colspan="3"
+                          colspan={plusOnesShown() ? 4 : 3}
                           class={`border-border bg-surface/50 border-b px-4 py-2 ${
                             isDeactivated(family) ? "opacity-50" : ""
                           }`}
@@ -517,6 +806,42 @@ export default function GuestTable(props: GuestTableProps) {
                               </Show>
                             </span>
                             <div class="flex flex-wrap items-center gap-2">
+                              {/* Editors only: these write. A viewer reads each
+                                  guest's switch instead. */}
+                              <Show when={plusOnesShown() && canEdit() && permission().total > 0}>
+                                <fieldset class="m-0 flex min-w-0 flex-wrap items-center gap-2 border-0 p-0">
+                                  <legend class="sr-only">
+                                    Plus-ones for the {family.familyName} household
+                                  </legend>
+                                  <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
+                                    Plus-ones: {permission().allowed} of {permission().total}
+                                  </span>
+                                  {/* `aria-disabled`, never `disabled`: the
+                                      button keeps focus through its own write
+                                      and stays reachable when it would change
+                                      nothing. */}
+                                  <Button
+                                    variant="quiet"
+                                    size="sm"
+                                    type="button"
+                                    aria-disabled={permission().allowed === permission().total}
+                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
+                                    onClick={() => requestPermission(householdScope, true)}
+                                  >
+                                    Allow everyone
+                                  </Button>
+                                  <Button
+                                    variant="quiet"
+                                    size="sm"
+                                    type="button"
+                                    aria-disabled={permission().allowed === 0}
+                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
+                                    onClick={() => requestPermission(householdScope, false)}
+                                  >
+                                    Allow no one
+                                  </Button>
+                                </fieldset>
+                              </Show>
                               <Button
                                 variant="quiet"
                                 size="sm"
@@ -597,6 +922,12 @@ export default function GuestTable(props: GuestTableProps) {
                           <tr class="hover:[&>td]:bg-surface">
                             <Td valign="middle" indent>
                               {member.firstName} {member.lastName}
+                              <Show when={isPlusOne(member)}>
+                                {" "}
+                                <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
+                                  Plus-one of {inviterName(member) || "another guest"}
+                                </span>
+                              </Show>
                             </Td>
                             <Td valign="middle">
                               <div class="flex flex-wrap gap-1.5">
@@ -615,6 +946,30 @@ export default function GuestTable(props: GuestTableProps) {
                                 </Show>
                               </div>
                             </Td>
+                            <Show when={plusOnesShown()}>
+                              <Td valign="middle">
+                                {/* A plus-one cannot bring one, so their row
+                                    has no switch. */}
+                                <Show when={!isPlusOne(member)}>
+                                  <Switch
+                                    checked={member.plusOneAllowed === true}
+                                    label={`${fullName(member)} may bring a plus-one`}
+                                    labelHidden
+                                    readOnly={!canEdit()}
+                                    busy={
+                                      isBusy(`guest:${member.guestId}`) ||
+                                      isBusy(busyKey(householdScope))
+                                    }
+                                    onChange={(allowed) =>
+                                      requestPermission(
+                                        { kind: "guest", guestId: member.guestId },
+                                        allowed,
+                                      )
+                                    }
+                                  />
+                                </Show>
+                              </Td>
+                            </Show>
                             <Td tone="muted" valign="middle" code>
                               <Show when={index() === 0}>{family.publicId}</Show>
                             </Td>
@@ -629,6 +984,122 @@ export default function GuestTable(props: GuestTableProps) {
           </Table>
         </Show>
       </Show>
+
+      {/* Asks before a turn-off that deletes named plus-ones. `onClose` is the
+          one place the pending removal is dropped: the dialog also closes on
+          Escape and a backdrop click. It opens on Cancel, and closing hands
+          focus back to the control that asked. */}
+      <Modal
+        open={pendingRemoval() !== null}
+        onClose={() => setPendingRemoval(null)}
+        labelledBy={removalTitleId}
+        class="w-full max-w-md"
+      >
+        <Show when={shownRemoval()}>
+          {(removal) => {
+            // The body mounts just after `showModal()` has run, which by then
+            // has found nothing inside to focus and focused the dialog itself.
+            // So Cancel takes focus here; `autofocus` covers a reopen during the
+            // exit, when the body is still mounted as the dialog opens.
+            let cancel: HTMLButtonElement | undefined;
+            onMount(() => cancel?.focus());
+            const single = () =>
+              removal().scope.kind === "guest" && removal().plusOnes.length === 1
+                ? removal().plusOnes[0]!
+                : null;
+            return (
+              <div class="flex flex-col gap-4">
+                <p id={removalTitleId} class="font-display text-text text-ui-md font-light">
+                  <Show
+                    when={single()}
+                    fallback={<>Turn off plus-ones for {removal().familyName}?</>}
+                  >
+                    {(plusOne) => <>Remove {plusOne().name}?</>}
+                  </Show>
+                </p>
+                <Show when={removal().changed}>
+                  <Notice tone="warn">
+                    The household has changed its plus-ones since the list loaded. Check who this
+                    removes now.
+                  </Notice>
+                </Show>
+                <div id={removalBodyId} class="flex flex-col gap-2">
+                  <Show
+                    when={single()}
+                    fallback={
+                      <>
+                        <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                          This removes{" "}
+                          {removal().plusOnes.length === 1
+                            ? "the plus-one"
+                            : `the ${removal().plusOnes.length} plus-ones`}{" "}
+                          the household has named from the guest list, with any replies they have
+                          given. This cannot be undone.
+                        </p>
+                        <ul class="font-body text-text text-ui-sm list-disc pl-5">
+                          <For each={removal().plusOnes}>
+                            {(plusOne) => (
+                              <li>
+                                {plusOne.name}
+                                <Show when={plusOne.inviterName}>
+                                  {(inviter) => (
+                                    <span class="text-text-muted"> — {inviter()}’s plus-one</span>
+                                  )}
+                                </Show>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </>
+                    }
+                  >
+                    {(plusOne) => (
+                      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                        {plusOne().inviterName || "Their guest"} named {plusOne().name} as their
+                        plus-one. Turning this off removes {plusOne().name} from the guest list,
+                        with any replies they have given. This cannot be undone.
+                      </p>
+                    )}
+                  </Show>
+                </div>
+                <div class="flex flex-wrap justify-end gap-2">
+                  {/* First, and focused on opening: the safe answer is the
+                      one under the keyboard. */}
+                  <Button
+                    ref={cancel}
+                    variant="quiet"
+                    type="button"
+                    autofocus
+                    onClick={() => setPendingRemoval(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    type="button"
+                    aria-describedby={removalBodyId}
+                    onClick={confirmRemoval}
+                  >
+                    <Show
+                      when={single()}
+                      fallback={
+                        <>
+                          Turn off and remove{" "}
+                          {removal().plusOnes.length === 1
+                            ? removal().plusOnes[0]!.name
+                            : removal().plusOnes.length}
+                        </>
+                      }
+                    >
+                      {(plusOne) => <>Remove {plusOne().name}</>}
+                    </Show>
+                  </Button>
+                </div>
+              </div>
+            );
+          }}
+        </Show>
+      </Modal>
     </div>
   );
 }

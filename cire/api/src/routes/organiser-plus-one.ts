@@ -1,0 +1,169 @@
+import { Effect, Schema } from "effect";
+import { Elysia } from "elysia";
+
+import { DbService } from "../db";
+import type { Db } from "../db";
+import { osnAuth } from "../middleware/osn-auth";
+import type { OsnAuthOptions } from "../middleware/osn-auth";
+import { weddingEditor } from "../middleware/wedding-editor";
+import { runCire } from "../observability";
+import { PlusOneNameBody, PlusOnePermissionBody } from "../schemas/plus-one";
+import { plusOneService } from "../services/plus-one";
+
+// Sentinel parse hook — same idiom as the other organiser PUT routes: the
+// handler parses by hand so a malformed payload degrades to the schema's 400.
+const manualParse = { parse: () => ({}) };
+
+const ORGANISER_REFUSALS = {
+  PlusOneGuestNotFound: { status: 404, error: "guest_not_found" },
+  PlusOneFamilyNotFound: { status: 404, error: "family_not_found" },
+  PlusOneCannotInvite: { status: 409, error: "plus_one_cannot_invite" },
+  PlusOneNamed: { status: 409, error: "plus_one_named" },
+  PlusOneNotFound: { status: 404, error: "plus_one_not_found" },
+} as const;
+
+/**
+ * The refusal body for a service failure. `plus_one_named` also says how many
+ * plus-ones are named in scope now, so the portal can show them again and ask.
+ */
+function refuse(
+  e: { readonly _tag: keyof typeof ORGANISER_REFUSALS; readonly named?: number },
+  set: { status?: number | string },
+): { error: string; named?: number } {
+  const refusal = ORGANISER_REFUSALS[e._tag];
+  set.status = refusal.status;
+  return e.named === undefined
+    ? { error: refusal.error }
+    : { error: refusal.error, named: e.named };
+}
+
+/**
+ * Who may bring a plus-one ([[wiki/cire/cire-plus-ones]]):
+ *
+ *   PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one
+ *   PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one
+ *       { allowed, removePlusOnes?: [{ guestId, firstName, lastName }] }
+ *
+ *   PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name
+ *       { firstName, lastName? }
+ *
+ * The first sets one guest's permission; the second sets it for every member of
+ * a household. The third corrects the name of the plus-one `:guestId` brought —
+ * the one organiser write to a plus-one's own row, there so a name can be put
+ * right after the deadline has locked the household out.
+ *
+ * Turning permission off where a plus-one is named deletes that plus-one and
+ * their replies, outside the change history (no preview, no revert). So it is
+ * never implied by `allowed: false`: the body lists the plus-ones the organiser
+ * was shown and confirmed, by id and name as `GET …/guests` served them, and the
+ * write goes through only if every plus-one in scope is on that list. Otherwise
+ * — nobody listed, or a plus-one named or renamed since the organiser looked —
+ * nothing is written and the answer is 409 `plus_one_named` with the number now
+ * named, so the portal can show them again and ask.
+ *
+ * Gated `weddingEditor()`, like every guest-list write: owner or editor; a
+ * viewer gets 403 `read_only_role`. The service re-checks the guest or household
+ * in wedding scope. The RSVP deadline does not gate these — the organiser owns
+ * the date, as on the organiser RSVP route.
+ */
+export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
+        .put(
+          "/guests/:guestId/plus-one",
+          async ({ weddingId, params, request, set }) => {
+            // weddingEditor() always derives this; the guard keeps a future
+            // remount without the plugin from compiling into an unscoped write.
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
+                return yield* plusOneService.setGuestPermission({
+                  weddingId,
+                  guestId: params.guestId,
+                  allowed: body.allowed,
+                  removePlusOnes: body.removePlusOnes,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catch((e) => Effect.sync(() => refuse(e, set))),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .put(
+          "/families/:familyId/plus-one",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
+                return yield* plusOneService.setHouseholdPermission({
+                  weddingId,
+                  familyId: params.familyId,
+                  allowed: body.allowed,
+                  removePlusOnes: body.removePlusOnes,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catch((e) => Effect.sync(() => refuse(e, set))),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .put(
+          "/guests/:guestId/plus-one/name",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(PlusOneNameBody)(raw);
+                return yield* plusOneService.renameAsOrganiser({
+                  weddingId,
+                  inviterGuestId: params.guestId,
+                  name: body,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catch((e) => Effect.sync(() => refuse(e, set))),
+              ),
+            );
+          },
+          manualParse,
+        ),
+    );

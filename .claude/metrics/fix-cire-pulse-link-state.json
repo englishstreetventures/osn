@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1231,
+    "branch": "fix/cire-pulse-link-state",
+    "base_sha": "2e61a3fafb64748790252e2626e038b872ada62a",
+    "head_sha": "3c052078f9bf2567bf14a6bb01e7e1feabcc35b2",
+    "generated_at": "2026-09-26T12:01:01.328Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": [
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-09-26T01:29:24.973Z",
+    "last_ts": "2026-09-26T12:00:59.217Z",
+    "span_seconds": 37894,
+    "active_seconds": 4729,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 54.7320689,
+    "tokens": {
+      "input": 939,
+      "output": 40025,
+      "thinking": 13,
+      "cache_write_5m": 2945007,
+      "cache_write_1h": 0,
+      "cache_read": 95788979
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 97,
+          "output": 30961,
+          "thinking": 0,
+          "cache_write_5m": 332912,
+          "cache_write_1h": 0,
+          "cache_read": 3161443
+        },
+        "usd_equivalent": 4.435931499999999,
+        "messages": 67
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 842,
+          "output": 9064,
+          "thinking": 13,
+          "cache_write_5m": 2612095,
+          "cache_write_1h": 0,
+          "cache_read": 92627536
+        },
+        "usd_equivalent": 50.29613739999998,
+        "messages": 417
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 97,
+          "output": 30961,
+          "thinking": 0,
+          "cache_write_5m": 332912,
+          "cache_write_1h": 0,
+          "cache_read": 3161443
+        },
+        "usd_equivalent": 4.435931499999999,
+        "messages": 67
+      },
+      "subagent": {
+        "tokens": {
+          "input": 842,
+          "output": 9064,
+          "thinking": 13,
+          "cache_write_5m": 2612095,
+          "cache_write_1h": 0,
+          "cache_read": 92627536
+        },
+        "usd_equivalent": 50.29613739999998,
+        "messages": 420
+      }
+    },
+    "effort": {
+      "xhigh": 366,
+      "high": 51
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 16,
+      "docs": 4,
+      "config": 0,
+      "source": 14
+    },
+    "loc": {
+      "generated": {
+        "added": 27,
+        "deleted": 0
+      },
+      "test": {
+        "added": 960,
+        "deleted": 206
+      },
+      "docs": {
+        "added": 95,
+        "deleted": 80
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 560,
+        "deleted": 313
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/invites",
+      "shared/feature-flags"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 381,
+      "Read": 59,
+      "Edit": 28,
+      "Write": 9,
+      "Grep": 9,
+      "Skill": 6,
+      "Agent": 6,
+      "StructuredOutput": 6,
+      "SubagentHandback": 4,
+      "ToolSearch": 2,
+      "WebSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 12
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 5
+    }
+  }
+}
