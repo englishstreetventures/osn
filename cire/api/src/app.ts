@@ -35,6 +35,10 @@ import {
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
 import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
+import {
+  createOrganiserRsvpChangeReadRoutes,
+  createOrganiserRsvpChangeWriteRoutes,
+} from "./routes/organiser-rsvp-changes";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
   createOrganiserExportRoutes,
@@ -812,6 +816,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'`. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // Guest-side RSVP changes since each organiser last looked, their read
+      // marker, and their daily digest switch. Feed + marker admit every role
+      // that reads RSVPs (weddingMember); the switch is editor or owner
+      // (weddingEditor), the roles the digest goes to. Sibling instances, as
+      // for tasks below.
+      .use(createOrganiserRsvpChangeReadRoutes(db, osnAuthOptions))
+      .use(createOrganiserRsvpChangeWriteRoutes(db, osnAuthOptions))
       // Checklist tasks (platform Phase 1). Reads admit any member role
       // (weddingMember); writes require editor or owner (weddingEditor; viewer
       // gets 403 read_only_role). Split into sibling instances so the read gate
