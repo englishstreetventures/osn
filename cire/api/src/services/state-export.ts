@@ -1,5 +1,5 @@
 import { events, families, guestEvents, guests } from "@cire/db";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -128,6 +128,12 @@ export const stateExportService = {
       const snapshot = fidelity === "snapshot";
 
       const householdScope = and(eq(families.weddingId, weddingId), ne(families.kind, "host"));
+      // Plus-ones are the household's data, not the organiser's sheet, and the
+      // diff never matches one ([[cire-plus-ones]]). Left in, a round trip would
+      // re-import each as a new organiser guest, and a revert would read them
+      // as part of the before-image. On the snapshot's LEFT JOIN a guest-less
+      // household has a NULL here too, so it still comes back once.
+      const guestScope = and(householdScope, isNull(guests.plusOneOfGuestId));
       const guestColumns = {
         guestId: guests.id,
         firstName: guests.firstName,
@@ -162,7 +168,7 @@ export const stateExportService = {
                   .select(guestColumns)
                   .from(families)
                   .leftJoin(guests, eq(guests.familyId, families.id))
-                  .where(householdScope)
+                  .where(guestScope)
                   .all(),
               )
             : dbQuery(() =>
@@ -170,7 +176,7 @@ export const stateExportService = {
                   .select(guestColumns)
                   .from(guests)
                   .innerJoin(families, eq(guests.familyId, families.id))
-                  .where(householdScope)
+                  .where(guestScope)
                   .all(),
               ),
           // Wedding-scoped through guests → families, mirroring the import diff —
@@ -181,7 +187,7 @@ export const stateExportService = {
               .from(guestEvents)
               .innerJoin(guests, eq(guestEvents.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
-              .where(householdScope)
+              .where(guestScope)
               .all(),
           ),
         ],

@@ -17,11 +17,17 @@ import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
-import { type AccountLinkGate, claimService, InvalidCredentials } from "../../src/services/claim";
+import {
+  type AccountLinkGate,
+  claimService,
+  InvalidCredentials,
+  withPlusOnesAfterInviters,
+} from "../../src/services/claim";
 import { hostCodeService } from "../../src/services/host-code";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
 function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
@@ -812,4 +818,90 @@ describe("claim payload account-link state", () => {
       }),
     ),
   );
+});
+
+describe("plus-ones in the claim payload and the organiser guest read", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    return { db, bo, samId, run };
+  };
+
+  it("lists the plus-one straight after the member who brought them", async () => {
+    const { db, bo, samId, run } = setUp();
+    // Reorder the household so Bo is last: the plus-one still follows Bo, not
+    // the stale sort order copied when they were named.
+    db.update(guests).set({ sortOrder: 9 }).where(eq(guests.id, bo.id)).run();
+
+    const claim = await run(claimService.lookup("TESTTWO-OAK-BB22"));
+    const order = claim.members.map((m) => m.firstName);
+    expect(order).toEqual(["Cleo", "Dot", "Bo", "Sam"]);
+
+    const sam = claim.members.find((m) => m.guestId === samId)!;
+    expect(sam).toMatchObject({ plusOneOf: bo.id, plusOneAllowed: false, lastName: "Guest" });
+    expect(sam.eventIds.toSorted()).toEqual(eventIdsOf(db, bo.id));
+    expect(claim.members.find((m) => m.guestId === bo.id)).toMatchObject({
+      plusOneAllowed: true,
+      plusOneOf: null,
+    });
+  });
+
+  it("carries both fields on every organiser guest row", async () => {
+    const { bo, samId, run } = setUp();
+    const rows = await run(claimService.getAllGuests(BOOTSTRAP_WEDDING_ID));
+    expect(rows.find((r) => r.guestId === samId)).toMatchObject({
+      plusOneOf: bo.id,
+      plusOneAllowed: false,
+    });
+    expect(rows.find((r) => r.guestId === bo.id)).toMatchObject({
+      plusOneOf: null,
+      plusOneAllowed: true,
+    });
+    const ada = rows.find((r) => r.firstName === "Ada")!;
+    expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
+});
+
+describe("plus-ones in the organiser household counts", () => {
+  it("counts a named plus-one in their household, and a permission alone not at all", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const count = async () =>
+      (await run(claimService.getAllHouseholds(BOOTSTRAP_WEDDING_ID))).find(
+        (h) => h.familyId === bo.familyId,
+      )!.guestCount;
+    const before = await count();
+
+    allowPlusOne(db, bo.id);
+    expect(await count()).toBe(before);
+
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    expect(await count()).toBe(before + 1);
+  });
+});
+
+describe("withPlusOnesAfterInviters", () => {
+  const m = (guestId: string, plusOneOf: string | null = null) => ({ guestId, plusOneOf });
+
+  it("moves each plus-one to sit right after their inviter", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("b"), m("q", "a"), m("p", "b")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "b", "p"]);
+  });
+
+  it("keeps a plus-one whose inviter is not in the list, where it was", () => {
+    const out = withPlusOnesAfterInviters([m("a"), m("p", "gone"), m("b"), m("q", "a")]);
+    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "p", "b"]);
+  });
+
+  it("leaves a household with no plus-one as it is", () => {
+    const members = [m("a"), m("b")];
+    expect(withPlusOnesAfterInviters(members)).toEqual(members);
+  });
 });

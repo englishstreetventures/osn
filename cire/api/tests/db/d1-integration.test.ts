@@ -36,6 +36,7 @@ import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
+import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
@@ -43,6 +44,7 @@ import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { organiserSessionService } from "../../src/services/organiser-session";
+import { plusOneService } from "../../src/services/plus-one";
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
@@ -59,6 +61,7 @@ import { tasksService } from "../../src/services/tasks";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
+const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -910,6 +913,226 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "a double submit over D1 names one plus-one and copies the inviter's invitations once",
+    async () => {
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      // Both calls may read "no plus-one yet" before either writes: the loser's
+      // guest insert is skipped by the one-per-guest index, and its invitation
+      // copy — which reaches the new id only through that row — copies nothing
+      // instead of failing the batch on a foreign key.
+      const results = await Promise.all([
+        run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" })),
+        run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" })),
+      ]);
+      const rows = await db.select().from(guests).where(eq(guests.plusOneOfGuestId, GUEST_1));
+      expect(rows).toHaveLength(1);
+      expect(results.map((r) => r.plusOne.guestId)).toEqual([rows[0]!.id, rows[0]!.id]);
+      expect(results.filter((r) => r.created)).toHaveLength(1);
+      const links = await db
+        .select({ eventId: guestEvents.eventId })
+        .from(guestEvents)
+        .where(eq(guestEvents.guestId, rows[0]!.id));
+      expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep counts a plus-one once, cascade or not",
+    async () => {
+      await db
+        .update(events)
+        .set({ startAt: "2025-03-01T10:00:00+11:00", endAt: "2025-03-01T12:00:00+11:00" });
+      const now = new Date();
+      await db.insert(guests).values({
+        id: "g_plus",
+        familyId: FAMILY_ID,
+        firstName: "Sam",
+        sortOrder: 0,
+        source: "manual",
+        plusOneOfGuestId: GUEST_1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deleted = await run(
+        retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z")),
+      );
+      expect(deleted).toBe(3);
+      expect(await db.select().from(guests)).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  /** A plus-one of `inviterId` in the test household, invited to the inviter's
+   *  events and with a reply, so a delete of them has a cascade to take. */
+  async function seedPlusOneOnD1(
+    id: string,
+    inviterId: string,
+    name: { firstName: string; lastName: string },
+  ): Promise<void> {
+    const now = new Date();
+    await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, inviterId));
+    await db.insert(guests).values({
+      id,
+      familyId: FAMILY_ID,
+      ...name,
+      sortOrder: 0,
+      source: "manual",
+      plusOneOfGuestId: inviterId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(guestEvents).values({ guestId: id, eventId: EVENT_A });
+    await db.insert(rsvps).values({
+      id: `r_${id}`,
+      guestId: id,
+      eventId: EVENT_A,
+      status: "attending",
+      consentSource: "inviter_attested",
+      createdAt: now,
+    });
+  }
+
+  const householdOff = (
+    removePlusOnes: { guestId: string; firstName: string; lastName: string }[],
+  ) =>
+    plusOneService.setHouseholdPermission({
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      familyId: FAMILY_ID,
+      allowed: false,
+      removePlusOnes,
+    });
+
+  it(
+    "a confirmed household removal over D1 deletes the plus-ones and counts them, not their cascade",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+
+      const result = await run(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+        ]),
+      );
+      expect(result).toEqual({
+        familyId: FAMILY_ID,
+        plusOneAllowed: false,
+        guestsUpdated: 2,
+        plusOnesRemoved: 2,
+      });
+      const left = await db.select({ id: guests.id, allowed: guests.plusOneAllowed }).from(guests);
+      expect(left.toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: GUEST_1, allowed: false },
+        { id: GUEST_2, allowed: false },
+      ]);
+      expect(await db.select().from(rsvps)).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a household removal over D1 whose plus-one was renamed since writes nothing",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+      await db.update(guests).set({ firstName: "Kit" }).where(eq(guests.id, "g_pat"));
+
+      const exit = await Effect.runPromiseExit(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+        ]).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause)),
+      ).toMatchObject({ _tag: "PlusOneNamed", named: 2 });
+      const rows = await db
+        .select({ id: guests.id, allowed: guests.plusOneAllowed })
+        .from(guests)
+        .where(eq(guests.familyId, FAMILY_ID));
+      expect(rows.map((r) => r.id).toSorted()).toEqual(
+        [GUEST_1, GUEST_2, "g_pat", "g_sam"].toSorted(),
+      );
+      expect(rows.filter((r) => r.id === GUEST_1 || r.id === GUEST_2).every((r) => r.allowed)).toBe(
+        true,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a confirmed removal over D1 takes the largest list the body allows",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      await seedPlusOneOnD1("g_pat", GUEST_2, { firstName: "Pat", lastName: "" });
+      const long = "x".repeat(PLUS_ONE_NAME_MAX);
+      // The two real plus-ones, then filler at every field's longest, so the
+      // one bound `json_each` parameter is as large as the schema lets it be.
+      const filler = Array.from({ length: PLUS_ONE_REMOVALS_MAX - 2 }, (_, i) => ({
+        guestId: `${i}`.padStart(64, "g"),
+        firstName: long,
+        lastName: long,
+      }));
+      const result = await run(
+        householdOff([
+          { guestId: "g_sam", firstName: "Sam", lastName: "Lee" },
+          { guestId: "g_pat", firstName: "Pat", lastName: "" },
+          ...filler,
+        ]),
+      );
+      expect(result.plusOnesRemoved).toBe(2);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "one guest's confirmed removal over D1, under a name JSON has to escape",
+    async () => {
+      const name = { firstName: 'Jo "JJ" Zoë', lastName: "back\\slash 🎉" };
+      await seedPlusOneOnD1("g_jo", GUEST_1, name);
+      const result = await run(
+        plusOneService.setGuestPermission({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: GUEST_1,
+          allowed: false,
+          removePlusOnes: [{ guestId: "g_jo", ...name }],
+        }),
+      );
+      expect(result).toEqual({ guestId: GUEST_1, plusOneAllowed: false, plusOneRemoved: true });
+      expect(await db.select().from(guests).where(eq(guests.id, "g_jo"))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "turning one guest off over D1 is refused inside the write while their plus-one is named",
+    async () => {
+      await seedPlusOneOnD1("g_sam", GUEST_1, { firstName: "Sam", lastName: "Lee" });
+      const exit = await Effect.runPromiseExit(
+        plusOneService
+          .setGuestPermission({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            guestId: GUEST_1,
+            allowed: false,
+            removePlusOnes: [],
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause)),
+      ).toMatchObject({ _tag: "PlusOneNamed", named: 1 });
+      const [inviter] = await db
+        .select({ allowed: guests.plusOneAllowed })
+        .from(guests)
+        .where(eq(guests.id, GUEST_1));
+      expect(inviter?.allowed).toBe(true);
+      expect(await db.select().from(guests).where(eq(guests.id, "g_sam"))).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "sets and reads the invite's section switches over async D1",
     async () => {
       await db.delete(weddingInviteCustomisations);
@@ -1016,6 +1239,66 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(rows).toEqual([
         { weddingId: "wed_d1_blank", hero: false, story: false, footer: false },
         { weddingId: "wed_d1_full", hero: true, story: true, footer: true },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0065 on D1's own SQLite: every section on, the FAQ switch kept",
+    async () => {
+      const statements = migrationStatements(MIGRATION_0065);
+      expect(statements).toHaveLength(1);
+
+      await db.delete(weddingInviteCustomisations);
+      const stamp = new Date();
+      await db.insert(weddings).values([
+        {
+          id: "wed_d1_off",
+          slug: "d1-off",
+          displayName: "Off",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+        {
+          id: "wed_d1_on",
+          slug: "d1-on",
+          displayName: "On",
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      ]);
+      await db.insert(weddingInviteCustomisations).values([
+        {
+          weddingId: "wed_d1_off",
+          heroVisible: false,
+          storyVisible: false,
+          footerVisible: false,
+          faqVisible: false,
+          updatedAt: stamp,
+        },
+        { weddingId: "wed_d1_on", faqVisible: false, updatedAt: stamp },
+      ]);
+
+      const result = await d1.prepare(statements[0]!).run();
+      // Only the row with a switch off is written.
+      expect(result.meta.changes).toBe(1);
+
+      const rows = await db
+        .select({
+          weddingId: weddingInviteCustomisations.weddingId,
+          hero: weddingInviteCustomisations.heroVisible,
+          story: weddingInviteCustomisations.storyVisible,
+          footer: weddingInviteCustomisations.footerVisible,
+          faq: weddingInviteCustomisations.faqVisible,
+        })
+        .from(weddingInviteCustomisations)
+        .orderBy(asc(weddingInviteCustomisations.weddingId));
+      expect(rows).toEqual([
+        { weddingId: "wed_d1_off", hero: true, story: true, footer: true, faq: false },
+        { weddingId: "wed_d1_on", hero: true, story: true, footer: true, faq: false },
       ]);
     },
     MF_TIMEOUT_MS,

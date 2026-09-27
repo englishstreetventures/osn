@@ -43,9 +43,21 @@ vi.mock("../../src/components/GuestsEditor", () => ({
 // The three leaves that carry the invite-message links render the slot, so the
 // shell's own links — the real component, wired to the shell's navigation — are
 // clickable here. An optional slot dropped from the shell is otherwise silent.
+// Surfaces both role flags too: the plus-one switches follow `canEdit` and the
+// code controls `canManage`, and passing one where the other belongs would
+// type-check.
 vi.mock("../../src/components/GuestTable", () => ({
-  default: (p: { weddingId: string; inviteMessageLinks?: JSX.Element }) => (
-    <div data-testid="guests">
+  default: (p: {
+    weddingId: string;
+    canManage: boolean;
+    canEdit?: boolean;
+    inviteMessageLinks?: JSX.Element;
+  }) => (
+    <div
+      data-testid="guests"
+      data-can-manage={String(p.canManage)}
+      data-can-edit={String(p.canEdit)}
+    >
       {p.weddingId}
       {p.inviteMessageLinks}
     </div>
@@ -418,6 +430,18 @@ describe("ModuleShell", () => {
       renderShell({ canManage: false, canEdit: false, module: "invite", sub: "design" });
       expect(screen.queryByTestId("invite-design")).toBeNull();
       expect(screen.getByText(/view-only access/i)).toBeTruthy();
+    });
+
+    it("gives the guest list the viewer's read-only plus-one switches", () => {
+      renderShell({ canManage: false, canEdit: false, module: "guests", sub: "list" });
+      expect(screen.getByTestId("guests").dataset.canEdit).toBe("false");
+    });
+
+    it("gives an editor who is not the owner the plus-one switches but not the codes", () => {
+      renderShell({ canManage: false, canEdit: true, module: "guests", sub: "list" });
+      const guests = screen.getByTestId("guests");
+      expect(guests.dataset.canEdit).toBe("true");
+      expect(guests.dataset.canManage).toBe("false");
     });
 
     it("still gives a viewer the read RSVPs view", () => {

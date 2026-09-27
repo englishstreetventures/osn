@@ -322,15 +322,16 @@ serving at its public URL, which the builder's own thumbnail loads, so the
 builder's switched-off line says that switching off hides the section but does
 not make its photo private.
 
-**Existing weddings.** Migration `0063_invite_section_visibility.sql` gave each
-existing row the switch its emptiness check gave at the time — content ⇒ on, no
-content ⇒ off — so an existing wedding whose closing section was empty has it
-switched off, and filling it in later shows nothing until the organiser switches
-it on. The FAQ's switch (`0064`) has no backfill and defaults on: no wedding had
-entries when it landed, so every invite read "switched on, empty" and rendered
-as before, and a couple's first question shows without a second step. Rows
-created afterwards, and a wedding with no customisation row, start with every
-switch on, as does the dev seed (the column default).
+**Existing weddings.** A switch reads off only when an organiser switched it off.
+Migration `0063_invite_section_visibility.sql` fills the hero, story and closing
+switches from each section's emptiness check, which leaves a blank section
+switched off; `0065_invite_sections_switched_on.sql` then turns every one of
+those switches on. So a blank section on an existing wedding reads "Hidden —
+empty" in the builder, renders nothing for guests, and shows as soon as the
+couple fills it in, with no second step. The FAQ's switch (`0064`) has no
+backfill and defaults on: no wedding had entries when it landed, so a couple's
+first question shows the same way. New rows, a wedding with no customisation
+row, and the dev seed start with every switch on (the column default).
 
 **Adding a switchable section** (the FAQ followed these steps):
 
@@ -723,8 +724,9 @@ hero-display columns are NOT NULL with defaults that reproduce today's look, so 
 forward-only `ADD COLUMN` needs no backfill and an un-customised wedding renders
 unchanged. The three visibility switches `hero_visible`, `story_visible` and
 `footer_visible` (`0063_invite_section_visibility.sql`) are **NOT NULL DEFAULT 1**
-booleans; 0063 also back-filled each existing row from its emptiness check (see
-[[#Conditional segments and visibility switches]]). The FAQ's switch
+booleans; 0063 also back-fills each existing row from its emptiness check, and
+`0065_invite_sections_switched_on.sql` then sets all three to 1 on every row
+that has one off (see [[#Conditional segments and visibility switches]]). The FAQ's switch
 `faq_visible` (`0064_invite_faq.sql`) is the same kind of column, with no
 backfill. Image columns store **R2
 object keys**, not URLs (mirrors how `imports` stores its CSV keys). The theme + hero-display ride the **same row + same read

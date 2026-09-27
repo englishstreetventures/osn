@@ -1,7 +1,16 @@
 import { describe, expect, it } from "bun:test";
 
+import { guests } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
+import { eq } from "drizzle-orm";
+
 import type { Db } from "../../src/db/index";
-import { commitGroupedBatches, MAX_STATEMENTS_PER_BATCH } from "../../src/db/index";
+import {
+  commitBatchResults,
+  commitGroupedBatches,
+  MAX_STATEMENTS_PER_BATCH,
+} from "../../src/db/index";
+import { createDb, seedDb } from "../../src/db/setup";
 
 // commitGroupedBatches packs whole statement-groups into batches under D1's
 // per-batch statement ceiling. These tests drive it with a fake batchable db
@@ -46,5 +55,49 @@ describe("commitGroupedBatches", () => {
     const sizes: number[] = [];
     await commitGroupedBatches(fakeBatchDb(sizes), []);
     expect(sizes).toEqual([]);
+  });
+});
+
+describe("commitBatchResults", () => {
+  it("hands every statement to ONE batch and returns its results in order", async () => {
+    const seen: unknown[][] = [];
+    const db = {
+      batch: (statements: unknown[]) => {
+        seen.push(statements);
+        return Promise.resolve(statements.map((_, i) => `result ${i}`));
+      },
+    } as unknown as Db;
+    const statements = group(3);
+    expect(await commitBatchResults(db, statements as never)).toEqual([
+      "result 0",
+      "result 1",
+      "result 2",
+    ]);
+    expect(seen).toEqual([statements]);
+  });
+
+  it("sends nothing for an empty list, which D1 would refuse", async () => {
+    const seen: unknown[] = [];
+    const db = {
+      batch: (statements: unknown[]) => {
+        seen.push(statements);
+        return Promise.resolve([]);
+      },
+    } as unknown as Db;
+    expect(await commitBatchResults(db, [])).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it("on bun:sqlite, runs the statements in order and returns each one's result", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const [bo] = db.select({ id: guests.id }).from(guests).where(eq(guests.firstName, "Bo")).all();
+    const results = await commitBatchResults(db, [
+      db.update(guests).set({ nickname: "B" }).where(eq(guests.id, bo!.id)),
+      // Runs after the update, so it reads the value the update wrote.
+      db.select({ nickname: guests.nickname }).from(guests).where(eq(guests.id, bo!.id)),
+    ]);
+    expect(rowsChanged(results[0])).toBe(1);
+    expect(results[1]).toEqual([{ nickname: "B" }]);
   });
 });
