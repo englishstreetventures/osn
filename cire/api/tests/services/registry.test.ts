@@ -29,6 +29,7 @@ import {
   StripeNotReady,
   toEpochSeconds,
 } from "../../src/services/registry";
+import { recordStatements } from "../test-helpers";
 
 const OTHER = "wed_other";
 
@@ -1217,6 +1218,45 @@ describe("gift log paging", () => {
     const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
     expect(entries.map((g) => g.kind)).toEqual(["claim", "contribution"]);
     expect(entries[0]!.createdAt).toBeGreaterThanOrEqual(entries[1]!.createdAt);
+  });
+
+  it("puts a claim before a cash gift made in the same second", async () => {
+    // `created_at` is whole seconds, so a tie is ordinary. The order within one
+    // must be the same on every read, or a gift could move across a page
+    // boundary between two "load more" clicks.
+    const db = db0();
+    const [famA] = twoFamilies(db);
+    const item = await ok(db, registryService.createItem(newItem()));
+    const second = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+    seedContribution(db, { createdAt: second });
+    db.insert(registryClaims)
+      .values({
+        id: "rcl_same_second",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: item.id,
+        familyId: famA,
+        quantity: 1,
+        status: "reserved",
+        createdAt: second,
+        updatedAt: second,
+      })
+      .run();
+    const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+    expect(entries.map((g) => g.kind)).toEqual(["claim", "contribution"]);
+  });
+
+  it("reads a page in one statement that returns the page and one row more", async () => {
+    // Both tables in one UNION ALL, cut in SQLite: at the deepest page the
+    // Worker receives 51 rows, not 551 from each table to sort and slice.
+    const db = db0();
+    seedRun(db, 560);
+    const statements = recordStatements(db);
+    const page = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 500 }));
+    expect(page.entries).toHaveLength(50);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql).toContain('from "registry_claims"');
+    expect(statements[0]!.sql).toContain('from "registry_contributions"');
+    expect(statements[0]!.rowCounts).toEqual([51]);
   });
 
   it("totals ALL succeeded money, not just the money on the first page", async () => {

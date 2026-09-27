@@ -39,6 +39,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
@@ -972,10 +973,25 @@ export const registryService = {
 
   /**
    * Claims and contributions, merged and newest-first — the view the couple works
-   * from after the day. Two queries rather than a SQL UNION: the tables carry
-   * different columns, and the merge is a sort over one page's worth of rows.
+   * from after the day.
    *
-   * PAGINATED (P-C1). A wedding's gift log is unbounded — every household may
+   * ONE statement: the two tables are one `UNION ALL`, ordered newest first and
+   * cut to the page in SQLite, so the Worker receives the page plus one row and
+   * nothing else. Each branch walks its own `(wedding_id, created_at)` index in
+   * order and SQLite merges the two, so the deepest page walks `offset + limit +
+   * 1` rows in total rather than that many from each table. The branches match
+   * by POSITION, so both list the same columns in the same order, with an
+   * aliased NULL where a column belongs to the other table; `created_at` is
+   * aliased because a compound SELECT can only ORDER BY a name its first branch
+   * declares with AS. The export (`giftExportService.giftsCsv`) reads the same
+   * tables the same way, and a parity test holds the two to the same rows.
+   *
+   * Claims are the FIRST branch, and that is load-bearing: on a tie in
+   * `created_at` the merge emits the left branch first, so a claim precedes a
+   * cash gift from the same second on every read and no gift can move across a
+   * page boundary between two requests.
+   *
+   * PAGINATED. A wedding's gift log is unbounded — every household may
    * claim every item and contribute on top — so an unpaged read is an unbounded
    * response and an unbounded D1 result set.
    *
@@ -989,11 +1005,6 @@ export const registryService = {
    * offset past it gets an empty page, and the page whose successor would pass
    * it reports `hasMore: false`. Clamping instead would serve the last page
    * again, still marked `hasMore`, to a caller that pages by rows held.
-   *
-   * Each side reads `offset + limit + 1` rows: enough that the merge can serve
-   * the requested window whichever table the newest rows came from, plus one to
-   * decide `hasMore` without a count. The two reads run together, since neither
-   * needs the other and on a further page they are the request's whole cost.
    */
   giftLog(
     weddingId: string,
@@ -1005,96 +1016,93 @@ export const registryService = {
       if (requested > MAX_GIFT_LOG_OFFSET) return { entries: [], hasMore: false };
       const limit = clamp(options?.limit ?? GIFT_LOG_PAGE, 1, GIFT_LOG_PAGE);
       const offset = clamp(requested, 0, MAX_GIFT_LOG_OFFSET);
-      const readAhead = offset + limit + 1;
-      const claimQuery = dbQuery(() =>
-        db
-          .select({
-            id: registryClaims.id,
-            itemId: registryClaims.itemId,
-            itemTitle: registryItems.title,
-            familyId: registryClaims.familyId,
-            familyName: families.familyName,
-            displayName: registryClaims.displayName,
-            quantity: registryClaims.quantity,
-            status: registryClaims.status,
-            note: registryClaims.note,
-            noteHiddenAt: registryClaims.noteHiddenAt,
-            thankedAt: registryClaims.thankedAt,
-            createdAt: registryClaims.createdAt,
-          })
-          .from(registryClaims)
-          .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
-          .innerJoin(families, eq(registryClaims.familyId, families.id))
-          .where(eq(registryClaims.weddingId, weddingId))
-          .orderBy(desc(registryClaims.createdAt))
-          .limit(readAhead)
-          .all(),
-      );
-      const contributionQuery = dbQuery(() =>
-        db
-          .select({
-            id: registryContributions.id,
-            itemId: registryContributions.itemId,
-            itemTitle: registryItems.title,
-            familyId: registryContributions.familyId,
-            familyName: families.familyName,
-            displayName: registryContributions.displayName,
-            status: registryContributions.status,
-            note: registryContributions.message,
-            noteHiddenAt: registryContributions.noteHiddenAt,
-            amountMinor: registryContributions.amountMinor,
-            currency: registryContributions.currency,
-            primaryAmountMinor: registryContributions.primaryAmountMinor,
-            primaryCurrency: registryContributions.primaryCurrency,
-            fxRate: registryContributions.fxRate,
-            thankedAt: registryContributions.thankedAt,
-            createdAt: registryContributions.createdAt,
-          })
-          .from(registryContributions)
-          // LEFT: a general cash gift has no item, and an item deleted after the
-          // fact sets `item_id` NULL rather than erasing the gift.
-          .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
-          .innerJoin(families, eq(registryContributions.familyId, families.id))
-          .where(
-            and(
-              eq(registryContributions.weddingId, weddingId),
-              // A gift whose money never moved is not a gift. A bounced
-              // bank debit or a session the guest abandoned leaves a `failed`
-              // row, which is kept for the audit trail and the idempotency
-              // anchor — but showing it to the couple would be telling them
-              // somebody gave them money that nobody gave them, and inviting a
-              // thank-you note for it. `refunded` is NOT hidden: that one did
-              // happen, and then went back, and the couple should see both.
-              ne(registryContributions.status, "failed"),
-            ),
-          )
-          .orderBy(desc(registryContributions.createdAt))
-          .limit(readAhead)
-          .all(),
-      );
-      const [claimRows, contributionRows] = yield* Effect.all([claimQuery, contributionQuery], {
-        concurrency: "unbounded",
-      });
 
-      const claims: GiftLogEntryDto[] = (
-        claimRows as Array<{
-          id: string;
-          itemId: string;
-          itemTitle: string;
-          familyId: string;
-          familyName: string;
-          displayName: string | null;
-          quantity: number;
-          status: string;
-          note: string | null;
-          noteHiddenAt: Date | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => {
+      // The claims branch's `itemId`, `itemTitle`, `quantity` and `status` are
+      // widened to the cash-gift types, because Drizzle types the whole union
+      // from its first branch.
+      const claims = db
+        .select({
+          kind: sql<GiftKind>`'claim'`.as("kind"),
+          id: registryClaims.id,
+          itemId: sql<string | null>`${registryClaims.itemId}`,
+          itemTitle: sql<string | null>`${registryItems.title}`,
+          familyId: registryClaims.familyId,
+          familyName: families.familyName,
+          displayName: registryClaims.displayName,
+          quantity: sql<number | null>`${registryClaims.quantity}`,
+          status: sql<string>`${registryClaims.status}`,
+          note: registryClaims.note,
+          noteHiddenAt: registryClaims.noteHiddenAt,
+          amountMinor: sql<number | null>`NULL`.as("amount_minor"),
+          currency: sql<string | null>`NULL`.as("currency"),
+          primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
+          primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
+          fxRate: sql<string | null>`NULL`.as("fx_rate"),
+          thankedAt: registryClaims.thankedAt,
+          createdAt: sql<Date>`${registryClaims.createdAt}`
+            .mapWith(registryClaims.createdAt)
+            .as("created_at"),
+        })
+        .from(registryClaims)
+        .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
+        .innerJoin(families, eq(registryClaims.familyId, families.id))
+        .where(eq(registryClaims.weddingId, weddingId));
+
+      const contributions = db
+        .select({
+          kind: sql<GiftKind>`'contribution'`.as("kind"),
+          id: registryContributions.id,
+          itemId: registryContributions.itemId,
+          itemTitle: registryItems.title,
+          familyId: registryContributions.familyId,
+          familyName: families.familyName,
+          displayName: registryContributions.displayName,
+          quantity: sql<number | null>`NULL`.as("quantity"),
+          status: registryContributions.status,
+          note: registryContributions.message,
+          noteHiddenAt: registryContributions.noteHiddenAt,
+          amountMinor: registryContributions.amountMinor,
+          currency: registryContributions.currency,
+          primaryAmountMinor: registryContributions.primaryAmountMinor,
+          primaryCurrency: registryContributions.primaryCurrency,
+          fxRate: registryContributions.fxRate,
+          thankedAt: registryContributions.thankedAt,
+          createdAt: sql<Date>`${registryContributions.createdAt}`
+            .mapWith(registryContributions.createdAt)
+            .as("created_at"),
+        })
+        .from(registryContributions)
+        // LEFT: a general cash gift has no item, and an item deleted after the
+        // fact sets `item_id` NULL rather than erasing the gift.
+        .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
+        .innerJoin(families, eq(registryContributions.familyId, families.id))
+        .where(
+          and(
+            eq(registryContributions.weddingId, weddingId),
+            // A gift whose money never moved is not a gift. A bounced
+            // bank debit or a session the guest abandoned leaves a `failed`
+            // row, which is kept for the audit trail and the idempotency
+            // anchor — but showing it to the couple would be telling them
+            // somebody gave them money that nobody gave them, and inviting a
+            // thank-you note for it. `refunded` is NOT hidden: that one did
+            // happen, and then went back, and the couple should see both.
+            ne(registryContributions.status, "failed"),
+          ),
+        );
+
+      // One row past the page decides `hasMore` without a count.
+      const rows = yield* dbQuery(() =>
+        unionAll(claims, contributions)
+          .orderBy(desc(sql`created_at`))
+          .limit(limit + 1)
+          .offset(offset)
+          .all(),
+      );
+
+      const entries: GiftLogEntryDto[] = rows.slice(0, limit).map((r) => {
         const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
         return {
-          kind: "claim" as const,
+          kind: r.kind,
           id: r.id,
           itemId: r.itemId,
           itemTitle: r.itemTitle,
@@ -1102,49 +1110,6 @@ export const registryService = {
           familyName: r.familyName,
           displayName: r.displayName,
           quantity: r.quantity,
-          status: r.status,
-          note,
-          noteHidden,
-          amountMinor: null,
-          currency: null,
-          primaryAmountMinor: null,
-          primaryCurrency: null,
-          fxRate: null,
-          thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
-          createdAt: r.createdAt.getTime(),
-        };
-      });
-
-      const contributions: GiftLogEntryDto[] = (
-        contributionRows as Array<{
-          id: string;
-          itemId: string | null;
-          itemTitle: string | null;
-          familyId: string;
-          familyName: string;
-          displayName: string | null;
-          status: string;
-          note: string | null;
-          noteHiddenAt: Date | null;
-          amountMinor: number;
-          currency: string;
-          primaryAmountMinor: number | null;
-          primaryCurrency: string | null;
-          fxRate: string | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => {
-        const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
-        return {
-          kind: "contribution" as const,
-          id: r.id,
-          itemId: r.itemId,
-          itemTitle: r.itemTitle,
-          familyId: r.familyId,
-          familyName: r.familyName,
-          displayName: r.displayName,
-          quantity: null,
           status: r.status,
           note,
           noteHidden,
@@ -1158,16 +1123,9 @@ export const registryService = {
         };
       });
 
-      // `merged` is built here and returned to nobody else, so sorting it in
-      // place is not the shared-array aliasing hazard oxlint's `no-array-sort`
-      // guards against — and `toSorted` is ES2023, past this package's ES2022 lib.
-      const merged: GiftLogEntryDto[] = [...claims, ...contributions];
-      merged.sort((a, b) => b.createdAt - a.createdAt);
-
-      const next = offset + limit;
       return {
-        entries: merged.slice(offset, next),
-        hasMore: merged.length > next && next <= MAX_GIFT_LOG_OFFSET,
+        entries,
+        hasMore: rows.length > limit && offset + limit <= MAX_GIFT_LOG_OFFSET,
       };
     }).pipe(Effect.withSpan("cire.registry.giftLog"));
   },
