@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, weddingHosts, weddings } from "@cire/db";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -18,7 +19,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp() {
+function setupDb() {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -52,9 +53,30 @@ function buildApp() {
       updatedAt: now,
     })
     .run();
-  return createApp(db, { osnTestKey: auth.key });
+  return db;
+}
+
+function buildApp() {
+  return createApp(setupDb(), { osnTestKey: auth.key });
 }
 type App = ReturnType<typeof buildApp>;
+
+/** The app plus its database, with one event on the other wedding. */
+function buildAppWithDb() {
+  const db = setupDb();
+  db.insert(events)
+    .values({
+      id: "evt_other",
+      weddingId: "wed_other",
+      slug: "other-reception",
+      name: "Reception",
+      startAt: "2027-03-01T15:00:00+11:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+    })
+    .run();
+  return { db, app: createApp(db, { osnTestKey: auth.key }) };
+}
 
 async function req(
   app: App,
@@ -196,5 +218,125 @@ describe("budget routes", () => {
 
     const snap = await req(app, "GET", base, OWNER);
     expect(((await snap.json()) as { budgetTotalMinor: number }).budgetTotalMinor).toBe(4500000);
+  });
+});
+
+describe("budget routes — per-head lines", () => {
+  interface ItemBody {
+    id: string;
+    estimateMinor: number | null;
+    unitPriceMinor: number | null;
+    eventIds: string[] | null;
+    headcount: { expected: number; confirmed: number } | null;
+  }
+
+  const bootstrapEventId = (db: ReturnType<typeof createDb>) =>
+    db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()[0]!.id;
+
+  it("creates a per-head line and returns its headcount; the snapshot lists the events", async () => {
+    const { db, app } = buildAppWithDb();
+    const eventId = bootstrapEventId(db);
+    const res = await req(app, "POST", `${base}/items`, OWNER, {
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 8_500, eventIds: [eventId] },
+    });
+    expect(res.status).toBe(200);
+    const { item } = (await res.json()) as { item: ItemBody };
+    expect(item.unitPriceMinor).toBe(8_500);
+    expect(item.eventIds).toEqual([eventId]);
+    expect(item.headcount).not.toBeNull();
+
+    const snap = (await (await req(app, "GET", base, VIEWER)).json()) as {
+      events: { id: string; name: string }[];
+      rsvpsClosed: boolean;
+    };
+    expect(snap.events.map((e) => e.id)).toContain(eventId);
+    expect(snap.rsvpsClosed).toBe(false);
+  });
+
+  it("400 unknown_event for another wedding's event, on create and on edit", async () => {
+    const { app } = buildAppWithDb();
+    const created = await req(app, "POST", `${base}/items`, EDITOR, {
+      category: "catering",
+      name: "Dinner",
+      perHead: { unitPriceMinor: 100, eventIds: ["evt_other"] },
+    });
+    expect(created.status).toBe(400);
+    expect(((await created.json()) as { error: string }).error).toBe("unknown_event");
+
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const patched = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: { unitPriceMinor: 100, eventIds: ["evt_other"] },
+    });
+    expect(patched.status).toBe(400);
+    expect(((await patched.json()) as { error: string }).error).toBe("unknown_event");
+  });
+
+  it("400 for an empty event list, a negative price, or a per-head line with a fixed estimate", async () => {
+    const app = buildApp();
+    for (const perHead of [
+      { unitPriceMinor: 100, eventIds: [] },
+      { unitPriceMinor: -1 },
+      { unitPriceMinor: 1.5 },
+    ]) {
+      const res = await req(app, "POST", `${base}/items`, EDITOR, {
+        category: "catering",
+        name: "Dinner",
+        perHead,
+      });
+      expect(res.status).toBe(400);
+    }
+    const both = await req(app, "POST", `${base}/items`, EDITOR, {
+      category: "catering",
+      name: "Dinner",
+      estimateMinor: 500,
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(both.status).toBe(400);
+
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const patched = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      estimateMinor: 500,
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(patched.status).toBe(400);
+  });
+
+  it("turns a fixed line per head and back, carrying the last figure as its estimate", async () => {
+    const app = buildApp();
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+
+    const perHead = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: { unitPriceMinor: 100, eventIds: null },
+    });
+    expect(perHead.status).toBe(200);
+    const on = ((await perHead.json()) as { item: ItemBody }).item;
+    expect(on).toMatchObject({ unitPriceMinor: 100, eventIds: null, estimateMinor: null });
+
+    const back = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      perHead: null,
+      estimateMinor: 4_200,
+    });
+    expect(back.status).toBe(200);
+    const off = ((await back.json()) as { item: ItemBody }).item;
+    expect(off).toMatchObject({ unitPriceMinor: null, headcount: null, estimateMinor: 4_200 });
+  });
+
+  it("viewer may NOT make a line per head (403 read_only_role)", async () => {
+    const app = buildApp();
+    const fixed = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
+    const { item } = (await fixed.json()) as { item: ItemBody };
+    const res = await req(app, "PATCH", `${base}/items/${item.id}`, VIEWER, {
+      perHead: { unitPriceMinor: 100 },
+    });
+    expect(res.status).toBe(403);
   });
 });
