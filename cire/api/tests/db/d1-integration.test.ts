@@ -9,10 +9,12 @@ import {
   families,
   guestEvents,
   guests,
+  hostRsvpNotices,
   registryClaims,
   registryContributions,
   registryItems,
   registrySettings,
+  rsvpChanges,
   rsvps,
   tasks,
   weddingFaqs,
@@ -20,8 +22,9 @@ import {
   weddings,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
+import { EmailService, type SendEmailInput } from "@shared/email";
 import { asc, eq, sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
 import { createSessionRoutedClient, runInD1Session } from "../../src/db/d1-session";
@@ -39,6 +42,8 @@ import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq
 import { registryService, SettingsChanged } from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
+import { rsvpChangeService } from "../../src/services/rsvp-changes";
+import { rsvpDigestService } from "../../src/services/rsvp-digest";
 import { tasksService } from "../../src/services/tasks";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
@@ -211,6 +216,8 @@ beforeEach(async () => {
   for (const table of [
     directoryVendorCategories,
     directoryVendors,
+    rsvpChanges,
+    hostRsvpNotices,
     rsvps,
     guestEvents,
     guests,
@@ -1140,6 +1147,130 @@ describe("cire/api over real D1 (Miniflare)", () => {
       } finally {
         await chainMf.dispose();
       }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "writes a 200-row change log inside the RSVP batch as one statement",
+    async () => {
+      // The change set rides as one JSON parameter; a per-row bind would pass
+      // D1's 100-parameter cap long before 200 rows.
+      const changes = Array.from({ length: 200 }, (_, i) => ({
+        guestId: `g_${i}`,
+        eventId: EVENT_A,
+        kind: "reply_new" as const,
+      }));
+      const rows = await run(
+        rsvpService.submitRsvpsAndList(
+          [
+            {
+              guestId: GUEST_1,
+              eventId: EVENT_A,
+              status: "attending",
+              dietary: "",
+              dietaryPresets: [],
+              dietaryConsent: false,
+            },
+          ],
+          FAMILY_ID,
+          { weddingId: BOOTSTRAP_WEDDING_ID, changes },
+        ),
+      );
+      expect(rows).toHaveLength(1);
+      const logged = await db.select({ seq: rsvpChanges.seq }).from(rsvpChanges);
+      expect(logged).toHaveLength(200);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "never reuses a change number after the newest row is deleted",
+    async () => {
+      const insert = () =>
+        db
+          .insert(rsvpChanges)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            familyId: FAMILY_ID,
+            guestId: GUEST_1,
+            eventId: EVENT_A,
+            kind: "reply_new",
+            createdAt: new Date(),
+          })
+          .returning({ seq: rsvpChanges.seq });
+      const [first] = await insert();
+      const [second] = await insert();
+      await db.delete(rsvpChanges).where(eq(rsvpChanges.seq, second!.seq));
+      const [third] = await insert();
+      expect(second!.seq).toBeGreaterThan(first!.seq);
+      expect(third!.seq).toBeGreaterThan(second!.seq);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "moves a read marker, clamped and never backwards, and flips the digest switch",
+    async () => {
+      await db.insert(rsvpChanges).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: FAMILY_ID,
+        guestId: GUEST_1,
+        eventId: EVENT_A,
+        kind: "reply_new",
+        createdAt: new Date(),
+      });
+      const [newest] = await db.select({ seq: rsvpChanges.seq }).from(rsvpChanges);
+      expect(await run(rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, "usr_a", 1e9))).toBe(
+        newest!.seq,
+      );
+      expect(await run(rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, "usr_a", 0))).toBe(
+        newest!.seq,
+      );
+      const feed = await run(rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, "usr_a"));
+      expect(feed.households).toBe(0);
+
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_a", false));
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_a", true));
+      const [notice] = await db
+        .select()
+        .from(hostRsvpNotices)
+        .where(eq(hostRsvpNotices.osnProfileId, "usr_a"));
+      expect(notice).toMatchObject({ digestEnabled: true, digestSeq: newest!.seq });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "sends the daily digest and records its markers in one upsert",
+    async () => {
+      await db.insert(rsvpChanges).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: FAMILY_ID,
+        guestId: GUEST_1,
+        eventId: EVENT_A,
+        kind: "reply_new",
+        createdAt: new Date(),
+      });
+      const sent: SendEmailInput[] = [];
+      const layer = Layer.succeed(EmailService, {
+        send: (input: SendEmailInput) => Effect.sync(() => void sent.push(input)),
+      });
+      const digest = () =>
+        Effect.runPromise(
+          rsvpDigestService
+            .sendDailyDigests({
+              organiserOrigin: "https://host.example.test",
+              lookup: async (ids) => new Map(ids.map((id) => [id, `${id}@example.test`])),
+            })
+            .pipe(Effect.provideService(DbService, db), Effect.provide(layer)),
+        );
+      expect((await digest()).sent).toBe(1);
+      expect(sent.map((s) => s.to)).toEqual(["usr_test@example.test"]);
+      // The marker landed, so the same change is not mailed twice.
+      expect((await digest()).sent).toBe(0);
+      const [notice] = await db.select().from(hostRsvpNotices);
+      expect(notice).toMatchObject({ osnProfileId: "usr_test", digestEnabled: true, seenSeq: 0 });
     },
     MF_TIMEOUT_MS,
   );
