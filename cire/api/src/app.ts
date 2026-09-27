@@ -7,6 +7,7 @@ import type { FeatureFlags } from "@shared/feature-flags";
 import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import type { HubNamespace } from "@shared/realtime/server";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 import { Elysia } from "elysia";
@@ -271,9 +272,12 @@ export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
   /**
-   * Organiser portal origin (`host.cireweddings.com`) — base for the enquiry
-   * thread deep-link vendors/couples receive. Distinct from `webOrigin` (the
-   * guest invite site). Defaults to the prod organiser origin.
+   * Organiser portal origin (`host.cireweddings.com`). Two readers, two
+   * defaults: `createApp` builds enquiry deep-links on it and falls back to
+   * the production portal when it is unset; the realtime subscribe route
+   * (`routes/realtime.ts`) admits it as the only `Origin` and, unset, admits
+   * none — a tier that names no portal (the top-level `wrangler.toml` block,
+   * local `wrangler dev`) must not accept sockets on production's behalf.
    */
   organiserOrigin?: string;
   /**
@@ -293,6 +297,16 @@ export interface AppOptions {
   accountLinkLimiter?: RateLimiterBackend;
   /** Override the CSV + JSON RSVP export per-user rate limiter (useful for testing). */
   exportLimiter?: RateLimiterBackend;
+  /**
+   * The realtime hub binding (`REALTIME_HUB`). Absent ⇒ host changes publish
+   * nothing, and the Worker's `/realtime/*` answers 503. Most tests run that
+   * way; tests of push inject a stand-in. The local Bun dev server
+   * (`src/local.ts`) builds this app without the Worker entry, so there
+   * `/realtime/*` never reaches the realtime route and answers 404.
+   */
+  realtimeHub?: HubNamespace;
+  /** Override the realtime subscribe per-organiser limiter (useful for testing). */
+  realtimeLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
   /** Test seam: override the invite design catalog (e.g. to add a premium fixture). */
