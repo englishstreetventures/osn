@@ -7,11 +7,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import {
-  GuestPlusOnePermissionBody,
-  HouseholdPlusOnePermissionBody,
-  PlusOneNameBody,
-} from "../schemas/plus-one";
+import { PlusOneNameBody, PlusOnePermissionBody } from "../schemas/plus-one";
 import { plusOneService } from "../services/plus-one";
 
 // Sentinel parse hook — same idiom as the other organiser PUT routes: the
@@ -28,8 +24,7 @@ const ORGANISER_REFUSALS = {
 
 /**
  * The refusal body for a service failure. `plus_one_named` also says how many
- * plus-ones the remove flag would delete, so the portal can name the cost
- * before asking again.
+ * plus-ones are named in scope now, so the portal can show them again and ask.
  */
 function refuse(
   e: { readonly _tag: keyof typeof ORGANISER_REFUSALS; readonly named?: number },
@@ -46,9 +41,8 @@ function refuse(
  * Who may bring a plus-one ([[wiki/cire/cire-plus-ones]]):
  *
  *   PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one
- *       { allowed, removePlusOne? }
  *   PUT /api/organiser/weddings/:weddingId/families/:familyId/plus-one
- *       { allowed, removePlusOnes? }
+ *       { allowed, removePlusOnes?: [{ guestId, firstName, lastName }] }
  *
  *   PUT /api/organiser/weddings/:weddingId/guests/:guestId/plus-one/name
  *       { firstName, lastName? }
@@ -56,11 +50,16 @@ function refuse(
  * The first sets one guest's permission; the second sets it for every member of
  * a household. The third corrects the name of the plus-one `:guestId` brought —
  * the one organiser write to a plus-one's own row, there so a name can be put
- * right after the deadline has locked the household out. Turning it off where a plus-one is already named answers 409
- * `plus_one_named` unless the remove flag is set, and with it the plus-one and
- * their replies are deleted in the same batch. That delete is outside the change
- * history (no preview, no revert), which is why it is never implied by
- * `allowed: false` alone.
+ * right after the deadline has locked the household out.
+ *
+ * Turning permission off where a plus-one is named deletes that plus-one and
+ * their replies, outside the change history (no preview, no revert). So it is
+ * never implied by `allowed: false`: the body lists the plus-ones the organiser
+ * was shown and confirmed, by id and name as `GET …/guests` served them, and the
+ * write goes through only if every plus-one in scope is on that list. Otherwise
+ * — nobody listed, or a plus-one named or renamed since the organiser looked —
+ * nothing is written and the answer is 409 `plus_one_named` with the number now
+ * named, so the portal can show them again and ask.
  *
  * Gated `weddingEditor()`, like every guest-list write: owner or editor; a
  * viewer gets 403 `read_only_role`. The service re-checks the guest or household
@@ -85,12 +84,12 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknownEffect(GuestPlusOnePermissionBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
                 return yield* plusOneService.setGuestPermission({
                   weddingId,
                   guestId: params.guestId,
                   allowed: body.allowed,
-                  removePlusOne: body.removePlusOne,
+                  removePlusOnes: body.removePlusOnes,
                 });
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -116,7 +115,7 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknownEffect(HouseholdPlusOnePermissionBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
                 return yield* plusOneService.setHouseholdPermission({
                   weddingId,
                   familyId: params.familyId,
