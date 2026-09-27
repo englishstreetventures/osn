@@ -32,6 +32,7 @@ import {
 import { Elysia } from "elysia";
 
 import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
+import { readBoundedText } from "../lib/webhook-body";
 import { runCire } from "../observability";
 
 export interface RealtimeFallbackRouteOptions {
@@ -63,14 +64,16 @@ export const createRealtimeFallbackRoutes = ({ limiter }: RealtimeFallbackRouteO
         return null;
       }
 
-      // The read is capped too: a body can arrive without a declared length.
-      let text: string;
+      // The read is bounded as the body arrives, since a body can come with no
+      // declared length: past the cap the stream is cancelled and the beacon
+      // dropped, so at most one chunk beyond it is ever buffered.
+      let text: string | null;
       try {
-        text = await request.text();
+        text = await readBoundedText(request, MAX_FALLBACK_BEACON_BYTES);
       } catch {
         return null;
       }
-      if (text.length > MAX_FALLBACK_BEACON_BYTES) return null;
+      if (text === null) return null;
 
       const outcome = readFallbackOutcome(text);
       if (outcome === null) return null;

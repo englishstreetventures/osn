@@ -15,8 +15,8 @@
  *    API a caller depends on. We never 500 (no error surface to probe) and never
  *    echo input (no reflected-XSS / oracle).
  *  - **Body size cap (16 KB).** Reports are tiny. We reject early on a declared
- *    `Content-Length` and again guard the read, so a giant body can't drive log
- *    bloat or parse cost.
+ *    `Content-Length`, and bound the read itself as the body arrives, so a
+ *    giant body — declared or not — can't drive memory, log bloat or parse cost.
  *  - **Per-IP rate limit.** A generous bucket (≈60/min) purely to stop a
  *    log-spam DoS — fail-OPEN here (a 429-equivalent just drops the report; we
  *    still 204) because spamming the limiter is itself the only thing it guards.
@@ -34,6 +34,7 @@ import { Effect } from "effect";
 import { Elysia } from "elysia";
 
 import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
+import { readBoundedText } from "../lib/webhook-body";
 import { bucketCspDirective, metricCspReport } from "../metrics";
 import { runCire } from "../observability";
 
@@ -281,15 +282,16 @@ export const createCspReportRoutes = ({ limiter }: CspReportRouteOptions) =>
         return null;
       }
 
-      // 3) Read + size-guard the body, then parse + normalise. Any failure ⇒
-      //    drop silently (still 204).
-      let raw: string;
+      // 3) Read the body bounded as it arrives (a body can come with no
+      //    declared length; past the cap the stream is cancelled), then parse
+      //    + normalise. Any failure ⇒ drop silently (still 204).
+      let raw: string | null;
       try {
-        raw = await request.text();
+        raw = await readBoundedText(request, MAX_REPORT_BYTES);
       } catch {
         return null;
       }
-      if (raw.length > MAX_REPORT_BYTES) return null;
+      if (raw === null) return null;
 
       let parsed: unknown;
       try {
