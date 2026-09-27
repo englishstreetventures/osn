@@ -938,7 +938,7 @@ export default function GuestTable(props: GuestTableProps) {
                               {member.firstName} {member.lastName}
                               <Show when={isPlusOne(member)}>
                                 {" "}
-                                <span class="font-body text-gold-dim border-gold/30 text-ui-xs tracking-ui-wide ml-1 inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
+                                <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
                                   Plus-one of {inviterName(member) || "another guest"}
                                 </span>
                               </Show>
