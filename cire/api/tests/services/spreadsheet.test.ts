@@ -897,3 +897,133 @@ describe("CSV input caps", () => {
     expect((error as MalformedSpreadsheet).reason).toBe("unterminated quoted cell");
   });
 });
+
+describe("parseGuestsCsv — { snapshot: true } provenance and formula characters", () => {
+  const events = [{ name: "Mehndi" }];
+  const HEADER =
+    "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Family Code,Guest ID,Family Source,Guest Source";
+
+  it("reads Family Source and Guest Source, and reads = + - @ values as stored", async () => {
+    const csv = [
+      HEADER,
+      "fam_a,-Testfamily,Ada,+Testfamily,@ada,x,SUNSET-4210,gst_ada,manual,import",
+      "fam_b,Emptyhouse,,,,,EMPTY-0001,,import,",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events, { snapshot: true }));
+    expect(families[0]!.familyName).toBe("-Testfamily");
+    expect(families[0]!.source).toBe("manual");
+    expect(families[0]!.guests[0]!.lastName).toBe("+Testfamily");
+    expect(families[0]!.guests[0]!.nickname).toBe("@ada");
+    expect(families[0]!.guests[0]!.source).toBe("import");
+    expect(families[1]!.source).toBe("import");
+  });
+
+  it("leaves a source it does not recognise unset", async () => {
+    const csv = [HEADER, "fam_a,Testfamily,Ada,Testfamily,,x,SUNSET-4210,gst_ada,robot,"].join(
+      "\n",
+    );
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, events, { snapshot: true }));
+    expect(family!.source).toBeUndefined();
+    expect(family!.guests[0]!.source).toBeUndefined();
+  });
+
+  it("an event named Family Source keeps its attendance column when the provenance column follows it", async () => {
+    const withEvent = [{ name: "Mehndi" }, { name: "Family Source" }];
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Family Source,Family Code,Guest ID,Family Source,Guest Source",
+      "fam_a,Testfamily,Ada,Testfamily,,x,x,SUNSET-4210,gst_ada,manual,manual",
+    ].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, withEvent, { snapshot: true }));
+    expect(family!.guests[0]!.eventNames).toEqual(["Mehndi", "Family Source"]);
+    expect(family!.source).toBe("manual");
+  });
+
+  it("an older snapshot's lone Family Source column is the event's attendance", async () => {
+    const withEvent = [{ name: "Mehndi" }, { name: "Family Source" }];
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Family Source,Family Code,Guest ID",
+      "fam_a,Testfamily,Ada,Testfamily,,,x,SUNSET-4210,gst_ada",
+    ].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, withEvent, { snapshot: true }));
+    expect(family!.guests[0]!.eventNames).toEqual(["Family Source"]);
+    expect(family!.source).toBeUndefined();
+  });
+
+  it("an upload still refuses a Family Source column that names no event", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Family Source",
+      "1,Testfamily,Ada,Testfamily,x,manual",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
+    expect(error).toBeInstanceOf(UnmatchedEventColumn);
+  });
+
+  it("an upload still refuses a value that starts with a formula character", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi",
+      "1,-Testfamily,Ada,Testfamily,x",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
+    expect(error).toBeInstanceOf(FormulaInjectionDetected);
+  });
+});
+
+describe("parseEventsCsv — { snapshot: true } (checkpoint before-image)", () => {
+  const HEADER = "Event Name,Start,Timezone,End,Address,Pinterest URL,Event ID";
+
+  it("keeps a stored value whose zone does not resolve, offset and all", async () => {
+    const csv = [
+      HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,UTC+10,2026-09-18T22:00:00+10:00,-12 Smith Street,,evt_1",
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
+    expect(event).toMatchObject({
+      id: "evt_1",
+      startAt: "2026-09-18T16:00:00+10:00",
+      endAt: "2026-09-18T22:00:00+10:00",
+      timezone: "UTC+10",
+      address: "-12 Smith Street",
+    });
+  });
+
+  it("re-stamps the offset from a zone that resolves", async () => {
+    const csv = [HEADER, "Mehndi,2026-11-14T15:00:00+10:00,Australia/Sydney,,,,evt_1"].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
+    expect(event!.startAt).toBe("2026-11-14T15:00:00+11:00");
+  });
+
+  it("refuses a zone that does not resolve on a value with no offset", async () => {
+    const csv = [HEADER, "Mehndi,2026-09-18T16:00,UTC+10,,,,evt_1"].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv, { snapshot: true })));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Timezone must be an IANA timezone name");
+  });
+
+  it("still requires an Event Name", async () => {
+    const csv = [HEADER, ",2026-09-18T16:00:00+10:00,Australia/Sydney,,,,evt_1"].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv, { snapshot: true })));
+    expect((error as MalformedSpreadsheet).reason).toBe("Event Name is required");
+  });
+
+  it("reads a URL that is not http(s) as blank, and a cell over the upload cap as stored", async () => {
+    const long = "a".repeat(10_050);
+    const csv = [
+      HEADER,
+      `${long},2026-09-18T16:00:00+10:00,Australia/Sydney,,,javascript:alert(1),evt_1`,
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
+    expect(event!.name).toBe(long);
+    expect(event!.pinterestUrl).toBeNull();
+  });
+
+  it("still caps the schedule at MAX_EVENTS", async () => {
+    const rows = Array.from(
+      { length: MAX_EVENTS + 1 },
+      (_, i) => `Event ${i},2026-09-18T16:00:00+10:00,Australia/Sydney,,,,evt_${i}`,
+    );
+    const error = await Effect.runPromise(
+      Effect.flip(parseEventsCsv([HEADER, ...rows].join("\n"), { snapshot: true })),
+    );
+    expect((error as MalformedSpreadsheet).reason).toBe("too many events");
+  });
+});

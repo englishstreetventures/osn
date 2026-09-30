@@ -99,6 +99,29 @@ export const ParsedFamily = Schema.Struct({
 });
 export type ParsedFamily = Schema.Schema.Type<typeof ParsedFamily>;
 
+/**
+ * Where a household or guest row came from: `'import'` (a spreadsheet upload)
+ * or `'manual'` (the in-app editor). A CSV upload without the "also remove
+ * manually-added rows" toggle removes only `'import'` rows.
+ */
+export type Provenance = "import" | "manual";
+
+/**
+ * A desired guest as the diff reads it: the wire shape plus the provenance a
+ * row it creates takes. `source` is deliberately not on {@link ParsedGuest}:
+ * the editor door decodes that schema, which drops the key, so a client cannot
+ * choose it. Only the revert's snapshot parser sets it.
+ */
+export interface DesiredGuest extends ParsedGuest {
+  readonly source?: Provenance;
+}
+
+/** A desired household as the diff reads it — see {@link DesiredGuest}. */
+export interface DesiredFamily extends Omit<ParsedFamily, "guests"> {
+  readonly guests: readonly DesiredGuest[];
+  readonly source?: Provenance;
+}
+
 // ── Desired state ─────────────────────────────────────────────────────────────
 
 /**
@@ -157,10 +180,14 @@ export const EventRemove = Schema.Struct({
 });
 export type EventRemove = Schema.Schema.Type<typeof EventRemove>;
 
+const ProvenanceSchema = Schema.Literals(["import", "manual"]);
+
 export const FamilyCreate = Schema.Struct({
   id: Schema.String,
   publicId: Schema.String,
   familyName: Schema.String,
+  /** The `source` the insert writes; absent ⇒ `'import'`, the column default. */
+  source: Schema.optional(ProvenanceSchema),
 });
 export type FamilyCreate = Schema.Schema.Type<typeof FamilyCreate>;
 
@@ -192,6 +219,8 @@ export const GuestCreate = Schema.Struct({
   lastName: Schema.String,
   nickname: Schema.NullOr(Schema.String),
   sortOrder: Schema.Number,
+  /** The `source` the insert writes; absent ⇒ `'import'`, the column default. */
+  source: Schema.optional(ProvenanceSchema),
 });
 export type GuestCreate = Schema.Schema.Type<typeof GuestCreate>;
 
