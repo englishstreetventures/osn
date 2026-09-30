@@ -219,3 +219,122 @@ describe("KV cross-isolate cache", () => {
     expect(calls).toHaveLength(0); // CDN never touched
   });
 });
+
+describe("stale payload with a waitUntil", () => {
+  /** A fetch whose responses the test releases by hand, one per call. */
+  function gatedFetch() {
+    const calls: string[] = [];
+    const release: ((payload: unknown) => void)[] = [];
+    const fetch: FetchLike = (url) => {
+      calls.push(String(url));
+      return new Promise<Response>((resolve) => {
+        release.push((payload) =>
+          resolve({ ok: true, status: 200, json: async () => payload } as Response),
+        );
+      });
+    };
+    return { fetch, calls, release };
+  }
+
+  const offPayload = { features: { [FLAG]: { defaultValue: false } } };
+
+  it("serves the stale payload at once and refreshes in the background", async () => {
+    const { fetch, calls, release } = gatedFetch();
+    let clock = 1_000;
+    const flags = createFeatureFlags({
+      clientKey: "sdk-123",
+      fetchImpl: fetch,
+      ttlSeconds: 60,
+      now: () => clock,
+    });
+
+    // Cold: nothing cached, so the first call must wait for the CDN.
+    const cold = flags.forRequest({ id: "u", role: "vip" });
+    release[0]?.(vipOnlyPayload);
+    expect((await cold).isOn(FLAG)).toBe(true);
+
+    clock += 61_000;
+    const held: Promise<unknown>[] = [];
+    // Resolves while the refresh is still unanswered: the stale payload.
+    const stale = await flags.forRequest(
+      { id: "u", role: "vip" },
+      { waitUntil: (promise) => held.push(promise) },
+    );
+    expect(stale.isOn(FLAG)).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(held).toHaveLength(1);
+
+    release[1]?.(offPayload);
+    await Promise.all(held);
+
+    // The next request reads the refreshed payload, with no fetch of its own.
+    const fresh = await flags.forRequest({ id: "u", role: "vip" }, { waitUntil: () => {} });
+    expect(fresh.isOn(FLAG)).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("joins a refresh already running rather than starting a second", async () => {
+    const { fetch, calls, release } = gatedFetch();
+    let clock = 1_000;
+    const flags = createFeatureFlags({
+      clientKey: "sdk-123",
+      fetchImpl: fetch,
+      ttlSeconds: 60,
+      now: () => clock,
+    });
+    const cold = flags.forRequest({ id: "u" });
+    release[0]?.(vipOnlyPayload);
+    await cold;
+
+    clock += 61_000;
+    const held: Promise<unknown>[] = [];
+    const waitUntil = (promise: Promise<unknown>) => held.push(promise);
+    await flags.forRequest({ id: "a" }, { waitUntil });
+    await flags.forRequest({ id: "b" }, { waitUntil });
+
+    expect(calls).toHaveLength(2);
+    release[1]?.(vipOnlyPayload);
+    await Promise.all(held);
+  });
+
+  it("still waits for the CDN on a cold cache, waitUntil or not", async () => {
+    const { fetch, release } = gatedFetch();
+    const flags = createFeatureFlags({ clientKey: "sdk-123", fetchImpl: fetch });
+    let settled = false;
+    const pending = flags
+      .forRequest({ id: "u", role: "vip" }, { waitUntil: () => {} })
+      .then((evaluator) => {
+        settled = true;
+        return evaluator;
+      });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release[0]?.(vipOnlyPayload);
+    expect((await pending).isOn(FLAG)).toBe(true);
+  });
+
+  it("serves a stale KV entry at once on a cold isolate and refreshes behind it", async () => {
+    const kv = memoryKv();
+    kv.store.set("gb:payload", JSON.stringify({ payload: vipOnlyPayload, fetchedAt: 1_000 }));
+    const { fetch, calls, release } = gatedFetch();
+    const flags = createFeatureFlags({
+      clientKey: "sdk-123",
+      fetchImpl: fetch,
+      kv,
+      ttlSeconds: 60,
+      now: () => 120_000,
+    });
+    const held: Promise<unknown>[] = [];
+
+    const evaluator = await flags.forRequest(
+      { id: "u", role: "vip" },
+      { waitUntil: (promise) => held.push(promise) },
+    );
+    expect(evaluator.isOn(FLAG)).toBe(true);
+    expect(calls).toHaveLength(1);
+
+    release[0]?.(offPayload);
+    await Promise.all(held);
+  });
+});

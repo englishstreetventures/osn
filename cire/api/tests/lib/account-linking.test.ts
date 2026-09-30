@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { FLAGS, type FeatureFlags, type FlagAttributes } from "@shared/feature-flags";
+import {
+  FLAGS,
+  type FeatureFlags,
+  type FlagAttributes,
+  type ForRequestOptions,
+} from "@shared/feature-flags";
 
 import { ACCOUNT_LINKING_FLAG, isAccountLinkingOn } from "../../src/lib/account-linking";
 
@@ -8,12 +13,18 @@ import { ACCOUNT_LINKING_FLAG, isAccountLinkingOn } from "../../src/lib/account-
  * A flag provider whose answer depends on the id it is asked about, so a check
  * that buckets on anything but the household would get the wrong answer.
  */
-function flagsOnFor(familyIds: string[]): FeatureFlags & { asked: (FlagAttributes | undefined)[] } {
+function flagsOnFor(familyIds: string[]): FeatureFlags & {
+  asked: (FlagAttributes | undefined)[];
+  options: (ForRequestOptions | undefined)[];
+} {
   const asked: (FlagAttributes | undefined)[] = [];
+  const options: (ForRequestOptions | undefined)[] = [];
   return {
     asked,
-    async forRequest(attributes) {
+    options,
+    async forRequest(attributes, opts) {
       asked.push(attributes);
+      options.push(opts);
       const on = attributes?.id !== undefined && familyIds.includes(attributes.id);
       return {
         isOn: (key) => key === ACCOUNT_LINKING_FLAG && on,
@@ -29,6 +40,13 @@ describe("isAccountLinkingOn", () => {
     expect(await isAccountLinkingOn({ flags, canLink: true }, "fam_a")).toBe(true);
     expect(await isAccountLinkingOn({ flags, canLink: true }, "fam_b")).toBe(false);
     expect(flags.asked).toEqual([{ id: "fam_a" }, { id: "fam_b" }]);
+  });
+
+  it("hands the request's waitUntil to the flag provider", async () => {
+    const flags = flagsOnFor(["fam_a"]);
+    const waitUntil = (_promise: Promise<unknown>) => {};
+    await isAccountLinkingOn({ flags, canLink: true }, "fam_a", waitUntil);
+    expect(flags.options[0]?.waitUntil).toBe(waitUntil);
   });
 
   it("is off where a link cannot complete, whatever the flag says", async () => {

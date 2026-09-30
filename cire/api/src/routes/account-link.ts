@@ -7,6 +7,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { ACCOUNT_LINKING_FLAG } from "../lib/account-linking";
 import { buildSessionCookie, parseSessionToken } from "../lib/cookie";
+import { getWaitUntil } from "../lib/execution-ctx";
 import {
   measureAccountLinkResolve,
   metricAccountLinkRequest,
@@ -114,7 +115,12 @@ export const createAccountLinkPostRoute = (
         // flag is off, reject a hand-crafted POST so linking can't be driven
         // while the feature is disabled. Same 503 "disabled" contract as the
         // no-ARC-key branch below.
-        const linking = await flags.forRequest({ id: familyId });
+        // With the request's `waitUntil`, a stale flag payload answers at once
+        // and refreshes in the background.
+        const linking = await flags.forRequest(
+          { id: familyId },
+          { waitUntil: getWaitUntil(request) },
+        );
         if (!linking.isOn(ACCOUNT_LINKING_FLAG)) {
           metricAccountLinkRequest("disabled");
           set.status = 503;
