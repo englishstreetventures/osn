@@ -416,9 +416,8 @@ describe("BudgetView — per-head lines", () => {
     });
     fireEvent.click(screen.getByLabelText("Priced per head"));
     fireEvent.input(screen.getByLabelText("Price per head"), { target: { value: "50" } });
-    // Submitted directly: happy-dom's step check computes 50 % 0.01 in floating
-    // point, calls the field invalid and blocks the button's submit, which a
-    // browser does not.
+    // Submitted directly, so the handler decides rather than happy-dom's
+    // constraint validation of the field.
     fireEvent.submit(screen.getByRole("button", { name: /add item/i }).closest("form")!);
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toEqual({
@@ -513,5 +512,293 @@ describe("BudgetView — per-head lines", () => {
     fireEvent.click(toggle);
     expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+/**
+ * Every amount the Budget tab reads or writes is in minor units of the
+ * wedding's currency, and a currency's minor unit is not always a hundredth:
+ * JPY has none and KWD has three. Each row types the major amount a host would
+ * and expects the minor units the API stores. The AUD row passes with a fixed
+ * factor of 100 too; the JPY and KWD rows are the ones that catch it.
+ */
+describe("BudgetView — amounts in the wedding's currency", () => {
+  const CURRENCIES = [
+    { currency: "JPY", typed: "50000", minor: 50_000 },
+    { currency: "AUD", typed: "12.34", minor: 1_234 },
+    { currency: "KWD", typed: "1.234", minor: 1_234 },
+  ] as const;
+
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+  const line = (over: Partial<BudgetSnapshot["items"][number]> = {}) => ({
+    id: "it",
+    weddingId: "wed_1",
+    category: "venue",
+    name: "Reception venue",
+    estimateMinor: null,
+    quotedMinor: null,
+    actualMinor: null,
+    notes: null,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  });
+  /** The form holding a control: every form here is submitted directly, so the
+   *  handler decides, not happy-dom's constraint validation of `min`/`step`. */
+  const formOf = (el: HTMLElement) => el.closest("form")!;
+  const sentBody = (call: number) => JSON.parse(authFetch.mock.calls[call]![1].body);
+
+  describe.each(CURRENCIES)("in $currency", ({ currency, typed, minor }) => {
+    it("adds a fixed line's estimate", async () => {
+      setCachedBudget("wed_1", snap({ currency, items: [] }));
+      authFetch.mockResolvedValueOnce(json({ item: line({ estimateMinor: minor }) }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.input(await screen.findByPlaceholderText(/caterer, venue/i), {
+        target: { value: "Reception venue" },
+      });
+      const estimate = screen.getByLabelText("Estimate (optional)");
+      fireEvent.input(estimate, { target: { value: typed } });
+      fireEvent.submit(formOf(estimate));
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({
+        category: "venue",
+        name: "Reception venue",
+        estimateMinor: minor,
+      });
+    });
+
+    it("adds a per-head line's price", async () => {
+      const events = [{ id: "evt_1", name: "Reception" }];
+      setCachedBudget("wed_1", snap({ currency, items: [], events }));
+      authFetch.mockResolvedValueOnce(
+        json({ item: line({ unitPriceMinor: minor, eventIds: null, headcount: null }) }),
+      );
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.input(await screen.findByPlaceholderText(/caterer, venue/i), {
+        target: { value: "Dinner" },
+      });
+      fireEvent.click(screen.getByLabelText("Priced per head"));
+      const price = screen.getByLabelText("Price per head");
+      fireEvent.input(price, { target: { value: typed } });
+      fireEvent.submit(formOf(price));
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({
+        category: "venue",
+        name: "Dinner",
+        perHead: { unitPriceMinor: minor },
+      });
+    });
+
+    it("shows each stored figure in its cell and saves what is typed there", async () => {
+      const stored = line({ estimateMinor: minor, quotedMinor: minor, actualMinor: minor });
+      setCachedBudget("wed_1", snap({ currency, items: [stored] }));
+      authFetch.mockImplementation(async (_url: string, init: RequestInit) =>
+        json({ item: { ...stored, ...JSON.parse(String(init.body)) } }),
+      );
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await screen.findByText("Reception venue");
+
+      const cells = [
+        ["Est", "estimateMinor"],
+        ["Quote", "quotedMinor"],
+        ["Actual", "actualMinor"],
+      ] as const;
+      for (const [label] of cells) {
+        expect(screen.getByLabelText(label)).toHaveValue(Number(typed));
+      }
+      for (const [k, [label, field]] of cells.entries()) {
+        fireEvent.change(screen.getByLabelText(label), { target: { value: typed } });
+        await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(k + 1));
+        expect(sentBody(k)).toEqual({ [field]: minor });
+      }
+    });
+
+    it("adds a payment", async () => {
+      setCachedBudget("wed_1", snap({ currency, items: [line()] }));
+      authFetch.mockResolvedValueOnce(
+        json({
+          payment: {
+            id: "p1",
+            budgetItemId: "it",
+            label: "Deposit",
+            amountMinor: minor,
+            dueAt: null,
+            paidAt: null,
+            createdAt: 2,
+          },
+        }),
+      );
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      fireEvent.input(screen.getByLabelText("Payment label"), { target: { value: "Deposit" } });
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: typed } });
+      fireEvent.submit(formOf(amount));
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ label: "Deposit", amountMinor: minor, dueAt: null });
+      // Accepted, so the form is ready for the next payment.
+      expect(screen.getByLabelText("Payment label")).toHaveValue("");
+      expect(amount).toHaveValue(null);
+    });
+
+    it("opens the budget total at its stored figure and saves what is typed", async () => {
+      setCachedBudget("wed_1", snap({ currency, budgetTotalMinor: minor }));
+      authFetch.mockResolvedValueOnce(json({}));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
+      const total = screen.getByLabelText(`Total budget (${currency})`);
+      expect(total).toHaveValue(Number(typed));
+      fireEvent.input(total, { target: { value: "" } });
+      fireEvent.input(total, { target: { value: typed } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ budgetTotalMinor: minor });
+    });
+  });
+
+  it("rounds an amount typed with more decimals than the currency has", async () => {
+    const stored = line({ quotedMinor: 1 });
+    authFetch.mockImplementation(async (_url: string, init: RequestInit) =>
+      json({ item: { ...stored, ...JSON.parse(String(init.body)) } }),
+    );
+    for (const [currency, typed, minor] of [
+      ["JPY", "1.5", 2],
+      ["AUD", "12.345", 1_235],
+      ["KWD", "1.2345", 1_235],
+    ] as const) {
+      __resetBudgetCache();
+      authFetch.mockClear();
+      setCachedBudget("wed_1", snap({ currency, items: [stored] }));
+      const { unmount } = render(() => (
+        <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />
+      ));
+      fireEvent.change(await screen.findByLabelText("Quote"), { target: { value: typed } });
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ quotedMinor: minor });
+      unmount();
+    }
+  });
+
+  it("lets every money input take as many decimals as the currency has", async () => {
+    setCachedBudget(
+      "wed_1",
+      snap({ currency: "KWD", items: [line({ estimateMinor: 1_234 })], budgetTotalMinor: 5_000 }),
+    );
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
+    fireEvent.click(screen.getByRole("button", { name: "payments (0)" }));
+    // Budget total, add-item estimate, Est, Quote, Actual, payment amount.
+    const inputs = screen.getAllByRole("spinbutton");
+    expect(inputs).toHaveLength(6);
+    for (const input of inputs) expect(input).toHaveAttribute("step", "any");
+  });
+
+  // Regression guards: the same in every currency, so AUD is enough.
+  describe("cleared and refused amounts", () => {
+    it("saves a cleared cell as no amount, and refuses a negative one", async () => {
+      const stored = line({ quotedMinor: 1_000 });
+      setCachedBudget("wed_1", snap({ items: [stored] }));
+      authFetch.mockResolvedValueOnce(json({ item: { ...stored, quotedMinor: null } }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await screen.findByText("Reception venue");
+
+      fireEvent.change(screen.getByLabelText("Actual"), { target: { value: "-5" } });
+      expect(screen.getByRole("alert")).toHaveTextContent("Amounts must be positive.");
+      expect(authFetch).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByLabelText("Quote"), { target: { value: "" } });
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ quotedMinor: null });
+    });
+
+    it("clears the budget total, and refuses a negative one", async () => {
+      setCachedBudget("wed_1", snap({ budgetTotalMinor: 500_000 }));
+      authFetch.mockResolvedValueOnce(json({}));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
+      const total = screen.getByLabelText("Total budget (AUD)");
+
+      fireEvent.input(total, { target: { value: "-1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(screen.getByRole("alert")).toHaveTextContent("Budget must be a positive amount.");
+      expect(authFetch).not.toHaveBeenCalled();
+
+      fireEvent.input(total, { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ budgetTotalMinor: null });
+    });
+
+    it("refuses a negative estimate and sends nothing", async () => {
+      setCachedBudget("wed_1", snap({ items: [] }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.input(await screen.findByPlaceholderText(/caterer, venue/i), {
+        target: { value: "Reception venue" },
+      });
+      const estimate = screen.getByLabelText("Estimate (optional)");
+      fireEvent.input(estimate, { target: { value: "-5" } });
+      fireEvent.submit(formOf(estimate));
+      expect(screen.getByRole("alert")).toHaveTextContent("Estimate must be a positive amount.");
+      expect(authFetch).not.toHaveBeenCalled();
+    });
+
+    it("refuses a payment with no amount, keeping what was typed", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      const label = screen.getByLabelText("Payment label");
+      fireEvent.input(label, { target: { value: "Deposit" } });
+      fireEvent.submit(formOf(label));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A payment needs a label and a positive amount.",
+      );
+      expect(authFetch).not.toHaveBeenCalled();
+      expect(label).toHaveValue("Deposit");
+    });
+
+    it("refuses a payment with no label, keeping the amount", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "100" } });
+      fireEvent.submit(formOf(amount));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A payment needs a label and a positive amount.",
+      );
+      expect(authFetch).not.toHaveBeenCalled();
+      expect(amount).toHaveValue(100);
+    });
+  });
+
+  describe("a payment the server refuses", () => {
+    const submitPayment = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      fireEvent.input(screen.getByLabelText("Payment label"), { target: { value: "Deposit" } });
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "100" } });
+      fireEvent.submit(formOf(amount));
+    };
+
+    it("says so and reloads the budget", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      authFetch
+        .mockResolvedValueOnce(new Response("fail", { status: 500 }))
+        .mockResolvedValueOnce(json(snap({ items: [line()] })));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await submitPayment();
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+      expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/budget$/);
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't add that payment.");
+    });
+
+    it("sends the organiser to sign in on a 401", async () => {
+      setCachedBudget("wed_1", snap({ items: [line()] }));
+      authFetch.mockResolvedValueOnce(new Response("", { status: 401 }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await submitPayment();
+      await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
+    });
   });
 });
