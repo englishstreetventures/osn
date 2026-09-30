@@ -8,7 +8,7 @@ related:
   - "[[closing-band-width-bound-over-height-clip]]"
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-09-30
 ---
 # Invite Builder
 
@@ -775,14 +775,13 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   - `GET /invite` → current customisation (text + image URLs + theme +
     `heroDisplay`). With `?include=faqs` it also carries `faqs`, the FAQ entries
     in order, read concurrently with the customisation. Only the builder's first
-    load asks; the getting-started checklist, the guest table and every write's
-    read-back leave it out.
+    load asks; the getting-started checklist and the guest table leave it out.
   - `PUT /invite/text` → upsert the copy fields (total body — the builder always
     submits every key). Empty/whitespace ⇒ `null`, which means "use the built-in
     default" for every field except `footerMessage`, where it means "render
     nothing".
   - `PUT /invite/visibility` → set the section switches the body names
-    (`{ hero?, story?, footer? }`, booleans). **Partial**, unlike `/text` and
+    (`{ hero?, story?, faq?, footer? }`, booleans). **Partial**, unlike `/text` and
     `/theme`: a key left out keeps its stored switch, and a body naming no known
     section is a 400. Bumps `updatedAt` only, never the image version. Switching
     off never touches the section's content.
@@ -810,6 +809,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     browser refuses a PATCH preflight.
   - `POST /invite/image/:slot` → upload an image.
   - `DELETE /invite/image/:slot` → reset slot to default.
+  - The text, theme, design, visibility, crop and image-delete writes answer
+    with the whole customisation, built from the row the write's `RETURNING`
+    clause hands back — they never read the row again. The image URLs in it
+    and in the upload answers take the slug from `weddingEditor()`, which read
+    it with the caller's role.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
     `authFetch` discard a valid session). See `[[cire-auth]]`.
 
@@ -1629,7 +1633,8 @@ cire/api uses `@shared/observability` (workerd-safe subpaths) — see
 redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWedding,getForWeddingId,getForSlug,
-  imageKeyForSlug,upsertText,upsertTheme,setImage,removeImage}` +
+  imageKeyForSlug,upsertText,upsertTheme,setDesign,setVisibility,setImage,
+  removeImage,setCrop}` +
   `cire.invite.{storeAsset,fetchAsset,deleteAsset}` +
   `cire.invite.faq.{list,listForGuests,create,update,remove,reorder}` (the
   guests' read runs inside `cire.claim.buildResponse`).
