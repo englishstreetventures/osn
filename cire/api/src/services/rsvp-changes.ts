@@ -134,10 +134,11 @@ export function buildRecordStatement(
   input: { weddingId: string; familyId: string; changes: readonly RsvpChangeInput[] },
   now: Date,
 ): BatchItem<"sqlite"> | null {
-  if (input.changes.length === 0) return null;
+  const { changes } = input;
+  if (changes.length === 0) return null;
   const createdAt = rsvpChanges.createdAt.mapToDriverValue(now);
   const payload = JSON.stringify(
-    input.changes.map((change) => [
+    changes.map((change) => [
       input.weddingId,
       input.familyId,
       change.guestId,
