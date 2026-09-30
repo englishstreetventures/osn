@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClaimResult } from "../../src/components/types";
 
 /**
- * The account-link panel and the OSN auth client stay out of the invite's
- * first download: most households never link an account, so every invite
- * would otherwise pay for code only a few use.
+ * The account-link panel, the OSN auth client and the plus-one prompt stay out
+ * of the invite's first download: most households never link an account and
+ * are never allowed a guest, so every invite would otherwise pay for code only
+ * a few use.
  *
  * Each mock factory counts how often its module is EVALUATED. A static import
  * anywhere in LoginSection's graph evaluates it the moment LoginSection loads;
@@ -23,11 +24,16 @@ import type { ClaimResult } from "../../src/components/types";
  * that answer before drawing — one request after the events are on screen.
  * The claim payload carries the sign-in state instead.
  */
-const loads = vi.hoisted(() => ({ pulse: 0, auth: 0, authCore: 0 }));
+const loads = vi.hoisted(() => ({ pulse: 0, auth: 0, authCore: 0, plusOne: 0 }));
 
 vi.mock("../../src/components/PulseAccountLink", () => {
   loads.pulse++;
   return { PulseAccountLink: () => <div data-testid="pulse-account-link-stub" /> };
+});
+
+vi.mock("../../src/components/PlusOnePrompt", () => {
+  loads.plusOne++;
+  return { PlusOnePrompt: () => <div data-testid="plus-one-prompt-stub" /> };
 });
 
 vi.mock("@shared/rp-auth/solid", () => {
@@ -64,7 +70,7 @@ async function settle() {
 describe("LoginSection keeps account linking out of the first download", () => {
   it("does not load it with the panel", async () => {
     await import("../../src/components/LoginSection");
-    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0 });
+    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0, plusOne: 0 });
   });
 
   it("does not load it for a visitor who has not claimed", async () => {
@@ -72,7 +78,7 @@ describe("LoginSection keeps account linking out of the first download", () => {
     const { LoginSection } = await import("../../src/components/LoginSection");
     render(() => <LoginSection apiUrl="http://x" result={null} onClaimed={() => {}} />);
     await settle();
-    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0 });
+    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0, plusOne: 0 });
   });
 
   it("does not load it for a host preview", async () => {
@@ -82,7 +88,7 @@ describe("LoginSection keeps account linking out of the first download", () => {
       <LoginSection apiUrl="http://x" result={{ ...claim, preview: true }} onClaimed={() => {}} />
     ));
     await settle();
-    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0 });
+    expect(loads).toEqual({ pulse: 0, auth: 0, authCore: 0, plusOne: 0 });
   });
 
   it("starts loading it as soon as a code is submitted, before the claim answers", async () => {
@@ -98,7 +104,7 @@ describe("LoginSection keeps account linking out of the first download", () => {
     ));
     fireEvent.input(getByLabelText("Invitation code"), { target: { value: "OKAFOR-LILY-AB12CD" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0 }));
+    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0, plusOne: 1 }));
   });
 
   it("renders it once a household has claimed", async () => {
@@ -108,6 +114,6 @@ describe("LoginSection keeps account linking out of the first download", () => {
       <LoginSection apiUrl="http://x" result={claim} onClaimed={() => {}} />
     ));
     await findByTestId("pulse-account-link-stub");
-    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0 }));
+    await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0, plusOne: 1 }));
   });
 });

@@ -153,7 +153,9 @@ profile-id string with **no cross-DB FK**. Two consequences:
   guest is removed. The round-trip export and the change history's
   before-images leave plus-ones out, so no before-image has to be reached for
   them. **Rectification** (Art. 16): the household can rename them until the
-  deadline; an editor can correct the name at any time
+  deadline — a rename clears the plus-one's dietary answers and consent
+  record, since a new name may be a different person; an editor can correct
+  the name at any time, keeping them
   (`PUT …/guests/:guestId/plus-one/name`, `:guestId` being the guest who
   brought them). See [[cire-plus-ones]].
 - **Guest free text in the gift registry (migration 0057).** A guest's claim

@@ -127,9 +127,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     member it covers** ("…for Ana and Ravi"), so the consent stays specific
     about whose data it authorises. It is **unticked by default**, and submit is
     blocked until a human ticks it. And it **may only open pre-ticked when every
-    member it covers already has a stored consent record** — one person's prior
-    consent never carries another's, so a household where anyone is new to
-    consent is asked afresh. The evidence is unchanged: the server still stamps
+    member it covers already has a current consent record of their own** — one
+    person's prior consent never carries another's, so a household where anyone
+    is new to consent is asked afresh. "Their own" means a record the guest
+    made (`consent_source = 'guest'`) against the current wording: an
+    organiser's recording of a phone reply never opens the guest's box ticked
+    (`isDietaryConsentCurrent`, `cire/api/src/services/rsvp.ts`). The evidence is unchanged: the server still stamps
     `dietary_consent_at` / `dietary_consent_version` on each affected row
     individually, so the stored record is still per-guest.
   - **Re-consent by prefill.** Because the box opens pre-ticked for a household
@@ -170,23 +173,38 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     themselves. A plus-one does none of that — their identity itself comes from
     another guest, and they may never see the invite. So the household's tick
     for a plus-one is an **attestation** that the plus-one agreed, like the
-    organiser's, not a consent the plus-one gave. **Until the invite shows
-    wording that says so, the API refuses dietary data on a plus-one's reply**
-    (422 `plus_one_dietary_unavailable`), on the organiser's recording route as
-    well as the invite's, since the household reads back what the organiser
-    records; a status-only reply is accepted. When
-    that wording ships it gets a consent version of its own, so the stored
-    record pins the attestation copy rather than the guest's own-consent copy.
-    The organiser remains controller and accountable; the household is the
-    attester.
+    organiser's, not a consent the plus-one gave. The invite's Respond dialog
+    gives it a box of its own, apart from the household's own consent box,
+    naming only the plus-ones it covers and worded as a confirmation that they
+    agreed. The wording and its version are one constant
+    (`PLUS_ONE_DIETARY_ATTESTATION` in `@cire/dietary`); the reply names the
+    version it showed, the API stores a plus-one's dietary data only when that
+    is the version it stamps (422 `plus_one_dietary_unavailable` otherwise), and
+    stamps it on the row. So the stored record pins the attestation copy, never
+    the guest's own-consent copy, and a guest site and API from different
+    builds cannot store evidence for words that were not on screen. The reply
+    also names the person the sheet showed the attestation for, and the API
+    refuses (409 `plus_one_changed`) a name the row no longer carries, so a page
+    opened before a rename cannot attest for the person named since. **A
+    household rename of a plus-one clears their dietary answers and consent
+    record** in the same write, on every rename, since a new name may be a
+    different person (Art. 5(1)(d)). **The organiser's recording route still
+    refuses dietary data on a plus-one's reply**: its rows are stamped with the guest's own-consent
+    version, not a version of the organiser's own attestation words, so for a
+    person whose data comes from someone else it would store evidence naming
+    copy nobody saw. The organiser remains controller and accountable; the
+    household is the attester.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
-    the controller owes them the Art. 14 information. **No invite offers
-    plus-ones yet**: the API exists, but the guest-site capture has not shipped,
-    and it must ship with copy asking the household to pass the privacy notice
-    (`/privacy`) to their plus-one. The organiser, as controller, answers their
-    requests, and can correct a plus-one's name at any time (see [[dsar]]).
-    Name alone (Art. 6(1)(f), wedding administration) rests on the same basis
-    as every other guest name.
+    the controller owes them the Art. 14 information. The invite's plus-one
+    prompt asks the household to share the privacy notice (`/privacy`) with
+    their guest, and the notice has a section for a person a guest brings: the
+    source of their details (the guest bringing them), the basis for each
+    (legitimate interest for name and RSVP; for dietary requirements, their
+    explicit consent as confirmed by that guest), and how to correct, withdraw
+    or delete them without a code of their own. The organiser, as controller,
+    answers their requests, and can correct a plus-one's name at any time (see
+    [[dsar]]). Name alone (Art. 6(1)(f), wedding administration) rests on the
+    same basis as every other guest name.
 - **Retention.** Tied to the wedding lifecycle; see [[retention]]. A daily
   **1-year guest-data sweep now exists** (`retentionService.sweepExpiredGuestData`,
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
@@ -202,7 +220,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
 | Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | No purge / R2 lifecycle yet (C-H1). Storage-limitation breach over time. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
-| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is refused on both write paths (the invite's and the organiser's) until attestation wording ships; the capture copy, when it ships, must ask the household to pass on the privacy notice; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
+| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under the household's attestation, in its own box and wording, pinned by its own version, and the organiser's route refuses it; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |
 | Guest data in operator logs | Low | Medium | `@cire/api` has no redacted logger yet (C-M2); deny-list is the interim guard for cross-service logs only. |
 | Third-party (Pinterest) exposure of guest IP/UA/behaviour | Low | Low–Medium | Consent-gated under the site-wide `embeds` category (opt-out, persisted), on every device; an outbound link replaces the board whenever it is not showing — refused, blocked or timed out; DPA/transfer basis TODO ([[subprocessors]]). |
@@ -230,10 +248,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   organiser's, so the stored evidence says who attested. The RSVP report keeps
   it apart too: the dashboard badges such a reply "Household-entered", the
   report's "Recorded By" column says "Household", and a "Plus-one Of" column
-  names the guest who brought them. The API refuses
-  dietary data on a plus-one's reply, from the invite and the organiser's
-  recording route alike, until the invite carries wording for that
-  attestation and its own consent version. Turning a guest's permission off
+  names the guest who brought them. The invite takes a plus-one's dietary
+  data only behind the household's attestation box, and the API stores it
+  only when the reply names the attestation version it stamps and the name
+  the plus-one carries now; the organiser's recording route refuses it. A
+  household rename clears the plus-one's dietary answers and consent record.
+  Turning a guest's permission off
   where a plus-one is named is refused unless the organiser also asks for the
   plus-one to be removed, so a plus-one's data is never deleted — or kept past
   its permission — without an explicit choice.

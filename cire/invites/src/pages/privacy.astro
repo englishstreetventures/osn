@@ -90,7 +90,10 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
 
   <h2>What is collected</h2>
   <ul>
-    <li><strong>Guest names</strong> — the names on your household invitation.</li>
+    <li>
+      <strong>Guest names</strong> — the names on your household invitation, and the
+      name of anyone a guest is allowed to bring and chooses to.
+    </li>
     <li><strong>RSVP status</strong> — whether each named guest is attending each event.</li>
     <li>
       <strong>Dietary requirements and access needs</strong> — anything you choose
@@ -117,7 +120,8 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   </ul>
   <p>
     Nothing else is asked for or knowingly collected through this site. You only ever
-    fill in details for the members of your own household.
+    fill in details for the members of your own household, and for a guest your hosts
+    have let you bring.
   </p>
 
   <h3>A note on dietary information</h3>
@@ -130,8 +134,11 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
     is therefore optional, you tick a box to confirm before it is submitted, and a record of
     which version of this wording you agreed to is stored alongside it. If you give your
     answer to your hosts another way — over the phone, say — they can record it for you,
-    and what is stored then is their confirmation that you agreed, not yours. Either way
-    you can withdraw it with us directly. Please don’t include any
+    and what is stored then is their confirmation that you agreed, not yours. If you
+    are bringing a guest, you can give their dietary requirements only by ticking a
+    separate box confirming that they agreed, and what is stored for them is your
+    confirmation and the version of the wording you confirmed. Either way the person
+    the information is about can withdraw it with us directly. Please don’t include any
     health or other sensitive detail you’d rather not share — a simple note such as
     “vegetarian” or “no nuts” is all that is needed.
   </p>
@@ -148,7 +155,9 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
       <strong>Dietary requirements / access needs</strong> — to cater safely and
       accommodate your needs on the day. Because this can include protected
       information, the basis is your <strong>explicit consent</strong>, given when you
-      tick the box and submit your RSVP, and withdrawable at any time.
+      tick the box and submit your RSVP, and withdrawable at any time. For a guest
+      someone brings, it is that guest’s explicit consent, as confirmed by the person
+      bringing them.
     </li>
     <li>
       <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
@@ -162,6 +171,30 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   </ul>
   <p>
     Your information is never sold, and never used for marketing or advertising.
+  </p>
+
+  <h2>If a guest is bringing you</h2>
+  <p>
+    Your hosts may let a guest bring someone with them. If that is you, the guest who is
+    bringing you gave us your name, and may give us your RSVP and — only if you agreed —
+    your dietary requirements. You have no invitation code of your own and may never see
+    the invitation itself, which is why we ask that guest to pass this notice on to you.
+  </p>
+  <p>
+    We hold your details for your hosts on the same terms as every other guest’s, set out
+    in this notice, and delete them on the same schedule. Your name and RSVP rest on your
+    hosts’ legitimate interest in running their wedding. Your dietary requirements rest on
+    your explicit consent, and what is stored is the confirmation of the guest who is
+    bringing you that you agreed, with the version of the wording they confirmed.
+  </p>
+  <p>
+    You have the same rights as any other guest, set out below, and do not need a code to
+    use them: ask your hosts, or email us at
+    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
+      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>, to
+    correct your name, withdraw your agreement to your dietary requirements being kept, or
+    have your details deleted. The guest who is bringing you can also change your name or
+    remove you until RSVPs close.
   </p>
 
   <h2>Who can see it</h2>

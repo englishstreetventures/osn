@@ -1,3 +1,4 @@
+import { isPlusOne } from "./plus-one";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
 /**
@@ -20,13 +21,19 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
  *
  * An event nobody in the household is invited to reports `false` — there is
  * nothing to have responded to, so a permanent tick would be a lie.
+ *
+ * A plus-one's reply is not waited for. The mark says the people the couple
+ * invited have answered; a household that answered and then named a guest
+ * would otherwise see its tick taken back, which reads as its own reply being
+ * lost. The plus-one prompt says plainly when a named guest still needs an
+ * answer.
  */
 export function hasHouseholdResponded(
   event: Pick<EventSummary, "id">,
-  members: ReadonlyArray<Pick<FamilyMember, "guestId" | "eventIds">>,
+  members: ReadonlyArray<Pick<FamilyMember, "guestId" | "eventIds" | "plusOneOf">>,
   rsvps: ReadonlyArray<Pick<RsvpSummary, "guestId" | "eventId">>,
 ): boolean {
-  const invited = members.filter((m) => m.eventIds.includes(event.id));
+  const invited = members.filter((m) => m.eventIds.includes(event.id) && !isPlusOne(m));
   if (invited.length === 0) return false;
   return invited.every((m) => rsvps.some((r) => r.guestId === m.guestId && r.eventId === event.id));
 }

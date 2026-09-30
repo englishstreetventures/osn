@@ -22,10 +22,10 @@ import type {
   DressSwatch,
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
-import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { accountLinkService } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
+import { isDietaryConsentCurrent } from "./rsvp";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -323,6 +323,7 @@ function buildInvite(
               dietary: rsvps.dietary,
               dietaryPresets: rsvps.dietaryPresets,
               dietaryConsentVersion: rsvps.dietaryConsentVersion,
+              consentSource: rsvps.consentSource,
             })
             .from(rsvps)
             .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -425,14 +426,19 @@ function buildInvite(
       members: withPlusOnesAfterInviters(Array.from(memberMap.values())),
       events: eventList,
       // The stored key list becomes an array at the boundary, and the stored
-      // consent VERSION collapses to "is this the copy we show now?" — the sheet
-      // re-lights its picker from the first and decides whether its consent box
-      // may open ticked from the second. Consent given against superseded
-      // wording is not consent to the current wording.
-      rsvps: rsvpRows.map(({ dietaryConsentVersion, ...row }) => ({
+      // consent record collapses to "may this person's box open ticked?" — the
+      // sheet re-lights its picker from the first and seeds its consent boxes
+      // from the second. Consent given against superseded wording, or recorded
+      // by someone other than the box's own writer, does not count. Whether a
+      // row is a plus-one's comes from the members read above.
+      rsvps: rsvpRows.map(({ dietaryConsentVersion, consentSource, ...row }) => ({
         ...row,
         dietaryPresets: parsePresets(row.dietaryPresets),
-        dietaryConsentCurrent: dietaryConsentVersion === DIETARY_CONSENT_VERSION,
+        dietaryConsentCurrent: isDietaryConsentCurrent({
+          version: dietaryConsentVersion,
+          source: consentSource,
+          isPlusOne: (memberMap.get(row.guestId)?.plusOneOf ?? null) !== null,
+        }),
       })),
       // Resolved server-side so the banner the guest reads and the 403 the
       // write path returns are computed by the same function — the client

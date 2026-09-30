@@ -90,6 +90,13 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     if (!("guestId" in m) || typeof m.guestId !== "string") return false;
     if (!("firstName" in m) || typeof m.firstName !== "string") return false;
     if (!("lastName" in m) || typeof m.lastName !== "string") return false;
+    // The plus-one fields are proven when present and may be absent, for the
+    // reason the dietary fields may: a field required here sends every
+    // household back to the code form while the site runs ahead of the API.
+    // `plusOneOf` is `null` on everyone but a plus-one, so null is the common
+    // case, not a malformed one.
+    if ("plusOneAllowed" in m && typeof m.plusOneAllowed !== "boolean") return false;
+    if ("plusOneOf" in m && m.plusOneOf !== null && typeof m.plusOneOf !== "string") return false;
     return "eventIds" in m && Array.isArray(m.eventIds);
   });
   if (!membersValid) return false;
@@ -116,4 +123,17 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     if (!("sortOrder" in e) || typeof e.sortOrder !== "number") return false;
     return true;
   });
+}
+
+/**
+ * "Ana", "Ana and Ravi", "Ana, Ravi and Tom".
+ *
+ * The consent wording has to name whose data it authorises: a box reading only
+ * "the dietary requirements above" leaves a guest ticking on behalf of people it
+ * does not identify, which is the opposite of the specificity Art. 9(2)(a) asks
+ * for.
+ */
+export function formatNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
