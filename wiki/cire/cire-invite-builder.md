@@ -8,7 +8,8 @@ related:
   - "[[closing-band-width-bound-over-height-clip]]"
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-27
+  - "[[cire-host-portal-layout]]"
+last-reviewed: 2026-09-28
 ---
 # Invite Builder
 
@@ -1023,16 +1024,24 @@ resolves to):
   `POST /api/organiser/weddings/:weddingId/preview-code` response, which now
   returns `{ publicId, slug }`.
 - **Copy invite message** (`cire/host/.../invite-message.ts`, used by
-  `GuestTable`): links to `${CIRE_WEB_URL}/<slug>`. The slug is threaded
-  `OrganiserApp → ModuleShell → GuestTable → buildInviteMessage`. Three lines
+  `GuestTable` and `invite/InviteMessageCopy.tsx`): links to
+  `${CIRE_WEB_URL}/<slug>`. The slug is threaded
+  `OrganiserApp → ModuleShell → GuestTable | InviteBuilder → buildInviteMessage`. Three lines
   — the host's line, that link, then `Your invitation code: <code>`. The label
   is composed around the code rather than written into the default prose, so a
   host who replaces line 1 still sends a code a first-time guest can place; the
   words match the guest site's own field (`Invitation code`), not the
-  organiser-facing `Family Code` column. The host's line comes from a
-  `GET /invite` read made each time the table mounts, and "Copy message" stays
-  disabled until that read settles: on a remount the cached rows paint at once,
-  and a copy before the read lands would send the default line.
+  organiser-facing `Family Code` column. In Guests → Households the host's
+  line comes from a `GET /invite` read made each time the table mounts, and
+  "Copy message" stays disabled until that read settles: on a remount the cached
+  rows paint at once, and a copy before the read lands would send the default
+  line. In the builder the line is the saved one the builder already holds.
+  An owner's copy marks the household sent (`POST …/families/:familyId/mark-shared`,
+  owner-only) through `lib/mark-shared.ts`, which also stamps the server's time
+  on the household's cached guest rows when that list is fresh, so Households
+  shows "Sent" after a remount. A co-host's copy marks nothing. A re-mint
+  invalidates the cached guest and household rows, since every code in them has
+  just stopped working.
 
 **Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
 `Cache-Control: no-store`, and the route's fetch and the islands' retry both
@@ -1110,6 +1119,8 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
 | `invite/FaqEditor.tsx` | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard |
+| `invite/InviteMessageCopy.tsx` | The Message section's copy action: its own `GET /households` read, the household picker, the composed-message preview, the copy and the owner's mark-sent |
+| `lib/mark-shared.ts` | `markHouseholdShared` — the mark-sent POST both copy actions share, and the patch to the cached guest rows |
 | `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
 
 **Structure: one card per guest-page section, in the order guests scroll
@@ -1125,11 +1136,37 @@ Story**, **Code Entry & Welcome**, **Events Section**, **FAQ**, **Closing
 Section**, and finally the copyable **Invite message** (explicitly flagged as
 not part of the guest page).
 
+**The Message section copies a household's message.** Under the first-line
+field sit a household picker, a preview of the composed message and a copy
+button (`InviteMessageCopy`), so an organiser can send the message without
+leaving the Invite module:
+
+- **Which households.** Read fresh from `GET /households` the first time the
+  section is shown in a builder mount, not from the households cache: a
+  re-mint in Codes or a deactivation in Guests changes the codes, and the
+  builder unmounts for both. Only a household with a guest and a live code is
+  offered. The block stays mounted after that first visit, so the pick survives
+  a trip to another section.
+- **No household chosen** (the default): the preview and the copy carry
+  `[household code]` in place of the code, the button reads "Copy template",
+  and nothing is marked sent. A first tap never marks a household the organiser
+  did not pick.
+- **Saved line only.** The preview follows the line being typed, but the copy
+  sends the saved line and is `aria-disabled`, described by a note, while the
+  two would give different text — `aria-disabled` rather than `disabled`, so
+  the button keeps its tab stop and the note stays reachable. The comparison
+  trims both and reads blank as the default, so a trailing space alone does
+  not block it.
+- **Roles.** The builder is editor-gated, so owners and editors copy; only the
+  owner's copy marks the household sent. Selecting the preview selects the whole
+  message, which is the way to copy it by hand when the clipboard refuses.
+
 **The Message section points at the other two places the message comes
 from.** A household's message has three parts, set in three places: its first
-line here; the code on its last line, whose style is chosen when the wedding is
-created and changed by the owner in Invite → Codes; and the copy action in
-Guests → Households. Each of the three carries one line naming the other two
+line here, with a copy action beside it; the code on its last line, whose style
+is chosen when the wedding is created and changed by the owner in Invite →
+Codes; and the household list in Guests → Households, with a copy action on
+every row. Each of the three carries one line naming the other two
 (`InviteMessageLinks.tsx`), which `ModuleShell` renders into a slot on
 `InviteBuilder`, `RemintPanel` and `GuestTable`. A place the reader's role
 cannot open — Codes for a co-host, the builder for a viewer — is named as text

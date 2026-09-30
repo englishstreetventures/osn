@@ -79,6 +79,7 @@ import {
   TextField,
 } from "./fields";
 import ImageField from "./ImageField";
+import InviteMessageCopy from "./InviteMessageCopy";
 import {
   BACKDROP_BLUR_MAX,
   BACKDROP_BLUR_MIN,
@@ -117,6 +118,10 @@ interface InviteBuilderProps {
   weddingId: string;
   /** The wedding's slug — builds the public guest-invite preview link. */
   weddingSlug: string;
+  /** The wedding's name — the default first line of the copied invite message. */
+  weddingName: string;
+  /** Owner: copying a household's message also marks it sent. */
+  canManage: boolean;
   /** The wedding's entitlement keys — locks premium designs in the selector. */
   entitlements: string[];
   /** The section to open on, when a link elsewhere in the dashboard asked for
@@ -383,6 +388,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // scroll order.
   const [activeSection, setActiveSection] = createSignal<(typeof NAV_SECTIONS)[number]["id"]>(
     props.initialSection ?? NAV_SECTIONS[0].id,
+  );
+  // Whether the Message section has been shown since the builder mounted. Its
+  // copy action reads the household list, so it mounts on the first visit
+  // rather than with the builder, then stays: the household an organiser
+  // picked survives a trip to another section.
+  const messageOpened = createMemo<boolean>(
+    (opened) => opened || activeSection() === "invite-message",
+    false,
   );
 
   /**
@@ -1521,6 +1534,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       hint="The wedding link and the household's invitation code are appended automatically — don't include them here."
                       onInput={(v) => setDraft("inviteMessage", v)}
                     />
+                    <Show when={messageOpened()}>
+                      <InviteMessageCopy
+                        weddingId={props.weddingId}
+                        weddingName={props.weddingName}
+                        weddingSlug={props.weddingSlug}
+                        canManage={props.canManage}
+                        savedLine={d().inviteMessage ?? null}
+                        draftLine={draft.inviteMessage}
+                      />
+                    </Show>
                     {props.inviteMessageLinks}
                   </SectionCard>
                 </div>
