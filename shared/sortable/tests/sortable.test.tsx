@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
-import { createSignal, For } from "solid-js";
+import { createEffect, createSignal, For } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,6 +10,7 @@ import {
   DragDropSensors,
   maybeTransformStyle,
   SortableProvider,
+  useDragDropContext,
   type DragEvent,
 } from "../src/index";
 
@@ -453,5 +454,79 @@ describe("multi-container", () => {
     const event = onDragEnd.mock.calls[0]![0] as DragEvent;
     expect(event.draggable.id).toBe("a1");
     expect(["a2"]).toContain(event.droppable?.id);
+  });
+});
+
+describe("row computations wake only when their own value changes", () => {
+  /** Counts how often each row's effects run while a drag crosses slots. */
+  function CountingList(props: { runs: Record<string, number> }) {
+    const ids = ["a", "b", "c", "d"];
+    const bump = (key: string) => (props.runs[key] = (props.runs[key] ?? 0) + 1);
+    function CountingRow(rowProps: { id: string }) {
+      const sortable = createSortable(rowProps.id);
+      const [state] = useDragDropContext()!;
+      createEffect(() => {
+        state.dragging();
+        bump(`dragging:${rowProps.id}`);
+      });
+      createEffect(() => {
+        sortable.isActiveDraggable();
+        bump(`active:${rowProps.id}`);
+      });
+      createEffect(() => {
+        sortable.transform();
+        bump(`transform:${rowProps.id}`);
+      });
+      return (
+        <li data-row ref={sortable.ref} style={maybeTransformStyle(sortable.transform())}>
+          <button {...sortable.dragActivators} data-grip={rowProps.id}>
+            grip
+          </button>
+        </li>
+      );
+    }
+    return (
+      <DragDropProvider collisionDetector={closestCenter}>
+        <ul>
+          <SortableProvider ids={ids}>
+            <For each={ids}>{(id) => <CountingRow id={id} />}</For>
+          </SortableProvider>
+        </ul>
+      </DragDropProvider>
+    );
+  }
+
+  it("runs a row's drag-state effects on pick-up and drop, not on every slot crossed", () => {
+    stubRowGeometry();
+    const runs: Record<string, number> = {};
+    render(() => <CountingList runs={runs} />);
+    const mounted = { ...runs };
+
+    // Drag `a` down across b, c and d — three slot changes.
+    fireEvent.pointerDown(document.querySelector("[data-grip=a]")!, {
+      pointerId: 1,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    for (const y of [30, 60, 100, 140]) {
+      fireEvent(
+        document,
+        new PointerEvent("pointermove", { pointerId: 1, clientX: 10, clientY: y }),
+      );
+    }
+    fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: 140 }));
+
+    const since = (key: string) => (runs[key] ?? 0) - (mounted[key] ?? 0);
+    for (const id of ["a", "b", "c", "d"]) {
+      // Starts, ends: two runs whatever the number of slots crossed.
+      expect(since(`dragging:${id}`)).toBe(2);
+    }
+    // Only the dragged row's answer flips.
+    expect(since("active:a")).toBe(2);
+    for (const id of ["b", "c", "d"]) expect(since(`active:${id}`)).toBe(0);
+    // `b` is pulled up by one stride once and stays there while the target moves
+    // past it, then drops back: two changes, not one per slot.
+    expect(since("transform:b")).toBe(2);
   });
 });

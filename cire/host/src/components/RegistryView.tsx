@@ -754,7 +754,7 @@ export default function RegistryView(props: RegistryViewProps) {
                           "border-gold/60 bg-surface/80 z-10 shadow-lg":
                             sortable.isActiveDraggable(),
                           "transition-transform":
-                            !!dndState.active().draggable && !sortable.isActiveDraggable(),
+                            dndState.dragging() && !sortable.isActiveDraggable(),
                         }}
                       >
                         <div class="flex flex-wrap items-center gap-3">

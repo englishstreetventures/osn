@@ -1,5 +1,7 @@
 import {
   createContext,
+  createMemo,
+  createSelector,
   createSignal,
   onCleanup,
   type Accessor,
@@ -27,6 +29,15 @@ type Detector = (
 
 export interface DragState {
   active: Accessor<{ draggable: DragTarget | null; droppable: DragTarget | null }>;
+  /**
+   * Whether a drag is live. A row that styles itself by this should read it
+   * rather than `active()`: `active` changes on every slot the pointer crosses,
+   * this only when a drag starts or ends, so a long list re-runs each row's
+   * effect twice per gesture instead of once per slot.
+   */
+  dragging: Accessor<boolean>;
+  /** Whether `id` is the row being dragged. Notifies only the rows whose answer flips. */
+  isDragged: (id: Id) => boolean;
   /** The dragged row's offset from where it started. `null` when nothing is dragging. */
   transform: Accessor<Transform | null>;
   /** How far a NON-dragged row has been pushed to open the gap. 0 for most rows. */
@@ -77,6 +88,9 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     draggable: DragTarget | null;
     droppable: DragTarget | null;
   }>({ draggable: null, droppable: null });
+  const draggedId = createMemo(() => active().draggable?.id ?? null);
+  const dragging = createMemo(() => draggedId() !== null);
+  const isDragged = createSelector<Id | null, Id>(draggedId);
   const [transform, setTransform] = createSignal<Transform | null>(null);
   const [displaced, setDisplaced] = createSignal<Map<Id, number>>(new Map());
 
@@ -261,7 +275,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   return (
     <DragDropContext.Provider
       value={[
-        { active, transform, displacement },
+        { active, dragging, isDragged, transform, displacement },
         { register, unregister, registerGroup, unregisterGroup, startDrag },
       ]}
     >

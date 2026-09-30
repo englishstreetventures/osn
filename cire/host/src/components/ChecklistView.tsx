@@ -331,7 +331,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                   "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                     sortable.isActiveDraggable(),
                                   "transition-transform":
-                                    !!dndState.active().draggable && !sortable.isActiveDraggable(),
+                                    dndState.dragging() && !sortable.isActiveDraggable(),
                                 }}
                               >
                                 <Show when={props.canEdit}>

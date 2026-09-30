@@ -612,7 +612,7 @@ function EventRowCard(props: {
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.
-        "transition-transform": !!dndState.active().draggable && !sortable.isActiveDraggable(),
+        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
       }}
     >
       {/* Re-order controls: a grip you drag, plus two activate-to-move buttons
