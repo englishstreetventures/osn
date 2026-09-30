@@ -1,0 +1,16 @@
+{
+  // Browser half: DOM + Solid. Never includes src/server — the DOM lib and
+  // the Workers types declare the same globals and cannot share a program.
+  "extends": "@shared/typescript-config/solid.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "src/index.ts",
+    "src/protocol.ts",
+    "src/client/**/*",
+    "tests/protocol.test.ts",
+    "tests/client/**/*",
+    "tests/support/fake-websocket.ts"
+  ]
+}

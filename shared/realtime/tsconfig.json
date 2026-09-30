@@ -1,0 +1,10 @@
+{
+  // Server half and the protocol it shares: Workers types only, so a DOM or
+  // Bun global in server code fails `check`.
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/index.ts", "src/protocol.ts", "src/server/**/*"]
+}

@@ -12,7 +12,8 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-10
+  - "[[realtime]]"
+last-reviewed: 2026-09-27
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -151,6 +152,9 @@ go. [[dev-environment]]
 | CPU time | **10 ms / invocation** |
 | External subrequests | **50 / invocation** |
 | Subrequests to CF services (D1/R2/KV) | **1,000 / invocation** |
+| WebSocket connections | each connection to a Worker is **one request**; messages over it are **not** requests |
+
+**WebSocket connections.** [workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) — "WebSocket connections made to a Worker are charged as a request … WebSocket messages routed through a Worker do not count as requests."
 
 **What happens at the cap.** Past 100K requests/day the account's Workers
 (osn-api **and** cire-api together — **and both dev Workers, and the two
@@ -173,6 +177,38 @@ metric vs the 100K line; per-Worker invocation statuses showing
 **Upgrade path:** **Workers Paid** ($5/mo) — 10M requests/mo included, 30s CPU
 default, far higher subrequest ceilings. This is the most likely first upgrade
 once both APIs are in production. Re-verify pricing.
+
+---
+
+## Cloudflare Durable Objects (Free)
+
+**Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
+
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class we run ([[realtime]]).
+
+| Limit | Free value (re-verify) |
+|---|---|
+| Requests | **100,000 / day** |
+| Duration | **13,000 GB-s / day** — billed at 128 MB per awake object, so about 101,000 awake-object-seconds a day (13,000 ÷ 0.128) |
+| SQLite rows read / written | 5,000,000 / 100,000 per day |
+| SQLite storage | 5 GB total |
+| Classes per account | 100 |
+| WebSocket connections per object | 32,768 |
+| Received WebSocket message | 32 MiB |
+
+**What counts.** A request "Includes HTTP requests, RPC sessions, WebSocket messages, and alarm invocations". Creating a WebSocket connection is one request, and every RPC call on a stub (the hub's `publish`) is one. "There is no charge for outgoing WebSocket messages, nor for incoming WebSocket protocol pings."
+
+The client's `ping` is an application text frame, not a protocol ping. The page says only this about it: "Application level auto-response messages handled by state.setWebSocketAutoResponse() will not incur additional wall-clock time, and so they will not be charged". It does not say whether that sentence covers the request count. The 20:1 ratio for incoming messages is stated "for compute requests billing-only", and the page does not say whether it applies on Free.
+
+So a tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. Measure it on the dev tier before relying on any of the three.
+
+**What keeps an object awake.** A pending `setTimeout`/`setInterval` stops hibernation. An object with no WebSocket and no work is evicted after 70–140 s. One with hibernatable sockets hibernates after 10 s of inactivity. `TopicHub` holds no timer, alarm or storage write.
+
+**What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
+
+**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so the dev tier's hubs spend it too. `scripts/check-free-tier-ceilings.ts` does not watch Durable Objects yet. (`realtime.subscribe.attempts{outcome="unavailable"}` would show it, but metrics are not exported from workerd today.)
+
+**Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
 ---
 
@@ -383,6 +419,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
+| **Durable Objects** over daily quota | realtime push (`@shared/realtime`) | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard (the realtime counters are not exported from workerd yet) | Wait for the UTC reset, or upgrade to Workers Paid. |
 
 > The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you

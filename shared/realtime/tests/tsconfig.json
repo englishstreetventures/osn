@@ -1,0 +1,9 @@
+{
+  // Server tests and the Miniflare tier. Bun types are allowed here (bun:test,
+  // Bun.build) and nowhere in ../tsconfig.json.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "bun-types"]
+  },
+  "include": ["./server/**/*", "./d1/**/*", "./support/fake-hub.ts", "../src/index.ts", "../src/protocol.ts", "../src/server/**/*"]
+}
