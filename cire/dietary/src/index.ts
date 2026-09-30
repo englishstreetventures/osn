@@ -246,3 +246,5 @@ export function presetLabels(keys: readonly string[]): string[] {
 export function formatDietaryCell(keys: readonly string[], freeText: string): string {
   return [...presetLabels(keys), freeText.trim()].filter(Boolean).join("; ");
 }
+
+export { PLUS_ONE_DIETARY_ATTESTATION } from "./attestation";

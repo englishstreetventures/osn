@@ -322,8 +322,9 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
  *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
  *  passed; `preview` = the organiser's host-preview family, which never writes;
- *  `plus_one_dietary` = dietary data on a plus-one's reply, which the invite
- *  has no attestation wording for yet. */
+ *  `plus_one_dietary` = dietary data on a plus-one's reply without the
+ *  household's attestation in the wording this API stamps, or attested for a
+ *  name the plus-one no longer has. */
 export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent" | "plus_one_dietary";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
