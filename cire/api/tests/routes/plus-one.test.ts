@@ -384,7 +384,7 @@ describe("the plus-one write limiter", () => {
     expect(plusOnesOf(bo.id)).toHaveLength(0);
   });
 
-  it("answers before the session check, so a refused request never looks the cookie up", async () => {
+  it("answers 429 before the session gate answers 401", async () => {
     app = createApp(db, {
       plusOneLimiter: { check: async () => false },
     });

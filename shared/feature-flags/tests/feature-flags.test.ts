@@ -335,6 +335,85 @@ describe("stale payload with a waitUntil", () => {
     expect(calls).toHaveLength(1);
 
     release[0]?.(offPayload);
+    // Settle the refresh, then the KV write it handed to the same waitUntil.
     await Promise.all(held);
+    await Promise.all(held);
+    expect(held).toHaveLength(2);
+    expect(JSON.parse(kv.store.get("gb:payload") ?? "{}").payload).toEqual({
+      ...offPayload,
+      savedGroups: {},
+    });
+
+    const next = await flags.forRequest({ id: "u", role: "vip" }, { waitUntil: () => {} });
+    expect(next.isOn(FLAG)).toBe(false);
+    expect(calls).toHaveLength(1);
   });
+
+  it("refreshes in line once the payload is more than two TTLs old", async () => {
+    const { fetch, calls, release } = gatedFetch();
+    let clock = 1_000;
+    const flags = createFeatureFlags({
+      clientKey: "sdk-123",
+      fetchImpl: fetch,
+      ttlSeconds: 60,
+      now: () => clock,
+    });
+    const cold = flags.forRequest({ id: "u", role: "vip" });
+    release[0]?.(vipOnlyPayload);
+    await cold;
+
+    // An isolate idle past the bound: the flag was turned off meanwhile.
+    clock += 121_000;
+    const held: Promise<unknown>[] = [];
+    let settled = false;
+    const pending = flags
+      .forRequest({ id: "u", role: "vip" }, { waitUntil: (promise) => held.push(promise) })
+      .then((evaluator) => {
+        settled = true;
+        return evaluator;
+      });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release[1]?.(offPayload);
+    expect((await pending).isOn(FLAG)).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  for (const failure of ["answers !ok", "rejects"] as const) {
+    it(`keeps serving the stale payload when the background fetch ${failure}`, async () => {
+      let mode: "ok" | "fail" = "ok";
+      const calls: string[] = [];
+      const fetch: FetchLike = async (url) => {
+        calls.push(String(url));
+        if (mode === "fail" && failure === "rejects") throw new Error("CDN down");
+        return {
+          ok: mode === "ok",
+          status: mode === "ok" ? 200 : 503,
+          json: async () => vipOnlyPayload,
+        } as Response;
+      };
+      let clock = 1_000;
+      const flags = createFeatureFlags({
+        clientKey: "sdk-123",
+        fetchImpl: fetch,
+        ttlSeconds: 60,
+        now: () => clock,
+      });
+      await flags.forRequest({ id: "u", role: "vip" });
+
+      mode = "fail";
+      clock += 61_000;
+      const held: Promise<unknown>[] = [];
+      const waitUntil = (promise: Promise<unknown>) => held.push(promise);
+      const stale = await flags.forRequest({ id: "u", role: "vip" }, { waitUntil });
+      expect(stale.isOn(FLAG)).toBe(true);
+      expect(await held[0]).toBeNull();
+
+      // The failed refresh cleared its slot: the next call tries again.
+      const again = await flags.forRequest({ id: "u", role: "vip" }, { waitUntil });
+      expect(again.isOn(FLAG)).toBe(true);
+      expect(calls).toHaveLength(3);
+      await Promise.all(held);
+    });
+  }
 });
