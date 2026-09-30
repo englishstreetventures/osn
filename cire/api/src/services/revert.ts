@@ -116,11 +116,11 @@ function reconcileToSnapshot(
     // columns; take it from live state, as the guests-only apply path does.
     // `currentEventsAsParsed` reads DB rows directly and cannot fail, so only the
     // parse branch needs the error mapping.
-    const events = hasEvents
+    const desiredEvents = hasEvents
       ? yield* parseEventsCsv(eventsCsv).pipe(Effect.mapError(parseFailed("events")))
       : yield* currentEventsAsParsed(weddingId);
     const desiredFamilies = hasGuests
-      ? yield* parseGuestsCsv(guestsCsv, events).pipe(Effect.mapError(parseFailed("guests")))
+      ? yield* parseGuestsCsv(guestsCsv, desiredEvents).pipe(Effect.mapError(parseFailed("guests")))
       : [];
 
     // Revert always reconciles by NAME (`matchByName` defaults on), so the diff's
@@ -129,7 +129,7 @@ function reconcileToSnapshot(
     // re-attaches rows that were removed and re-created since. `orDie` states
     // that: if it ever fires it is a bug in the diff, not a revert the caller
     // could handle.
-    const plan = yield* diffAgainstDb(events, desiredFamilies as ParsedFamily[], weddingId, {
+    const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies as ParsedFamily[], weddingId, {
       scope,
     }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
