@@ -766,7 +766,8 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     `cire/api/src/services/invite.ts`).
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
     immutable`; the URL is cache-busted by `?v=`, a digest of the slot's R2 key
-    — `versionFromKey` in `cire/api/src/services/event-image.ts`).
+    — `versionFromKey` in `cire/api/src/services/event-image.ts`; the hero's
+    also folds in its blur).
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
     a guest with no OSN token can render the invite.
 - **Organiser (authed)** — under `/api/organiser/weddings/:weddingId/invite`,
