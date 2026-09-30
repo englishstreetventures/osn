@@ -1294,7 +1294,7 @@ describe("POST /changes/apply + /revert — one change writes a wedding at a tim
     holdWedding(db);
     const refused = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
     expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({
+    expect(await jsonBody(refused)).toEqual({
       error: "Another change is being saved — try again in a moment",
       reason: "change_in_progress",
     });
