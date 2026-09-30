@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-28
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -15,65 +15,63 @@ The Vendors slice introduces a **three-tier principal model** (guests / organise
 
 ---
 
-## Database — four new tables (migration 0040)
+## Database — four tables
+
+The schema lives in [`cire/db/src/schema.ts`](../../cire/db/src/schema.ts).
 
 ### `directory_vendors`
 
-Global directory of vendors. One row per vendor business (not per wedding). The organiser CRM seeds it (see claim flow below).
+Global directory of vendors. One row per vendor business (not per wedding). A vendor creates their own from the portal, or an organiser seeds a draft one from a CRM row (see the claim flow below).
 
 | Column | Notes |
 |---|---|
-| `id` | `text PRIMARY KEY` — `dv_*` prefixed CUID |
-| `org_id` | `text UNIQUE` — OSN org id (`org_*`); NULL until claimed |
-| `name` | Vendor/business display name |
-| `category` | FK → `directory_vendor_categories.id` |
-| `email` | Contact email (sole-trader PII — see compliance) |
-| `phone` | Contact phone (optional; sole-trader PII) |
-| `website_url` | Optional public website |
-| `description` | Markdown bio / service description |
-| `status` | `enum('active','suspended','pending')` |
-| `created_at`, `updated_at` | Timestamps |
-
-**Constraint:** `org_id UNIQUE` — one directory profile per OSN org. A brand with more than one line of business (e.g. photo + video) uses a second OSN org (one profile per org).
+| `id` | `text PRIMARY KEY` — `dv_<uuid>` |
+| `owner_org_id` | OSN org id (`org_*`) that owns the listing; null until claimed. Indexed (`directory_vendors_owner_idx`), **not** unique |
+| `name` | Business display name |
+| `description` | Free-text bio |
+| `email`, `phone` | Contact details (sole-trader PII — see compliance) |
+| `website`, `instagram`, `location_text` | Optional public details |
+| `price_band`, `price_min_minor`, `price_max_minor` | Optional price guide |
+| `listed` | `'draft'` (seeded, not browsable) or `'live'`; defaults to `'draft'` |
+| `lead_forward_email` | The vendor's own lead-capture address, copied on a new enquiry; null until set in the portal |
+| `claimed_by_profile_id` | The OSN profile that claimed the listing; the vendor-side member of any enquiry chat. Null until claimed |
+| `created_at`, `updated_at` | Timestamps (second precision) |
 
 ### `directory_vendor_categories`
 
-Reference enum table for vendor service categories (photographer, florist, caterer, …). Seeded at migration time. Many categories per profile via the join table `vendors_to_categories` (created in migration 0040).
+The service categories a listing offers, many per listing: `(directory_vendor_id, category)` is the primary key, and `directory_vendor_id` cascades on delete. `category` is one of the keys in [`cire/api/src/lib/service-categories.ts`](../../cire/api/src/lib/service-categories.ts).
 
 ### `vendors`
 
-Wedding-scoped vendor CRM rows. Each represents an organiser's record of a vendor they are researching or have booked for **a specific wedding**. Linked to `directory_vendors` via `directory_vendor_id` (nullable — a CRM entry can exist before the vendor has a directory profile, or the organiser may not have verified the link yet).
+Wedding-scoped vendor CRM rows. Each is an organiser's record of a vendor they are researching or have booked for **a specific wedding**. Linked to `directory_vendors` through `directory_vendor_id`, which is null for a vendor added by hand.
 
 | Column | Notes |
 |---|---|
-| `id` | `text PRIMARY KEY` — `ven_*` prefixed CUID |
-| `wedding_id` | FK → `weddings.id` |
-| `directory_vendor_id` | Nullable FK → `directory_vendors.id` |
-| `name` | Organiser's local label (may differ from directory name) |
+| `id` | `text PRIMARY KEY` — `ven_<uuid>` |
+| `wedding_id` | FK → `weddings.id`, cascades on delete |
+| `directory_vendor_id` | Nullable, no FK. At most one row per `(wedding_id, directory_vendor_id)` — the partial unique index `vendors_wedding_directory_uniq` |
+| `name` | Organiser's label (may differ from the directory name) |
 | `category` | Service category |
-| `status` | `enum('researching','shortlisted','contacted','booked','declined')` |
-| `email` | Contact email captured in CRM (sole-trader PII) |
-| `phone` | Optional phone (sole-trader PII) |
-| `contact_name` | Optional contact person name (sole-trader PII) |
+| `status` | `researching`, `contacted`, `quoted`, `booked` or `declined` (`VENDOR_STATUSES` in `cire/api/src/schemas/vendors.ts`) |
+| `contact_name`, `email`, `phone` | Contact details (sole-trader PII) |
 | `notes` | Organiser free text |
-| `available_on_date` | Organiser-confirmed availability fact |
+| `quoted_minor` | The vendor's quote, in minor units |
+| `sort_order` | Position within its `(wedding_id, status)` group; `vendors_wedding_status_idx (wedding_id, status, sort_order)` serves the board order and the "append to the end of the group" read |
 | `created_at`, `updated_at` | Timestamps |
 
 ### `vendor_claims`
 
-Records of in-progress or completed email-verification claims. An organiser seeds a directory listing from their CRM entry; the system mints a short-lived claim token and records the target email here. The vendor consumes the token via the portal, binding the listing to their OSN org.
+Claim tokens. Minting one records the target email and the SHA-256 hash of a 256-bit token; the vendor consumes it through the portal, binding the listing to their OSN org.
 
 | Column | Notes |
 |---|---|
-| `id` | `text PRIMARY KEY` — `vc_*` prefixed CUID |
-| `directory_vendor_id` | FK → `directory_vendors.id` |
-| `email` | Email address the claim was sent to (sole-trader PII) |
-| `token_hash` | SHA-256 hash of the raw claim token (never stored clear) |
-| `status` | `enum('pending','consumed','expired')` |
-| `expires_at` | 7-day TTL from minting |
-| `consumed_at` | Timestamp when the vendor consumed the token |
-| `consumed_by_org_id` | OSN org id that claimed the listing |
+| `id` | `text PRIMARY KEY` — `clm_<uuid>` |
+| `directory_vendor_id` | FK → `directory_vendors.id`, cascades on delete |
+| `token_hash` | SHA-256 hash of the raw token, unique (the raw token is never stored) |
+| `email` | Address the claim was sent to (sole-trader PII) |
 | `created_at` | Timestamp |
+| `expires_at` | 7 days after minting |
+| `consumed_at` | Null until consumed; a token is live while this is null and `expires_at` is in the future |
 
 ---
 
@@ -104,7 +102,7 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 
-**One profile per org / many-categories per profile:** `directory_vendors.org_id` is UNIQUE — one directory listing per OSN org. An org wanting separate listings per line of business (photo vs video) needs a second OSN org. The `vendors_to_categories` join table supports many service categories.
+**One listing per org / many categories per listing:** the portal treats an org as owning one directory listing — `getListingByOrg` and `upsertListingForOrg` take the first row for the org. The schema does not enforce it: `directory_vendors.owner_org_id` is indexed, not unique, so a claim can bind a second listing to an org that already has one. Whether to add the constraint is open in `englishstventures/osn#1275`. An org wanting separate listings per line of business (photo vs video) uses a second OSN org. `directory_vendor_categories` holds many service categories per listing.
 
 ---
 
@@ -114,17 +112,17 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 ### Step-by-step
 
-1. **Organiser seeds the directory.** `POST /api/organiser/weddings/:weddingId/vendors/:vendorId/seed-directory` (`weddingEditor()`-gated). cire-api:
-   - Creates or upserts a `directory_vendors` row from the CRM entry's `name`, `category`, `email`, `website_url`.
-   - Mints a 256-bit claim token; stores its SHA-256 hash in `vendor_claims` (`status: 'pending'`, 7-day TTL).
+1. **Organiser seeds the directory.** `POST /api/organiser/weddings/:weddingId/vendors/:vendorId/seed-directory` (`weddingEditor()`-gated). cire-api (`directoryService.seedFromCrm`):
+   - Checks the CRM row belongs to the wedding, then inserts a new `listed = 'draft'` `directory_vendors` row from the request body, with its categories, and links the CRM row to it.
+   - Mints a 256-bit claim token and stores its SHA-256 hash in `vendor_claims` with a 7-day expiry.
    - Returns the claim link (`/claim?token=<raw>`) **to the organiser** in the response body.
 
 2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). cire-api also attempts a **fail-soft email**: the `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), cire-api logs the error and the HTTP response is unaffected.
 
 3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claims/:token/consume` with the raw token in the path and `{ orgId }` in the body. cire-api:
-   - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented).
-   - Validates: `status = 'pending'`, `expires_at > now`.
-   - Sets `directory_vendors.org_id = <their org>` (atomically in a D1 batch with the claim status update to `consumed`).
+   - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented) and rejects a token that is consumed or past `expires_at`.
+   - **Burns the token first**: `UPDATE vendor_claims SET consumed_at = now WHERE id = ? AND consumed_at IS NULL`. Zero rows changed means another request consumed it first, and the claim fails before anything is bound. A failure after the burn leaves the token spent and the listing unbound, never bound with a reusable token.
+   - **Then binds the listing** in one UPDATE: `owner_org_id`, `claimed_by_profile_id` and `listed = 'live'` together, so the enquiry service never sees a listing that is bound but unclaimed. The bound row comes back from the UPDATE's `RETURNING`, read beside the listing's categories; a listing that has gone by then fails the claim, with the token already spent. The whole claim is four statements (`directoryService.consumeClaim` in [`directory.ts`](../../cire/api/src/services/directory.ts)).
    - The directory listing is now **bound to the vendor's OSN org** — the vendor principal model applies from this point.
    - Returns the listing, which the portal carries to its editor so the editor need not fetch it again.
 
@@ -267,15 +265,12 @@ Gate: `weddingEditor()` (owner or editor; viewers get 403).
 
 Adds a directory listing to the wedding's Vendor CRM. The handler:
 
-1. Resolves the listing via `directoryService.getLiveListingById` — returns 404 `listing_not_found` if missing or not `listed = 'live'` (draft listings cannot be added).
-2. Validates the request body's `category` is one of the listing's categories (400 `invalid_category` otherwise), then snapshots the listing's `name`, `email`, `phone` into a new `vendors` CRM row for the wedding under the chosen `category`, with `status = 'researching'` and `directory_vendor_id` linked.
-3. Deduplication: an `existsForDirectory` pre-check returns **409** `already_in_wedding` for the common case; the `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) catches a concurrent race (the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`).
+1. Reads the listing with `directoryService.getLiveListingById(listingId, weddingId)` — one statement that returns the listing, its categories and `inWedding`, the same "is this listing already in this wedding's CRM" EXISTS test browse makes. A missing or not-`live` listing returns 404 `listing_not_found` (draft listings cannot be added).
+2. Validates the request body's `category` is one of the listing's categories (400 `invalid_category` otherwise). This check comes before the duplicate check, so a duplicate add with a wrong category is a 400.
+3. Deduplication: `inWedding` true returns **409** `already_in_wedding` without trying the insert. The `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) catches a concurrent race; the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`.
+4. Otherwise snapshots the listing's `name`, `email`, `phone` into a new `vendors` CRM row for the wedding under the chosen `category`, with `status = 'researching'`, `directory_vendor_id` linked, and `sort_order` one past the top of its status group (`vendorsService.create` reads that one row, not the group).
 
-Service: `vendorsService.existsForDirectory` (pre-check) + `directoryService.getLiveListingById` + `vendorsService.create`; routes in `cire/api/src/routes/vendor-directory.ts`.
-
-### Migration 0041
-
-Additive index-only migration adding the `vendors_wedding_directory_uniq` partial unique index to the existing `vendors` table. No column changes. CI applies it (`wrangler d1 migrations apply --remote`) on merge — a prod D1 additive index is non-destructive and needs no downtime.
+Routes in `cire/api/src/routes/vendor-directory.ts`.
 
 ---
 

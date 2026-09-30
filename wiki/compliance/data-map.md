@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-09-28
 ---
 
 # Data Map
@@ -171,7 +171,7 @@ Vendor personal data arises when the vendor is a **sole trader**, so their conta
 | `vendors.email` | Organiser-captured sole-trader contact email in the per-wedding vendor CRM | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — cascades with the `vendors` row when organiser removes it, or with the wedding on deletion; no independent automated purge yet | `@cire/api` + wedding owner/editor (CRM view) | [[cire-vendors]] |
 | `vendors.phone` | Organiser-captured sole-trader contact phone in the per-wedding CRM | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[cire-vendors]] |
 | `vendors.contact_name` | Organiser-captured contact person name — identifies a sole trader or named rep | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[cire-vendors]] |
-| `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7-day claim TTL; `status` flips to `expired`/`consumed`; `vendor_claims` rows currently retained indefinitely (no purge — add a sweeper once listing volumes warrant) | `@cire/api` only (token hash stored, email stored for audit) | [[cire-vendors]] |
+| `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7 days from minting (`expires_at`); the daily maintenance sweep deletes every claim row past `expires_at`, consumed or not | `@cire/api` only (token hash stored, email stored for audit) | [[cire-vendors]] |
 
 **S3 browse surface (2026-07-18).** The `GET …/directory` browse endpoint now **shows `directory_vendors.email` and `directory_vendors.phone` to a wedding's authenticated organisers** (new recipient/surface — organiser-only, access-controlled). We collect no new data, and the lawful basis is unchanged (Art. 6(1)(f)).
 

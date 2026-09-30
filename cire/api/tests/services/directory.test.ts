@@ -66,7 +66,7 @@ describe("directoryService.upsertListingForOrg", () => {
     expect(dto.ownerOrgId).toBe("org_alpha");
     expect(dto.name).toBe("Bloom Florals");
     expect(dto.listed).toBe("live");
-    expect(dto.categories.sort()).toEqual(["decoration", "florals"]);
+    expect(dto.categories.toSorted()).toEqual(["decoration", "florals"]);
     // Check the DB has exactly one row for org
     const rows = db
       .select()
@@ -134,6 +134,164 @@ describe("directoryService.upsertListingForOrg", () => {
       .all();
     expect(catRows.length).toBe(1);
     expect(catRows[0]!.category).toBe("venue");
+  });
+
+  const deltaBody = (name: string, categories: string[]) => ({
+    name,
+    description: `${name} description`,
+    email: "hi@delta.com",
+    phone: null,
+    website: null,
+    instagram: null,
+    locationText: "Perth",
+    priceBand: null,
+    priceMinMinor: null,
+    priceMaxMinor: null,
+    categories,
+  });
+
+  const isSelect = (s: { sql: string }) => /^select\b/i.test(s.sql);
+
+  it("answers a first save from what it wrote, reading nothing back", async () => {
+    const db = db0();
+    const statements = recordStatements(db);
+
+    const res = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta", ["venue", "cake"])),
+    );
+    if (!Exit.isSuccess(res)) throw new Error("failed");
+
+    // The one read is the probe for an existing listing; the categories it
+    // just wrote are not read back.
+    expect(statements.filter(isSelect)).toHaveLength(1);
+    expect(
+      statements.some((s) => s.sql.includes('"directory_vendor_categories"') && isSelect(s)),
+    ).toBe(false);
+    // Category order is the key order a read of the table gives.
+    expect(res.value.categories).toEqual(["cake", "venue"]);
+  });
+
+  it("writes nothing when the listing changes owner between the probe and the update", async () => {
+    const db = db0();
+    const first = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta", ["venue"])),
+    );
+    if (!Exit.isSuccess(first)) throw new Error("first save failed");
+    // Another org takes the listing after this save has found it by owner.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (/^update "directory_vendors"/i.test(sql)) {
+          prepare("UPDATE directory_vendors SET owner_org_id = 'org_other' WHERE id = ?1").run(
+            first.value.id,
+          );
+        }
+        return prepare(sql);
+      },
+    });
+
+    const res = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta Renamed", ["cake"])),
+    );
+    expect(Exit.isFailure(res)).toBe(true);
+
+    const row = db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, first.value.id))
+      .get();
+    expect(row!.ownerOrgId).toBe("org_other");
+    expect(row!.name).toBe("Delta");
+    const cats = db
+      .select({ category: directoryVendorCategories.category })
+      .from(directoryVendorCategories)
+      .where(eq(directoryVendorCategories.directoryVendorId, first.value.id))
+      .all()
+      .map((r) => r.category);
+    expect(cats).toEqual(["venue"]);
+  });
+
+  // Answering from the body is correct only because a duplicate category
+  // fails the replace batch on the (directory_vendor_id, category) key. That
+  // the stored set survives the failure is D1's batch atomicity, tested in
+  // tests/db/d1-integration.test.ts; bun:sqlite runs the batch unwrapped.
+  it("fails a save that repeats a category, first save or update", async () => {
+    const db = db0();
+    const dup = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["venue", "venue"])),
+    );
+    expect(Exit.isFailure(dup)).toBe(true);
+
+    const saved = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["cake"])),
+    );
+    expect(Exit.isSuccess(saved)).toBe(true);
+    const again = await run(
+      db,
+      directoryService.upsertListingForOrg("org_dup", deltaBody("Dup", ["florals", "florals"])),
+    );
+    expect(Exit.isFailure(again)).toBe(true);
+  });
+
+  it("answers an update from the UPDATE itself, reading nothing back", async () => {
+    const db = db0();
+    const first = await run(
+      db,
+      directoryService.upsertListingForOrg("org_delta", deltaBody("Delta", ["venue"])),
+    );
+    if (!Exit.isSuccess(first)) throw new Error("first save failed");
+    const statements = recordStatements(db);
+
+    const res = await run(
+      db,
+      directoryService.upsertListingForOrg(
+        "org_delta",
+        deltaBody("Delta Renamed", ["photography", "cake", "florals"]),
+      ),
+    );
+    if (!Exit.isSuccess(res)) throw new Error("update failed");
+
+    expect(statements.filter(isSelect)).toHaveLength(1);
+    expect(
+      statements.some((s) => s.sql.includes('"directory_vendor_categories"') && isSelect(s)),
+    ).toBe(false);
+
+    const dto = res.value;
+    expect(dto.id).toBe(first.value.id);
+    expect(dto.name).toBe("Delta Renamed");
+    expect(dto.description).toBe("Delta Renamed description");
+    // Stored at second precision; the first save answers from memory.
+    expect(dto.createdAt).toBe(Math.floor(first.value.createdAt / 1000) * 1000);
+    expect(dto.categories).toEqual(["cake", "florals", "photography"]);
+    // The UPDATE returns every column; the answer carries the listing fields
+    // only, never the lead-forwarding address or the claiming profile.
+    expect(Object.keys(dto).toSorted()).toEqual(
+      [
+        "id",
+        "ownerOrgId",
+        "name",
+        "description",
+        "email",
+        "phone",
+        "website",
+        "instagram",
+        "locationText",
+        "priceBand",
+        "priceMinMinor",
+        "priceMaxMinor",
+        "listed",
+        "categories",
+        "createdAt",
+        "updatedAt",
+      ].toSorted(),
+    );
   });
 });
 
@@ -609,6 +767,89 @@ describe("directoryService.consumeClaim", () => {
         Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
     ).toBe(true);
   });
+
+  it("burns the token before it binds the listing, and reads nothing back", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    const statements = recordStatements(db);
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_order", "usr_order"));
+    if (!Exit.isSuccess(res)) throw new Error("consume failed");
+
+    const sqls = statements.map((s) => s.sql);
+    const burn = sqls.findIndex((s) => /^update "vendor_claims"/i.test(s));
+    const bind = sqls.findIndex((s) => /^update "directory_vendors"/i.test(s));
+    expect(burn).toBeGreaterThan(-1);
+    expect(bind).toBeGreaterThan(burn);
+    // Claim read, burn, bind, categories — the bound row comes back from the
+    // bind itself, not from a second read of the listing.
+    expect(sqls).toHaveLength(4);
+    expect(sqls.some((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"'))).toBe(false);
+
+    expect(res.value.id).toBe(directoryVendorId);
+    expect(res.value.ownerOrgId).toBe("org_order");
+    expect(res.value.listed).toBe("live");
+    expect(res.value.categories).toEqual(["music"]);
+    expect(Object.keys(res.value)).not.toContain("claimedByProfileId");
+    expect(Object.keys(res.value)).not.toContain("leadForwardEmail");
+  });
+
+  it("binds nothing when another consume burns the token first", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    // A concurrent consume wins the race: the claim row reads as unconsumed,
+    // then is consumed just before this call's burn runs.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (/^update "vendor_claims"/i.test(sql)) {
+          prepare("UPDATE vendor_claims SET consumed_at = ?1 WHERE directory_vendor_id = ?2").run(
+            Math.floor(Date.now() / 1000),
+            directoryVendorId,
+          );
+        }
+        return prepare(sql);
+      },
+    });
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_late", "usr_late"));
+    expect(
+      Exit.isFailure(res) &&
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
+    ).toBe(true);
+
+    const dvRow = db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, directoryVendorId))
+      .get();
+    expect(dvRow!.ownerOrgId).toBeNull();
+    expect(dvRow!.claimedByProfileId).toBeNull();
+    expect(dvRow!.listed).toBe("draft");
+  });
+
+  it("fails ClaimInvalid, with the token burned, when the listing is gone at bind", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    // The claim's foreign key cascades, so this state needs the check off.
+    db.$client.exec("PRAGMA foreign_keys = OFF;");
+    db.delete(directoryVendors).where(eq(directoryVendors.id, directoryVendorId)).run();
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_gone", "usr_gone"));
+    expect(
+      Exit.isFailure(res) &&
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
+    ).toBe(true);
+
+    const claimRow = db
+      .select()
+      .from(vendorClaims)
+      .where(eq(vendorClaims.directoryVendorId, directoryVendorId))
+      .get();
+    expect(claimRow!.consumedAt).not.toBeNull();
+  });
 });
 
 // ── browse + getLiveListingById ────────────────────────────────────────────────
@@ -800,22 +1041,29 @@ describe("directoryService.browse + getLiveListingById", () => {
   });
 
   it("getLiveListingById returns a live listing with categories, null for draft/missing", async () => {
-    expect((await run(svc.getLiveListingById("LA")))!.categories.sort()).toEqual([
+    expect((await run(svc.getLiveListingById("LA", "W1")))!.categories.toSorted()).toEqual([
       "catering",
       "venue",
     ]);
-    expect(await run(svc.getLiveListingById("LD"))).toBeNull(); // draft
-    expect(await run(svc.getLiveListingById("nope"))).toBeNull();
+    expect(await run(svc.getLiveListingById("LD", "W1"))).toBeNull(); // draft
+    expect(await run(svc.getLiveListingById("nope", "W1"))).toBeNull();
   });
 
-  it("getLiveListingById reads the listing and its categories in one statement, hit or miss", async () => {
+  it("getLiveListingById says whether THIS wedding's CRM already links the listing", async () => {
+    // W1 links LA only; LB is live and linked nowhere; W2 links nothing.
+    expect((await run(svc.getLiveListingById("LA", "W1")))!.inWedding).toBe(true);
+    expect((await run(svc.getLiveListingById("LB", "W1")))!.inWedding).toBe(false);
+    expect((await run(svc.getLiveListingById("LA", "W2")))!.inWedding).toBe(false);
+  });
+
+  it("getLiveListingById reads the listing, its categories and the wedding link in one statement, hit or miss", async () => {
     // A fresh database per id so each count covers that one call and nothing
     // the seed did. Missing and draft are the misses; LA is the hit.
     for (const id of ["LA", "nope", "LD"]) {
       const db = makeDb();
       const statements = recordStatements(db);
       await Effect.runPromise(
-        svc.getLiveListingById(id).pipe(Effect.provideService(DbService, db)),
+        svc.getLiveListingById(id, "W1").pipe(Effect.provideService(DbService, db)),
       );
       expect({ id, statements: statements.length }).toEqual({ id, statements: 1 });
     }
@@ -845,7 +1093,7 @@ describe("directoryService.browse + getLiveListingById", () => {
       .run();
 
     const listing = await Effect.runPromise(
-      svc.getLiveListingById("LE").pipe(Effect.provideService(DbService, db)),
+      svc.getLiveListingById("LE", "W1").pipe(Effect.provideService(DbService, db)),
     );
 
     // An inner join would drop the listing entirely and return null here.
@@ -861,7 +1109,7 @@ describe("directoryService.browse + getLiveListingById", () => {
   it("getLiveListingById returns every category once, with the listing fields intact", async () => {
     const db = makeDb();
     const listing = await Effect.runPromise(
-      svc.getLiveListingById("LA").pipe(Effect.provideService(DbService, db)),
+      svc.getLiveListingById("LA", "W1").pipe(Effect.provideService(DbService, db)),
     );
 
     // One result row per category comes back from the join; the DTO must

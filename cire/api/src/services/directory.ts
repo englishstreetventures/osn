@@ -77,6 +77,11 @@ export interface ListingDto {
   updatedAt: number;
 }
 
+export interface LiveListingInWeddingDto extends ListingDto {
+  /** True when the asking wedding's CRM already has a row linking this listing. */
+  inWedding: boolean;
+}
+
 export interface UpsertListingBody {
   name: string;
   description: string | null;
@@ -344,7 +349,10 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         } else {
           dvId = (existing as DvRow).id;
           const now = new Date();
-          yield* dbQuery(() =>
+          // RETURNING hands back the updated row, so nothing re-reads it. The
+          // WHERE repeats the owner, so a listing that changed owner after the
+          // probe above is not written; that save fails with nothing changed.
+          const [updated] = yield* dbQuery(() =>
             db
               .update(directoryVendors)
               .set({
@@ -361,19 +369,21 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                 listed: "live",
                 updatedAt: now,
               })
-              .where(eq(directoryVendors.id, dvId))
-              .run(),
+              .where(and(eq(directoryVendors.id, dvId), eq(directoryVendors.ownerOrgId, orgId)))
+              .returning()
+              .all(),
           );
-          // Re-fetch updated row
-          const [updated] = yield* dbQuery(() =>
-            db.select().from(directoryVendors).where(eq(directoryVendors.id, dvId)).all(),
-          );
-          dvRow = updated as DvRow;
+          if (!updated) {
+            return yield* Effect.die(new Error("listing changed owner during save"));
+          }
+          dvRow = updated;
         }
 
         yield* replaceCategories(dvId, body.categories);
-        const categories = yield* fetchCategories(dvId);
-        return toDto(dvRow, categories);
+        // A committed replace stored exactly `body.categories`: the
+        // (directory_vendor_id, category) primary key fails the whole batch on
+        // a duplicate. Sorted to match the key order a read of the table gives.
+        return toDto(dvRow, body.categories.toSorted());
       }).pipe(Effect.withSpan("cire.directory.upsertListingForOrg"));
     },
 
@@ -634,36 +644,35 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         // Burn succeeded — now bind the listing. `claimedByProfileId` is set in
         // the SAME UPDATE as `ownerOrgId` so the enquiry service reads this
         // listing as CLAIMED immediately (never a bound-but-unclaimed window).
-        yield* dbQuery(() =>
-          db
-            .update(directoryVendors)
-            .set({
-              ownerOrgId: orgId,
-              claimedByProfileId: claimingProfileId,
-              listed: "live",
-              updatedAt: now,
-            })
-            .where(eq(directoryVendors.id, claimRow.directoryVendorId))
-            .run(),
-        );
-
-        // Fetch updated listing + categories — both keyed on the already-known
-        // directoryVendorId, so run them together instead of serially.
-        const [[updated], categories] = yield* Effect.all(
+        // RETURNING hands back the bound row, so nothing re-reads it.
+        //
+        // Only the bind and the category read run together, and only after
+        // the burn and its gate above: the bind must never start before the
+        // burn has committed. The category read touches no claim or ownership
+        // state, and the bind does not write categories.
+        const [[bound], categories] = yield* Effect.all(
           [
             dbQuery(() =>
               db
-                .select()
-                .from(directoryVendors)
+                .update(directoryVendors)
+                .set({
+                  ownerOrgId: orgId,
+                  claimedByProfileId: claimingProfileId,
+                  listed: "live",
+                  updatedAt: now,
+                })
                 .where(eq(directoryVendors.id, claimRow.directoryVendorId))
+                .returning()
                 .all(),
             ),
             fetchCategories(claimRow.directoryVendorId),
           ],
           { concurrency: "unbounded" },
         );
-        const dvRow = updated as DvRow;
-        return toDto(dvRow, categories);
+        // No row: the listing is gone. The token is already burned, so this
+        // fails closed.
+        if (!bound) return yield* Effect.fail(new ClaimInvalid());
+        return toDto(bound, categories);
       }).pipe(Effect.withSpan("cire.directory.consumeClaim"));
     },
 
@@ -801,18 +810,31 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
       );
     },
 
-    getLiveListingById(id: string): Effect.Effect<ListingDto | null, never, DbService> {
+    /**
+     * A live listing, and whether `weddingId`'s CRM already links it (the
+     * same `inWedding` test `browse` makes). Null when the id is missing or
+     * not live.
+     */
+    getLiveListingById(
+      id: string,
+      weddingId: string,
+    ): Effect.Effect<LiveListingInWeddingDto | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         // One statement, hit or miss: the listing LEFT JOINed to its
-        // categories. An id that is missing or not live returns no rows, so a
-        // miss never reads `directory_vendor_categories`, and a hit pays no
-        // second query. A hit comes back as one row per category (a listing
-        // with none still gives one row, its `category` null); the listing
-        // columns repeat on each, and the category set is small.
+        // categories, with the wedding-link EXISTS as a column. An id that is
+        // missing or not live returns no rows, so a miss never reads
+        // `directory_vendor_categories`, and a hit pays no second query. A hit
+        // comes back as one row per category (a listing with none still gives
+        // one row, its `category` null); the listing columns and the EXISTS
+        // repeat on each, and the category set is small.
         const rows = yield* dbQuery(() =>
           db
-            .select({ listing: directoryVendors, category: directoryVendorCategories.category })
+            .select({
+              listing: directoryVendors,
+              category: directoryVendorCategories.category,
+              inWedding: sql<number>`EXISTS (SELECT 1 FROM ${vendors} v WHERE v.wedding_id = ${weddingId} AND v.directory_vendor_id = "directory_vendors"."id")`,
+            })
             .from(directoryVendors)
             .leftJoin(
               directoryVendorCategories,
@@ -824,7 +846,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         const [first] = rows;
         if (!first) return null;
         const categories = rows.flatMap((r) => (r.category === null ? [] : [r.category]));
-        return toDto(first.listing, categories);
+        return { ...toDto(first.listing, categories), inWedding: Boolean(first.inWedding) };
       }).pipe(Effect.withSpan("cire.directory.getLiveListingById"));
     },
   };
