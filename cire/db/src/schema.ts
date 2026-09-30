@@ -92,7 +92,7 @@ export const weddings = sqliteTable(
     // CC6/CC7 attributability. NULL on every pre-0056 row and on any write that
     // predates the column, which reads as "unknown", never as "the owner".
     updatedByOsnProfileId: text("updated_by_osn_profile_id"),
-    // ── Guest-list and schedule change guard (migration 0069) ──────────────
+    // ── Guest-list and schedule change guard (migration 0070) ──────────────
     // `change_rev` is the head revision of the organiser change pipeline
     // (`cire/api/src/services/changes.ts`): it moves in the same D1 batch as
     // every committed change apply or revert, and whenever a change that may
