@@ -66,6 +66,28 @@ describe("buildAgenda", () => {
     expect(a[0]!.key).toBe("payment:p1");
   });
 
+  it("states a payment in the wedding's own minor unit", () => {
+    const payment = (amountMinor: number) => [
+      { id: "p1", label: "Deposit", amountMinor, dueAt: "2026-08-03", paidAt: null },
+    ];
+    const whole = (currency: string, major: number) =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 0,
+      }).format(major);
+    // JPY has no minor unit, so 50,000 minor units are ¥50,000; KWD has three.
+    expect(buildAgenda(input({ currency: "JPY", payments: payment(50_000) }))[0]!.detail).toBe(
+      whole("JPY", 50_000),
+    );
+    expect(buildAgenda(input({ currency: "KWD", payments: payment(50_000) }))[0]!.detail).toBe(
+      whole("KWD", 50),
+    );
+    expect(buildAgenda(input({ currency: "AUD", payments: payment(50_000) }))[0]!.detail).toBe(
+      whole("AUD", 500),
+    );
+  });
+
   it("excludes past events, paid payments, done tasks, and undated payments/tasks", () => {
     const a = buildAgenda(
       input({

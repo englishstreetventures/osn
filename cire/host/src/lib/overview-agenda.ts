@@ -6,6 +6,8 @@
  * Countdown card by a day across timezones.
  */
 
+import { formatMinor } from "./money";
+
 export type AgendaKind = "event" | "payment" | "task";
 
 export interface AgendaItem {
@@ -66,18 +68,6 @@ export function toLocalDateKey(value: string | number): string | null {
   return `${y}-${mo}-${da}`;
 }
 
-function fmtAmount(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(0);
-  }
-}
-
 export function buildAgenda(input: AgendaInput): AgendaItem[] {
   const todayKey = toLocalDateKey(input.now)!;
   const nowDate = new Date(input.now);
@@ -113,7 +103,7 @@ export function buildAgenda(input: AgendaInput): AgendaItem[] {
       kind: "payment",
       date,
       label: p.label,
-      detail: fmtAmount(p.amountMinor, input.currency),
+      detail: formatMinor(p.amountMinor, input.currency, { wholeUnits: true }),
       sourceId: p.id,
       overdue: date < todayKey,
     });

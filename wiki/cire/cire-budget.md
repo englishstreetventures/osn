@@ -8,7 +8,8 @@ related:
   - "[[decisions/deferred-decisions]]"
   - "[[cire-rsvp-deadline]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-09-27
+  - "[[cire-registry]]"
+last-reviewed: 2026-09-28
 ---
 # Budget
 
@@ -137,7 +138,15 @@ A line with a `unit_price_minor` is priced per guest. The couple enters the pric
 - **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
 - **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
 - **Per-head refetch** — a per-head line's figures change as RSVPs arrive, with nobody touching the budget. So the Budget view loads through `revalidateBudget`: when the cached snapshot holds a per-head line it is marked stale and refetched each time the view opens, with the old rows on screen meanwhile; a refused refetch blanks them as any other does. An open while a load is already in flight joins that load rather than discarding it. A budget with no per-head line loads once. The Overview card does not refetch, because its fetcher soft-fails to an empty snapshot that would then be cached; it shows whatever was last loaded. This exception is the budget module's alone, not part of the shared cache contract.
-- **Money inputs** — the per-head price reads and writes through `parseMinor` / `minorToInput` in `cire/host/src/lib/money.ts`, which use each currency's real minor-unit exponent.
+
+## Money
+
+Every amount is an integer in minor units of `weddings.currency`, and a minor unit is not always a hundredth: JPY has none, and KWD, BHD and JOD have three. The organiser portal never converts with a fixed 100.
+
+- **Inputs** — the add-item estimate or per-head price, the Est, Quote and Actual cells, the payment amount, the budget total and the per-head panel's price parse with `parseMinor` and open at their stored figure with `minorToInput`, both in `cire/host/src/lib/money.ts`. A cleared field saves as no amount, except a payment's, which is required. Anything else `parseMinor` refuses, such as a negative number, shows an error and sends nothing.
+- **`step="any"`** on every money input, as on the gift list's price inputs ([[cire-registry]]): a hundredths step makes a valid three-decimal amount invalid, and the browser then refuses to submit the add-item and payment forms. A JPY amount typed with decimals is rounded to whole yen.
+- **Display** — the Budget tab, the Overview's budget card and the agenda's payment rows format through `formatMinor`.
+- **Changing currency rescales nothing.** A settings change writes the new code and leaves every stored amount as it was, so the same integers are read in the new unit.
 
 ## Reordering items
 
@@ -149,7 +158,7 @@ Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settin
 
 **Decision:** Settings is for profile + co-host roles; budget cap is domain-specific and grows with the feature (Phase 2: vendor links, Phase 3: pricing seeding). Putting it in the Budget tab keeps the concerns separate and mirrors the "upcoming payments" widget on Overview (another Phase 1 surface).
 
-**Governance:** `weddingOwner()` gate on the `PUT .../budget/cap` endpoint (organiser can only set their own wedding's cap).
+**Governance:** `weddingOwner()` gate on the `PUT .../budget/total` endpoint (organiser can only set their own wedding's cap).
 
 ## Deferred Items
 

@@ -31,7 +31,7 @@ import {
   setCachedBudget,
 } from "../lib/budget-store";
 import { haptic } from "../lib/haptics";
-import { formatMinor, parseMinor } from "../lib/money";
+import { formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
@@ -49,6 +49,12 @@ interface BudgetViewProps {
  *  currency's real minor-unit exponent, which a fixed `/ 100` gets wrong for JPY
  *  and the three-decimal currencies. */
 const fmtMinor = (minor: number, currency: string): string => formatMinor(minor, currency);
+
+/** The `step` of every money input. `any`, not `0.01`: how many decimals an
+ *  amount may carry depends on the wedding's currency (KWD has three, JPY none),
+ *  and a hundredths step makes a valid KWD amount invalid, which stops the add
+ *  forms submitting. `parseMinor` rounds to the currency's own minor unit. */
+const MONEY_STEP = "any";
 
 /** A category with nothing in it. One shared array, so `sameRows` sees an empty
  *  category as unchanged from one write to the next. */
@@ -145,17 +151,15 @@ export default function BudgetView(props: BudgetViewProps) {
     setError(null);
     // A per-head line sends its price instead of an estimate.
     const perHead = newPerHead() && perHeadSupported();
-    const minor = perHead
-      ? parseMinor(newEstimate(), currency())
-      : newEstimate().trim() === ""
-        ? null
-        : Math.round(Number(newEstimate()) * 100);
+    const raw = newEstimate().trim();
+    const minor = raw === "" ? null : parseMinor(raw, currency());
     if (perHead && minor === null) {
       haptic("reject");
       setError("A per-head line needs a price per head.");
       return;
     }
-    if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
+    // Empty means no estimate; anything else `parseMinor` refused is an error.
+    if (raw !== "" && minor === null) {
       haptic("reject");
       setError("Estimate must be a positive amount.");
       return;
@@ -192,8 +196,9 @@ export default function BudgetView(props: BudgetViewProps) {
     field: "estimateMinor" | "quotedMinor" | "actualMinor",
     raw: string,
   ) => {
-    const minor = raw.trim() === "" ? null : Math.round(Number(raw) * 100);
-    if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
+    // A cleared cell saves as no amount; anything else `parseMinor` refused is an error.
+    const minor = raw.trim() === "" ? null : parseMinor(raw, currency());
+    if (raw.trim() !== "" && minor === null) {
       haptic("reject");
       setError("Amounts must be positive.");
       return;
@@ -338,25 +343,37 @@ export default function BudgetView(props: BudgetViewProps) {
   };
 
   // ── Payment writes ───────────────────────────────────────────────────────
-  const addPayment = async (
+  /** Checks the payment before sending it, and says whether it was accepted, so
+   *  the form keeps what was typed when it was not. */
+  const addPayment = (
     item: BudgetItemRow,
     label: string,
     amountText: string,
     dueAt: string,
-  ) => {
-    const amount = Math.round(Number(amountText) * 100);
-    if (!label.trim() || !Number.isFinite(amount) || amount < 0) {
+  ): boolean => {
+    const amount = parseMinor(amountText, currency());
+    if (!label.trim() || amount === null) {
       haptic("reject");
       setError("A payment needs a label and a positive amount.");
-      return;
+      return false;
     }
+    void postPayment(item, label.trim(), amount, dueAt);
+    return true;
+  };
+
+  const postPayment = async (
+    item: BudgetItemRow,
+    label: string,
+    amountMinor: number,
+    dueAt: string,
+  ) => {
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}/payments`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: label.trim(), amountMinor: amount, dueAt: dueAt || null }),
+          body: JSON.stringify({ label, amountMinor, dueAt: dueAt || null }),
         },
       );
       if (res.status === 401) return redirectToLogin();
@@ -429,8 +446,9 @@ export default function BudgetView(props: BudgetViewProps) {
   const saveCap = async () => {
     const draft = capDraft();
     if (draft == null) return;
-    const minor = draft.trim() === "" ? null : Math.round(Number(draft) * 100);
-    if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
+    // Cleared means no budget total; anything else `parseMinor` refused is an error.
+    const minor = draft.trim() === "" ? null : parseMinor(draft, currency());
+    if (draft.trim() !== "" && minor === null) {
       haptic("reject");
       setError("Budget must be a positive amount.");
       return;
@@ -498,7 +516,7 @@ export default function BudgetView(props: BudgetViewProps) {
                   setCapDraft(
                     snapshot()?.budgetTotalMinor == null
                       ? ""
-                      : (snapshot()!.budgetTotalMinor! / 100).toString(),
+                      : minorToInput(snapshot()!.budgetTotalMinor!, currency()),
                   )
                 }
               >
@@ -513,7 +531,7 @@ export default function BudgetView(props: BudgetViewProps) {
                     {...field}
                     type="number"
                     min="0"
-                    step="0.01"
+                    step={MONEY_STEP}
                     value={capDraft() ?? ""}
                     onInput={(e) => setCapDraft(e.currentTarget.value)}
                   />
@@ -578,7 +596,7 @@ export default function BudgetView(props: BudgetViewProps) {
                 {...field}
                 type="number"
                 min="0"
-                step="0.01"
+                step={MONEY_STEP}
                 value={newEstimate()}
                 onInput={(e) => setNewEstimate(e.currentTarget.value)}
               />
@@ -800,8 +818,8 @@ function MoneyCell(props: {
           size="sm"
           type="number"
           min="0"
-          step="0.01"
-          value={props.minor == null ? "" : (props.minor / 100).toString()}
+          step={MONEY_STEP}
+          value={props.minor == null ? "" : minorToInput(props.minor, props.currency)}
           onChange={(e) => props.onCommit(e.currentTarget.value)}
         />
       </Show>
@@ -815,7 +833,8 @@ function PaymentPanel(props: {
   payments: PaymentRow[];
   currency: string;
   canEdit?: boolean;
-  onAdd: (item: BudgetItemRow, label: string, amount: string, dueAt: string) => void;
+  /** Whether the payment was accepted; the form clears only then. */
+  onAdd: (item: BudgetItemRow, label: string, amount: string, dueAt: string) => boolean;
   onTogglePaid: (item: BudgetItemRow, payment: PaymentRow) => void;
   onDelete: (item: BudgetItemRow, payment: PaymentRow) => void;
 }) {
@@ -824,7 +843,7 @@ function PaymentPanel(props: {
   const [due, setDue] = createSignal("");
   const submit = (e: Event) => {
     e.preventDefault();
-    props.onAdd(props.item, label(), amount(), due());
+    if (!props.onAdd(props.item, label(), amount(), due())) return;
     setLabel("");
     setAmount("");
     setDue("");
@@ -883,7 +902,7 @@ function PaymentPanel(props: {
                 size="sm"
                 type="number"
                 min="0"
-                step="0.01"
+                step={MONEY_STEP}
                 value={amount()}
                 onInput={(e) => setAmount(e.currentTarget.value)}
                 placeholder="Amount"
