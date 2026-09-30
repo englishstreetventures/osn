@@ -28,7 +28,23 @@
     },
     "lint": {},
     "fmt": {},
-    "check": {},
+    // A package type-checks the source of the workspace packages it imports
+    // (they export `src/*.ts`), so its `check` result depends on theirs as
+    // well as its own files. `transit` has no script in any package: it exists
+    // so `check` hashes every workspace dependency's files through `^transit`,
+    // and an edit to `shared/db-utils` re-runs `@cire/api#check` rather than
+    // replaying a cached green. `dependsOn: ["^check"]` would cover the same
+    // files but also wait for each dependency's check to finish first, for no
+    // gain: `tsc` reads a dependency's source, never its check output.
+    // Markdown is left out because `tsc` never reads it, so a release commit
+    // that only rewrites CHANGELOGs does not re-run every dependent's check.
+    "transit": {
+      "dependsOn": ["^transit"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+    },
+    "check": {
+      "dependsOn": ["transit"]
+    },
     // `inputs` below is *subtractive*, not an allowlist. Turborepo's default is
     // "every non-gitignored file in the package", and naming any input replaces
     // that default outright — so a hand-written list is a promise that nothing
