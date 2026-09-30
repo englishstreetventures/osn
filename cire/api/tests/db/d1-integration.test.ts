@@ -1462,10 +1462,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // First write inserts the row; a section the body leaves out gets the
-      // column default. A second write updates only what it names.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { story: false }));
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { footer: false }));
-      expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
+      // column default. A second write updates only what it names. Each write
+      // answers from the row its RETURNING clause handed back, which on D1
+      // comes through the driver's raw path — so it must equal the next read,
+      // booleans included.
+      const inserted = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { story: false }),
+      );
+      expect(inserted.visibility).toEqual({ hero: true, story: false, faq: true, footer: true });
+      const updated = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { footer: false }),
+      );
+      expect(updated).toEqual(await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID)));
+      expect(updated.visibility).toEqual({
         hero: true,
         story: false,
         faq: true,
@@ -1666,7 +1675,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // …and none once it is off, with the entries kept.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { faq: false }));
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { faq: false }));
       expect((await run(claimService.lookup(PUBLIC_ID))).faq).toEqual({
         visible: false,
         entries: [],

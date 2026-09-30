@@ -154,4 +154,20 @@ describe("weddingEditor", () => {
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(401);
   });
+
+  it("derives the wedding's slug for the owner and an editor co-host alike", async () => {
+    // The invite writes and image uploads build their URLs from it, and take it
+    // from here rather than reading the wedding row again.
+    const db = buildDb();
+    const slugApp = (profileId: string) =>
+      new Elysia({ aot: false })
+        .derive(() => ({ osnProfileId: profileId }))
+        .group("/weddings/:weddingId", (group) =>
+          group.use(weddingEditor(db)).get("/probe", ({ weddingSlug }) => ({ weddingSlug })),
+        );
+    const asOwner = await appRequest(slugApp(OWNER), `/weddings/${WEDDING_ID}/probe`);
+    const asEditor = await appRequest(slugApp(EDITOR), `/weddings/${WEDDING_ID}/probe`);
+    expect(await jsonBody(asOwner)).toEqual({ weddingSlug: "alice-wedding" });
+    expect(await jsonBody(asEditor)).toEqual({ weddingSlug: "alice-wedding" });
+  });
 });

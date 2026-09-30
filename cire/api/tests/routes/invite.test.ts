@@ -23,7 +23,8 @@ import type {
   ImageTransformHandle,
   OutputFormat,
 } from "../../src/services/invite-image-transform";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import type { RecordedStatement } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -2830,5 +2831,196 @@ describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
         imageCrop: null,
       });
     });
+  });
+});
+
+describe("invite writes answer from the row they wrote", () => {
+  // Each write answers with what `GET /invite` returns next, and reads the
+  // wedding row once: the editor gate's own read, which also supplies the slug
+  // the image URLs carry. The writes never read the row back.
+  const THEME = {
+    headingFont: "cormorant",
+    bodyFont: null,
+    headingSize: null,
+    headingWeight: null,
+    headingStyle: null,
+    bodyWeight: null,
+    bodyStyle: null,
+    palettePreset: null,
+    paletteGround: "#1b172a",
+    paletteCard: null,
+    paletteInk: null,
+    paletteGilt: null,
+    paletteBloom: null,
+    heroTone: null,
+    storyTone: null,
+    detailsTone: null,
+    welcomeTone: null,
+    heroBlur: 12,
+    titleBackdropOpacity: 40,
+    titleBackdropBlur: 6,
+  };
+  const FREE_DESIGN = DESIGNS.find((d) => d.tier === "free")!.id;
+
+  const weddingReads = (statements: readonly RecordedStatement[]) =>
+    statements.filter((s) => /\bfrom "weddings"/.test(s.sql)).length;
+
+  async function send(
+    app: ReturnType<typeof buildApp>["app"],
+    method: "PUT" | "DELETE",
+    path: string,
+    body?: unknown,
+    profileId = BOOTSTRAP_OWNER,
+  ): Promise<Response> {
+    return appRequest(app, path, {
+      method,
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(await authHeaders(profileId)),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  /** Runs one write, then checks its answer and what it cost against the next read. */
+  async function expectAnswerFromWrite(
+    built: ReturnType<typeof buildApp>,
+    method: "PUT" | "DELETE",
+    path: string,
+    body?: unknown,
+    profileId = BOOTSTRAP_OWNER,
+  ): Promise<unknown> {
+    const statements = recordStatements(built.db);
+    const res = await send(built.app, method, path, body, profileId);
+    const written = statements.slice();
+    expect(res.status).toBe(200);
+    const answer = await jsonBody(res);
+    expect(weddingReads(written)).toBe(1);
+
+    const next = await appRequest(built.app, orgBase, {
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    expect(next.status).toBe(200);
+    expect(answer).toEqual(await jsonBody(next));
+    return answer;
+  }
+
+  it("PUT /text on a wedding with no customisation row yet", async () => {
+    const built = buildApp();
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/text`, {
+      ...JSON.parse(emptyText),
+      heroTitle: "Anita & Ben",
+    })) as { hero: { title: string | null } };
+    expect(answer.hero.title).toBe("Anita & Ben");
+  });
+
+  it("PUT /text over an existing row, from an editor co-host", async () => {
+    const built = buildApp();
+    built.db
+      .insert(weddingHosts)
+      .values({
+        id: "whost_write_answer_editor",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_write_answer_editor",
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "editor",
+        createdAt: new Date(),
+      })
+      .run();
+    await uploadHero(built.app);
+    const answer = (await expectAnswerFromWrite(
+      built,
+      "PUT",
+      `${orgBase}/text`,
+      { ...JSON.parse(emptyText), storyHeading: "Where it started" },
+      "usr_write_answer_editor",
+    )) as { story: { heading: string | null }; hero: { imageUrl: string | null } };
+    expect(answer.story.heading).toBe("Where it started");
+    expect(answer.hero.imageUrl).toContain(`/api/invite/${SLUG}/image/hero`);
+  });
+
+  it("PUT /theme", async () => {
+    const built = buildApp();
+    await uploadHero(built.app);
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/theme`, THEME)) as {
+      heroDisplay: { blur: number };
+      theme: { headingFont: string | null };
+    };
+    expect(answer.heroDisplay.blur).toBe(12);
+    expect(answer.theme.headingFont).toBe("cormorant");
+  });
+
+  it("PUT /design", async () => {
+    const built = buildApp();
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/design`, {
+      designId: FREE_DESIGN,
+    })) as { designId: string };
+    expect(answer.designId).toBe(FREE_DESIGN);
+  });
+
+  it("PUT /visibility", async () => {
+    const built = buildApp();
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/visibility`, {
+      story: false,
+    })) as { visibility: Record<string, boolean> };
+    expect(answer.visibility).toEqual({ hero: true, story: false, faq: true, footer: true });
+  });
+
+  it("PUT /image/:slot/crop", async () => {
+    const built = buildApp();
+    await uploadHero(built.app);
+    const crop = { x: 0.1, y: 0.2, w: 0.5, h: 0.4 };
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/image/hero/crop`, {
+      crop,
+    })) as { hero: { imageCrop: unknown } };
+    expect(answer.hero.imageCrop).toEqual(crop);
+  });
+
+  it("DELETE /image/:slot", async () => {
+    const built = buildApp();
+    await uploadSlot(built.app, "story");
+    const answer = (await expectAnswerFromWrite(built, "DELETE", `${orgBase}/image/story`)) as {
+      story: { imageUrl: string | null };
+    };
+    expect(answer.story.imageUrl).toBeNull();
+  });
+
+  it("DELETE /image/:slot on a wedding with no customisation row answers the defaults", async () => {
+    const built = buildApp();
+    const answer = (await expectAnswerFromWrite(built, "DELETE", `${orgBase}/image/hero`)) as {
+      hero: { imageUrl: string | null };
+    };
+    expect(answer.hero.imageUrl).toBeNull();
+  });
+
+  it("POST /image/:slot takes the slug from the gate", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const res = await appRequest(app, `${orgBase}/image/hero`, {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { imageUrl: string }).imageUrl).toContain(
+      `/api/invite/${SLUG}/image/hero`,
+    );
+    expect(weddingReads(statements)).toBe(1);
+  });
+
+  it("POST /events/:eventId/image takes the slug from the gate", async () => {
+    const { app, db } = buildApp();
+    const eventId = eventsData.catholic.id;
+    const statements = recordStatements(db);
+    const res = await appRequest(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events/${encodeURIComponent(eventId)}/image`,
+      { method: "POST", headers: await authHeaders(BOOTSTRAP_OWNER), body: PNG },
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { imageUrl: string }).imageUrl).toContain(
+      `/api/invite/${SLUG}/event/${eventId}/image`,
+    );
+    expect(weddingReads(statements)).toBe(1);
   });
 });
