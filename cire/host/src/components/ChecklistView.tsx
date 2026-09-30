@@ -19,6 +19,7 @@ import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
+import { sameButOrder } from "../lib/sortable-rows";
 import {
   ensureTasksLoaded,
   invalidateTasks,
@@ -82,7 +83,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   };
 
   // Each bucket's tasks in order. A map of fresh arrays holding the SAME task
-  // objects, so a bucket's `<For>` keeps every row whose task did not change.
+  // objects, so a bucket untouched by a write compares equal (`sameRows`).
   const tasksByBucket = createMemo(() => {
     const byBucket = new Map<TimeframeBucket, TaskRow[]>();
     for (const task of tasks() ?? []) {
@@ -179,7 +180,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
   /**
    * Move a task within its bucket, then save the bucket's new order. A drag can
    * move it several places at once. Only tasks whose stored `sortOrder` changes
-   * get a new object, so every other row keeps its DOM. `onFailure` withdraws the move's
+   * get a new object, and the rows are keyed by id and ignore an order-only
+   * change, so no row is rebuilt. `onFailure` withdraws the move's
    * announcement, since the reload that follows puts the old order back.
    */
   const move = async (bucket: TimeframeBucket, from: number, to: number, onFailure: () => void) => {
@@ -286,12 +288,12 @@ export default function ChecklistView(props: ChecklistViewProps) {
             );
             const count = createMemo(() => bucketTasks().length);
             const ids = createMemo(() => bucketTasks().map((t) => t.id));
+            const taskById = createMemo(() => new Map(bucketTasks().map((t) => [t.id, t])));
             // One list per bucket: a task only ever moves within its own bucket,
             // because moving it to another is a change of when, not of order.
             const reorder = createSortableList({
               ids,
-              labelFor: (id) =>
-                untrack(() => bucketTasks().find((t) => t.id === id)?.title) ?? "task",
+              labelFor: (id) => untrack(() => taskById().get(String(id))?.title) ?? "task",
               noun: "task",
               onMove: (from, to) => void move(bucket.key, from, to, reorder.clearAnnouncement),
               onPhase: (phase) => haptic(phase),
@@ -309,59 +311,72 @@ export default function ChecklistView(props: ChecklistViewProps) {
                     <DragDropSensors />
                     <ul class="flex flex-col gap-1" data-testid={`tasks-${bucket.key}`}>
                       <SortableProvider ids={ids()}>
-                        <For each={bucketTasks()}>
-                          {(task, i) => {
-                            const sortable = createSortable(task.id);
-                            // Non-null: rendered inside the DragDropProvider above.
-                            const [dndState] = useDragDropContext()!;
-                            const item = reorder.item(task.id, i, count);
+                        <For each={ids()}>
+                          {(id, i) => {
+                            // By id, so a move moves this row's node rather than rebuilding
+                            // it; `sameButOrder` keeps the old object when only the stored
+                            // order changed, and the keyed `Show` rebuilds the row when
+                            // anything else did, as an edit always has.
+                            const row = createMemo(() => taskById().get(id), undefined, {
+                              equals: sameButOrder,
+                            });
                             return (
-                              <li
-                                ref={sortable.ref}
-                                style={maybeTransformStyle(sortable.transform())}
-                                class="border-border bg-surface/10 relative flex items-center gap-3 rounded-sm border px-3 py-2"
-                                classList={{
-                                  "border-gold/60 bg-surface/80 z-10 shadow-lg":
-                                    sortable.isActiveDraggable(),
-                                  "transition-transform":
-                                    dndState.dragging() && !sortable.isActiveDraggable(),
+                              <Show when={row()} keyed>
+                                {(task) => {
+                                  const sortable = createSortable(task.id);
+                                  // Non-null: rendered inside the DragDropProvider above.
+                                  const [dndState] = useDragDropContext()!;
+                                  const item = reorder.item(task.id, i, count);
+                                  return (
+                                    <li
+                                      ref={sortable.ref}
+                                      style={maybeTransformStyle(sortable.transform())}
+                                      class="border-border bg-surface/10 relative flex items-center gap-3 rounded-sm border px-3 py-2"
+                                      classList={{
+                                        "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                          sortable.isActiveDraggable(),
+                                        "transition-transform":
+                                          dndState.dragging() && !sortable.isActiveDraggable(),
+                                      }}
+                                    >
+                                      <Show when={props.canEdit}>
+                                        <ReorderControls sortable={sortable} item={item} />
+                                      </Show>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={task.title}
+                                        checked={task.status === "done"}
+                                        disabled={!props.canEdit}
+                                        onChange={() => props.canEdit && toggleDone(task)}
+                                      />
+                                      <span
+                                        class={`text-ui-base flex-1 ${
+                                          task.status === "done"
+                                            ? "text-text-muted line-through"
+                                            : "text-text"
+                                        }`}
+                                      >
+                                        {task.title}
+                                        <Show when={task.dueAt}>
+                                          <span class="text-text-muted text-ui-xs ml-2">
+                                            · due {task.dueAt}
+                                          </span>
+                                        </Show>
+                                      </span>
+                                      <Show when={props.canEdit}>
+                                        <Button
+                                          variant="bareDanger"
+                                          type="button"
+                                          aria-label="Delete task"
+                                          onClick={() => deleteTask(task)}
+                                        >
+                                          ✕
+                                        </Button>
+                                      </Show>
+                                    </li>
+                                  );
                                 }}
-                              >
-                                <Show when={props.canEdit}>
-                                  <ReorderControls sortable={sortable} item={item} />
-                                </Show>
-                                <input
-                                  type="checkbox"
-                                  aria-label={task.title}
-                                  checked={task.status === "done"}
-                                  disabled={!props.canEdit}
-                                  onChange={() => props.canEdit && toggleDone(task)}
-                                />
-                                <span
-                                  class={`text-ui-base flex-1 ${
-                                    task.status === "done"
-                                      ? "text-text-muted line-through"
-                                      : "text-text"
-                                  }`}
-                                >
-                                  {task.title}
-                                  <Show when={task.dueAt}>
-                                    <span class="text-text-muted text-ui-xs ml-2">
-                                      · due {task.dueAt}
-                                    </span>
-                                  </Show>
-                                </span>
-                                <Show when={props.canEdit}>
-                                  <Button
-                                    variant="bareDanger"
-                                    type="button"
-                                    aria-label="Delete task"
-                                    onClick={() => deleteTask(task)}
-                                  >
-                                    ✕
-                                  </Button>
-                                </Show>
-                              </li>
+                              </Show>
                             );
                           }}
                         </For>

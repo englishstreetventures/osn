@@ -33,6 +33,7 @@ import {
 import { haptic } from "../lib/haptics";
 import { formatMinor, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import { sameButOrder } from "../lib/sortable-rows";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
 interface BudgetViewProps {
@@ -112,7 +113,7 @@ export default function BudgetView(props: BudgetViewProps) {
   };
 
   // Each category's items in order. A map of fresh arrays holding the SAME item
-  // objects, so a category's `<For>` keeps every row whose item did not change.
+  // objects, so a category untouched by a write compares equal (`sameRows`).
   const itemsByCategory = createMemo(() => {
     const byCategory = new Map<string, BudgetItemRow[]>();
     for (const item of snapshot()?.items ?? []) {
@@ -293,9 +294,10 @@ export default function BudgetView(props: BudgetViewProps) {
   /**
    * Move an item within its category, then save the category's new order. A drag
    * can move it several places at once. Only items whose stored `sortOrder`
-   * changes get a new object, so every other row — an open payments panel
-   * included — keeps its DOM. `onFailure` withdraws the move's announcement, since the reload that
-   * follows puts the old order back.
+   * changes get a new object, and the rows are keyed by id and ignore an
+   * order-only change, so every row — an open payments panel included — keeps
+   * its DOM. `onFailure` withdraws the move's announcement, since the reload
+   * that follows puts the old order back.
    */
   const move = async (
     category: ServiceCategory,
@@ -602,12 +604,12 @@ export default function BudgetView(props: BudgetViewProps) {
               );
               const count = createMemo(() => categoryItems().length);
               const ids = createMemo(() => categoryItems().map((it) => it.id));
+              const itemById = createMemo(() => new Map(categoryItems().map((it) => [it.id, it])));
               // One list per category: an item only moves within its own
               // category, because moving it to another changes what it is.
               const reorder = createSortableList({
                 ids,
-                labelFor: (id) =>
-                  untrack(() => categoryItems().find((it) => it.id === id)?.name) ?? "item",
+                labelFor: (id) => untrack(() => itemById().get(String(id))?.name) ?? "item",
                 noun: "item",
                 onMove: (from, to) => void move(category.key, from, to, reorder.clearAnnouncement),
                 onPhase: (phase) => haptic(phase),
@@ -632,115 +634,139 @@ export default function BudgetView(props: BudgetViewProps) {
                       <DragDropSensors />
                       <ul class="flex flex-col gap-1" data-testid={`budget-${category.key}`}>
                         <SortableProvider ids={ids()}>
-                          <For each={categoryItems()}>
-                            {(item, i) => {
-                              const sortable = createSortable(item.id);
-                              // Non-null: rendered inside the DragDropProvider above.
-                              const [dndState] = useDragDropContext()!;
-                              const sortableItem = reorder.item(item.id, i, count);
+                          <For each={ids()}>
+                            {(id, i) => {
+                              // By id, so a move moves this row's node rather than rebuilding
+                              // it; `sameButOrder` keeps the old object when only the stored
+                              // order changed, and the keyed `Show` rebuilds the row when
+                              // anything else did, as an edit always has.
+                              const row = createMemo(() => itemById().get(id), undefined, {
+                                equals: sameButOrder,
+                              });
                               return (
-                                <li
-                                  ref={sortable.ref}
-                                  style={maybeTransformStyle(sortable.transform())}
-                                  class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
-                                  classList={{
-                                    "border-gold/60 bg-surface/80 z-10 shadow-lg":
-                                      sortable.isActiveDraggable(),
-                                    "transition-transform":
-                                      dndState.dragging() && !sortable.isActiveDraggable(),
+                                <Show when={row()} keyed>
+                                  {(item) => {
+                                    const sortable = createSortable(item.id);
+                                    // Non-null: rendered inside the DragDropProvider above.
+                                    const [dndState] = useDragDropContext()!;
+                                    const sortableItem = reorder.item(item.id, i, count);
+                                    return (
+                                      <li
+                                        ref={sortable.ref}
+                                        style={maybeTransformStyle(sortable.transform())}
+                                        class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                                        classList={{
+                                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                            sortable.isActiveDraggable(),
+                                          "transition-transform":
+                                            dndState.dragging() && !sortable.isActiveDraggable(),
+                                        }}
+                                      >
+                                        <div class="flex flex-wrap items-center gap-3">
+                                          <Show when={props.canEdit}>
+                                            <ReorderControls
+                                              sortable={sortable}
+                                              item={sortableItem}
+                                            />
+                                          </Show>
+                                          <span class="text-text text-ui-base min-w-32 flex-1">
+                                            {item.name}
+                                          </span>
+                                          {/* A per-head line's estimate is computed, so its cell is read-only. */}
+                                          <MoneyCell
+                                            label="Est"
+                                            minor={lineEstimate(item, rsvpsClosed())}
+                                            currency={currency()}
+                                            canEdit={props.canEdit && item.unitPriceMinor == null}
+                                            onCommit={(raw) =>
+                                              patchItemMoney(item, "estimateMinor", raw)
+                                            }
+                                          />
+                                          <MoneyCell
+                                            label="Quote"
+                                            minor={item.quotedMinor}
+                                            currency={currency()}
+                                            canEdit={props.canEdit}
+                                            onCommit={(raw) =>
+                                              patchItemMoney(item, "quotedMinor", raw)
+                                            }
+                                          />
+                                          <MoneyCell
+                                            label="Actual"
+                                            minor={item.actualMinor}
+                                            currency={currency()}
+                                            canEdit={props.canEdit}
+                                            onCommit={(raw) =>
+                                              patchItemMoney(item, "actualMinor", raw)
+                                            }
+                                          />
+                                          <Button
+                                            variant="bare"
+                                            type="button"
+                                            onClick={() =>
+                                              setExpanded(expanded() === item.id ? null : item.id)
+                                            }
+                                          >
+                                            payments ({paymentsFor(item.id).length})
+                                          </Button>
+                                          <Show when={props.canEdit && perHeadSupported()}>
+                                            <Button
+                                              variant="bare"
+                                              type="button"
+                                              aria-expanded={perHeadOpen() === item.id}
+                                              onClick={() =>
+                                                setPerHeadOpen(
+                                                  perHeadOpen() === item.id ? null : item.id,
+                                                )
+                                              }
+                                            >
+                                              per head
+                                            </Button>
+                                          </Show>
+                                          <Show when={props.canEdit}>
+                                            <Button
+                                              variant="bareDanger"
+                                              type="button"
+                                              aria-label="Delete item"
+                                              onClick={() => deleteItem(item)}
+                                            >
+                                              ✕
+                                            </Button>
+                                          </Show>
+                                        </div>
+                                        <Show when={item.unitPriceMinor != null}>
+                                          <PerHeadSummary
+                                            item={item}
+                                            events={weddingEvents()}
+                                            currency={currency()}
+                                            rsvpsClosed={rsvpsClosed()}
+                                          />
+                                        </Show>
+                                        <Show when={perHeadOpen() === item.id}>
+                                          <PerHeadPanel
+                                            item={item}
+                                            events={weddingEvents()}
+                                            currency={currency()}
+                                            onSave={(change) => void savePerHead(item, change)}
+                                            onUseFixed={() => void useFixedAmount(item)}
+                                            onCancel={() => setPerHeadOpen(null)}
+                                          />
+                                        </Show>
+                                        <Show when={expanded() === item.id}>
+                                          <PaymentPanel
+                                            item={item}
+                                            payments={paymentsFor(item.id)}
+                                            currency={currency()}
+                                            canEdit={props.canEdit}
+                                            onAdd={addPayment}
+                                            onTogglePaid={togglePaid}
+                                            onDelete={deletePayment}
+                                          />
+                                        </Show>
+                                      </li>
+                                    );
                                   }}
-                                >
-                                  <div class="flex flex-wrap items-center gap-3">
-                                    <Show when={props.canEdit}>
-                                      <ReorderControls sortable={sortable} item={sortableItem} />
-                                    </Show>
-                                    <span class="text-text text-ui-base min-w-32 flex-1">
-                                      {item.name}
-                                    </span>
-                                    {/* A per-head line's estimate is computed, so its cell is read-only. */}
-                                    <MoneyCell
-                                      label="Est"
-                                      minor={lineEstimate(item, rsvpsClosed())}
-                                      currency={currency()}
-                                      canEdit={props.canEdit && item.unitPriceMinor == null}
-                                      onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
-                                    />
-                                    <MoneyCell
-                                      label="Quote"
-                                      minor={item.quotedMinor}
-                                      currency={currency()}
-                                      canEdit={props.canEdit}
-                                      onCommit={(raw) => patchItemMoney(item, "quotedMinor", raw)}
-                                    />
-                                    <MoneyCell
-                                      label="Actual"
-                                      minor={item.actualMinor}
-                                      currency={currency()}
-                                      canEdit={props.canEdit}
-                                      onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
-                                    />
-                                    <Button
-                                      variant="bare"
-                                      type="button"
-                                      onClick={() =>
-                                        setExpanded(expanded() === item.id ? null : item.id)
-                                      }
-                                    >
-                                      payments ({paymentsFor(item.id).length})
-                                    </Button>
-                                    <Show when={props.canEdit && perHeadSupported()}>
-                                      <Button
-                                        variant="bare"
-                                        type="button"
-                                        aria-expanded={perHeadOpen() === item.id}
-                                        onClick={() =>
-                                          setPerHeadOpen(perHeadOpen() === item.id ? null : item.id)
-                                        }
-                                      >
-                                        per head
-                                      </Button>
-                                    </Show>
-                                    <Show when={props.canEdit}>
-                                      <Button
-                                        variant="bareDanger"
-                                        type="button"
-                                        aria-label="Delete item"
-                                        onClick={() => deleteItem(item)}
-                                      >
-                                        ✕
-                                      </Button>
-                                    </Show>
-                                  </div>
-                                  <Show when={item.unitPriceMinor != null}>
-                                    <PerHeadSummary
-                                      item={item}
-                                      events={weddingEvents()}
-                                      currency={currency()}
-                                      rsvpsClosed={rsvpsClosed()}
-                                    />
-                                  </Show>
-                                  <Show when={perHeadOpen() === item.id}>
-                                    <PerHeadPanel
-                                      item={item}
-                                      events={weddingEvents()}
-                                      currency={currency()}
-                                      onSave={(change) => void savePerHead(item, change)}
-                                      onUseFixed={() => void useFixedAmount(item)}
-                                      onCancel={() => setPerHeadOpen(null)}
-                                    />
-                                  </Show>
-                                  <Show when={expanded() === item.id}>
-                                    <PaymentPanel
-                                      item={item}
-                                      payments={paymentsFor(item.id)}
-                                      currency={currency()}
-                                      canEdit={props.canEdit}
-                                      onAdd={addPayment}
-                                      onTogglePaid={togglePaid}
-                                      onDelete={deletePayment}
-                                    />
-                                  </Show>
-                                </li>
+                                </Show>
                               );
                             }}
                           </For>

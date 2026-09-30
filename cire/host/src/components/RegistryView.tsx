@@ -35,6 +35,7 @@ import {
   setCachedRegistry,
   stillWanted,
 } from "../lib/registry-store";
+import { sameButOrder } from "../lib/sortable-rows";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
 interface RegistryViewProps {
@@ -220,9 +221,9 @@ export default function RegistryView(props: RegistryViewProps) {
 
   /** The list's ids in display order — what the sortable list and a drop resolve against. */
   const itemIds = createMemo(() => items().map((it) => it.id));
-  /** Title by id, for the grip labels and move announcements. A map rather than
-   *  a `find` per label: the list runs to 500 rows. */
-  const titleById = createMemo(() => new Map(items().map((it) => [it.id, it.title])));
+  /** Row by id, for the id-keyed `<For>` below and the grip labels. A map rather
+   *  than a `find` per row: the list runs to 500 rows. */
+  const itemById = createMemo(() => new Map(items().map((it) => [it.id, it])));
   /** Its own memo so a row's move controls re-run when the length changes, not
    *  on every write to the list. */
   const itemCount = createMemo(() => items().length);
@@ -392,10 +393,10 @@ export default function RegistryView(props: RegistryViewProps) {
     const orderedIds = reordered.map((it) => it.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
     // Rewrite ONLY the rows whose stored `sortOrder` changes, and hand every
-    // other row back by reference. `<For>` reconciles by item identity, so a
-    // blanket `{ ...it }` would tear down and rebuild all up-to-500 rows on
-    // every move — losing the inputs and the caret of an inline editor left
-    // open on a row that did not move. `items()` re-sorts regardless.
+    // other row back by reference. The rows are keyed by id and ignore an
+    // order-only change (`sameButOrder`), so none is rebuilt and an inline
+    // editor keeps its inputs and caret; a blanket `{ ...it }` would defeat
+    // that. `items()` re-sorts regardless.
     patchSnap((s) => ({
       ...s,
       items: s.items.map((it) => {
@@ -425,7 +426,7 @@ export default function RegistryView(props: RegistryViewProps) {
     ids: itemIds,
     // Untracked: an edit replaces the item object, which rebuilds its row, so a
     // row's title never changes under it and its label need not follow the map.
-    labelFor: (id: Id) => untrack(() => titleById().get(String(id))) ?? "gift",
+    labelFor: (id: Id) => untrack(() => itemById().get(String(id))?.title) ?? "gift",
     noun: "gift",
     onMove: (from, to) => void move(from, to),
     onPhase: (phase) => haptic(phase),
@@ -737,50 +738,61 @@ export default function RegistryView(props: RegistryViewProps) {
             <DragDropSensors />
             <ul class="flex flex-col gap-1" data-testid="registry-items">
               <SortableProvider ids={itemIds()}>
-                <For each={items()}>
-                  {(item, i) => {
-                    const sortable = createSortable(item.id);
-                    // Non-null: the row only renders inside the DragDropProvider above.
-                    const [dndState] = useDragDropContext()!;
-                    const sortableItem = reorder.item(item.id, i, itemCount);
+                <For each={itemIds()}>
+                  {(id, i) => {
+                    // By id, so a move moves this row's node rather than
+                    // rebuilding it; `sameButOrder` keeps the old object when
+                    // only the stored order changed, and the keyed `Show`
+                    // rebuilds the row when anything else did, as an edit
+                    // always has.
+                    const row = createMemo(() => itemById().get(id), undefined, {
+                      equals: sameButOrder,
+                    });
                     return (
-                      <li
-                        ref={sortable.ref}
-                        // `ref` registers the row without moving it, so the row paints
-                        // its own drag offset. `transform` is an accessor — call it.
-                        style={maybeTransformStyle(sortable.transform())}
-                        class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
-                        classList={{
-                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
-                            sortable.isActiveDraggable(),
-                          "transition-transform":
-                            dndState.dragging() && !sortable.isActiveDraggable(),
-                        }}
-                      >
-                        <div class="flex flex-wrap items-center gap-3">
-                          <Show when={props.canEdit}>
-                            <ReorderControls sortable={sortable} item={sortableItem} />
-                          </Show>
-                          <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
-                            {item.title}
-                          </span>
-                          <Show when={item.category}>
-                            <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                              {item.category}
-                            </span>
-                          </Show>
-                          <Show when={item.priceMinor != null}>
-                            <span class="text-text text-ui-sm">
-                              {formatMinor(item.priceMinor!, currency())}
-                            </span>
-                          </Show>
-                          {/* Claimed-vs-wanted, so the couple can see what is still
+                      <Show when={row()} keyed>
+                        {(item) => {
+                          const sortable = createSortable(item.id);
+                          // Non-null: the row only renders inside the DragDropProvider above.
+                          const [dndState] = useDragDropContext()!;
+                          const sortableItem = reorder.item(item.id, i, itemCount);
+                          return (
+                            <li
+                              ref={sortable.ref}
+                              // `ref` registers the row without moving it, so the row paints
+                              // its own drag offset. `transform` is an accessor — call it.
+                              style={maybeTransformStyle(sortable.transform())}
+                              class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                              classList={{
+                                "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                  sortable.isActiveDraggable(),
+                                "transition-transform":
+                                  dndState.dragging() && !sortable.isActiveDraggable(),
+                              }}
+                            >
+                              <div class="flex flex-wrap items-center gap-3">
+                                <Show when={props.canEdit}>
+                                  <ReorderControls sortable={sortable} item={sortableItem} />
+                                </Show>
+                                <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
+                                  {item.title}
+                                </span>
+                                <Show when={item.category}>
+                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
+                                    {item.category}
+                                  </span>
+                                </Show>
+                                <Show when={item.priceMinor != null}>
+                                  <span class="text-text text-ui-sm">
+                                    {formatMinor(item.priceMinor!, currency())}
+                                  </span>
+                                </Show>
+                                {/* Claimed-vs-wanted, so the couple can see what is still
                         open without reading the gift log. */}
-                          <span class="text-text-muted text-ui-sm">
-                            {item.quantityClaimed} of {item.quantityWanted} claimed
-                            {stillWanted(item) === 0 ? " · all taken" : ""}
-                          </span>
-                          {/* Scheme-checked at the render site, not merely at write
+                                <span class="text-text-muted text-ui-sm">
+                                  {item.quantityClaimed} of {item.quantityWanted} claimed
+                                  {stillWanted(item) === 0 ? " · all taken" : ""}
+                                </span>
+                                {/* Scheme-checked at the render site, not merely at write
                         time (precedent CON-S-L2: `vendor.privacyUrl` reached an
                         `href` with no check). The API schema already refuses
                         anything but `https:`, but a row can also arrive from a
@@ -790,142 +802,145 @@ export default function RegistryView(props: RegistryViewProps) {
                         The `aria-label` names the item, because a screen-reader
                         user listing the page's links otherwise hears "Link,
                         link, link" with nothing to tell them apart (C-L2). */}
-                          <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
-                            <a
-                              href={item.externalUrl!}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              aria-label={`Open the shop page for ${item.title}`}
-                              class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                            >
-                              Link
-                            </a>
-                          </Show>
+                                <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
+                                  <a
+                                    href={item.externalUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label={`Open the shop page for ${item.title}`}
+                                    class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
+                                  >
+                                    Link
+                                  </a>
+                                </Show>
 
-                          <Show when={props.canEdit}>
-                            <div class="flex items-center gap-2">
-                              <Button
-                                variant="link"
-                                type="button"
-                                aria-label={`Edit ${item.title}`}
-                                onClick={() =>
-                                  editingId() === item.id ? closeEdit() : openEdit(item)
-                                }
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="bareDanger"
-                                type="button"
-                                aria-label={`Remove ${item.title}`}
-                                onClick={() => deleteItem(item)}
-                              >
-                                ✕
-                              </Button>
-                            </div>
-                          </Show>
-                        </div>
+                                <Show when={props.canEdit}>
+                                  <div class="flex items-center gap-2">
+                                    <Button
+                                      variant="link"
+                                      type="button"
+                                      aria-label={`Edit ${item.title}`}
+                                      onClick={() =>
+                                        editingId() === item.id ? closeEdit() : openEdit(item)
+                                      }
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      variant="bareDanger"
+                                      type="button"
+                                      aria-label={`Remove ${item.title}`}
+                                      onClick={() => deleteItem(item)}
+                                    >
+                                      ✕
+                                    </Button>
+                                  </div>
+                                </Show>
+                              </div>
 
-                        <Show when={item.description}>
-                          <p class="text-text-muted text-ui-sm">{item.description}</p>
-                        </Show>
+                              <Show when={item.description}>
+                                <p class="text-text-muted text-ui-sm">{item.description}</p>
+                              </Show>
 
-                        {/* Inline editor */}
-                        <Show when={editingId() === item.id}>
-                          <form
-                            onSubmit={(e) => saveEdit(e, item)}
-                            class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
-                          >
-                            <Field label="Gift" class="min-w-48 flex-1">
-                              {(field) => (
-                                <Input
-                                  {...field}
-                                  size="sm"
-                                  value={editTitle()}
-                                  onInput={(e) => setEditTitle(e.currentTarget.value)}
-                                />
-                              )}
-                            </Field>
-                            <Field label="Price" class="w-28">
-                              {(field) => (
-                                <Input
-                                  {...field}
-                                  size="sm"
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={editPrice()}
-                                  onInput={(e) => setEditPrice(e.currentTarget.value)}
-                                />
-                              )}
-                            </Field>
-                            <Field label="How many" class="w-20">
-                              {(field) => (
-                                <Input
-                                  {...field}
-                                  size="sm"
-                                  type="number"
-                                  min={MIN_QUANTITY}
-                                  max={MAX_QUANTITY}
-                                  step="1"
-                                  value={editQuantity()}
-                                  onInput={(e) => setEditQuantity(e.currentTarget.value)}
-                                />
-                              )}
-                            </Field>
-                            <Field label="Category" class="w-32">
-                              {(field) => (
-                                <Input
-                                  {...field}
-                                  size="sm"
-                                  value={editCategory()}
-                                  onInput={(e) => setEditCategory(e.currentTarget.value)}
-                                  placeholder="Kitchen"
-                                />
-                              )}
-                            </Field>
-                            <Field label="Link" class="w-56">
-                              {(field) => (
-                                <Input
-                                  {...field}
-                                  size="sm"
-                                  type="url"
-                                  value={editUrl()}
-                                  onInput={(e) => setEditUrl(e.currentTarget.value)}
-                                  placeholder="https://…"
-                                />
-                              )}
-                            </Field>
-                            <Field label="Description" class="min-w-56 flex-1">
-                              {(field) => (
-                                <Textarea
-                                  {...field}
-                                  size="sm"
-                                  rows={2}
-                                  value={editDescription()}
-                                  onInput={(e) => setEditDescription(e.currentTarget.value)}
-                                />
-                              )}
-                            </Field>
-                            <div class="w-full">
-                              <RegistryImageField
-                                weddingId={props.weddingId}
-                                imageKey={editImageKey()}
-                                onChange={setEditImageKey}
-                                idPrefix={`registry-edit-${item.id}`}
-                              />
-                            </div>
-                            <div class="flex items-end gap-2">
-                              <Button type="submit" variant="primary" size="sm">
-                                Save
-                              </Button>
-                              <Button variant="quiet" size="sm" onClick={closeEdit}>
-                                Cancel
-                              </Button>
-                            </div>
-                          </form>
-                        </Show>
-                      </li>
+                              {/* Inline editor */}
+                              <Show when={editingId() === item.id}>
+                                <form
+                                  onSubmit={(e) => saveEdit(e, item)}
+                                  class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
+                                >
+                                  <Field label="Gift" class="min-w-48 flex-1">
+                                    {(field) => (
+                                      <Input
+                                        {...field}
+                                        size="sm"
+                                        value={editTitle()}
+                                        onInput={(e) => setEditTitle(e.currentTarget.value)}
+                                      />
+                                    )}
+                                  </Field>
+                                  <Field label="Price" class="w-28">
+                                    {(field) => (
+                                      <Input
+                                        {...field}
+                                        size="sm"
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        value={editPrice()}
+                                        onInput={(e) => setEditPrice(e.currentTarget.value)}
+                                      />
+                                    )}
+                                  </Field>
+                                  <Field label="How many" class="w-20">
+                                    {(field) => (
+                                      <Input
+                                        {...field}
+                                        size="sm"
+                                        type="number"
+                                        min={MIN_QUANTITY}
+                                        max={MAX_QUANTITY}
+                                        step="1"
+                                        value={editQuantity()}
+                                        onInput={(e) => setEditQuantity(e.currentTarget.value)}
+                                      />
+                                    )}
+                                  </Field>
+                                  <Field label="Category" class="w-32">
+                                    {(field) => (
+                                      <Input
+                                        {...field}
+                                        size="sm"
+                                        value={editCategory()}
+                                        onInput={(e) => setEditCategory(e.currentTarget.value)}
+                                        placeholder="Kitchen"
+                                      />
+                                    )}
+                                  </Field>
+                                  <Field label="Link" class="w-56">
+                                    {(field) => (
+                                      <Input
+                                        {...field}
+                                        size="sm"
+                                        type="url"
+                                        value={editUrl()}
+                                        onInput={(e) => setEditUrl(e.currentTarget.value)}
+                                        placeholder="https://…"
+                                      />
+                                    )}
+                                  </Field>
+                                  <Field label="Description" class="min-w-56 flex-1">
+                                    {(field) => (
+                                      <Textarea
+                                        {...field}
+                                        size="sm"
+                                        rows={2}
+                                        value={editDescription()}
+                                        onInput={(e) => setEditDescription(e.currentTarget.value)}
+                                      />
+                                    )}
+                                  </Field>
+                                  <div class="w-full">
+                                    <RegistryImageField
+                                      weddingId={props.weddingId}
+                                      imageKey={editImageKey()}
+                                      onChange={setEditImageKey}
+                                      idPrefix={`registry-edit-${item.id}`}
+                                    />
+                                  </div>
+                                  <div class="flex items-end gap-2">
+                                    <Button type="submit" variant="primary" size="sm">
+                                      Save
+                                    </Button>
+                                    <Button variant="quiet" size="sm" onClick={closeEdit}>
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </form>
+                              </Show>
+                            </li>
+                          );
+                        }}
+                      </Show>
                     );
                   }}
                 </For>
