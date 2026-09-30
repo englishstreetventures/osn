@@ -9,6 +9,13 @@
 /claim*
   Referrer-Policy: no-referrer
 
+# The dashboard holds the signed-in account's data. `no-store` keeps it out of
+# the HTTP cache and, in most browsers, out of the back/forward cache, so Back
+# after sign-out cannot show it again; `lib/bfcache.ts` reloads it where a
+# browser restores it anyway.
+/
+  Cache-Control: no-store
+
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
 # files included. Every path under /_astro/ carries a content hash in the
 # filename, so a year-long cache is unconditionally safe: a changed file is a
