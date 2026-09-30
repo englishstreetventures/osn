@@ -18,7 +18,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import { haptic } from "../lib/haptics";
 import { formatMinor, formatMinorPair, minorToInput, parseMinor } from "../lib/money";
@@ -159,17 +159,13 @@ export default function RegistryView(props: RegistryViewProps) {
   const [editUrl, setEditUrl] = createSignal("");
   const [editImageKey, setEditImageKey] = createSignal<string | null>(null);
 
-  // Ids are percent-encoded at every interpolation, the way `enquiries-api.ts`
-  // does it. Today's ids are nanoid-shaped and can't carry a `/` or `?`, so this
-  // changes no request that is actually made — it stops the day an id format
-  // changes from turning a path segment into a new path or a query string
-  // (S-L1).
-  const wedding = () => encodeURIComponent(props.weddingId);
-  const registryUrl = () => apiUrl(`/api/organiser/weddings/${wedding()}/registry`);
+  // Every id in a path is percent-encoded: the wedding's by `weddingPath`,
+  // item and gift ids here, so an id can never start a new segment or a query.
+  const registryUrl = () => apiUrl(weddingPath(props.weddingId, "/registry"));
   /** A further page of the gift log, and nothing else — see `loadMoreGifts`. */
   const giftsUrl = (offset: number) =>
-    apiUrl(`/api/organiser/weddings/${wedding()}/registry/gifts?offset=${offset}`);
-  const itemsUrl = () => apiUrl(`/api/organiser/weddings/${wedding()}/registry/items`);
+    apiUrl(weddingPath(props.weddingId, `/registry/gifts?offset=${offset}`));
+  const itemsUrl = () => apiUrl(weddingPath(props.weddingId, "/registry/items"));
   const itemUrl = (itemId: string) => `${itemsUrl()}/${encodeURIComponent(itemId)}`;
 
   const load = async (): Promise<RegistrySnapshot> => {
@@ -527,9 +523,10 @@ export default function RegistryView(props: RegistryViewProps) {
     try {
       const res = await authFetch(
         apiUrl(
-          `/api/organiser/weddings/${wedding()}/registry/gifts/${encodeURIComponent(
-            gift.kind,
-          )}/${encodeURIComponent(gift.id)}/thanked`,
+          weddingPath(
+            props.weddingId,
+            `/registry/gifts/${encodeURIComponent(gift.kind)}/${encodeURIComponent(gift.id)}/thanked`,
+          ),
         ),
         {
           method: "POST",
@@ -566,9 +563,12 @@ export default function RegistryView(props: RegistryViewProps) {
     try {
       const res = await authFetch(
         apiUrl(
-          `/api/organiser/weddings/${wedding()}/registry/gifts/${encodeURIComponent(
-            gift.kind,
-          )}/${encodeURIComponent(gift.id)}/note-hidden`,
+          weddingPath(
+            props.weddingId,
+            `/registry/gifts/${encodeURIComponent(
+              gift.kind,
+            )}/${encodeURIComponent(gift.id)}/note-hidden`,
+          ),
         ),
         {
           method: "POST",
@@ -635,7 +635,7 @@ export default function RegistryView(props: RegistryViewProps) {
     if (exporting()) return;
     setExporting(true);
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${wedding()}/gifts.csv`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/gifts.csv")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       downloadBlob(`cire-gifts-${props.weddingSlug}.csv`, await res.blob());

@@ -16,7 +16,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
 import {
@@ -51,7 +51,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   const [newBucket, setNewBucket] = createSignal<TimeframeBucket>(TIMEFRAME_BUCKETS[0]!.key);
   const [newDue, setNewDue] = createSignal("");
 
-  const listUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks`);
+  const listUrl = () => apiUrl(weddingPath(props.weddingId, "/tasks"));
 
   const load = async (): Promise<TaskRow[]> => {
     const res = await authFetch(listUrl());
@@ -143,14 +143,11 @@ export default function ChecklistView(props: ChecklistViewProps) {
     patchTasks((rows) => rows.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     haptic("commit");
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks/${task.id}`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: nextStatus }),
-        },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/tasks/${task.id}`)), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
       const { task: updated } = (await res.json()) as { task: TaskRow };
@@ -167,10 +164,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
     patchTasks((rows) => rows.filter((t) => t.id !== task.id));
     haptic("commit");
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks/${task.id}`),
-        { method: "DELETE" },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/tasks/${task.id}`)), {
+        method: "DELETE",
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
@@ -202,14 +198,11 @@ export default function ChecklistView(props: ChecklistViewProps) {
     );
     if (!moves) return;
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks/reorder`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeframeBucket: bucket, orderedIds }),
-        },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks/reorder")), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeframeBucket: bucket, orderedIds }),
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`reorder ${res.status}`);
     } catch {

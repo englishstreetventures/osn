@@ -11,7 +11,7 @@
 
 import { createResource } from "solid-js";
 
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 
 /** The kinds this build words. The API may send one it does not know yet. */
 export type RsvpChangeKind =
@@ -116,8 +116,7 @@ function isRsvpChanges(body: unknown): body is RsvpChanges {
   return "enabled" in digest && typeof digest.enabled === "boolean";
 }
 
-const base = (weddingId: string) =>
-  apiUrl(`/api/organiser/weddings/${encodeURIComponent(weddingId)}/rsvp-changes`);
+const base = (weddingId: string) => apiUrl(weddingPath(weddingId, "/rsvp-changes"));
 
 /** The caller's unseen changes, or null when they cannot be read. */
 export async function fetchRsvpChanges(

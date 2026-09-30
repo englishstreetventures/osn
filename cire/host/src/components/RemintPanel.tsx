@@ -4,7 +4,7 @@ import { toast } from "@shared/toast";
 import { Fieldset } from "@shared/ui/ui/field";
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
@@ -52,7 +52,7 @@ export default function RemintPanel(props: RemintPanelProps) {
 
   async function loadSharedCount() {
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) return;
       const rows = (await res.json()) as GuestRow[];
@@ -84,7 +84,7 @@ export default function RemintPanel(props: RemintPanelProps) {
     if (busy()) return;
     setBusy(true);
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/remint`), {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/remint")), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ codeStyle: targetStyle() }),

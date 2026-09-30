@@ -5,7 +5,7 @@ import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, onMount, Show, For, Suspense } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -50,7 +50,7 @@ export default function EventTable(props: EventTableProps) {
     // request per wedding either way.
     try {
       await ensureEventsLoaded(props.weddingId, async () => {
-        const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+        const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
         if (res.status === 401) {
           redirectToLogin();
           throw new Error("unauthenticated");
@@ -79,7 +79,7 @@ export default function EventTable(props: EventTableProps) {
   }
 
   const eventImageBase = (eventId: string) =>
-    `/api/organiser/weddings/${props.weddingId}/events/${eventId}/image`;
+    weddingPath(props.weddingId, `/events/${eventId}/image`);
 
   // One image per event — a re-upload REPLACES the current one (the API points
   // the single `event_image_key` column at the new R2 object). Mirrors the
@@ -149,7 +149,7 @@ export default function EventTable(props: EventTableProps) {
     if (exporting()) return;
     setExporting(true);
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events.csv`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events.csv")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();

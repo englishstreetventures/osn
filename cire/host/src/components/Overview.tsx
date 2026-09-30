@@ -4,7 +4,7 @@ import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
   type BudgetSnapshot,
   ensureBudgetLoaded,
@@ -172,10 +172,10 @@ export default function Overview(props: {
       // Events + guests ride the shared caches (deduped with the other modules).
       // Settings + rsvps are light reads for the date + reply tallies.
       const [settingsRes, rsvpsRes] = await Promise.all([
-        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/settings`)),
-        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/rsvps`)),
+        authFetch(apiUrl(weddingPath(props.weddingId, "/settings"))),
+        authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps"))),
         ensureEventsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
           if (res.status === 401) {
             redirectToLogin();
             throw new Error("unauthenticated");
@@ -184,7 +184,7 @@ export default function Overview(props: {
           return (await res.json()) as EventRow[];
         }),
         ensureGuestsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
           if (res.status === 401) {
             redirectToLogin();
             throw new Error("unauthenticated");
@@ -193,7 +193,7 @@ export default function Overview(props: {
           return (await res.json()) as OrganiserGuestRow[];
         }),
         ensureTasksLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks`));
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
           if (res.status === 401) {
             redirectToLogin();
             return [];
@@ -202,7 +202,7 @@ export default function Overview(props: {
           return ((await res.json()) as { tasks: TaskRow[] }).tasks;
         }),
         ensureBudgetLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/budget`));
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
           if (res.status === 401) {
             redirectToLogin();
             return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
@@ -223,9 +223,7 @@ export default function Overview(props: {
         vendorsLocked()
           ? Promise.resolve()
           : ensureVendorsLoaded(props.weddingId, async () => {
-              const res = await authFetch(
-                apiUrl(`/api/organiser/weddings/${props.weddingId}/vendors`),
-              );
+              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/vendors")));
               if (res.status === 401) {
                 redirectToLogin();
                 throw new Error("unauthenticated");

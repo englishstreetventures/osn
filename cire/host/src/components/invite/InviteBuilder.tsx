@@ -55,7 +55,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
 import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
@@ -201,7 +201,7 @@ export type InviteSectionId = (typeof NAV_SECTIONS)[number]["id"];
 export default function InviteBuilder(props: InviteBuilderProps) {
   const { authFetch } = useAuth();
 
-  const base = () => `/api/organiser/weddings/${props.weddingId}/invite`;
+  const base = () => weddingPath(props.weddingId, "/invite");
 
   // The FAQ entries. They arrive once, on the first load (`?include=faqs`), and
   // from then on `FaqEditor` keeps them current: the write routes' responses

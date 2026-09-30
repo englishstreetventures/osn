@@ -23,7 +23,7 @@ import {
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import {
   ensureEventsLoaded,
@@ -313,7 +313,7 @@ export default function GuestTable(props: GuestTableProps) {
 
   /** The guest list, fresh from the API — the fetcher behind the guest cache. */
   async function fetchGuests(): Promise<OrganiserGuestRow[]> {
-    const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
     if (res.status === 401) {
       redirectToLogin();
       throw new Error("unauthenticated");
@@ -331,7 +331,7 @@ export default function GuestTable(props: GuestTableProps) {
       const [, , inviteRes] = await Promise.all([
         ensureGuestsLoaded(props.weddingId, fetchGuests),
         ensureEventsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
           if (res.status === 401) {
             redirectToLogin();
             throw new Error("unauthenticated");
@@ -339,7 +339,7 @@ export default function GuestTable(props: GuestTableProps) {
           if (!res.ok) throw new Error("Failed to load");
           return (await res.json()) as CachedEventRow[];
         }),
-        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/invite`)),
+        authFetch(apiUrl(weddingPath(props.weddingId, "/invite"))),
       ]);
       if (inviteRes.status === 401) return redirectToLogin();
       // The custom invite message is non-essential to the table — if it fails to
@@ -362,8 +362,10 @@ export default function GuestTable(props: GuestTableProps) {
   function markShared(family: FamilyGroup) {
     setSharedNow((prev) => new Set(prev).add(family.publicId));
     void authFetch(
-      apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/mark-shared`),
-      { method: "POST" },
+      apiUrl(weddingPath(props.weddingId, `/families/${family.familyId}/mark-shared`)),
+      {
+        method: "POST",
+      },
     ).catch(() => {
       // Intentionally swallowed — a missed mark only under-counts the remint
       // warning; the optimistic UI flip stays so the organiser isn't confused.
@@ -384,7 +386,7 @@ export default function GuestTable(props: GuestTableProps) {
     const action = deactivate ? "deactivate" : "reactivate";
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/${action}`),
+        apiUrl(weddingPath(props.weddingId, `/families/${family.familyId}/${action}`)),
         { method: "POST" },
       );
       if (res.status === 401) return redirectToLogin();
@@ -438,7 +440,7 @@ export default function GuestTable(props: GuestTableProps) {
     setExporting(kind);
     const label = kind === "rsvps" ? "RSVP" : "Guest list";
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/${kind}.csv`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/${kind}.csv`)));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();

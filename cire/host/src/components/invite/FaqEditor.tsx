@@ -39,7 +39,7 @@ import { toast } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
 import { haptic } from "../../lib/haptics";
 import ReorderControls from "../ReorderControls";
 import { InstantBadge, TextAreaField, TextField } from "./fields";
@@ -74,7 +74,7 @@ async function errorText(res: Response, fallback: string): Promise<string> {
 
 export default function FaqEditor(props: FaqEditorProps) {
   const { authFetch } = useAuth();
-  const base = () => `/api/organiser/weddings/${props.weddingId}/invite/faqs`;
+  const base = () => weddingPath(props.weddingId, "/invite/faqs");
 
   const entries = () => props.entries ?? [];
   const [editing, setEditing] = createSignal<Editing | null>(null);

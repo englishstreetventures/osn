@@ -23,7 +23,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { isHeadMoved, loadHeadRevision, revisionOf } from "../lib/change-revision";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
@@ -125,8 +125,7 @@ export default function EventsEditor(props: { weddingId: string }) {
     onPhase: (phase) => haptic(phase),
   });
 
-  const changesUrl = (op: string) =>
-    apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
+  const changesUrl = (op: string) => apiUrl(weddingPath(props.weddingId, `/changes/${op}`));
 
   /** Read the change head, then load the events fresh and seed the draft at
    *  that head. The head comes first and the cached events are dropped: rows
@@ -150,7 +149,7 @@ export default function EventsEditor(props: { weddingId: string }) {
     const revision = knownRevision ?? (await loadHeadRevision(authFetch, props.weddingId));
     invalidateEvents(props.weddingId);
     const events = await ensureEventsLoaded(props.weddingId, async () => {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
       if (res.status === 401) {
         redirectToLogin();
         throw new Error("unauthenticated");

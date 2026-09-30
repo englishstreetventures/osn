@@ -16,7 +16,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
   type BudgetItemRow,
   type BudgetSnapshot,
@@ -70,7 +70,7 @@ export default function BudgetView(props: BudgetViewProps) {
   const [expanded, setExpanded] = createSignal<string | null>(null);
   const [perHeadOpen, setPerHeadOpen] = createSignal<string | null>(null);
 
-  const budgetUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/budget`);
+  const budgetUrl = () => apiUrl(weddingPath(props.weddingId, "/budget"));
   const currency = () => snapshot()?.currency ?? "AUD";
   const rsvpsClosed = () => snapshot()?.rsvpsClosed ?? false;
   const weddingEvents = () => snapshot()?.events ?? [];
@@ -167,14 +167,11 @@ export default function BudgetView(props: BudgetViewProps) {
     setNewName("");
     setNewEstimate("");
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget/items")), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { item } = (await res.json()) as { item: BudgetItemRow };
@@ -206,7 +203,7 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -236,7 +233,7 @@ export default function BudgetView(props: BudgetViewProps) {
   ) => {
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -279,8 +276,10 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
-        { method: "DELETE" },
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
+        {
+          method: "DELETE",
+        },
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
@@ -319,14 +318,11 @@ export default function BudgetView(props: BudgetViewProps) {
       }),
     }));
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/reorder`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category, orderedIds }),
-        },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget/items/reorder")), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, orderedIds }),
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`reorder ${res.status}`);
     } catch {
@@ -352,7 +348,7 @@ export default function BudgetView(props: BudgetViewProps) {
     }
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}/payments`),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments`)),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -382,9 +378,7 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(
-          `/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}/payments/${payment.id}`,
-        ),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments/${payment.id}`)),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -410,9 +404,7 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(
-          `/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}/payments/${payment.id}`,
-        ),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments/${payment.id}`)),
         { method: "DELETE" },
       );
       if (res.status === 401) return redirectToLogin();
@@ -438,14 +430,11 @@ export default function BudgetView(props: BudgetViewProps) {
     patchSnap((s) => ({ ...s, budgetTotalMinor: minor }));
     setCapDraft(null);
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/total`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ budgetTotalMinor: minor }),
-        },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget/total")), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budgetTotalMinor: minor }),
+      });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`cap ${res.status}`);
       haptic("commit");
