@@ -27,10 +27,9 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 
 import type { AstroIntegration } from "astro";
 
-import { resolveApiUrl } from "./api-origin";
+import { PRODUCTION_API_ORIGIN, resolveApiUrl } from "./api-origin";
 
-/** The cire-api origin `public/_headers` is written for. */
-export const PRODUCTION_API_ORIGIN = "https://api.cireweddings.com";
+export { PRODUCTION_API_ORIGIN };
 
 /**
  * The production origin where it ends: not the start of `…com.example`,

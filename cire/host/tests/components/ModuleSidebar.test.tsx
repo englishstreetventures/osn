@@ -71,6 +71,28 @@ describe("ModuleSidebar", () => {
     ).toBe(true);
   });
 
+  it("inks the sheet's selected label for reading and leaves its icon gold", async () => {
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="guests"
+        entitlements={ENTITLED}
+        onSelect={vi.fn()}
+      />
+    ));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open wedding navigation, currently Guests/ }),
+    );
+    const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
+    const selected = within(sheet)
+      .getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-current") === "page");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]!.classList.contains("text-gold-ink")).toBe(true);
+    expect(selected[0]!.classList.contains("text-gold")).toBe(false);
+    expect(selected[0]!.querySelector("svg")!.classList.contains("text-gold")).toBe(true);
+  });
+
   it("renders every module in workflow order", () => {
     render(() => (
       <ModuleSidebar

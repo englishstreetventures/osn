@@ -1,3 +1,6 @@
+/** The cire-api origin `public/_headers` is written for. */
+export const PRODUCTION_API_ORIGIN = "https://api.cireweddings.com";
+
 /** The local cire-api: `bun run dev` in `cire/api` (src/local.ts, port 8787). */
 export const LOCAL_API_URL = "http://localhost:8787";
 

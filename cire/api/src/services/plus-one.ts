@@ -498,10 +498,10 @@ function writePermission(
 
 /**
  * Why a naming whose own write inserted nothing was refused. The insert checks
- * the permission and the guest cap inside its statement, so an empty read-back
- * means one of them changed between the caller's read and its batch. A fresh
- * read says which, and answers the same error the read before the write would
- * have. Anything the fresh read itself refuses (the household or the inviter
+ * the permission and the guest cap inside its statement, and is the only cap
+ * check a naming makes, so an empty read-back means the wedding is full or the
+ * permission changed after the caller's read. A fresh read says which, and
+ * answers the same error a check before the write would have. Anything the fresh read itself refuses (the household or the inviter
  * gone, the deadline passed) fails as it would on any other request.
  */
 function refusedInsideTheWrite(
@@ -583,11 +583,8 @@ export const plusOneService = {
       }
 
       // A new guest row: it counts against the wedding's cap like any other.
-      // The cap comes from the context read, so only the count is a new query.
-      yield* entitlementService
-        .assertGuestCapacity(context.weddingId, 1, context.cap)
-        .pipe(Effect.tapError(() => Effect.sync(() => metricPlusOneBlocked("capacity"))));
-
+      // The insert checks the cap itself, so no count runs ahead of it; a
+      // refusal is explained by `refusedInsideTheWrite`.
       const newId = crypto.randomUUID();
       const rows = yield* dbQuery(() =>
         commitGroupedBatchesReturning<PlusOneRow>(

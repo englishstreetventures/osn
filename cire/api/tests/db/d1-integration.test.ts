@@ -1100,6 +1100,20 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(guests);
       expect(n).toBe(BASE_GUEST_CAP);
       expect(outcomes.toSorted()).toEqual(["CapacityExceeded", "created"]);
+      // The loser's batch copied no invitation either: only the winner's
+      // plus-one exists, with its inviter's invitations and nothing more.
+      const named = await db
+        .select({ id: guests.id, of: guests.plusOneOfGuestId })
+        .from(guests)
+        .where(sql`${guests.plusOneOfGuestId} IS NOT NULL`);
+      expect(named).toHaveLength(1);
+      const links = await db
+        .select({ guestId: guestEvents.guestId })
+        .from(guestEvents)
+        .where(eq(guestEvents.guestId, named[0]!.id));
+      expect(links).toHaveLength(named[0]!.of === GUEST_1 ? 2 : 1);
+      const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(guestEvents);
+      expect(total).toBe(3 + links.length);
     },
     MF_TIMEOUT_MS,
   );

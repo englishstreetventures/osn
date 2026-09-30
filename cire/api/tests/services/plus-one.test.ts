@@ -560,6 +560,17 @@ describe("plusOneService.save — the rules change after the lookup, before the 
     expect(plusOnesOf(bo.id)).toEqual([]);
   });
 
+  it("answers as any request would when the household went meanwhile", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    beforeCreateWrite(() => {
+      db.delete(families).where(eq(families.id, bo.familyId)).run();
+    });
+    expect(
+      await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
+    ).toBe("PlusOneHouseholdGone");
+  });
+
   it("names the plus-one past the base cap once the wedding holds a capacity entitlement", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
@@ -1256,7 +1267,7 @@ describe("plusOneService — statements per write", () => {
   // three-statement batch; a rename is one batch of two (clear any dietary
   // answers, write the name and return it); an unchanged name writes nothing;
   // a remove is one write; a remove with nothing named writes nothing.
-  it("names in five statements, renames in three, removes in two, and a repeat remove in one", async () => {
+  it("names in four statements, renames in three, removes in two, and a repeat remove in one", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     const recorded = recordStatements(db);
@@ -1266,8 +1277,10 @@ describe("plusOneService — statements per write", () => {
       return recorded.length - before;
     };
     expect(
+      // The context read, then one batch: the guarded insert, the invitation
+      // copy and the read-back. The insert checks the cap, so no count runs first.
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
-    ).toBe(5);
+    ).toBe(4);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(3);

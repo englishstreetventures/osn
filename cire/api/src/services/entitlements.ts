@@ -66,7 +66,9 @@ function deriveCap(keys: readonly string[]): number {
  * the other, and the second sees the first's row.
  *
  * Raw `sql` over `guests` and `families` by their own names, so it reads the
- * same tables whatever alias the statement around it gives them.
+ * same tables whatever alias the statement around it gives them. Use it in a
+ * WHERE: in a select list Drizzle writes its columns without their table, and
+ * `id` then names both tables.
  */
 export function roomForOneMoreGuest(weddingId: string): SQL {
   const ceilings = CAPACITY_CEILINGS.map(
