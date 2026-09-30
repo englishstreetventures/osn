@@ -10,21 +10,23 @@
  *     persist the uploaded sheets for legacy revert + re-diff on apply, and a
  *     {@link ChangeScope} recording which sheets a partial upload carried).
  *  2. {@link headRevision} — the wedding's optimistic-concurrency token (§6
- *     "Concurrency guard"): a digest of every committed change. The editor
- *     reads it BEFORE loading the rows it seeds a draft from and sends it with
- *     the preview; preview refuses a draft whose token is no longer the head,
- *     stamps the head on the change row, and apply 409s if it moved since.
- *     The check is not part of apply's write: two applies that both read the
- *     head before either commits can both land, so the window between apply's
- *     head read and its final batch is still open.
+ *     "Concurrency guard"), a counter moved by every committed change. The
+ *     editor reads it BEFORE loading the rows it seeds a draft from and sends
+ *     it with the preview; preview refuses a draft whose token is no longer
+ *     the head, and stamps the head on the change row. Apply and revert then
+ *     take the wedding with {@link claimChanges} at that head before their
+ *     first write, so of two changes prepared against one head only one
+ *     writes, and nothing else writes while it does.
  *  3. {@link clearedHalves} — whether an editor save empties a half of the
  *     wedding, which apply refuses unless the request confirms the count.
  */
-import { events, imports } from "@cire/db";
-import { and, asc, eq, or } from "drizzle-orm";
-import { Effect, Schema } from "effect";
+import { events, weddings } from "@cire/db";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { Cause, Data, Effect, Option, Schema } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import type { Db } from "../db";
 import { ChangeScope, DesiredState } from "../schemas/import";
 import type { ImportPlan, ParsedEvent, ParsedFamily } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
@@ -321,64 +323,201 @@ export function decodeChangeBody(
   });
 }
 
-// ── Optimistic-concurrency head revision ────────────────────────────────────
+// ── Optimistic-concurrency head revision and the change claim ───────────────
 
 /**
- * Sentinel revision for a wedding with no committed change — distinct from any
- * digest, so a draft or preview taken at genesis still detects a concurrent
- * first apply.
- */
-export const GENESIS_REVISION = "genesis";
-
-/**
- * The wedding's current head revision: a SHA-256 digest (hex) of every
- * committed change — each `applied` or `reverted` row's id, status and
- * `appliedAt`/`revertedAt` — or {@link GENESIS_REVISION} when there is none
- * (§6 "Concurrency guard").
+ * The wedding's current head revision: its `weddings.change_rev` counter as a
+ * decimal string (§6 "Concurrency guard").
  *
- * A digest of the whole set rather than "the newest row", because the newest
- * row cannot be told apart reliably: `appliedAt` and `revertedAt` are stamped
- * before their write set commits, so a revert that started first can commit
- * last and still carry the older time, two changes can share a millisecond, and
- * reverting the newest change leaves its id where it was. Every committed apply
- * adds a row to the set and every committed revert changes one, in the same
- * final batch as its data writes, so the digest moves exactly when the wedding
- * does — in whatever order the writes land.
- *
- * A `preview` row is not part of the set, so a second preview never moves the
- * head; an apply or a revert does.
+ * The counter moves in the same D1 batch as every committed apply or revert
+ * ({@link commitClaimStatement}), and whenever a change that may have written
+ * part of its data gives up ({@link releaseClaim}), so it moves exactly when
+ * the wedding does. A `preview` writes nothing, so it never moves it.
  */
 export function headRevision(weddingId: string): Effect.Effect<string, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const rows = yield* dbQuery(() =>
+    const [row] = yield* dbQuery(() =>
+      db.select({ rev: weddings.changeRev }).from(weddings).where(eq(weddings.id, weddingId)).all(),
+    );
+    return String(row?.rev ?? 0);
+  }).pipe(Effect.withSpan("cire.changes.headRevision"));
+}
+
+/**
+ * The counter value a revision names, or `null` for a string no head ever
+ * was. Strict, so `"01"` or `" 1"` can never alias a real head.
+ */
+function counterOf(revision: string): number | null {
+  return /^(0|[1-9]\d*)$/.test(revision) ? Number(revision) : null;
+}
+
+/**
+ * How long a claim protects its holder. Past this, the holder's Worker is
+ * taken to be dead and the next change to try expires it. An apply writes at
+ * most a few hundred 50-statement batches, so this sits far above any live one.
+ */
+export const CLAIM_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * A change could not take the wedding.
+ *  - `moved` — the head is no longer the one the change was prepared against
+ *    (or a dead holder was just expired, which moves it): re-preview.
+ *  - `in_progress` — another apply or revert is writing right now: try again.
+ */
+export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
+  readonly reason: "moved" | "in_progress";
+}> {}
+
+/** A held claim: the wedding it covers and the token that proves it is ours. */
+export interface ChangeClaim {
+  readonly weddingId: string;
+  readonly token: string;
+  /** The head the claim was taken at; the commit moves it one on. */
+  readonly rev: number;
+}
+
+/**
+ * Take the wedding for one apply or revert, if its head is still `expected`
+ * and nobody else holds it. One conditional UPDATE, so of two changes prepared
+ * against the same head exactly one gets it.
+ *
+ * On a refusal, one more read says why. A claim older than {@link CLAIM_TTL_MS}
+ * belongs to a Worker that died, possibly part-way through its writes, so it is
+ * expired AND the head moved, and this caller is told `moved`: every draft read
+ * before or during the dead change must be re-read.
+ */
+export function claimChanges(
+  weddingId: string,
+  expected: string,
+): Effect.Effect<ChangeClaim, ChangeConflict, DbService> {
+  return Effect.gen(function* () {
+    const rev = counterOf(expected);
+    if (rev === null) return yield* Effect.fail(new ChangeConflict({ reason: "moved" }));
+    const db = yield* DbService;
+    const token = crypto.randomUUID();
+    const now = Date.now();
+    const taken = yield* dbQuery(() =>
       db
-        .select({
-          id: imports.id,
-          status: imports.status,
-          appliedAt: imports.appliedAt,
-          revertedAt: imports.revertedAt,
-        })
-        .from(imports)
+        .update(weddings)
+        .set({ changeClaim: token, changeClaimedAt: now })
         .where(
           and(
-            eq(imports.weddingId, weddingId),
-            or(eq(imports.status, "applied"), eq(imports.status, "reverted")),
+            eq(weddings.id, weddingId),
+            eq(weddings.changeRev, rev),
+            isNull(weddings.changeClaim),
           ),
         )
+        .returning({ id: weddings.id })
         .all(),
     );
-    if (rows.length === 0) return GENESIS_REVISION;
-    const canonical = JSON.stringify(
-      rows
-        .map((r) => [r.id, r.status, r.appliedAt, r.revertedAt] as const)
-        .toSorted((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+    if (Array.isArray(taken) && taken.length > 0) return { weddingId, token, rev };
+
+    const [row] = yield* dbQuery(() =>
+      db
+        .select({
+          rev: weddings.changeRev,
+          claim: weddings.changeClaim,
+          claimedAt: weddings.changeClaimedAt,
+        })
+        .from(weddings)
+        .where(eq(weddings.id, weddingId))
+        .all(),
     );
-    const digest = yield* Effect.promise(() =>
-      crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)),
+    if (row?.claim != null && (row.claimedAt ?? 0) < now - CLAIM_TTL_MS) {
+      const seen = row.claim;
+      yield* dbQuery(() =>
+        db
+          .update(weddings)
+          .set({
+            changeRev: sql`${weddings.changeRev} + 1`,
+            changeClaim: null,
+            changeClaimedAt: null,
+          })
+          .where(and(eq(weddings.id, weddingId), eq(weddings.changeClaim, seen)))
+          .run(),
+      );
+      yield* Effect.logWarning("expired a change claim whose holder never finished");
+      return yield* Effect.fail(new ChangeConflict({ reason: "moved" }));
+    }
+    const reason =
+      row !== undefined && row.rev === rev && row.claim != null ? "in_progress" : "moved";
+    return yield* Effect.fail(new ChangeConflict({ reason }));
+  }).pipe(Effect.withSpan("cire.changes.claim"));
+}
+
+/**
+ * The statement that ends a claim with its change committed: it moves the
+ * head one on and frees the wedding. It rides in the change's FINAL batch. If
+ * the claim is no longer this token's, it writes NULL into the NOT NULL
+ * `change_rev`, which fails the statement and so, on D1, rolls back the whole
+ * batch it rides in, status flip included.
+ */
+export function commitClaimStatement(db: Db, claim: ChangeClaim): BatchItem<"sqlite"> {
+  return db
+    .update(weddings)
+    .set({
+      changeRev: sql`CASE WHEN ${weddings.changeClaim} = ${claim.token} THEN ${weddings.changeRev} + 1 ELSE NULL END`,
+      changeClaim: null,
+      changeClaimedAt: null,
+    })
+    .where(eq(weddings.id, claim.weddingId));
+}
+
+/** The head once `claim`'s change has committed. Nothing else can commit while it is held. */
+export function committedRevision(claim: ChangeClaim): string {
+  return String(claim.rev + 1);
+}
+
+/**
+ * Free a claim whose change did not commit. `moved` says whether the change
+ * may have written any of its data: if so the head moves too, so a draft read
+ * while those writes were landing is refused rather than trusted.
+ */
+export function releaseClaim(
+  claim: ChangeClaim,
+  moved: boolean,
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    yield* dbQuery(() =>
+      db
+        .update(weddings)
+        .set({
+          changeRev: moved ? sql`${weddings.changeRev} + 1` : weddings.changeRev,
+          changeClaim: null,
+          changeClaimedAt: null,
+        })
+        .where(and(eq(weddings.id, claim.weddingId), eq(weddings.changeClaim, claim.token)))
+        .run(),
     );
-    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-  }).pipe(Effect.withSpan("cire.changes.headRevision"));
+  }).pipe(Effect.withSpan("cire.changes.releaseClaim"));
+}
+
+/**
+ * Run `write` — everything a change does from its first write to its commit —
+ * under `claim`, releasing the claim if it fails. A typed failure that
+ * `before` recognises happened before any data statement was sent, so the head
+ * stays put and the same preview can be retried (a 402 after an upgrade). Any
+ * other failure, a defect or an interruption may have followed a committed
+ * batch, so the head moves.
+ */
+export function underClaim<A, E, R>(
+  claim: ChangeClaim,
+  write: Effect.Effect<A, E, R>,
+  before: (e: E) => boolean,
+): Effect.Effect<A, E, R | DbService> {
+  return write.pipe(
+    Effect.onError((cause) => {
+      const failure = Cause.findErrorOption(cause);
+      const wroteNothing =
+        Option.isSome(failure) &&
+        !Cause.hasDies(cause) &&
+        !Cause.hasInterrupts(cause) &&
+        before(failure.value);
+      return releaseClaim(claim, !wroteNothing);
+    }),
+  );
 }
 
 // ── Emptied halves ──────────────────────────────────────────────────────────

@@ -14,7 +14,14 @@ import type {
   ParsedEvent,
   ParsedFamily,
 } from "../schemas/import";
-import { currentEventsAsParsed } from "./changes";
+import {
+  ChangeConflict,
+  claimChanges,
+  commitClaimStatement,
+  currentEventsAsParsed,
+  headRevision,
+  underClaim,
+} from "./changes";
 import { CapacityExceeded } from "./entitlements";
 import { normaliseName, nullableString } from "./guest-event-validation";
 import { applyImport, diffAgainstDb, ImportError } from "./import";
@@ -39,6 +46,7 @@ export class ChangeNotApplied extends Data.TaggedError("ChangeNotApplied")<{
 }> {}
 
 export type RevertError =
+  | ChangeConflict
   | ChangeNotApplied
   | NoPriorImport
   | R2Error
@@ -459,6 +467,11 @@ export function revertImport(
   return Effect.gen(function* () {
     const db = yield* DbService;
 
+    // The head is read BEFORE the row: a revert of this change that commits
+    // after this read moves the head, so the claim below refuses this one even
+    // though the row it reads may still say `applied`.
+    const head = yield* headRevision(weddingId);
+
     const [current] = yield* dbQuery(() =>
       db
         .select()
@@ -477,30 +490,35 @@ export function revertImport(
     }
     const scope = storedRevertScope(current.summary);
 
-    // The status flip rides in the reconcile's FINAL batch (applyImport
-    // `finalize`), mirroring the apply route: a crash can't leave the wedding
-    // reconciled while the row still reads `applied` (which would invite a
-    // second, now-wrong revert against the already-restored state).
+    // Take the wedding before diffing, so the state the restore is computed
+    // against is the state it writes over: no apply or revert commits in
+    // between. The claim's commit and the status flip ride in the reconcile's
+    // FINAL batch (applyImport `finalize`), mirroring the apply route: a crash
+    // can't leave the wedding reconciled while the row still reads `applied`
+    // (which would invite a second, now-wrong revert against the
+    // already-restored state).
+    const claim = yield* claimChanges(weddingId, head);
     const markReverted = [
+      commitClaimStatement(db, claim),
       db
         .update(imports)
         .set({ status: "reverted", revertedAt: Date.now() })
         .where(and(eq(imports.id, current.id), eq(imports.status, "applied"))),
     ];
 
-    let summary: ImportSummary;
     const hasBeforeImage = Boolean(current.beforeEventsR2Key && current.beforeGuestsR2Key);
+    const restore = Effect.gen(function* () {
+      if (current.beforeEventsR2Key && current.beforeGuestsR2Key) {
+        // ── Before-image path ──────────────────────────────────────────────────
+        return yield* restoreBeforeImage(
+          current.id,
+          weddingId,
+          scope,
+          { events: current.beforeEventsR2Key, guests: current.beforeGuestsR2Key },
+          markReverted,
+        );
+      }
 
-    if (current.beforeEventsR2Key && current.beforeGuestsR2Key) {
-      // ── Before-image path ──────────────────────────────────────────────────
-      summary = yield* restoreBeforeImage(
-        current.id,
-        weddingId,
-        scope,
-        { events: current.beforeEventsR2Key, guests: current.beforeGuestsR2Key },
-        markReverted,
-      );
-    } else {
       // ── Legacy fallback ────────────────────────────────────────────────────
       // No before-image: re-apply the most-recent-earlier applied import's
       // uploaded sheets against current DB state. The predicate + ORDER BY +
@@ -551,8 +569,11 @@ export function revertImport(
       if (scopedHalf !== null && scopedHalf.trim().length === 0) {
         return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
       }
-      summary = yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv, markReverted);
-    }
+      return yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv, markReverted);
+    });
+    // Everything but a failed commit is raised before any data statement is
+    // sent, so only an ImportError (or a defect) moves the head on release.
+    const summary = yield* underClaim(claim, restore, (e) => e._tag !== "ImportError");
 
     yield* Effect.logInfo("change reverted", {
       scope,

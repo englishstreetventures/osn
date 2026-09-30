@@ -12,12 +12,16 @@ import { runCire } from "../observability";
 import { ApplyBody, ChangeScope, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import {
+  claimChanges,
   clearedHalves,
+  commitClaimStatement,
+  committedRevision,
   currentEventsAsParsed,
   decodeChangeBody,
-  GENESIS_REVISION,
   headRevision,
+  underClaim,
 } from "../services/changes";
+import type { ChangeConflict } from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
 import { CapacityExceeded } from "../services/entitlements";
 import { applyImport, diffAgainstDb } from "../services/import";
@@ -167,6 +171,22 @@ function staleDraft(set: { status?: number | string }) {
 }
 
 /**
+ * The 409 for a change that could not take the wedding (`claimChanges`). The
+ * two causes want different remedies: a head that moved means the preview is
+ * out of date, while another change still writing means the same preview can
+ * be confirmed again in a moment.
+ */
+function claimRefused(set: { status?: number | string }, e: ChangeConflict, retry: string) {
+  set.status = 409;
+  return e.reason === "in_progress"
+    ? {
+        error: "Another change is being saved — try again in a moment",
+        reason: "change_in_progress" as const,
+      }
+    : { error: retry };
+}
+
+/**
  * The change persisted-state summary carries the optimistic-concurrency token +
  * provenance toggle captured at PREVIEW, alongside the diff counts. Read back at
  * apply so the re-diff uses the same `removeManual` and the 409 guard compares
@@ -268,8 +288,10 @@ function desiredStateFromRow(
  *  - `apply` — `{changeId, confirmClears?}`. Re-reads the head revision and 409s
  *    if it moved since preview (optimistic concurrency — a co-host applied in
  *    between). Re-diffs against live state (TOCTOU); an editor save that empties
- *    a half of the wedding needs `confirmClears` to match. Checkpoints the
- *    before-image (E3), applies, prunes.
+ *    a half of the wedding needs `confirmClears` to match. Takes the wedding's
+ *    change claim at the preview's head (409 when another change holds it or the
+ *    head moved), checkpoints the before-image (E3), applies, prunes. Returns
+ *    `{summary, revision}`, `revision` being the head after this change.
  *  - `revert` — `{changeId}`. Before-image restore (E3).
  *  - `list` — paginated change history (imports + editor saves).
  */
@@ -518,7 +540,9 @@ export const createOrganiserChangeRoutes = (
                     return {} as Partial<ChangeSummary>;
                   }
                 })();
-                const baseRevision = stored.baseRevision ?? GENESIS_REVISION;
+                // A row with no stored head can never match one, so it is
+                // refused here and the organiser re-previews.
+                const baseRevision = stored.baseRevision ?? "";
                 const currentHead = yield* headRevision(weddingId);
                 if (currentHead !== baseRevision) {
                   set.status = 409;
@@ -618,30 +642,48 @@ export const createOrganiserChangeRoutes = (
                   }
                 }
 
+                // Take the wedding at the head the preview ran at, before the
+                // first write. The head check above is only a fast refusal:
+                // two applies can both pass it, and only one of them gets the
+                // claim. Nothing else writes the wedding's change data while it
+                // is held, so the before-image below is the state this change
+                // is applied over, and a replay of this change cannot capture
+                // over it.
+                const claim = yield* claimChanges(weddingId, baseRevision);
+
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
                 // as this change's before-image, then apply, then prune. The
-                // status flip rides in applyImport's FINAL batch (its
-                // `finalize` statements) so a crash can never leave the data
-                // mutated while the row still reads `preview` — that window
-                // allowed a second apply, whose before-image capture would
-                // overwrite this one with a post-change snapshot and destroy
-                // revertability.
-                const before = yield* captureBeforeImage(changeId, weddingId);
-                const summary = yield* applyImport(changeId, plan, weddingId, [
-                  dbService
-                    .update(imports)
-                    .set({
-                      status: "applied",
-                      appliedAt: Date.now(),
-                      beforeEventsR2Key: before.eventsKey,
-                      beforeGuestsR2Key: before.guestsKey,
-                    })
-                    .where(eq(imports.id, changeId)),
-                ]);
+                // head move, the claim's release and the status flip ride in
+                // applyImport's FINAL batch (its `finalize` statements), so the
+                // data and the row reading `applied` commit together. The claim
+                // statement goes first: if the claim has been lost it fails the
+                // batch before the status flip.
+                const summary = yield* underClaim(
+                  claim,
+                  Effect.gen(function* () {
+                    const before = yield* captureBeforeImage(changeId, weddingId);
+                    return yield* applyImport(changeId, plan, weddingId, [
+                      commitClaimStatement(dbService, claim),
+                      dbService
+                        .update(imports)
+                        .set({
+                          status: "applied",
+                          appliedAt: Date.now(),
+                          beforeEventsR2Key: before.eventsKey,
+                          beforeGuestsR2Key: before.guestsKey,
+                        })
+                        .where(and(eq(imports.id, changeId), eq(imports.status, "preview"))),
+                    ]);
+                  }),
+                  // Both are raised before any data statement is sent.
+                  (e) => e._tag === "R2Error" || e._tag === "CapacityExceeded",
+                );
 
                 yield* pruneBeforeImages(weddingId, r2 as DeletableBucket | undefined);
 
-                return { summary };
+                // The head the editor's reload builds its next draft on, so it
+                // need not ask for it again.
+                return { summary, revision: committedRevision(claim) };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(R2Service, r2 as R2Bucket),
@@ -667,6 +709,14 @@ export const createOrganiserChangeRoutes = (
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Storage error" };
+                  }),
+                ),
+                Effect.catchTag("ChangeConflict", (e) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("change refused: the wedding is held or moved", {
+                      conflict: e.reason,
+                    });
+                    return claimRefused(set, e, "State changed — re-preview");
                   }),
                 ),
                 Effect.catchTag("ImportError", () =>
@@ -724,6 +774,18 @@ export const createOrganiserChangeRoutes = (
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Storage error" };
+                  }),
+                ),
+                Effect.catchTag("ChangeConflict", (e) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("revert refused: the wedding is held or moved", {
+                      conflict: e.reason,
+                    });
+                    return claimRefused(
+                      set,
+                      e,
+                      "Something changed while reverting — reload the history and try again",
+                    );
                   }),
                 ),
                 Effect.catchTag("RevertParseError", () =>
