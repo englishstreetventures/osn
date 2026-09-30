@@ -13,8 +13,8 @@ import {
   GUEST_NICKNAME_HEADER,
   GUEST_SHEET_FIXED_HEADERS,
 } from "../lib/sheet-headers";
+import { MAX_ROWS } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
-import { MAX_ROWS } from "./spreadsheet";
 
 /**
  * Round-trip exports: the wedding's CURRENT events + guests serialised in the

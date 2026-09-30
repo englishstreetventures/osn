@@ -8,6 +8,7 @@ import {
   weddings,
 } from "@cire/db";
 import { parsePresets } from "@cire/dietary";
+import { isSafeCssColor } from "@cire/theme";
 import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
@@ -87,8 +88,12 @@ export function decodePalette(raw: string | null): DecodedPalette {
   const out: DressSwatch[] = [];
   for (const item of parsed) {
     // Copied field by field, never pushed whole: an extra key in the stored
-    // JSON must not ride out to the guest.
-    if (isDressSwatch(item)) out.push({ name: item.name, color: item.color });
+    // JSON must not ride out to the guest. A colour off the allow-list is
+    // dropped here too, so a row stored before the write paths checked it
+    // reaches no renderer, export or editor draft.
+    if (isDressSwatch(item) && isSafeCssColor(item.color)) {
+      out.push({ name: item.name, color: item.color });
+    }
   }
   return { palette: out, malformed: false };
 }

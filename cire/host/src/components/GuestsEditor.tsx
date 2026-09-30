@@ -10,7 +10,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { loadHeadRevision } from "../lib/change-revision";
+import { isChangeInProgress, loadHeadRevision, revisionOf } from "../lib/change-revision";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -86,8 +86,10 @@ export default function GuestsEditor(props: { weddingId: string }) {
    *  fall back to `?? []` — that reads as "delete everything in this slice".
    *  The `!fresh` checks below throw instead, so the load error is surfaced
    *  rather than seeding an empty draft. */
-  async function loadInto() {
-    const revision = await loadHeadRevision(authFetch, props.weddingId);
+  async function loadInto(knownRevision?: string) {
+    // After a save, the apply response already names the head its own commit
+    // left, and it was read before the rows below are: no second request.
+    const revision = knownRevision ?? (await loadHeadRevision(authFetch, props.weddingId));
     invalidateEvents(props.weddingId);
     invalidateGuests(props.weddingId);
     invalidateHouseholds(props.weddingId);
@@ -228,16 +230,23 @@ export default function GuestsEditor(props: { weddingId: string }) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
         // 409 = a co-host applied in between; the previewed diff is stale, so
         // the modal is dismissed — re-confirming it could only 409 again, and
         // the error itself renders in the sticky bar the modal was covering.
+        // Another save still being written is the one 409 that is not stale:
+        // say so, since the same edit will save once that one finishes.
         if (res.status === 409) {
           setPreview(null);
-          throw new Error("The guest list changed elsewhere. Re-open Save to preview afresh.");
+          throw new Error(
+            isChangeInProgress(body) && body.error
+              ? body.error
+              : "The guest list changed elsewhere. Re-open Save to preview afresh.",
+          );
         }
         throw new Error(body.error ?? `Apply failed (${res.status})`);
       }
+      const applied: unknown = await res.json().catch(() => null);
       // The roster changed — drop the caches, refetch, and re-seed the draft so
       // the editor reflects server-assigned ids (new households/guests) and the
       // baseline resets (dirty ⇒ false).
@@ -246,7 +255,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
       invalidateHouseholds(props.weddingId);
       setPreview(null);
       try {
-        await loadInto();
+        await loadInto(revisionOf(applied));
         store.commit();
       } catch (err) {
         // The save went through, so the draft describes rows the server has

@@ -5,7 +5,7 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
-import { loadHeadRevision } from "../../src/lib/change-revision";
+import { isChangeInProgress, loadHeadRevision, revisionOf } from "../../src/lib/change-revision";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 const jsonRes = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
@@ -51,5 +51,27 @@ describe("loadHeadRevision", () => {
   it("rejects a body that is not JSON", async () => {
     const authFetch = vi.fn().mockResolvedValue(new Response("<html>", { status: 200 }));
     await expect(loadHeadRevision(authFetch, "wed_a")).rejects.toThrow(/unavailable/);
+  });
+});
+
+describe("revisionOf", () => {
+  it("reads the head an apply response names", () => {
+    expect(revisionOf({ summary: {}, revision: "3" })).toBe("3");
+  });
+
+  it.each([null, "3", {}, { revision: "" }, { revision: 3 }])(
+    "is undefined for a body naming no head (%j)",
+    (body) => {
+      expect(revisionOf(body)).toBeUndefined();
+    },
+  );
+});
+
+describe("isChangeInProgress", () => {
+  it("is true only for the in-progress refusal", () => {
+    expect(isChangeInProgress({ reason: "change_in_progress" })).toBe(true);
+    expect(isChangeInProgress({ reason: "stale_draft" })).toBe(false);
+    expect(isChangeInProgress({})).toBe(false);
+    expect(isChangeInProgress(null)).toBe(false);
   });
 });

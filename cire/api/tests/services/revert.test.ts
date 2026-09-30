@@ -28,6 +28,7 @@ import {
 } from "../../src/services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
+import { recordStatements } from "../test-helpers";
 import { seedPlusOne } from "../test-helpers/plus-one";
 
 const EVENTS_V1 = [
@@ -899,6 +900,19 @@ describe("revertImport — a guests-scoped change restores the guest half only",
     // nothing about the reception — it did not exist then — so Ada keeps it.
     expect(familyNamed(db, "Sampleton")).toBeUndefined();
     expect(invitesOf(db, ada.id)).toEqual(["Mehndi", "Reception", "Wedding Ceremony"].toSorted());
+  });
+
+  it("reads the wedding's events once", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", WITHOUT_SAMPLETON, 2_000);
+
+    const recorded = recordStatements(db);
+    await revert(layer, "c1");
+
+    const eventReads = recorded.filter((r) => /^select\b.*\bfrom "events"/is.test(r.sql));
+    expect(eventReads).toHaveLength(1);
+    expect(familyNamed(db, "Sampleton")).toBeDefined();
   });
 
   it("does not run the upload guards over the events sheet it is not restoring", async () => {

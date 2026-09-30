@@ -6,10 +6,16 @@ import { Effect, Result } from "effect";
 
 import { DbService } from "../../src/db";
 import {
+  ChangeConflict,
+  CLAIM_TTL_MS,
+  claimChanges,
   clearedHalves,
+  commitClaimStatement,
+  committedRevision,
   decodeChangeBody,
-  GENESIS_REVISION,
   headRevision,
+  releaseClaim,
+  underClaim,
 } from "../../src/services/changes";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
@@ -17,7 +23,7 @@ import { effWith } from "../test-helpers";
 const withDb = effWith(TestDbLayer);
 
 /** The fields every editor body carries besides its draft. */
-const EDITOR = { removeManual: true, baseRevision: GENESIS_REVISION } as const;
+const EDITOR = { removeManual: true, baseRevision: "0" } as const;
 
 describe("decodeChangeBody: editor scope", () => {
   it(
@@ -124,8 +130,8 @@ describe("decodeChangeBody: the editor body states its contract", () => {
   // the spreadsheet door (which needs a sheet), so each is refused outright.
   for (const [label, body] of [
     ["without baseRevision", { removeManual: true }],
-    ["without removeManual", { baseRevision: GENESIS_REVISION }],
-    ["with removeManual: false", { removeManual: false, baseRevision: GENESIS_REVISION }],
+    ["without removeManual", { baseRevision: "0" }],
+    ["with removeManual: false", { removeManual: false, baseRevision: "0" }],
   ] as const) {
     it(
       `refuses a draft ${label}`,
@@ -223,47 +229,45 @@ describe("clearedHalves", () => {
   });
 });
 
-describe("headRevision", () => {
-  /** Record a committed change row the way apply does. */
-  function commit(id: string, at: number) {
+describe("headRevision and the change claim", () => {
+  const W = BOOTSTRAP_WEDDING_ID;
+
+  /** Claim at the current head and commit, the way apply and revert end. */
+  function commitOne() {
     return Effect.gen(function* () {
+      const claim = yield* claimChanges(W, yield* headRevision(W));
       const db = yield* DbService;
-      db.insert(imports)
-        .values({
-          id,
-          weddingId: BOOTSTRAP_WEDDING_ID,
-          uploadedAt: at,
-          format: "csv",
-          eventsR2Key: `imports/${id}/events.csv`,
-          guestsR2Key: `imports/${id}/guests.csv`,
-          summary: "{}",
-          status: "applied",
-          appliedAt: at,
-        })
-        .run();
+      yield* Effect.promise(async () => {
+        await commitClaimStatement(db, claim);
+      });
+      return claim;
     });
   }
 
-  function revert(id: string, at: number) {
+  function claimState() {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      db.update(imports)
-        .set({ status: "reverted", revertedAt: at })
-        .where(eq(imports.id, id))
-        .run();
+      const rows = yield* Effect.promise(async () =>
+        db
+          .select({ claim: weddings.changeClaim, at: weddings.changeClaimedAt })
+          .from(weddings)
+          .where(eq(weddings.id, W))
+          .all(),
+      );
+      return rows[0]!;
     });
   }
 
   it(
-    "is genesis until a change commits, and a preview row does not count",
+    "is 0 on a new wedding, and a preview row does not move it",
     withDb(
       Effect.gen(function* () {
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).toBe(GENESIS_REVISION);
+        expect(yield* headRevision(W)).toBe("0");
         const db = yield* DbService;
         db.insert(imports)
           .values({
             id: "chg_preview",
-            weddingId: BOOTSTRAP_WEDDING_ID,
+            weddingId: W,
             uploadedAt: 1_000,
             format: "csv",
             eventsR2Key: "k",
@@ -272,61 +276,144 @@ describe("headRevision", () => {
             status: "preview",
           })
           .run();
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).toBe(GENESIS_REVISION);
+        expect(yield* headRevision(W)).toBe("0");
       }),
     ),
   );
 
   it(
-    "moves when a change commits",
+    "moves one on each committed change, and the committed revision says so",
     withDb(
       Effect.gen(function* () {
-        yield* commit("chg_1", 1_000);
-        const first = yield* headRevision(BOOTSTRAP_WEDDING_ID);
-        expect(first).not.toBe(GENESIS_REVISION);
-        yield* commit("chg_2", 2_000);
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).not.toBe(first);
+        const first = yield* commitOne();
+        expect(yield* headRevision(W)).toBe("1");
+        expect(committedRevision(first)).toBe("1");
+        yield* commitOne();
+        expect(yield* headRevision(W)).toBe("2");
+        expect((yield* claimState()).claim).toBeNull();
       }),
     ),
   );
 
   it(
-    "moves when the NEWEST change is reverted — the row that was the head stays the head",
+    "gives the wedding to exactly one of two changes prepared against the same head",
     withDb(
       Effect.gen(function* () {
-        yield* commit("chg_1", 1_000);
-        yield* commit("chg_2", 2_000);
-        const before = yield* headRevision(BOOTSTRAP_WEDDING_ID);
-        yield* revert("chg_2", 3_000);
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).not.toBe(before);
+        const head = yield* headRevision(W);
+        yield* claimChanges(W, head);
+        const second = yield* Effect.flip(claimChanges(W, head));
+        expect(second).toBeInstanceOf(ChangeConflict);
+        expect(second.reason).toBe("in_progress");
       }),
     ),
   );
 
   it(
-    "moves when a revert commits with an OLDER timestamp than the head",
+    "refuses a claim at a head that has since moved",
     withDb(
       Effect.gen(function* () {
-        // A revert stamps `revertedAt` before its write set commits, so one that
-        // started before a concurrent apply can land after it carrying the
-        // earlier time. A newest-row token would not move; the wedding did.
-        yield* commit("chg_1", 1_000);
-        yield* commit("chg_2", 5_000);
-        const before = yield* headRevision(BOOTSTRAP_WEDDING_ID);
-        yield* revert("chg_1", 4_000);
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).not.toBe(before);
+        const stale = yield* headRevision(W);
+        yield* commitOne();
+        const refused = yield* Effect.flip(claimChanges(W, stale));
+        expect(refused.reason).toBe("moved");
+      }),
+    ),
+  );
+
+  it.each(["genesis", "01", " 1", "1e0", "", "a".repeat(64)])(
+    "refuses a revision no head ever was (%j)",
+    (revision) =>
+      withDb(
+        Effect.gen(function* () {
+          const refused = yield* Effect.flip(claimChanges(W, revision));
+          expect(refused.reason).toBe("moved");
+          expect((yield* claimState()).claim).toBeNull();
+        }),
+      )(),
+  );
+
+  it(
+    "a release after a failure that wrote nothing leaves the head where it was",
+    withDb(
+      Effect.gen(function* () {
+        const claim = yield* claimChanges(W, "0");
+        yield* releaseClaim(claim, false);
+        expect(yield* headRevision(W)).toBe("0");
+        // The same preview can be confirmed again.
+        yield* claimChanges(W, "0");
       }),
     ),
   );
 
   it(
-    "moves when a change commits in the same millisecond as the head",
+    "a release after a failure that may have written moves the head",
     withDb(
       Effect.gen(function* () {
-        yield* commit("chg_1", 1_000);
-        const before = yield* headRevision(BOOTSTRAP_WEDDING_ID);
-        yield* commit("chg_2", 1_000);
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).not.toBe(before);
+        const claim = yield* claimChanges(W, "0");
+        yield* releaseClaim(claim, true);
+        expect(yield* headRevision(W)).toBe("1");
+        expect((yield* claimState()).claim).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "underClaim moves the head only for a failure it cannot place before the writes",
+    withDb(
+      Effect.gen(function* () {
+        const early = yield* claimChanges(W, "0");
+        const failWith = (tag: "Early" | "Late") => Effect.fail({ _tag: tag });
+        yield* Effect.flip(underClaim(early, failWith("Early"), (e) => e._tag === "Early"));
+        expect(yield* headRevision(W)).toBe("0");
+
+        const late = yield* claimChanges(W, "0");
+        yield* Effect.flip(underClaim(late, failWith("Late"), (e) => e._tag === "Early"));
+        expect(yield* headRevision(W)).toBe("1");
+
+        const dead = yield* claimChanges(W, "1");
+        yield* Effect.exit(underClaim(dead, Effect.die("boom"), () => true));
+        expect(yield* headRevision(W)).toBe("2");
+        expect((yield* claimState()).claim).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "expires a claim whose holder died, moving the head, and tells the caller it moved",
+    withDb(
+      Effect.gen(function* () {
+        yield* claimChanges(W, "0");
+        const db = yield* DbService;
+        db.update(weddings)
+          .set({ changeClaimedAt: Date.now() - CLAIM_TTL_MS - 1 })
+          .where(eq(weddings.id, W))
+          .run();
+
+        const refused = yield* Effect.flip(claimChanges(W, "0"));
+        expect(refused.reason).toBe("moved");
+        expect(yield* headRevision(W)).toBe("1");
+        expect((yield* claimState()).claim).toBeNull();
+        // A draft re-read at the new head can now take the wedding.
+        yield* claimChanges(W, "1");
+      }),
+    ),
+  );
+
+  it(
+    "the commit statement fails, and moves nothing, when the claim is no longer this change's",
+    withDb(
+      Effect.gen(function* () {
+        const claim = yield* claimChanges(W, "0");
+        const db = yield* DbService;
+        db.update(weddings).set({ changeClaim: "someone-else" }).where(eq(weddings.id, W)).run();
+        const failed = yield* Effect.exit(
+          Effect.tryPromise(async () => {
+            await commitClaimStatement(db, claim);
+          }),
+        );
+        expect(failed._tag).toBe("Failure");
+        expect(yield* headRevision(W)).toBe("0");
+        expect((yield* claimState()).claim).toBe("someone-else");
       }),
     ),
   );
@@ -335,8 +422,6 @@ describe("headRevision", () => {
     "ignores another wedding's changes",
     withDb(
       Effect.gen(function* () {
-        yield* commit("chg_1", 1_000);
-        const before = yield* headRevision(BOOTSTRAP_WEDDING_ID);
         const db = yield* DbService;
         db.insert(weddings)
           .values({
@@ -348,32 +433,14 @@ describe("headRevision", () => {
             updatedAt: new Date(),
           })
           .run();
-        db.insert(imports)
-          .values({
-            id: "chg_elsewhere",
-            weddingId: "wed_elsewhere",
-            uploadedAt: 2_000,
-            format: "csv",
-            eventsR2Key: "k",
-            guestsR2Key: "k",
-            summary: "{}",
-            status: "applied",
-            appliedAt: 2_000,
-          })
-          .run();
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).toBe(before);
-      }),
-    ),
-  );
-
-  it(
-    "is stable while nothing commits",
-    withDb(
-      Effect.gen(function* () {
-        yield* commit("chg_b", 2_000);
-        yield* commit("chg_a", 1_000);
-        const first = yield* headRevision(BOOTSTRAP_WEDDING_ID);
-        expect(yield* headRevision(BOOTSTRAP_WEDDING_ID)).toBe(first);
+        const claim = yield* claimChanges("wed_elsewhere", "0");
+        yield* Effect.promise(async () => {
+          await commitClaimStatement(db, claim);
+        });
+        expect(yield* headRevision("wed_elsewhere")).toBe("1");
+        expect(yield* headRevision(W)).toBe("0");
+        // And a claim on one wedding does not hold another.
+        yield* claimChanges(W, "0");
       }),
     ),
   );

@@ -18,6 +18,8 @@
  * contents, so a hostile uploaded sheet can never inject text into an API body.
  */
 
+import { isSafeCssColor } from "@cire/theme";
+
 import type { PaletteSwatch } from "../schemas/import";
 
 // ── Formula-injection markers ─────────────────────────────────────────────────
@@ -99,8 +101,9 @@ export function parseHttpUrl(raw: string): string | null | undefined {
 
 /**
  * Parse a Dress Code Palette cell (`Name:#rgb|Name:#rgb`) into swatches.
- * Malformed pairs (missing colon, blank name/colour) are skipped, never thrown —
- * a palette is best-effort decoration, not a hard requirement.
+ * Malformed pairs (missing colon, blank name/colour, a colour off the
+ * `isSafeCssColor` allow-list) are skipped, never thrown — a palette is
+ * best-effort decoration, not a hard requirement.
  */
 export function parseDressCodePalette(raw: string): PaletteSwatch[] {
   const trimmed = raw.trim();
@@ -111,7 +114,7 @@ export function parseDressCodePalette(raw: string): PaletteSwatch[] {
     if (colonIdx === -1) continue;
     const name = pair.slice(0, colonIdx).trim();
     const color = pair.slice(colonIdx + 1).trim();
-    if (name.length === 0 || color.length === 0) continue;
+    if (name.length === 0 || !isSafeCssColor(color)) continue;
     out.push({ name, color });
   }
   return out;

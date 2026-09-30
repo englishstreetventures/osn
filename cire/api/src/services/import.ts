@@ -191,6 +191,13 @@ export interface DiffOptions {
    * the organiser saw the guest they deleted come back on reload.
    */
   readonly matchByName?: boolean;
+  /**
+   * The wedding's events as `{id, name}`, when the caller has already read
+   * them for this change. The diff then skips its own read of `events`. It
+   * must be the complete, current list for `weddingId`: every match and every
+   * event removal is decided against it.
+   */
+  readonly existingEvents?: readonly { readonly id: string; readonly name: string }[];
 }
 
 export function diffAgainstDb(
@@ -241,13 +248,15 @@ export function diffAgainstDb(
     // lists, `name` for the normalised-name map). The guests-only branch below
     // exists purely to build that name → id map, so dragging full event rows —
     // descriptions, palettes, URLs — across the D1 wire to do it is pure waste.
-    const existingEvents = yield* dbQuery(() =>
-      db
-        .select({ id: events.id, name: events.name })
-        .from(events)
-        .where(eq(events.weddingId, weddingId))
-        .all(),
-    );
+    const existingEvents =
+      options.existingEvents ??
+      (yield* dbQuery(() =>
+        db
+          .select({ id: events.id, name: events.name })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .all(),
+      ));
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
     const existingEventById = new Map(existingEvents.map((e) => [e.id, e]));
 

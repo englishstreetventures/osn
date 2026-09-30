@@ -109,6 +109,7 @@ describe("formatImportError — every reason arm resolves", () => {
   // where a copy-paste slip yields a confidently wrong sentence.
   const REASONS: [string, RegExp][] = [
     ["too many rows", /5,000 rows/],
+    ["too many events", /200 events/],
     ["cell too large", /10,000 characters/],
     ["unterminated quoted cell", /quote/i],
     ["empty events sheet", /empty/i],

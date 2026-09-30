@@ -10,6 +10,7 @@ import {
   GUEST_SHEET_FIXED_HEADERS,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
+import { MAX_EVENTS, MAX_ROWS } from "../schemas/import";
 import type { ParsedEvent, ParsedFamily, ParsedGuest } from "../schemas/import";
 import {
   FORMULA_MARKERS,
@@ -37,6 +38,8 @@ import {
 export type MalformedSpreadsheetReason =
   // Structural / size caps (from `parseCsvBounded`).
   | "too many rows"
+  // More events than a schedule may hold (`MAX_EVENTS`).
+  | "too many events"
   | "cell too large"
   | "unterminated quoted cell"
   // Empty-sheet guards.
@@ -149,11 +152,6 @@ function withSheet(sheet: SheetKind) {
 
 // ── Hand-rolled RFC 4180 CSV parser ──────────────────────────────────────────
 
-/** Hard cap on imported sheet row count. Exported for observability: the state
- *  export emits a structured warning when its row count exceeds this limit so the
- *  "export exceeds what import re-accepts" case is visible before an organiser
- *  hits it. */
-export const MAX_ROWS = 5000;
 const MAX_CELL_LENGTH = 10_000;
 
 /**
@@ -444,6 +442,12 @@ export function parseEventsCsv(
       const row = rows[r]!;
       // Skip wholly empty rows (e.g. trailing blank line copy/pasted from sheets).
       if (row.every((cell) => cell.trim().length === 0)) continue;
+
+      if (out.length === MAX_EVENTS) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({ reason: "too many events", atRow: r + 1 }),
+        );
+      }
 
       const name = (row[idxName] ?? "").trim();
       const startAt = (row[idxStart] ?? "").trim();

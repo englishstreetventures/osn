@@ -18,6 +18,7 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
@@ -104,8 +105,8 @@ describe("POST /changes/preview + /apply — spreadsheet (CSV) front door", () =
     };
     // The alias-era `importId` echo is gone; `changeId` is the only id.
     expect(preview).not.toHaveProperty("importId");
-    // Fresh wedding — no applied change yet, so the head is genesis.
-    expect(preview.baseRevision).toBe("genesis");
+    // Fresh wedding — no applied change yet, so the head is 0.
+    expect(preview.baseRevision).toBe("0");
     expect(preview.plan.familyCreates).toHaveLength(2);
 
     const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId });
@@ -113,6 +114,140 @@ describe("POST /changes/preview + /apply — spreadsheet (CSV) front door", () =
     expect(db.select().from(events).all()).toHaveLength(2);
     expect(db.select().from(families).all()).toHaveLength(2);
     expect(db.select().from(guests).all()).toHaveLength(2);
+  });
+});
+
+// ── Dress-code palette colours ─────────────────────────────────────────────
+
+describe("dress-code palette colours are checked on the server", () => {
+  const BEACON = "url(https://attacker.example/p.gif)";
+
+  function editorEvent(color: string) {
+    return {
+      name: "Mehndi",
+      startAt: "2026-09-18T16:00:00+10:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      location: null,
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [{ name: "Blue", color }],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder: 0,
+    };
+  }
+
+  it("400s an editor draft carrying a palette colour that is not a colour, and stores nothing", async () => {
+    const { app, db } = buildApp();
+    const res = await editorPreview(app, {
+      desiredState: { events: [editorEvent(BEACON)], families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(400);
+    expect(db.select().from(imports).all()).toHaveLength(0);
+
+    const ok = await editorPreview(app, {
+      desiredState: { events: [editorEvent("#00f")], families: [] },
+      scope: "events",
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("drops a spreadsheet palette pair whose colour is not a colour, keeping the rest", async () => {
+    const { app, db } = buildApp();
+    const eventsCsv = [
+      "Event Name,Start,End,Timezone,Dress Code Palette",
+      `Mehndi,2026-09-18T16:00,,Australia/Sydney,Blue:${BEACON}|Sage:#b2ac88`,
+    ].join("\n");
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv });
+    expect(preview.status).toBe(200);
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+
+    const [row] = db.select({ palette: events.dressCodePalette }).from(events).all();
+    expect(JSON.parse(row!.palette!)).toEqual([{ name: "Sage", color: "#b2ac88" }]);
+  });
+
+  it("never serves a stored swatch whose colour is not a colour", async () => {
+    const { app, db } = buildApp();
+    db.insert(events)
+      .values({
+        id: "evt_bad_palette",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "mehndi",
+        name: "Mehndi",
+        description: "",
+        startAt: "2026-09-18T16:00:00+10:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        dressCodePalette: JSON.stringify([
+          { name: "Blue", color: BEACON },
+          { name: "Sage", color: "#b2ac88" },
+        ]),
+        sortOrder: 0,
+      })
+      .run();
+
+    const res = await ownerGet(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; dressCodePalette: unknown }[];
+    expect(body.find((e) => e.id === "evt_bad_palette")!.dressCodePalette).toEqual([
+      { name: "Sage", color: "#b2ac88" },
+    ]);
+  });
+});
+
+// ── Size of an editor draft ────────────────────────────────────────────────
+
+describe("an editor draft is bounded in events and households", () => {
+  const event = (i: number) => ({
+    name: `Event ${i}`,
+    startAt: "2026-09-18T16:00:00+10:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    address: null,
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: i,
+  });
+
+  it(`400s a schedule of more than ${MAX_EVENTS} events`, async () => {
+    const { app } = buildApp();
+    const schedule = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const res = await editorPreview(app, {
+      desiredState: { events: schedule, families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: schedule.slice(0, MAX_EVENTS), families: [] },
+      scope: "events",
+    });
+    expect(atCap.status).toBe(200);
+  });
+
+  it(`400s more than ${MAX_ROWS} households`, async () => {
+    const { app } = buildApp();
+    const households = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
+      familyName: `F${i}`,
+      guests: [],
+    }));
+    const res = await editorPreview(app, {
+      desiredState: { events: [], families: households },
+      scope: "guests",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: [], families: households.slice(0, MAX_ROWS) },
+      scope: "guests",
+    });
+    expect(atCap.status).toBe(200);
   });
 });
 
@@ -1137,20 +1272,116 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
   });
 });
 
+// ── One change writes a wedding at a time ─────────────────────────────────
+
+describe("POST /changes/apply + /revert — one change writes a wedding at a time", () => {
+  /** Hold the wedding the way an apply still writing does. */
+  function holdWedding(db: ReturnType<typeof buildApp>["db"]) {
+    db.update(weddings)
+      .set({ changeClaim: "another-change", changeClaimedAt: Date.now() })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+  }
+
+  it("409s an apply while another change is writing, writes nothing, and the preview applies after", async () => {
+    const { app, db, r2 } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+
+    holdWedding(db);
+    const refused = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(refused.status).toBe(409);
+    expect(await jsonBody(refused)).toEqual({
+      error: "Another change is being saved — try again in a moment",
+      reason: "change_in_progress",
+    });
+    expect(db.select().from(events).all()).toHaveLength(0);
+    expect([...r2._store.keys()].some((k) => k.includes("/before/"))).toBe(false);
+    expect(await headOf(app)).toBe("0");
+
+    // The other change gives up without writing; the same preview now applies.
+    db.update(weddings)
+      .set({ changeClaim: null, changeClaimedAt: null })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applied.status).toBe(200);
+    expect(db.select().from(events).all()).toHaveLength(2);
+  });
+
+  it("returns the head after its own commit, and frees the wedding", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { revision: string };
+    expect(body.revision).toBe(await headOf(app));
+    expect(body.revision).toBe("1");
+    const [row] = db
+      .select({ claim: weddings.changeClaim })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(row!.claim).toBeNull();
+  });
+
+  it("409s a revert while another change is writing, and restores nothing", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+
+    holdWedding(db);
+    const refused = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { reason?: string }).reason).toBe("change_in_progress");
+    expect(db.select().from(events).all()).toHaveLength(2);
+    const [row] = db
+      .select({ status: imports.status })
+      .from(imports)
+      .where(eq(imports.id, changeId))
+      .all();
+    expect(row!.status).toBe("applied");
+  });
+
+  it("a revert moves the head", async () => {
+    const { app } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(await headOf(app)).toBe("1");
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    expect(await headOf(app)).toBe("2");
+  });
+});
+
 // ── Optimistic concurrency: 409 on stale baseRevision ───────────────────────
 
 describe("POST /changes/apply — 409 on stale baseRevision", () => {
   it("409s a preview whose baseRevision moved (a concurrent apply landed)", async () => {
     const { app } = buildApp();
 
-    // Preview A at genesis.
+    // Preview A at head 0.
     const previewA = await ownerPost(app, `${CHANGES_BASE}/preview`, {
       eventsCsv: EVENTS_CSV,
       guestsCsv: GUESTS_CSV,
     });
     const idA = ((await previewA.json()) as { changeId: string }).changeId;
 
-    // Preview B ALSO at genesis, then apply B — this advances the head.
+    // Preview B ALSO at head 0, then apply B — this advances the head.
     const previewB = await ownerPost(app, `${CHANGES_BASE}/preview`, {
       eventsCsv: EVENTS_CSV,
       guestsCsv: GUESTS_CSV,
@@ -1168,9 +1399,9 @@ describe("POST /changes/apply — 409 on stale baseRevision", () => {
       currentRevision: string;
     };
     expect(body.error).toBe("State changed — re-preview");
-    // A preview at genesis, a head that has since moved to B's commit.
-    expect(body.baseRevision).toBe("genesis");
-    expect(body.currentRevision).not.toBe("genesis");
+    // A preview at head 0, a head that has since moved to B's commit.
+    expect(body.baseRevision).toBe("0");
+    expect(body.currentRevision).toBe("1");
     expect(body.currentRevision).toBe(await headOf(app));
   });
 
@@ -1265,13 +1496,13 @@ async function applyChange(app: ReturnType<typeof buildApp>["app"], preview: Res
 }
 
 describe("GET /changes/head", () => {
-  it("is genesis on a wedding with no committed change, and uncacheable", async () => {
+  it("is 0 on a wedding with no committed change, and uncacheable", async () => {
     const { app } = buildApp();
     const res = await ownerGet(app, `${CHANGES_BASE}/head`);
     expect(res.status).toBe(200);
     // A cached copy would pin an editor to a stale revision.
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await jsonBody(res)).toEqual({ revision: "genesis" });
+    expect(await jsonBody(res)).toEqual({ revision: "0" });
   });
 
   it("moves when a change is applied, and again when it is reverted", async () => {
@@ -1334,7 +1565,7 @@ describe("GET /changes/head", () => {
       headers: { cookie: `cire_org_session=${token}` },
     });
     expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ revision: "genesis" });
+    expect(await jsonBody(res)).toEqual({ revision: "0" });
 
     const forged = await appRequest(app, `${CHANGES_BASE}/head`, {
       method: "GET",
@@ -2286,7 +2517,7 @@ describe("authn — the organiser session cookie on /changes", () => {
       baseRevision: string;
       plan: { familyCreates: unknown[] };
     };
-    expect(preview.baseRevision).toBe("genesis");
+    expect(preview.baseRevision).toBe("0");
     expect(preview.plan.familyCreates).toHaveLength(2);
 
     const applyRes = await cookiePost(app, `${CHANGES_BASE}/apply`, session, {
@@ -2415,6 +2646,29 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
       .where(eq(imports.id, changeId))
       .all();
     expect(row!.status).toBe("preview");
+  });
+
+  it("the same preview applies after an upgrade — a refused apply does not move the head", async () => {
+    const { app, db } = buildApp();
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: buildLargeGuestsCsv(101),
+    });
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(402);
+    expect(await headOf(app)).toBe("0");
+
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "capacity_500",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: "usr_admin",
+      })
+      .run();
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    expect(db.select().from(guests).all()).toHaveLength(101);
   });
 
   it("applying a change within cap succeeds; upgraded wedding (capacity_500) admits up to 500", async () => {

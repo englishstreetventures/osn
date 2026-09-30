@@ -24,7 +24,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { loadHeadRevision } from "../lib/change-revision";
+import { loadHeadRevision, revisionOf } from "../lib/change-revision";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -139,8 +139,10 @@ export default function EventsEditor(props: { weddingId: string }) {
    *  mid-fetch — would fall through `?? []` and seed a draft saying the wedding
    *  has no events, which reads as "delete every event". `ensureEventsLoaded`
    *  resolving `false` is what the check below refuses. */
-  async function loadInto() {
-    const revision = await loadHeadRevision(authFetch, props.weddingId);
+  async function loadInto(knownRevision?: string) {
+    // After a save, the apply response already names the head its own commit
+    // left, and it was read before the rows below are: no second request.
+    const revision = knownRevision ?? (await loadHeadRevision(authFetch, props.weddingId));
     invalidateEvents(props.weddingId);
     const events = await ensureEventsLoaded(props.weddingId, async () => {
       const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
@@ -277,6 +279,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         }
         throw new Error(body.error ?? `Apply failed (${res.status})`);
       }
+      const applied: unknown = await res.json().catch(() => null);
       invalidateEvents(props.weddingId);
       // Guests too, but NOT households: a `scope: "events"` save can remove an
       // event, and that cascades the per-guest attendance rows for it. No path
@@ -286,7 +289,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       setPreview(null);
       setEditingKey(null);
       try {
-        await loadInto();
+        await loadInto(revisionOf(applied));
         store.commit();
       } catch (err) {
         // The save went through, so the draft describes rows the server has
