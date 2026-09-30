@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  formatNames,
   isValidClaimResponse,
   isValidRsvpSaveResponse,
   readAccountLink,
@@ -337,6 +338,43 @@ describe("isValidClaimResponse", () => {
     });
   });
 
+  describe("the two plus-one fields", () => {
+    const withMember = (extra: Record<string, unknown>) => ({
+      ...validResponse,
+      members: [{ ...validResponse.members[0], ...extra }],
+    });
+
+    // The API sends `plusOneOf: null` for every member who is not a plus-one —
+    // nearly everyone. A guard that read "present means string" would send
+    // every signed-in household back to the code form.
+    it("accepts a member who is not a plus-one, as the API sends them", () => {
+      expect(isValidClaimResponse(withMember({ plusOneAllowed: true, plusOneOf: null }))).toBe(
+        true,
+      );
+    });
+
+    it("accepts a plus-one", () => {
+      expect(
+        isValidClaimResponse(withMember({ plusOneAllowed: false, plusOneOf: "guest-2" })),
+      ).toBe(true);
+    });
+
+    it("accepts a member carrying neither, as an API that predates them sends it", () => {
+      expect(isValidClaimResponse(withMember({}))).toBe(true);
+    });
+
+    it("rejects either field present with the wrong type", () => {
+      for (const extra of [
+        { plusOneAllowed: "yes" },
+        { plusOneAllowed: null },
+        { plusOneOf: 7 },
+        { plusOneOf: false },
+      ]) {
+        expect(isValidClaimResponse(withMember(extra))).toBe(false);
+      }
+    });
+  });
+
   it("rejects events with non-number sortOrder", () => {
     expect(
       isValidClaimResponse({
@@ -420,5 +458,18 @@ describe("isValidRsvpSaveResponse", () => {
     expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, dietaryConsentCurrent: "yes" }] })).toBe(
       false,
     );
+  });
+});
+
+describe("formatNames", () => {
+  // The consent and attestation boxes name whose data they cover with this.
+  it("joins one, two and three names as a sentence does", () => {
+    expect(formatNames(["Ana"])).toBe("Ana");
+    expect(formatNames(["Ana", "Ravi"])).toBe("Ana and Ravi");
+    expect(formatNames(["Ana", "Ravi", "Tom"])).toBe("Ana, Ravi and Tom");
+  });
+
+  it("gives nothing for nobody", () => {
+    expect(formatNames([])).toBe("");
   });
 });

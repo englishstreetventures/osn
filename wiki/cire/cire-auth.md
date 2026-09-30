@@ -31,7 +31,7 @@ Cire runs **three deliberately separate auth principal classes**. Guests are wed
 
 ## Vendor principal — the third principal class (Phase 2)
 
-Vendors are **OSN account holders who are members of an OSN organisation (`org_*`)**. The vendor's org is the unit of identity in cire's directory — one directory listing per org (`directory_vendors.org_id UNIQUE`). A vendor with multiple brands uses separate OSN orgs.
+Vendors are **OSN account holders who are members of an OSN organisation (`org_*`)**. The vendor's org is the unit of identity in cire's directory — the portal treats each org as owning one directory listing (`directory_vendors.owner_org_id`), though the schema does not make the column unique (`englishstventures/osn#1275`). A vendor with multiple brands uses separate OSN orgs.
 
 `vendorOrgMember()` (`cire/api/src/middleware/vendor-org-member.ts`) gates `/api/vendor/*`. It runs `osnAuth()` (session cookie or access token, sets `c.var.osnProfileId`) and then makes an ARC-gated call to `@osn/api` `GET /organisations/internal/membership?orgId=&profileId=` (**scope `org:read`**) to confirm the caller's OSN profile is an active member of the target org. On success it sets `c.var.vendorOrgId` + `c.var.directoryVendorId`. On ARC failure it fails-soft to **503** (never a bypass). An authenticated-but-non-member caller gets **403**.
 

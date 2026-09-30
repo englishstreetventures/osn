@@ -77,17 +77,27 @@ vi.mock("../../src/components/RsvpView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="rsvps">{p.weddingId}</div>,
 }));
 // Counts mounts, so a test can tell a move that passed through the builder on
-// its way somewhere else from one that never touched it.
+// its way somewhere else from one that never touched it. Surfaces the wedding
+// name and `canManage` too: the builder's copy action writes the name into the
+// message and marks a household sent only for the owner, and passing
+// `canEdit` where `canManage` belongs would type-check.
 let builderMounts = 0;
 vi.mock("../../src/components/InviteBuilder", () => ({
   default: (p: {
     weddingId: string;
+    weddingName: string;
+    canManage: boolean;
     initialSection?: string;
     inviteMessageLinks?: JSX.Element;
   }) => {
     builderMounts += 1;
     return (
-      <div data-testid="invite-design" data-section={p.initialSection ?? ""}>
+      <div
+        data-testid="invite-design"
+        data-section={p.initialSection ?? ""}
+        data-wedding-name={p.weddingName}
+        data-can-manage={String(p.canManage)}
+      >
         {p.weddingId}
         {p.inviteMessageLinks}
       </div>
@@ -283,6 +293,19 @@ describe("ModuleShell", () => {
     expect(onSub).toHaveBeenCalledWith("rsvps");
     expect(screen.getByTestId("rsvps")).toBeTruthy();
     expect(screen.queryByTestId("guests")).toBeNull();
+  });
+
+  it("hands the builder the wedding's name and the owner's right to mark households sent", async () => {
+    renderShell({ canManage: true, canEdit: true, module: "invite", sub: "design" });
+    const builder = await screen.findByTestId("invite-design");
+    expect(builder.getAttribute("data-wedding-name")).toBe("R & V");
+    expect(builder.getAttribute("data-can-manage")).toBe("true");
+  });
+
+  it("tells the builder a co-host editor may not mark households sent", async () => {
+    renderShell({ canManage: false, canEdit: true, module: "invite", sub: "design" });
+    const builder = await screen.findByTestId("invite-design");
+    expect(builder.getAttribute("data-can-manage")).toBe("false");
   });
 
   it("gives an owner the Invite Codes sub", () => {

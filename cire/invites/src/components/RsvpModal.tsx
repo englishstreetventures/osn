@@ -1,3 +1,4 @@
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
@@ -11,13 +12,15 @@ import {
   onCleanup,
   Show,
   For,
+  type Accessor,
 } from "solid-js";
 
 import { AnimatedModal } from "./AnimatedModal";
+import { isPlusOne } from "./plus-one";
 import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
-import { isValidRsvpSaveResponse } from "./utils";
+import { formatNames, isValidRsvpSaveResponse } from "./utils";
 
 interface RsvpModalProps {
   event: EventSummary;
@@ -86,17 +89,60 @@ interface RsvpModalProps {
 
 type Attending = "attending" | "declined" | null;
 
+/** The machine-readable `error` code of a refusal, if its body has one. */
+async function failureCode(res: Response): Promise<string | undefined> {
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  return typeof body?.error === "string" ? body.error : undefined;
+}
+
 /**
- * "Ana", "Ana and Ravi", "Ana, Ravi and Tom".
+ * One consent checkbox: its state, and the rule for when it may open ticked.
  *
- * The consent wording has to name whose data it authorises: a box reading only
- * "the dietary requirements above" leaves a guest ticking on behalf of people it
- * does not identify, which is the opposite of the specificity Art. 9(2)(a) asks
- * for.
+ * The sheet has two — the household's own consent for its members, and its
+ * attestation that its plus-ones agreed — and each is built from this, over
+ * its own people, so neither can ever be seeded from the other's records.
+ *
+ * **May it open ticked?** Only if EVERY person it covers already has a stored,
+ * current record for this box. A box is one per submission rather than one per
+ * guest — a household of four should not tick four boxes saying the same thing
+ * — and that collapse is exactly where a prefill can go wrong: if Ana consented
+ * last month and Ravi is answering for the first time, a box ticked on Ana's
+ * behalf would stamp Ravi's first-ever Art. 9(2)(a) record from a control
+ * nobody touched for him. One person's record never carries another's, so
+ * anyone new makes the box open empty and blocks submit until a human ticks it.
+ *
+ * **ONE signal, and the box's only source.** Emphatically not
+ * `given() || alreadyCovers()`. Under that form a pre-ticked box could not be
+ * unticked: `given` is already `false`, so writing `false` is a no-op, Solid's
+ * equality check suppresses the notification, the `checked` binding never
+ * re-runs, and the DOM keeps the browser's own unticked state while the
+ * derived value stays `true`. The guest sees an unticked box and the request
+ * carries consent — a record stamped against an affirmation that was actively
+ * withdrawn (Art. 7(3)).
+ *
+ * **Seed and re-ask** as the covered set changes: the effect ticks the box
+ * when everyone it covers is already covered, and un-ticks it the moment that
+ * stops being true — someone newly offering dietary data, or a record that
+ * predates a wording change. It reacts only to that verdict changing, so it
+ * never fights a guest who has just made a choice about the same set.
  */
-function formatNames(names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+function createConsentBox(
+  covered: Accessor<readonly FamilyMember[]>,
+  hadConsent: (guestId: string) => boolean,
+) {
+  const alreadyCovers = createMemo(() => {
+    const people = covered();
+    return people.length > 0 && people.every((m) => hadConsent(m.guestId));
+  });
+  const [checked, setChecked] = createSignal(false);
+  let lastCovered: boolean | null = null;
+  createEffect(() => {
+    const now = alreadyCovers();
+    if (now === lastCovered) return;
+    lastCovered = now;
+    setChecked(now);
+  });
+  return { checked, setChecked };
 }
 
 interface MemberState {
@@ -106,12 +152,13 @@ interface MemberState {
   /** May hold a key this build does not know; see `RsvpSummary`. */
   dietaryPresets: readonly string[];
   /**
-   * Whether this member's dietary data is already covered by a stored
-   * Art. 9(2)(a) consent record.
+   * Whether this member's dietary data is already covered by a stored, current
+   * Art. 9(2)(a) record for their box — the household's own consent for a
+   * member, its attestation for a plus-one (the server decides which, and
+   * whether it is current).
    *
-   * Not a control — the consent checkbox is one per submission, in the footer.
-   * This is what decides whether that single box may open ticked: see
-   * `consentAlreadyCovers`.
+   * Not a control — each box is one per submission, in the footer. This is
+   * what decides whether a box may open ticked: see `createConsentBox`.
    */
   hadConsent: boolean;
 }
@@ -164,9 +211,9 @@ export function RsvpModal(props: RsvpModalProps) {
   /**
    * Which attending members are offering dietary data on this submission.
    *
-   * One predicate behind the consent checkbox's visibility, its wording, the
-   * submit gate and what goes on the wire, so those four can never disagree
-   * about whose data is being authorised.
+   * One predicate behind the consent boxes' visibility, their wording, the
+   * submit gate and what goes on the wire, so those can never disagree about
+   * whose data is being authorised.
    */
   const membersWithDietaryData = createMemo(() =>
     eventMembers().filter((m) => {
@@ -176,56 +223,31 @@ export function RsvpModal(props: RsvpModalProps) {
     }),
   );
 
-  /**
-   * May the single consent checkbox open already ticked?
-   *
-   * Only if EVERY member it covers already has a stored consent record. The
-   * checkbox is one per submission rather than one per guest — a household of
-   * four should not tick four boxes saying the same thing — and that collapse is
-   * exactly where a prefill can go wrong: if Ana consented last month and Ravi
-   * is answering for the first time, a box ticked on Ana's behalf would stamp
-   * Ravi's first-ever Art. 9(2)(a) consent from a control nobody touched for
-   * him. One person's consent never carries another's, so anyone new to it
-   * makes the box open empty and blocks submit until a human ticks it.
-   */
-  const consentAlreadyCovers = createMemo(() => {
-    const covered = membersWithDietaryData();
-    if (covered.length === 0) return false;
-    return covered.every((m) => responses()[m.guestId]?.hadConsent === true);
-  });
+  /** The household's own members among them: covered by its own consent. */
+  const ownWithDietaryData = createMemo(() =>
+    membersWithDietaryData().filter((m) => !isPlusOne(m)),
+  );
 
   /**
-   * The consent checkbox's state. ONE signal, and the box's only source.
-   *
-   * Emphatically not `consentGiven() || consentAlreadyCovers()`. Under that
-   * form a pre-ticked box could not be unticked: `consentGiven` is already
-   * `false`, so `setConsentGiven(false)` is a no-op write, Solid's equality
-   * check suppresses the notification, the `checked` binding never re-runs, and
-   * the DOM keeps the browser's own unticked state while the derived value stays
-   * `true`. The guest sees an unticked box and the request carries
-   * `dietaryConsent: true` — an Art. 9(2)(a) record stamped against an
-   * affirmation that was actively withdrawn, and no way to withdraw it short of
-   * deleting every dietary answer in the household (Art. 7(3)).
+   * The plus-ones among them: covered by the household's attestation that
+   * they agreed. A plus-one never holds the code or sees the invite, so the
+   * household cannot give their consent — only confirm it — and the wording
+   * and its version say so (`PLUS_ONE_DIETARY_ATTESTATION` in `@cire/dietary`).
    */
-  const [consented, setConsented] = createSignal(false);
+  const plusOnesWithDietaryData = createMemo(() =>
+    membersWithDietaryData().filter((m) => isPlusOne(m)),
+  );
 
-  /**
-   * Seed and re-ask, as the set of covered members changes.
-   *
-   * Ticks the box when every member it covers already consented against the
-   * CURRENT copy, and un-ticks it the moment that stops being true — a member
-   * newly offering dietary data, or one whose record predates a consent-copy
-   * change. Writing the signal rather than deriving it is what keeps the box
-   * untickable by hand; the effect only reacts to the covered set changing, so
-   * it never fights a guest who has just made a choice about the same set.
-   */
-  let lastCovered: boolean | null = null;
-  createEffect(() => {
-    const covered = consentAlreadyCovers();
-    if (covered === lastCovered) return;
-    lastCovered = covered;
-    setConsented(covered);
-  });
+  const hadConsent = (guestId: string) => responses()[guestId]?.hadConsent === true;
+  const consent = createConsentBox(ownWithDietaryData, hadConsent);
+  const attestation = createConsentBox(plusOnesWithDietaryData, hadConsent);
+
+  /** "Bo's guest", for a plus-one's fieldset; null for everyone else. */
+  const guestOf = (member: FamilyMember): string | null => {
+    if (!isPlusOne(member)) return null;
+    const inviter = props.members.find((m) => m.guestId === member.plusOneOf);
+    return inviter ? `${inviter.firstName}'s guest` : "Guest";
+  };
 
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
@@ -389,7 +411,11 @@ export function RsvpModal(props: RsvpModalProps) {
       return;
     }
     // Whether THIS save leaves every invited member answered.
-    const nowComplete = answered.length === visible.length;
+    // Counted over the household's own members, as `hasHouseholdResponded`
+    // counts: the tick does not wait for a plus-one's reply, so neither does
+    // the celebration of crossing into it.
+    const own = visible.filter((m) => !isPlusOne(m));
+    const nowComplete = own.length > 0 && own.every((m) => current[m.guestId]?.attending !== null);
     // …and whether the party was ALREADY complete when this sheet opened.
     // Reuses `hasHouseholdResponded`, the same all-or-nothing rule that drives
     // the permanent mark on Respond, against `priorRsvps` — the snapshot the
@@ -411,8 +437,13 @@ export function RsvpModal(props: RsvpModalProps) {
     // outright — and may only be sent with explicit consent. (The server also
     // enforces this with a 422 — see
     // `wiki/compliance/dpia/cire-guest-data.md`.)
-    if (membersWithDietaryData().length > 0 && !consented()) {
+    if (ownWithDietaryData().length > 0 && !consent.checked()) {
       setError("Please tick the box to let us store your dietary requirements.");
+      return;
+    }
+    if (plusOnesWithDietaryData().length > 0 && !attestation.checked()) {
+      const names = formatNames(plusOnesWithDietaryData().map((m) => m.firstName));
+      setError(`Please confirm that ${names} agreed to their dietary requirements being stored.`);
       return;
     }
 
@@ -437,13 +468,30 @@ export function RsvpModal(props: RsvpModalProps) {
         const dietary = attending ? state.dietary : "";
         const dietaryPresets = attending ? state.dietaryPresets : [];
         const hasDietaryData = dietary.trim().length > 0 || dietaryPresets.length > 0;
+        const guestId = m.guestId;
+        const eventId = props.event.id;
+        const status = state.attending!;
+        if (!isPlusOne(m)) {
+          const dietaryConsent = hasDietaryData && consent.checked();
+          return { guestId, eventId, status, dietary, dietaryPresets, dietaryConsent };
+        }
+        // A plus-one's reply carries the household's attestation: the box,
+        // the version of the words beside it, and the name it was shown for.
+        // The API stamps that version or refuses it, and refuses a name the
+        // plus-one no longer has, so a page opened before a rename cannot
+        // attest for the person named since.
+        const dietaryConsent = hasDietaryData && attestation.checked();
+        const dietaryAttestation = dietaryConsent ? PLUS_ONE_DIETARY_ATTESTATION.version : "";
+        const dietaryAttestedName = dietaryConsent ? `${m.firstName} ${m.lastName}`.trim() : "";
         return {
-          guestId: m.guestId,
-          eventId: props.event.id,
-          status: state.attending!,
+          guestId,
+          eventId,
+          status,
           dietary,
           dietaryPresets,
-          dietaryConsent: hasDietaryData && consented(),
+          dietaryConsent,
+          dietaryAttestation,
+          dietaryAttestedName,
         };
       }),
     };
@@ -501,11 +549,22 @@ export function RsvpModal(props: RsvpModalProps) {
         // The deadline can pass while this sheet is open, so a 403 here is as
         // likely to be "too late" as "not your guest" — the body's code tells
         // us which, and the two need very different copy.
-        const failure = (await res.json().catch(() => null)) as { error?: string } | null;
         setError(
-          failure?.error === "rsvp_closed"
+          (await failureCode(res)) === "rsvp_closed"
             ? "RSVPs have closed for this wedding. Please contact the couple directly."
             : "You're not authorised to RSVP for one of those guests.",
+        );
+      } else if (res.status === 409 && (await failureCode(res)) === "plus_one_changed") {
+        setError("Your guest's name has changed since this page opened. Please reload the page.");
+      } else if (
+        res.status === 422 &&
+        (await failureCode(res)) === "plus_one_dietary_unavailable"
+      ) {
+        // The API did not take the attestation this sheet showed: an API older
+        // than this page, or newer wording than it carries. A reload brings
+        // the page level with the API.
+        setError(
+          "Your guest's dietary requirements couldn't be saved. Please reload the page and try again.",
         );
       } else if (res.status === 429) {
         setError("Too many requests. Please try again in a moment.");
@@ -583,6 +642,16 @@ export function RsvpModal(props: RsvpModalProps) {
               <fieldset class="border-border m-0 min-w-0 rounded-sm border px-5 pt-0 pb-5">
                 <legend class="font-display text-text text-ui-md mb-3 font-normal italic">
                   {member.firstName} {member.lastName}
+                  <Show when={guestOf(member)}>
+                    {(label) => (
+                      <>
+                        {" "}
+                        <span class="font-body text-text-muted text-ui-xs block not-italic">
+                          {label()}
+                        </span>
+                      </>
+                    )}
+                  </Show>
                 </legend>
 
                 <div class="flex gap-2">
@@ -671,26 +740,58 @@ export function RsvpModal(props: RsvpModalProps) {
           }}
         </For>
 
-        {/* ONE consent, for the whole submission.
-            A household of four typing dietary notes used to tick four boxes
-            saying the same thing. Collapsing them is only safe because the box
-            names exactly who it covers and refuses to open ticked unless every
-            one of those people already has a stored consent record — see
-            `consentAlreadyCovers`. Unticked by default, and the submit gate
-            blocks on it. See `wiki/compliance/dpia/cire-guest-data.md`. */}
-        <Show when={membersWithDietaryData().length > 0}>
+        {/* ONE consent for the household's own members, for the whole
+            submission. A household of four typing dietary notes used to tick
+            four boxes saying the same thing. Collapsing them is only safe
+            because the box names exactly who it covers and refuses to open
+            ticked unless every one of those people already has a stored
+            consent record — see `createConsentBox`. Unticked by default, and
+            the submit gate blocks on it. See
+            `wiki/compliance/dpia/cire-guest-data.md`. */}
+        <Show when={ownWithDietaryData().length > 0}>
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"
               class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={consented()}
-              onChange={(e) => setConsented(e.currentTarget.checked)}
+              checked={consent.checked()}
+              onChange={(e) => consent.setChecked(e.currentTarget.checked)}
               disabled={locked()}
             />
             <span>
               I agree to the dietary requirements above — for{" "}
-              {formatNames(membersWithDietaryData().map((m) => m.firstName))} — being stored and
-              shared with the caterers for this wedding. See our{" "}
+              {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and shared
+              with the caterers for this wedding. See our{" "}
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-gold-ink underline underline-offset-2"
+              >
+                privacy notice
+              </a>
+              .
+            </span>
+          </label>
+        </Show>
+
+        {/* The household's attestation for its plus-ones: a separate box,
+            because it says something different — not "I agree" but "they
+            agreed" — and is stored under its own version. Same rules as the
+            box above, over its own people. */}
+        <Show when={plusOnesWithDietaryData().length > 0}>
+          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+            <input
+              type="checkbox"
+              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+              checked={attestation.checked()}
+              onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
+              disabled={locked()}
+            />
+            <span>
+              {PLUS_ONE_DIETARY_ATTESTATION.text(
+                formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
+              )}{" "}
+              See our{" "}
               <a
                 href="/privacy"
                 target="_blank"

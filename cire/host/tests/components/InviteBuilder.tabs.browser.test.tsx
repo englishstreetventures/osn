@@ -125,7 +125,13 @@ async function mountAt(width: number) {
   );
   render(() => (
     <div style={{ width: `${width}px` }}>
-      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canManage
+        entitlements={[]}
+      />
     </div>
   ));
   await waitFor(() => screen.getByText("Save invite"));
