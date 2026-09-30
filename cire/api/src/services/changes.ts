@@ -16,7 +16,9 @@
  *     the head, and stamps the head on the change row. Apply and revert then
  *     take the wedding with {@link claimChanges} at that head before their
  *     first write, so of two changes prepared against one head only one
- *     writes, and nothing else writes while it does.
+ *     writes, and no other apply or revert writes while it does. The
+ *     wedding's other writers (a guest's plus-one, a code regeneration) do
+ *     not take the claim.
  *  3. {@link clearedHalves} — whether an editor save empties a half of the
  *     wedding, which apply refuses unless the request confirms the count.
  */

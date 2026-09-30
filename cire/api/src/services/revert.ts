@@ -1,4 +1,4 @@
-import { events, families, guests, imports } from "@cire/db";
+import { events, families, guests, imports, weddings } from "@cire/db";
 import { and, asc, desc, eq, lt, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, Option, Schema } from "effect";
@@ -19,7 +19,6 @@ import {
   claimChanges,
   commitClaimStatement,
   currentEventsAsParsed,
-  headRevision,
   underClaim,
 } from "./changes";
 import { CapacityExceeded } from "./entitlements";
@@ -467,21 +466,22 @@ export function revertImport(
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    // The head is read BEFORE the row: a revert of this change that commits
-    // after this read moves the head, so the claim below refuses this one even
-    // though the row it reads may still say `applied`.
-    const head = yield* headRevision(weddingId);
-
-    const [current] = yield* dbQuery(() =>
+    // The head is read in the same statement as the row, so both come from
+    // one snapshot: a revert of this change that commits after this read moves
+    // the head, and the claim below refuses this one even though the row it
+    // read still said `applied`.
+    const [found] = yield* dbQuery(() =>
       db
-        .select()
+        .select({ change: imports, head: weddings.changeRev })
         .from(imports)
+        .innerJoin(weddings, eq(weddings.id, imports.weddingId))
         .where(and(eq(imports.id, importId), eq(imports.weddingId, weddingId)))
         .all(),
     );
-    if (!current) {
+    if (!found) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
+    const current = found.change;
     // Only an applied change has anything to undo. A preview row has no
     // before-image, so it would fall through to the legacy path and reset the
     // wedding to an older import; a reverted row would be restored twice.
@@ -497,7 +497,7 @@ export function revertImport(
     // can't leave the wedding reconciled while the row still reads `applied`
     // (which would invite a second, now-wrong revert against the
     // already-restored state).
-    const claim = yield* claimChanges(weddingId, head);
+    const claim = yield* claimChanges(weddingId, String(found.head));
     const markReverted = [
       commitClaimStatement(db, claim),
       db

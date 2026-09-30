@@ -100,7 +100,7 @@ export const weddings = sqliteTable(
     // token of the change apply or revert holding the wedding, set from the
     // moment it starts writing until it commits or gives up, and
     // `change_claimed_at` (epoch ms) is when it took it, so a holder whose
-    // Worker died can be expired. Only one change holds a wedding at a time.
+    // Worker died can be expired. Only one apply or revert holds a wedding at a time.
     changeRev: integer("change_rev").notNull().default(0),
     changeClaim: text("change_claim"),
     changeClaimedAt: integer("change_claimed_at"),

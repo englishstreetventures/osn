@@ -1,4 +1,4 @@
-import { imports } from "@cire/db";
+import { imports, weddings } from "@cire/db";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -515,14 +515,22 @@ export const createOrganiserChangeRoutes = (
                   yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
-                const [row] = yield* dbQuery(() =>
-                  dbService.select().from(imports).where(eq(imports.id, changeId)).all(),
+                // The wedding's head rides along in the same read, so the
+                // stale-preview refusal below costs no statement of its own.
+                const [found] = yield* dbQuery(() =>
+                  dbService
+                    .select({ change: imports, head: weddings.changeRev })
+                    .from(imports)
+                    .innerJoin(weddings, eq(weddings.id, imports.weddingId))
+                    .where(eq(imports.id, changeId))
+                    .all(),
                 );
                 // A foreign wedding's change is indistinguishable from a missing one.
-                if (!row || row.weddingId !== weddingId) {
+                if (!found || found.change.weddingId !== weddingId) {
                   set.status = 404;
                   return { error: "Change not found" };
                 }
+                const row = found.change;
                 if (row.status !== "preview") {
                   set.status = 409;
                   return { error: "Change is not in preview status" };
@@ -543,7 +551,7 @@ export const createOrganiserChangeRoutes = (
                 // A row with no stored head can never match one, so it is
                 // refused here and the organiser re-previews.
                 const baseRevision = stored.baseRevision ?? "";
-                const currentHead = yield* headRevision(weddingId);
+                const currentHead = String(found.head);
                 if (currentHead !== baseRevision) {
                   set.status = 409;
                   return {
@@ -645,10 +653,9 @@ export const createOrganiserChangeRoutes = (
                 // Take the wedding at the head the preview ran at, before the
                 // first write. The head check above is only a fast refusal:
                 // two applies can both pass it, and only one of them gets the
-                // claim. Nothing else writes the wedding's change data while it
-                // is held, so the before-image below is the state this change
-                // is applied over, and a replay of this change cannot capture
-                // over it.
+                // claim. No other apply or revert writes the wedding while it
+                // is held, so a replay of this change cannot capture its
+                // before-image over this one's.
                 const claim = yield* claimChanges(weddingId, baseRevision);
 
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
