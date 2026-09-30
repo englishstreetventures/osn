@@ -94,8 +94,10 @@ ZAP_API_URL = "http://localhost:3002"
 #
 # STRIPE_SECRET_KEY UNSET ⇒ neither the organiser Connect routes nor the upgrade
 # routes are mounted, so a deployment with no Stripe account has no payment
-# surface at all rather than one that 500s. The portal probes and hides the
-# Connect panel.
+# surface at all rather than one that 500s. The portal does not probe for this:
+# it shows the Money-gifts section on every deployment, and on one with no key
+# its Connect button gets a 404, which it reports as the toast "Money gifts
+# aren't available on this site yet."
 # STRIPE_WEBHOOK_SECRET UNSET ⇒ /api/stripe/webhook does not exist (gifts).
 # STRIPE_PLATFORM_WEBHOOK_SECRET UNSET ⇒ /api/stripe/platform-webhook does not
 # exist (upgrades), so a purchase could be paid and never granted — nothing else
