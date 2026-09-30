@@ -47,6 +47,30 @@ describe("ModuleSidebar", () => {
     return found;
   };
 
+  it("inks the rail's selected label for reading and leaves its icon gold", () => {
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="guests"
+        entitlements={ENTITLED}
+        onSelect={vi.fn()}
+      />
+    ));
+    for (const row of within(rail()).getAllByRole("button")) {
+      const active = row.getAttribute("aria-current") === "page";
+      // Gold paints about 2.2:1 in the light theme; the label is text and needs
+      // the ink. The icon is decoration and keeps the metal.
+      expect(row.classList.contains("text-gold-ink")).toBe(active);
+      expect(row.classList.contains("text-gold")).toBe(false);
+      expect(row.querySelector("svg")!.classList.contains("text-gold")).toBe(active);
+    }
+    expect(
+      within(rail())
+        .getAllByRole("button")
+        .some((b) => b.hasAttribute("aria-current")),
+    ).toBe(true);
+  });
+
   it("renders every module in workflow order", () => {
     render(() => (
       <ModuleSidebar
