@@ -260,8 +260,9 @@ override still applies). It percent-encodes the id, so an id holding `/`, `?` or
 parser resolves them as dot segments, so where a wedding id is read from a URL —
 the dashboard hash (`dashboard-route.ts`) and the upgrade return query
 (`upgrade-return.ts`) — `isDotSegment` refuses it. Ids further along the path
-(an item, a task, a payment) come from the server's own responses, not from a
-URL; some call sites encode them with `encodeURIComponent`, and new ones should.
+(an item, a task, a payment) are encoded at the call site with
+`encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
+hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 
 ## Portal security headers
 

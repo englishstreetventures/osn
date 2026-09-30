@@ -166,7 +166,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     setAddError(null);
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/directory/${listingId}/add`)),
+        apiUrl(weddingPath(props.weddingId, `/directory/${encodeURIComponent(listingId)}/add`)),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

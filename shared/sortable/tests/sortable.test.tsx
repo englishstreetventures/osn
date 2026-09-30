@@ -477,6 +477,10 @@ describe("row computations wake only when their own value changes", () => {
         sortable.transform();
         bump(`transform:${rowProps.id}`);
       });
+      createEffect(() => {
+        state.displacement(rowProps.id);
+        bump(`displacement:${rowProps.id}`);
+      });
       return (
         <li data-row ref={sortable.ref} style={maybeTransformStyle(sortable.transform())}>
           <button {...sortable.dragActivators} data-grip={rowProps.id}>
@@ -528,5 +532,81 @@ describe("row computations wake only when their own value changes", () => {
     // `b` is pulled up by one stride once and stays there while the target moves
     // past it, then drops back: two changes, not one per slot.
     expect(since("transform:b")).toBe(2);
+  });
+
+  it("wakes only the rows whose shift changes as the target moves", () => {
+    stubRowGeometry();
+    const runs: Record<string, number> = {};
+    render(() => <CountingList runs={runs} />);
+    const mounted = { ...runs };
+
+    // Drag `a` onto `b`, then onto `c`: `b` shifts once and stays shifted,
+    // `c` shifts on the second slot, `d` never moves.
+    fireEvent.pointerDown(document.querySelector("[data-grip=a]")!, {
+      pointerId: 1,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    for (const y of [30, 60, 100]) {
+      fireEvent(
+        document,
+        new PointerEvent("pointermove", { pointerId: 1, clientX: 10, clientY: y }),
+      );
+    }
+    const since = (key: string) => (runs[key] ?? 0) - (mounted[key] ?? 0);
+    expect(since("displacement:b")).toBe(1);
+    expect(since("displacement:c")).toBe(1);
+    expect(since("displacement:d")).toBe(0);
+    fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: 100 }));
+  });
+
+  it("reports whether a drag is live and which row it is", () => {
+    stubRowGeometry();
+    let state: ReturnType<typeof useDragDropContext>;
+    const sortables: Record<string, ReturnType<typeof createSortable>> = {};
+    function Probe(props: { id: string }) {
+      const sortable = createSortable(props.id);
+      sortables[props.id] = sortable;
+      state = useDragDropContext();
+      return (
+        <li data-row ref={sortable.ref}>
+          <button {...sortable.dragActivators} data-grip={props.id}>
+            grip
+          </button>
+        </li>
+      );
+    }
+    render(() => (
+      <DragDropProvider collisionDetector={closestCenter}>
+        <ul>
+          <SortableProvider ids={["a", "b"]}>
+            <Probe id="a" />
+            <Probe id="b" />
+          </SortableProvider>
+        </ul>
+      </DragDropProvider>
+    ));
+    const snapshot = () => [
+      state![0].dragging(),
+      sortables.a!.isActiveDraggable(),
+      sortables.b!.isActiveDraggable(),
+    ];
+    expect(snapshot()).toEqual([false, false, false]);
+
+    fireEvent.pointerDown(document.querySelector("[data-grip=a]")!, {
+      pointerId: 1,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent(
+      document,
+      new PointerEvent("pointermove", { pointerId: 1, clientX: 10, clientY: 30 }),
+    );
+    expect(snapshot()).toEqual([true, true, false]);
+
+    fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: 30 }));
+    expect(snapshot()).toEqual([false, false, false]);
   });
 });

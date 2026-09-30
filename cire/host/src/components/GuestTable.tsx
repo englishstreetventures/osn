@@ -362,7 +362,12 @@ export default function GuestTable(props: GuestTableProps) {
   function markShared(family: FamilyGroup) {
     setSharedNow((prev) => new Set(prev).add(family.publicId));
     void authFetch(
-      apiUrl(weddingPath(props.weddingId, `/families/${family.familyId}/mark-shared`)),
+      apiUrl(
+        weddingPath(
+          props.weddingId,
+          `/families/${encodeURIComponent(family.familyId)}/mark-shared`,
+        ),
+      ),
       {
         method: "POST",
       },
@@ -386,7 +391,12 @@ export default function GuestTable(props: GuestTableProps) {
     const action = deactivate ? "deactivate" : "reactivate";
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/families/${family.familyId}/${action}`)),
+        apiUrl(
+          weddingPath(
+            props.weddingId,
+            `/families/${encodeURIComponent(family.familyId)}/${action}`,
+          ),
+        ),
         { method: "POST" },
       );
       if (res.status === 401) return redirectToLogin();

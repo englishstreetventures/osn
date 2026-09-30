@@ -144,11 +144,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
     patchTasks((rows) => rows.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     haptic("commit");
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/tasks/${task.id}`)), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}`)),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        },
+      );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
       const { task: updated } = (await res.json()) as { task: TaskRow };
@@ -165,9 +168,12 @@ export default function ChecklistView(props: ChecklistViewProps) {
     patchTasks((rows) => rows.filter((t) => t.id !== task.id));
     haptic("commit");
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/tasks/${task.id}`)), {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}`)),
+        {
+          method: "DELETE",
+        },
+      );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {

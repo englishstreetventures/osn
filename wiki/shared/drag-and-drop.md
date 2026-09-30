@@ -101,8 +101,9 @@ A row that styles itself by whether a drag is live reads `dragging()`, not
 crosses and on drop; `dragging` only on the first and last, so a long list runs
 each row's effect twice per gesture rather than once per slot. For the same
 reason `isActiveDraggable` reads a selector over the dragged id, which wakes only
-the row whose answer flips, and `transform` compares by value, so a displaced
-row that stays put does not repaint. A package test counts those runs.
+the row whose answer flips; the provider keeps each row's shift per key in a
+store, so a slot change re-runs only the rows whose shift changed; and
+`transform` compares by value, so a row that stays put does not repaint. A package test counts those runs.
 
 ### `ref` + `dragActivators`, not a whole-row directive
 

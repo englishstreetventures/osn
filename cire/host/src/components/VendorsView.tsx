@@ -168,11 +168,14 @@ export default function VendorsView(props: VendorsViewProps) {
     patchVendors((vs) => vs.map((x) => (x.id === v.id ? { ...x, status } : x)));
     haptic("commit");
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/vendors/${v.id}`)), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/vendors/${encodeURIComponent(v.id)}`)),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
       const { vendor: updated } = (await res.json()) as { vendor: VendorRow };
@@ -189,9 +192,12 @@ export default function VendorsView(props: VendorsViewProps) {
     patchVendors((vs) => vs.filter((x) => x.id !== v.id));
     haptic("commit");
     try {
-      const res = await authFetch(apiUrl(weddingPath(props.weddingId, `/vendors/${v.id}`)), {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/vendors/${encodeURIComponent(v.id)}`)),
+        {
+          method: "DELETE",
+        },
+      );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
@@ -223,7 +229,9 @@ export default function VendorsView(props: VendorsViewProps) {
     setError(null);
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/vendors/${v.id}/list-in-directory`)),
+        apiUrl(
+          weddingPath(props.weddingId, `/vendors/${encodeURIComponent(v.id)}/list-in-directory`),
+        ),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

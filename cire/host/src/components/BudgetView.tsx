@@ -204,7 +204,7 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -234,7 +234,7 @@ export default function BudgetView(props: BudgetViewProps) {
   ) => {
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -277,7 +277,7 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}`)),
+        apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
         {
           method: "DELETE",
         },
@@ -350,7 +350,9 @@ export default function BudgetView(props: BudgetViewProps) {
     }
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments`)),
+        apiUrl(
+          weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}/payments`),
+        ),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -380,7 +382,12 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments/${payment.id}`)),
+        apiUrl(
+          weddingPath(
+            props.weddingId,
+            `/budget/items/${encodeURIComponent(item.id)}/payments/${encodeURIComponent(payment.id)}`,
+          ),
+        ),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -406,7 +413,12 @@ export default function BudgetView(props: BudgetViewProps) {
     haptic("commit");
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${item.id}/payments/${payment.id}`)),
+        apiUrl(
+          weddingPath(
+            props.weddingId,
+            `/budget/items/${encodeURIComponent(item.id)}/payments/${encodeURIComponent(payment.id)}`,
+          ),
+        ),
         { method: "DELETE" },
       );
       if (res.status === 401) return redirectToLogin();

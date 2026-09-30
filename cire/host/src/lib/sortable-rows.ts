@@ -16,10 +16,13 @@ export function sameButOrder<T extends { sortOrder: number }>(
 ): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
-  const ours = Object.entries(a);
-  const theirs = new Map(Object.entries(b));
-  if (ours.length !== theirs.size) return false;
-  return ours.every(
-    ([key, value]) => key === "sortOrder" || (theirs.has(key) && theirs.get(key) === value),
-  );
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (key === "sortOrder") continue;
+    // SAFETY: `key` came from `Object.keys(a)`, and `hasOwn` confirms `b` has it.
+    const k = key as keyof T;
+    if (!Object.hasOwn(b, key) || a[k] !== b[k]) return false;
+  }
+  return true;
 }

@@ -8,6 +8,7 @@ import {
   type ParentProps,
   useContext,
 } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 import { closestCenter } from "./collision";
 import type { DragEvent, DragTarget, Id, MeasuredTarget, Transform } from "./types";
@@ -92,7 +93,9 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   const dragging = createMemo(() => draggedId() !== null);
   const isDragged = createSelector<Id | null, Id>(draggedId);
   const [transform, setTransform] = createSignal<Transform | null>(null);
-  const [displaced, setDisplaced] = createSignal<Map<Id, number>>(new Map());
+  // A store rather than a Map signal: reading `displaced[key]` tracks that one
+  // key, so a slot change wakes only the rows whose shift changed, not every row.
+  const [displaced, setDisplaced] = createStore<Record<string, number>>({});
 
   const register = (id: Id, node: HTMLElement, group: symbol) => items.set(id, { node, group });
   const unregister = (id: Id) => items.delete(id);
@@ -160,7 +163,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     return out;
   }
 
-  const displacement = (id: Id) => displaced().get(id) ?? 0;
+  const displacement = (id: Id) => displaced[String(id)] ?? 0;
 
   /** Tears down whatever gesture is live. Set by `startDrag`, cleared by it. */
   let endGesture: (() => void) | null = null;
@@ -218,7 +221,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       captureTarget.releasePointerCapture?.(pointerId);
       endGesture = null;
       setTransform(null);
-      setDisplaced(new Map());
+      setDisplaced(reconcile({}));
       setActive({ draggable: null, droppable: null });
     };
 
@@ -245,7 +248,11 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       if (droppable?.id !== latest.droppable?.id) {
         latest = { draggable, droppable };
         setActive({ draggable, droppable });
-        setDisplaced(computeDisplacement(measured, stride, id, droppable?.id ?? null));
+        setDisplaced(
+          reconcile(
+            Object.fromEntries(computeDisplacement(measured, stride, id, droppable?.id ?? null)),
+          ),
+        );
         props.onDragOver?.(latest);
       }
     };

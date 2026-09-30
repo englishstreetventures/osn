@@ -279,7 +279,12 @@ export default function RsvpView(props: RsvpViewProps) {
     setFormError(null);
     try {
       const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/guests/${target.guestId}/rsvps/${target.eventId}`)),
+        apiUrl(
+          weddingPath(
+            props.weddingId,
+            `/guests/${encodeURIComponent(target.guestId)}/rsvps/${encodeURIComponent(target.eventId)}`,
+          ),
+        ),
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },

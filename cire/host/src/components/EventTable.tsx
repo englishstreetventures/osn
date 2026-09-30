@@ -79,7 +79,7 @@ export default function EventTable(props: EventTableProps) {
   }
 
   const eventImageBase = (eventId: string) =>
-    weddingPath(props.weddingId, `/events/${eventId}/image`);
+    weddingPath(props.weddingId, `/events/${encodeURIComponent(eventId)}/image`);
 
   // One image per event — a re-upload REPLACES the current one (the API points
   // the single `event_image_key` column at the new R2 object). Mirrors the
