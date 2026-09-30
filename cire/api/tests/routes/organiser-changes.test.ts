@@ -217,15 +217,15 @@ describe("an editor draft is bounded in events and households", () => {
 
   it(`400s a schedule of more than ${MAX_EVENTS} events`, async () => {
     const { app } = buildApp();
-    const events = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const schedule = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
     const res = await editorPreview(app, {
-      desiredState: { events, families: [] },
+      desiredState: { events: schedule, families: [] },
       scope: "events",
     });
     expect(res.status).toBe(400);
 
     const atCap = await editorPreview(app, {
-      desiredState: { events: events.slice(0, MAX_EVENTS), families: [] },
+      desiredState: { events: schedule.slice(0, MAX_EVENTS), families: [] },
       scope: "events",
     });
     expect(atCap.status).toBe(200);
@@ -233,12 +233,12 @@ describe("an editor draft is bounded in events and households", () => {
 
   it(`400s more than ${MAX_ROWS} households`, async () => {
     const { app } = buildApp();
-    const families = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
+    const households = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
       familyName: `F${i}`,
       guests: [],
     }));
     const res = await editorPreview(app, {
-      desiredState: { events: [], families },
+      desiredState: { events: [], families: households },
       scope: "guests",
     });
     expect(res.status).toBe(400);
