@@ -52,8 +52,9 @@ const conflict = (set: { status?: number | string }) =>
   });
 
 /** UNIQUE-constraint backstop for a double-click race (bun:sqlite + D1 both
- *  carry "UNIQUE constraint" in the message). The pre-check handles the common
- *  case; this maps the rare concurrent collision to 409 instead of 500. */
+ *  carry "UNIQUE constraint" in the message). The listing read's `inWedding`
+ *  column handles the common case; this maps the rare concurrent collision to
+ *  409 instead of 500. */
 function isUniqueViolation(defect: unknown): boolean {
   return String((defect as { message?: unknown })?.message ?? defect)
     .toLowerCase()
@@ -119,14 +120,11 @@ export const createVendorDirectoryWriteRoutes = (
                 const body = yield* Schema.decodeUnknownEffect(AddFromDirectoryBody)(raw);
                 const listing = yield* directoryService.getLiveListingById(
                   params.directoryVendorId,
+                  weddingId,
                 );
                 if (!listing) return yield* notFound(set);
                 if (!listing.categories.includes(body.category)) return yield* badRequest(set);
-                const already = yield* vendorsService.existsForDirectory(
-                  weddingId,
-                  params.directoryVendorId,
-                );
-                if (already) return yield* conflict(set);
+                if (listing.inWedding) return yield* conflict(set);
                 const vendor = yield* vendorsService.create({
                   weddingId,
                   name: listing.name,
