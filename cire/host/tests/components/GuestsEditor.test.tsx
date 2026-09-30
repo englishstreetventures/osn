@@ -702,6 +702,73 @@ describe("GuestsEditor", () => {
       expect(posted.map((p) => p.baseRevision)).toEqual(["rev_1", "rev_2"]);
     });
 
+    it("builds the next draft on the head the apply returned, without reading it again", async () => {
+      const posted: Record<string, unknown>[] = [];
+      let headReads = 0;
+      authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          headReads += 1;
+          return Promise.resolve(json({ revision: "rev_1" }));
+        }
+        if (u.endsWith("/changes/preview")) {
+          posted.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(previewResponse());
+        }
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(json({ summary: { changeId: "chg_1" }, revision: "rev_2" }));
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+
+      fireEvent.input(await waitFor(() => screen.getByDisplayValue("Ada")), {
+        target: { value: "Ada B" },
+      });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(posted).toHaveLength(2));
+      expect(posted.map((p) => p.baseRevision)).toEqual(["rev_1", "rev_2"]);
+      expect(headReads).toBe(1);
+    });
+
+    it("says another save is under way when the apply is refused for that", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(
+            json(
+              {
+                error: "Another change is being saved — try again in a moment",
+                reason: "change_in_progress",
+              },
+              409,
+            ),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      await waitFor(() => expect(screen.getByText(/Another change is being saved/i)).toBeTruthy());
+      expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    });
+
     it("shows a load error, not a draft, when the head cannot be read", async () => {
       authFetchMock.mockImplementation((url: string) => {
         if (String(url).endsWith("/changes/head")) {
