@@ -2,14 +2,17 @@ import { describe, it, expect } from "bun:test";
 
 import { guests, rsvps as rsvpsTable } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { rsvpService } from "../../src/services/rsvp";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const withDb = effWith(TestDbLayer);
 
@@ -480,4 +483,60 @@ describe("rsvpService.getRsvpsForFamily", () => {
       }),
     ),
   );
+
+  /**
+   * The read-back is the second place that answers "is this consent current?"
+   * (the claim is the first), and it has to give the same answer: against the
+   * copy the box for that person shows, and only for a record that box's own
+   * writer made.
+   */
+  it("reports consent current only against the copy the person's box shows", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const reply = (
+      guestId: string,
+      consentSource: "guest" | "organiser_attested" | "inviter_attested",
+    ) =>
+      run(
+        rsvpService.submitRsvp({
+          guestId,
+          eventId: HINDU_ID,
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["nuts"],
+          dietaryConsent: true,
+          consentSource,
+        }),
+      );
+
+    await reply(samId, "inviter_attested");
+    await reply(bo.id, "organiser_attested");
+    const rows = await run(rsvpService.getRsvpsForFamily(bo.familyId));
+    const sam = rows.find((r) => r.guestId === samId);
+    expect(sam?.dietaryConsentCurrent).toBe(true);
+    expect(rows.find((r) => r.guestId === bo.id)?.dietaryConsentCurrent).toBe(false);
+    // Stamped with the attestation's own version, not the guest's.
+    expect(
+      db
+        .select({ version: rsvpsTable.dietaryConsentVersion })
+        .from(rsvpsTable)
+        .where(eq(rsvpsTable.guestId, samId))
+        .get()?.version,
+    ).toBe(PLUS_ONE_DIETARY_ATTESTATION.version);
+    // Only the fields the invite reads leave the service.
+    expect(Object.keys(sam ?? {}).toSorted()).toEqual(
+      [
+        "dietary",
+        "dietaryConsentCurrent",
+        "dietaryPresets",
+        "eventId",
+        "guestId",
+        "status",
+      ].toSorted(),
+    );
+  });
 });

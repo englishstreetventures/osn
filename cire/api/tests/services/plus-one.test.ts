@@ -221,6 +221,216 @@ describe("plusOneService.save", () => {
   });
 });
 
+/**
+ * A household rename can name a different person — or a second device, still
+ * showing no plus-one, "adds" one and so renames whoever is there. The dietary
+ * answers and the household's attestation on file were about the person before,
+ * so they go with the old name; the replies' status stays, since the household
+ * sees and can change it.
+ */
+describe("plusOneService.save — a household rename", () => {
+  const giveDietary = (guestId: string) =>
+    db
+      .insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        dietary: "No sesame",
+        dietaryPresets: "nuts,other",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: "inviter-2026-09-27",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+  const replyOf = (guestId: string) =>
+    db
+      .select({
+        status: rsvps.status,
+        dietary: rsvps.dietary,
+        dietaryPresets: rsvps.dietaryPresets,
+        dietaryConsentAt: rsvps.dietaryConsentAt,
+        dietaryConsentVersion: rsvps.dietaryConsentVersion,
+      })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, guestId))
+      .get();
+
+  it("clears the plus-one's dietary answers and consent record, and keeps the status", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }),
+    );
+
+    expect(result).toMatchObject({ created: false, dietaryCleared: true });
+    expect(plusOnesOf(bo.id)[0]).toMatchObject({ firstName: "Alex" });
+    expect(replyOf(samId)).toEqual({
+      status: "attending",
+      dietary: "",
+      dietaryPresets: "",
+      dietaryConsentAt: null,
+      dietaryConsentVersion: null,
+    });
+  });
+
+  it("clears nothing, and says so, when the name does not change", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    giveDietary(samId);
+
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: " Sam ", lastName: "Guest" }),
+    );
+
+    expect(result.dietaryCleared).toBe(false);
+    expect(replyOf(samId)?.dietary).toBe("No sesame");
+  });
+
+  it("says nothing was cleared when there was nothing to clear", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }),
+    );
+    expect(result).toMatchObject({ created: false, dietaryCleared: false });
+  });
+
+  it("writes only the replies that hold something to clear", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    // A second reply, status only.
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: eventsData.reception.id,
+        status: "declined",
+        dietary: "",
+        dietaryPresets: "",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    // Count the rows the rename writes: D1 bills each one.
+    db.$client.run("create temp table rsvp_writes (n integer not null)");
+    db.$client.run("insert into rsvp_writes values (0)");
+    db.$client.run(
+      "create temp trigger count_rsvp_writes after update on rsvps begin update rsvp_writes set n = n + 1; end",
+    );
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(db.$client.query("select n from rsvp_writes").get()).toEqual({ n: 1 });
+    expect(replyOf(samId)?.dietary).toBe("");
+  });
+
+  it("leaves another guest's dietary answers alone", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    giveDietary(bo.id);
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(replyOf(bo.id)?.dietary).toBe("No sesame");
+  });
+
+  it("clears nothing on naming a new plus-one", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    const result = await run(
+      plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" }),
+    );
+    expect(result).toMatchObject({ created: true, dietaryCleared: false });
+  });
+
+  it("answers not-found, and names nobody, when the plus-one goes between the read and the rename", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    // Remove Sam just as the rename's batch starts: after the context read,
+    // before the writes.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('update "rsvps"')) prepare("delete from guests where id = ?").run(samId);
+        return prepare(sql);
+      },
+    });
+
+    expect(
+      await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" })),
+    ).toBe("PlusOneGuestNotFound");
+    expect(db.select().from(guests).where(eq(guests.firstName, "Alex")).all()).toEqual([]);
+  });
+
+  it("clears a reply given between the read and the rename", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    // Another tab saves Sam's dietary answer after the rename has read "no
+    // answers on file", before its writes run.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let raced = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!raced && (sql.startsWith('update "rsvps"') || sql.startsWith('update "guests"'))) {
+          raced = true;
+          giveDietary(samId);
+        }
+        return prepare(sql);
+      },
+    });
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    expect(raced).toBe(true);
+    expect(replyOf(samId)).toMatchObject({ dietary: "", dietaryConsentVersion: null });
+  });
+
+  it("renames over dietary answers in one read and one batch of two", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    giveDietary(samId);
+    const recorded = recordStatements(db);
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+    // The context read, then the clear and the name write, which answers with
+    // its own row.
+    expect(recorded).toHaveLength(3);
+  });
+
+  /**
+   * The organiser's route is the Art. 16 correction of a misspelt name, made on
+   * the controller's own knowledge; it is not the household swapping one person
+   * for another, so the answers stay.
+   */
+  it("keeps the answers when an organiser corrects the name", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sma" });
+    giveDietary(samId);
+
+    await run(
+      plusOneService.renameAsOrganiser({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        inviterGuestId: bo.id,
+        name: { firstName: "Sam", lastName: "" },
+      }),
+    );
+
+    expect(replyOf(samId)?.dietaryConsentVersion).toBe("inviter-2026-09-27");
+    expect(replyOf(samId)?.dietary).toBe("No sesame");
+  });
+});
+
 describe("buildCreatePlusOne — the double submit", () => {
   it("writes nothing and copies no invitation when the inviter already has a plus-one", async () => {
     const bo = guestNamed(db, "Bo");
@@ -915,9 +1125,10 @@ describe("plusOneService — the host-preview household", () => {
 describe("plusOneService — statements per write", () => {
   // Every guest write reads its whole context in ONE statement. Naming adds
   // only the guest count (the cap comes from that context read) before a
-  // three-statement batch; a rename or a remove is one write; a remove with
-  // nothing named writes nothing.
-  it("names in five statements, renames and removes in two, and a repeat remove in one", async () => {
+  // three-statement batch; a rename is one batch of two (clear any dietary
+  // answers, write the name and return it); an unchanged name writes nothing;
+  // a remove is one write; a remove with nothing named writes nothing.
+  it("names in five statements, renames in three, removes in two, and a repeat remove in one", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     const recorded = recordStatements(db);
@@ -931,7 +1142,7 @@ describe("plusOneService — statements per write", () => {
     ).toBe(5);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
-    ).toBe(2);
+    ).toBe(3);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(1);

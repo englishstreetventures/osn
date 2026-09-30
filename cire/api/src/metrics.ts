@@ -322,8 +322,9 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
  *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
  *  passed; `preview` = the organiser's host-preview family, which never writes;
- *  `plus_one_dietary` = dietary data on a plus-one's reply, which the invite
- *  has no attestation wording for yet. */
+ *  `plus_one_dietary` = dietary data on a plus-one's reply without the
+ *  household's attestation in the wording this API stamps, or attested for a
+ *  name the plus-one no longer has. */
 export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent" | "plus_one_dietary";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
@@ -455,11 +456,14 @@ type InviteFaqWriteAttrs = { action: InviteFaqAction; result: InviteFaqResult };
  *                    variant (and the result was written back to the cache).
  *  - `original`    — fell back to the raw R2 bytes because the binding was
  *                    absent (local/dev/tests) or the transform failed.
+ *  - `not_modified` — a revalidation whose `If-None-Match` named the image's
+ *                    tag: answered 304 with no cache lookup, R2 read or
+ *                    transform.
  * `variant` + `format` are the bounded unions from the transform module — never
  * the slug or any per-wedding value.
  */
 type ImageTransformAttrs = {
-  result: "cache_hit" | "transformed" | "original";
+  result: "cache_hit" | "transformed" | "original" | "not_modified";
   variant: ImageVariant;
   format: OutputFormat;
 };
@@ -731,7 +735,7 @@ const inviteAssetSize = createHistogram<Record<never, never>>({
 const imageTransform = createCounter<ImageTransformAttrs>({
   name: CIRE_METRICS.imageTransform,
   description:
-    "Public invite-image serves, by whether the response came from the Worker Cache API (cache_hit), the Cloudflare Images binding produced a variant (transformed), or we fell back to the R2 original (original), plus the resolved variant + output format",
+    "Public invite-image serves, by whether the response came from the Worker Cache API (cache_hit), the Cloudflare Images binding produced a variant (transformed), we fell back to the R2 original (original), or a revalidation was answered 304 with no body (not_modified), plus the resolved variant + output format",
   unit: "{serve}",
 });
 
@@ -1027,7 +1031,7 @@ export const metricInviteAssetUploaded = (result: "ok" | "error", byteLength?: n
  *  API (binding not invoked), `transformed` when the Images binding produced the
  *  variant, `original` when we fell back to the raw R2 bytes. */
 export const metricImageTransform = (
-  result: "cache_hit" | "transformed" | "original",
+  result: ImageTransformAttrs["result"],
   variant: ImageVariant,
   format: OutputFormat,
 ): void => imageTransform.inc({ result, variant, format });

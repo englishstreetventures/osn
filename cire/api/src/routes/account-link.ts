@@ -190,6 +190,12 @@ export const createAccountLinkPostRoute = (
                   set.status = 403;
                   return { error: "Guest does not belong to this family" };
                 }),
+              PlusOneSeatNotLinkable: () =>
+                Effect.sync(() => {
+                  metricAccountLinkRequest("error");
+                  set.status = 403;
+                  return { error: "plus_one_seat" };
+                }),
               AccountLinkConflict: () =>
                 Effect.sync(() => {
                   metricAccountLinkRequest("already_linked");

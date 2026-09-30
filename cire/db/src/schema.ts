@@ -752,6 +752,12 @@ export const registryItems = sqliteTable(
     // is the tie-break the ORDER BY actually uses, so the read is covered and
     // never falls back to a sort (P-I3).
     index("registry_items_wedding_sort_idx").on(t.weddingId, t.sortOrder, t.id),
+    // "Does an item of this wedding name this image?" The public gift-image
+    // route asks it on every request that reaches the Worker, so a deleted
+    // gift's picture stops serving by name, and removing an item asks it to
+    // decide whether the R2 object is orphaned. Without it both walk every item
+    // of the wedding.
+    index("registry_items_wedding_image_idx").on(t.weddingId, t.imageKey),
     // Zero (or negative) wanted makes the remaining-quantity arithmetic in
     // registryService.claim nonsense — every claim is instantly "full". The
     // service refuses it first; this is the floor under a future writer (S-M1).
