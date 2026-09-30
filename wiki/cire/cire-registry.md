@@ -9,7 +9,7 @@ related:
   - "[[cire-consent]]"
   - "[[stripe-webhooks]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-09-30
 ---
 
 # Gift registry
@@ -230,7 +230,7 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | ------------------------------------------------------- | --------------------------------- |
 | `GET /registry` — the published list, with claim counts | `sessionAuth` + family-in-wedding |
 | `GET /registry/mine` — this household's own claims      | `sessionAuth`                     |
-| `POST \| DELETE /registry/items/:itemId/claim`          | `sessionAuth` + per-IP limiter    |
+| `POST \| DELETE /registry/items/:itemId/claim`          | per-IP limiter, then `sessionAuth` |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
 **Every gated route checks the family against the WEDDING**, through one shared `familyInWedding` read, and they must not drift: a `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:

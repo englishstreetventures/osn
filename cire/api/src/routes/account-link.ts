@@ -160,7 +160,7 @@ export const createAccountLinkPostRoute = (
               osnProfileId: profileId,
             });
 
-            // C6: rotate the guest session on a successful link — session-fixation
+            // Rotate the guest session on a successful link — session-fixation
             // defence. The link is a privilege change (the household is now bound
             // to an OSN account), so any pre-existing token (possibly attacker-
             // planted before the legitimate user linked) is revoked and a fresh
