@@ -767,6 +767,7 @@ describe("GuestsEditor", () => {
       fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
       await waitFor(() => expect(screen.getByText(/Another change is being saved/i)).toBeTruthy());
       expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
     });
 
     it("shows a load error, not a draft, when the head cannot be read", async () => {
@@ -912,6 +913,71 @@ describe("GuestsEditor", () => {
       fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
       await waitFor(() => expect(posted).toHaveLength(2));
       expect(posted[1]!.baseRevision).toBe("rev_2");
+    });
+
+    it("keeps the button and the edit when the reload fails", async () => {
+      let failReload = false;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          return Promise.resolve(
+            failReload ? json({ error: "Internal error" }, 500) : json({ revision: "rev_1" }),
+          );
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        if (u.endsWith("/changes/preview")) {
+          failReload = true;
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByText(/Could not reload the guest list/i)).toBeTruthy(),
+      );
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+    });
+
+    it("sends an expired session to sign in when the reload finds it", async () => {
+      let expire = false;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          return Promise.resolve(
+            expire ? json({ error: "unauthenticated" }, 401) : json({ revision: "rev_1" }),
+          );
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        if (u.endsWith("/changes/preview")) {
+          expire = true;
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
     });
 
     it("names an edit it could not keep", async () => {

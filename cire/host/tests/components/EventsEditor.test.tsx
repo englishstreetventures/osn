@@ -789,6 +789,15 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText("State changed — re-preview")).toBeTruthy());
   });
 
+  it("offers to reload with the edits kept when the apply finds the head has moved", async () => {
+    await applyRenameAgainst409({ error: "State changed — re-preview", reason: "head_moved" });
+    await waitFor(() =>
+      expect(screen.getByText(/Someone else changed the schedule/i)).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
+  });
+
   it("shows the missing-scope 409 verbatim, not the co-host wording", async () => {
     // A change the server cannot read a scope from is not a concurrency conflict.
     // Saying the schedule changed elsewhere would send the organiser hunting for
@@ -798,6 +807,7 @@ describe("EventsEditor", () => {
       expect(screen.getByText("Change is missing its scope — re-preview")).toBeTruthy(),
     );
     expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
   });
 
   it("falls back to the co-host wording when a 409 carries no message", async () => {

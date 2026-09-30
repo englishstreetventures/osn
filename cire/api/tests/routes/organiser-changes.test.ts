@@ -18,7 +18,9 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import { claimRefused } from "../../src/routes/organiser-changes";
 import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
+import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
@@ -3001,5 +3003,54 @@ describe("wedding scoping: a change is tenant-isolated", () => {
     expect(db.select().from(events).where(eq(events.id, OTHER_EVENT)).all()).toHaveLength(1);
     expect(db.select().from(families).where(eq(families.id, OTHER_FAMILY)).all()).toHaveLength(1);
     expect(db.select().from(guests).where(eq(guests.id, OTHER_GUEST)).all()).toHaveLength(1);
+  });
+});
+
+describe("provenance through the change routes", () => {
+  it("an editor save's new household and guest are stored manual, and a sheet re-import keeps them", async () => {
+    const { app, db } = buildApp();
+    await seedSheets(app);
+    const draft = draftFromDb(db);
+    draft.families.push({
+      familyName: "Handmade",
+      guests: [{ firstName: "Cy", lastName: "Handmade", nickname: null, eventNames: ["Mehndi"] }],
+    } as (typeof draft.families)[number]);
+    await applyChange(app, await editorPreview(app, { desiredState: draft, scope: "guests" }));
+
+    const handmade = db.select().from(families).where(eq(families.familyName, "Handmade")).all();
+    expect(handmade.map((f) => f.source)).toEqual(["manual"]);
+    const cy = db.select().from(guests).where(eq(guests.firstName, "Cy")).all();
+    expect(cy.map((g) => g.source)).toEqual(["manual"]);
+    const ada = db.select().from(guests).where(eq(guests.firstName, "Ada")).all();
+    expect(ada.map((g) => g.source)).toEqual(["import"]);
+
+    // A two-sheet upload that does not list Handmade, without the toggle.
+    await applyChange(
+      app,
+      await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      }),
+    );
+    expect(
+      db.select().from(families).where(eq(families.familyName, "Handmade")).all(),
+    ).toHaveLength(1);
+  });
+});
+
+describe("claimRefused", () => {
+  it("names a moved head as head_moved, and a held claim as change_in_progress", () => {
+    const set: { status?: number | string } = {};
+    expect(
+      claimRefused(set, new ChangeConflict({ reason: "moved" }), "State changed — re-preview"),
+    ).toEqual({
+      error: "State changed — re-preview",
+      reason: "head_moved",
+    });
+    expect(set.status).toBe(409);
+    expect(claimRefused(set, new ChangeConflict({ reason: "in_progress" }), "x")).toEqual({
+      error: "Another change is being saved — try again in a moment",
+      reason: "change_in_progress",
+    });
   });
 });
