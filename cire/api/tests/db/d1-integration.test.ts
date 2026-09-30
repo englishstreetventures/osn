@@ -19,6 +19,7 @@ import {
   rsvps,
   tasks,
   weddingFaqs,
+  weddingEntitlements,
   weddingInviteCustomisations,
   weddings,
   BOOTSTRAP_WEDDING_ID,
@@ -48,7 +49,11 @@ import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
-import { registryService, SettingsChanged } from "../../src/services/registry";
+import {
+  registryGuestService,
+  registryService,
+  SettingsChanged,
+} from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
@@ -774,6 +779,110 @@ describe("cire/api over real D1 (Miniflare)", () => {
           }),
         ),
       ).toEqual({ note: "Towards the pan", noteHidden: false });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest registry gate: one joined read decides the list, and the image, on D1",
+    async () => {
+      // The correlated EXISTS columns and the LEFT JOIN's NULL settings run
+      // through the D1 driver's positional row mapping here, not only through
+      // bun:sqlite's.
+      const now = new Date();
+      const visible = (eff: Effect.Effect<string, unknown, DbService>) =>
+        Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
+      await db.insert(weddingEntitlements).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "registry",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: "usr_test",
+      });
+      // Entitled, never opened: no settings row reads as unpublished.
+      expect(Exit.isFailure(await visible(registryGuestService.visibleWeddingId("w")))).toBe(true);
+
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        headline: "Gifts",
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(await run(registryGuestService.visibleWeddingId("w"))).toBe(BOOTSTRAP_WEDDING_ID);
+      const view = await run(registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID }));
+      expect(view.headline).toBe("Gifts");
+      expect(view.cashGiftsEnabled).toBe(false);
+
+      await db.insert(registryItems).values({
+        id: "ritem_gate",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1"))).toBe(
+        `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
+      );
+      expect(
+        Exit.isFailure(await visible(registryGuestService.visibleImageKey("w", "registry-gone"))),
+      ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "gift log pages through one union with an offset on D1",
+    async () => {
+      const at = (seconds: number) => new Date(Date.UTC(2026, 7, 20, 10, 0, seconds));
+      await db.insert(registryItems).values({
+        id: "ritem_log",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      // The oldest gift is a claim; 51 cash gifts follow it, a second apart.
+      await db.insert(registryClaims).values({
+        id: "rclaim_log",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_log",
+        familyId: FAMILY_ID,
+        quantity: 1,
+        status: "reserved",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      // Ten rows per insert: D1 binds at most 100 variables per statement.
+      for (let start = 1; start <= 51; start += 10) {
+        await db.insert(registryContributions).values(
+          Array.from({ length: Math.min(10, 52 - start) }, (_, i) => ({
+            id: `rcon_log_${String(start + i).padStart(2, "0")}`,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: null,
+            familyId: FAMILY_ID,
+            status: "succeeded" as const,
+            amountMinor: 1_000,
+            currency: "AUD",
+            createdAt: at(start + i),
+            updatedAt: at(start + i),
+          })),
+        );
+      }
+
+      const first = await run(registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+      expect(first.entries).toHaveLength(50);
+      expect(first.hasMore).toBe(true);
+      expect(first.entries[0]!.id).toBe("rcon_log_51");
+
+      const second = await run(registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 50 }));
+      expect(second.hasMore).toBe(false);
+      expect(second.entries.map((e) => [e.kind, e.id, e.quantity, e.amountMinor])).toEqual([
+        ["contribution", "rcon_log_01", null, 1_000],
+        ["claim", "rclaim_log", 1, null],
+      ]);
+      expect(second.entries[1]!.createdAt).toBe(at(0).getTime());
     },
     MF_TIMEOUT_MS,
   );
