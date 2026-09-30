@@ -11,7 +11,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[toast]]"
   - "[[component-lab]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-10-01
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -88,13 +88,21 @@ const sortable = createSortable(props.row.key);
 
 ### One difference from solid-dnd: accessors, not store properties
 
-`transform`, `isActiveDraggable` and the provider's `active` are **accessors** —
-call them. solid-dnd exposed store properties, so the migration needed three
+`transform`, `isActiveDraggable` and the provider's `active` and `dragging` are
+**accessors** — call them. solid-dnd exposed store properties, so the migration needed three
 call-site changes in `EventsEditor`. Getting this wrong is silent: passing
 `sortable.transform` uncalled hands `maybeTransformStyle` a truthy function and
 paints `translate3d(undefinedpx, undefinedpx, 0)`, so the row simply never moves
 under the pointer while every drop-semantics test stays green. `tsc` catches it;
 a package test pins the painted offset as well.
+
+A row that styles itself by whether a drag is live reads `dragging()`, not
+`!!active().draggable`. `active` changes on pick-up, on every slot the pointer
+crosses and on drop; `dragging` only on the first and last, so a long list runs
+each row's effect twice per gesture rather than once per slot. For the same
+reason `isActiveDraggable` reads a selector over the dragged id, which wakes only
+the row whose answer flips, and `transform` compares by value, so a displaced
+row that stays put does not repaint. A package test counts those runs.
 
 ### `ref` + `dragActivators`, not a whole-row directive
 
@@ -293,14 +301,19 @@ Two rules every consumer follows, both found converting those three:
   list — per bucket inside a `<For>` over the fixed bucket array, never inside a
   `<For>` over a memo that rebuilds its group objects on every write, which
   re-creates the section, the list and the live region on every move.
-- **A move rewrites only the rows whose stored `sortOrder` changes.** `<For>`
-  keys by object identity, so a blanket `{ ...row }` rebuilds every row and loses
-  whatever is open in them — an inline editor's caret, a half-typed payment. A
-  delete leaves a gap in the stored order (nothing renumbers on delete), so the
-  first move after one rewrites every row past the gap; the reorder then stores a
-  dense order again. The moved rows themselves are rebuilt, which is fine: `move` calls `onMove` (a synchronous cache
-  write, so a synchronous render) before it focuses the grip, and the new grip has
-  registered itself by then.
+- **Rows are keyed by id, and an order-only change does not rebuild one.** A
+  move rewrites the stored `sortOrder` of every row whose position changed —
+  after a gap in the stored order (a delete, or a task moved to another bucket;
+  nothing renumbers the rest) that is every row past the gap, until the reorder
+  stores a dense order again. `<For>` keys by object identity, so iterating the
+  row objects would rebuild all of them and lose whatever is open in them — an
+  inline editor's caret, a half-typed payment. The gift list, checklist and
+  budget therefore iterate ids and look each row up through a memo whose
+  `equals` is `sameButOrder` (`cire/host/src/lib/sortable-rows.ts`), inside a
+  `<Show keyed>`: an order-only change keeps the old object and `<For>` moves the
+  node; any other change is a new object and rebuilds the row, as an edit always
+  has. Focus survives a keyboard move because the moved row keeps its grip, and
+  `move` writes the cache synchronously before the list focuses it.
 
 A failed save calls `clearAnnouncement()` before reloading the old order, so the
 live region does not go on asserting a move that was undone.
