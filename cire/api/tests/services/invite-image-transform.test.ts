@@ -21,6 +21,7 @@ import {
   type ImageTransformHandle,
   type OutputFormat,
 } from "../../src/services/invite-image-transform";
+import { captureLogs } from "../test-helpers/capture-logs";
 
 describe("resolveVariant", () => {
   it("returns a known variant verbatim", () => {
@@ -335,6 +336,7 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
         key: KEY,
         version: "1718000000",
         cacheSlot: "registry:wed_1",
+        logSlot: "registry",
         variant: "thumb",
         format: "image/jpeg",
         visibility,
@@ -439,5 +441,39 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     };
     const res = await serve("private");
     expect(res.status).toBe(200);
+  });
+
+  it("logs the slot kind, never the wedding slug, when the transform and the put both fail", async () => {
+    // The public routes build `cacheSlot` from the slug, which is the couple's
+    // names. Both warnings on this path must name the slot kind instead.
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        match: () => Promise.resolve(undefined),
+        put: () => Promise.reject(new Error("Cache put: Response body is unbuffered")),
+      },
+    };
+    const assets = createAssetsStub();
+    await assets.put(KEY, new Uint8Array([1, 2, 3]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const logs = await captureLogs(() =>
+      Effect.runPromise(
+        serveTransformedImage({
+          request: new Request("https://api.example/invite/anna-and-ben/image/hero"),
+          key: KEY,
+          version: "1718000000",
+          cacheSlot: "anna-and-ben:hero",
+          logSlot: "hero",
+          variant: "hero",
+          format: "image/webp",
+          images: createImagesStub({ throwOn: "output" }),
+        }).pipe(Effect.provideService(AssetsR2Service, assets)),
+      ),
+    );
+
+    expect(logs).toContain("invite image transform failed; serving original");
+    expect(logs).toContain("image cache put failed");
+    expect(logs).toContain("hero");
+    expect(logs).not.toContain("anna-and-ben");
   });
 });

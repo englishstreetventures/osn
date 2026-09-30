@@ -13,7 +13,7 @@ import { Data, Effect } from "effect";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { metricImageTransform } from "../metrics";
 import { fetchAsset, fetchAssetStream } from "./invite-assets";
-import type { AssetR2Error, AssetsR2Service, StoredAsset } from "./invite-assets";
+import type { AssetR2Error, AssetSlotLabel, AssetsR2Service, StoredAsset } from "./invite-assets";
 
 // ── Variant scheme ────────────────────────────────────────────────────────────
 
@@ -371,6 +371,10 @@ function freshForClient(hit: Response, cacheControl: string): Response {
  * the registry-item serve routes so all three get the IDENTICAL Cache-API-short-
  * circuit + Images-binding transform + raw-original fallback pipeline.
  *
+ * `logSlot` is the kind of slot, and the only slot detail the warnings on this
+ * path log: `cacheSlot` carries the wedding's public slug, which is the
+ * couple's names, so it never reaches a log line.
+ *
  * `cacheSlot` is the slot segment of the Cache API key (e.g. `"hero"`,
  * `"event:<eventId>"`, `"registry:<weddingId>"`) — every field that changes the
  * transformed bytes is folded into the key, and the version is ALWAYS the
@@ -390,6 +394,7 @@ export function serveTransformedImage(args: {
   key: string;
   version: string | undefined;
   cacheSlot: string;
+  logSlot: AssetSlotLabel;
   variant: ImageVariant;
   format: OutputFormat;
   blurOverride?: number;
@@ -404,6 +409,7 @@ export function serveTransformedImage(args: {
     key,
     version,
     cacheSlot,
+    logSlot,
     variant,
     format,
     blurOverride,
@@ -455,7 +461,7 @@ export function serveTransformedImage(args: {
         Effect.catchTag("ImageTransformError", (err) =>
           Effect.gen(function* () {
             yield* Effect.logWarning("invite image transform failed; serving original", {
-              cacheSlot,
+              slot: logSlot,
               variant,
               format,
               reason: err.reason,
@@ -495,7 +501,7 @@ export function serveTransformedImage(args: {
         // request's own promise chain it would surface as an unhandled rejection.
         Effect.catch((cause) =>
           Effect.logWarning("image cache put failed", {
-            cacheSlot,
+            slot: logSlot,
             variant,
             format,
             reason: cause instanceof Error ? cause.message : String(cause),
