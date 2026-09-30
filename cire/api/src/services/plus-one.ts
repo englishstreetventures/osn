@@ -18,6 +18,11 @@
  * The change pipeline (spreadsheet upload, editor save, revert) never matches,
  * edits or removes a plus-one directly; see `diffAgainstDb`.
  *
+ * The household's three writes each log one row in the RSVP change log
+ * ([[wiki/cire/cire-rsvp-changes]]) in the batch that makes the change, keyed
+ * on the guest who brought the plus-one. The organiser's writes log nothing:
+ * the log records what guests changed.
+ *
  * TENANCY: the guest half is keyed on the session's `familyId` — the inviter
  * must be a member of that household, and every write is scoped by it. The
  * organiser half re-checks, in wedding scope, that the guest or household
@@ -25,7 +30,7 @@
  */
 import { families, guestEvents, guests, rsvps, weddingEntitlements, weddings } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -39,6 +44,7 @@ import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet 
 import type { ConfirmedPlusOne } from "../schemas/plus-one";
 import type { CapacityExceeded } from "./entitlements";
 import { CAPACITY_ENTITLEMENT_KEYS, entitlementService } from "./entitlements";
+import { buildRecordStatement, type PlusOneChangeKind } from "./rsvp-changes";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +128,42 @@ function toRecord(rows: readonly PlusOneRow[], inviterGuestId: string): PlusOneR
 }
 
 /**
+ * The change-log row for one guest plus-one write, written only when `when`
+ * holds inside the batch. `guestId` is the inviter: after a removal the
+ * plus-one's own row is gone.
+ */
+function recordPlusOneChange(
+  db: Db,
+  input: { weddingId: string; familyId: string; inviterGuestId: string },
+  kind: PlusOneChangeKind,
+  when: SQL,
+): BatchItem<"sqlite"> {
+  const statement = buildRecordStatement(
+    db,
+    {
+      weddingId: input.weddingId,
+      familyId: input.familyId,
+      changes: [{ guestId: input.inviterGuestId, eventId: null, kind }],
+    },
+    new Date(),
+    when,
+  );
+  // One change always yields a statement; null means "nothing to record".
+  if (!statement) throw new Error("plus-one change produced no statement");
+  return statement;
+}
+
+/** `EXISTS (…)` over `guests` for a record statement's condition. */
+function guestExists(db: Db, where: SQL | undefined): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(guests)
+      .where(where),
+  );
+}
+
+/**
  * The statements that name a new plus-one, as ONE group so they commit in one
  * D1 batch:
  *
@@ -134,6 +176,8 @@ function toRecord(rows: readonly PlusOneRow[], inviterGuestId: string): PlusOneR
  *     select reaches the new id only through a JOIN on the row statement 1 just
  *     wrote, so when statement 1 was skipped this copies nothing, rather than
  *     pointing links at a guest that does not exist.
+ *  3. The `plus_one_added` change row, written only when the row statement 1
+ *     inserts is there — so a skipped insert logs nothing.
  *
  * Exported for the test that drives the skipped path directly: bun:sqlite runs
  * statements one at a time, so a real race cannot be staged there.
@@ -142,6 +186,7 @@ export function buildCreatePlusOne(
   db: Db,
   input: {
     newId: string;
+    weddingId: string;
     inviterGuestId: string;
     familyId: string;
     sortOrder: number;
@@ -177,6 +222,7 @@ export function buildCreatePlusOne(
         )
         .where(eq(guestEvents.guestId, input.inviterGuestId)),
     ),
+    recordPlusOneChange(db, input, "plus_one_added", guestExists(db, eq(guests.id, input.newId))),
   ];
 }
 
@@ -295,12 +341,21 @@ function readGuestContext(familyId: string, inviterGuestId: string, options: { d
  * change count, which a batch does not return.
  * `dietaryCleared` reports what the caller's read saw on file, for the
  * household's notice.
+ *
+ * `record` builds the change-log row for a household rename from the
+ * condition "this plus-one is still here and still carries another name". It
+ * rides the clearing batch after the clear and before the rename, so it holds
+ * exactly when the rename is about to change the row.
  */
 function writeName(
   plusOne: PlusOneRecord,
   scope: SQL | undefined,
   clean: PlusOneName,
-  clear: { dietary: boolean; sawDietary: boolean },
+  clear:
+    | { dietary: true; sawDietary: boolean; record: (when: SQL) => BatchItem<"sqlite"> }
+    | {
+        dietary: false;
+      },
 ): Effect.Effect<
   { plusOne: PlusOneRecord; changed: boolean; dietaryCleared: boolean },
   PlusOneNotFound,
@@ -338,12 +393,22 @@ function writeName(
           ),
         ),
       );
+    const record = clear.record(
+      guestExists(
+        db,
+        and(
+          eq(guests.id, plusOne.guestId),
+          scope,
+          or(ne(guests.firstName, clean.firstName), ne(guests.lastName, clean.lastName)),
+        ),
+      ),
+    );
     // The name write answers with its own row, so an empty answer means the
     // plus-one was removed since the read.
     const rows = yield* dbQuery(() =>
       commitGroupedBatchesReturning<{ id: string }>(
         db,
-        [[clearAnswers]],
+        [[clearAnswers, record]],
         rename.returning({ id: guests.id }) as ReturningTail<{ id: string }>,
       ),
     );
@@ -498,6 +563,7 @@ export const plusOneService = {
         return yield* Effect.fail(new PlusOneNotAllowed());
       }
       const clean = cleanName(name);
+      const change = { weddingId: context.weddingId, familyId, inviterGuestId };
 
       if (context.plusOne !== null) {
         // Rename. An unchanged name writes nothing. Removed since the read:
@@ -505,6 +571,7 @@ export const plusOneService = {
         const renamed = yield* writeName(context.plusOne, eq(guests.familyId, familyId), clean, {
           dietary: true,
           sawDietary: context.plusOneHasDietary,
+          record: (when) => recordPlusOneChange(db, change, "plus_one_renamed", when),
         }).pipe(Effect.catchTag("PlusOneNotFound", () => Effect.fail(new PlusOneGuestNotFound())));
         if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "guest"));
         return { plusOne: renamed.plusOne, created: false, dietaryCleared: renamed.dietaryCleared };
@@ -523,6 +590,7 @@ export const plusOneService = {
           [
             buildCreatePlusOne(db, {
               newId,
+              weddingId: context.weddingId,
               inviterGuestId,
               familyId,
               sortOrder: context.inviter.sortOrder,
@@ -547,6 +615,8 @@ export const plusOneService = {
    * Remove the plus-one of `inviterGuestId`, with their replies and invitations
    * (the FK cascade). `removed: false` when there was none — the call is
    * idempotent. Needs no permission: a guest may always take a plus-one back.
+   * The change row and the delete are one batch, the row written only while
+   * there is a plus-one for the delete to take.
    */
   remove(
     familyId: string,
@@ -566,13 +636,23 @@ export const plusOneService = {
       // Nothing named: the read already says so, and the DELETE would match
       // nothing.
       if (context.plusOne === null) return { removed: false };
-      const result = yield* dbQuery(() =>
-        db
-          .delete(guests)
-          .where(and(eq(guests.plusOneOfGuestId, inviterGuestId), eq(guests.familyId, familyId)))
-          .run(),
+      const theirs = and(
+        eq(guests.plusOneOfGuestId, inviterGuestId),
+        eq(guests.familyId, familyId),
       );
-      const removed = rowsChanged(result) > 0;
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          recordPlusOneChange(
+            db,
+            { weddingId: context.weddingId, familyId, inviterGuestId },
+            "plus_one_removed",
+            guestExists(db, theirs),
+          ),
+          db.delete(guests).where(theirs).returning({ id: guests.id }),
+        ]),
+      );
+      // The deleted rows, not a change count: the cascade's rows would count too.
+      const removed = (results[1] as readonly { id: string }[]).length > 0;
       if (removed) yield* Effect.sync(() => metricPlusOneChanged("removed", "guest"));
       return { removed };
     }).pipe(Effect.withSpan("cire.plus_one.remove"));
@@ -619,10 +699,7 @@ export const plusOneService = {
       const current = toRecord(rows, inviterGuestId);
       if (!current) return yield* Effect.fail(new PlusOneNotFound());
       // A correction of the same person's name: their answers stay.
-      const renamed = yield* writeName(current, undefined, clean, {
-        dietary: false,
-        sawDietary: false,
-      });
+      const renamed = yield* writeName(current, undefined, clean, { dietary: false });
       if (renamed.changed) yield* Effect.sync(() => metricPlusOneChanged("renamed", "organiser"));
       return { plusOne: renamed.plusOne };
     }).pipe(Effect.withSpan("cire.plus_one.renameAsOrganiser"));

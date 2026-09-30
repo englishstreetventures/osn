@@ -1182,6 +1182,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(guestEvents)
         .where(eq(guestEvents.guestId, rows[0]!.id));
       expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+      // The change row rides the batch that names them, so the skipped submit
+      // logs nothing.
+      const logged = await db
+        .select({ guestId: rsvpChanges.guestId, kind: rsvpChanges.kind })
+        .from(rsvpChanges);
+      expect(logged).toEqual([{ guestId: GUEST_1, kind: "plus_one_added" }]);
     },
     MF_TIMEOUT_MS,
   );

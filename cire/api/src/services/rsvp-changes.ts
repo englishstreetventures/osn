@@ -125,14 +125,18 @@ const TUPLE_FIELDS = ["weddingId", "familyId", "guestId", "eventId", "kind", "cr
  * column in schema order, so the select list is derived from that order, with
  * `NULL` for `seq` so SQLite assigns the next number.
  *
- * A plus-one write records a {@link PlusOneChangeKind} through this in its own
- * batch, with `eventId: null` and the guest who brought the plus-one. The guest
- * plus-one writes are wired in englishstventures/osn#1258.
+ * The guest plus-one writes (`services/plus-one.ts`) record a
+ * {@link PlusOneChangeKind} through this in their own batch, with
+ * `eventId: null` and the guest who brought the plus-one. They pass `when`, a
+ * condition the insert's SELECT must meet, so the row is written only when the
+ * write it describes happens: it is evaluated inside the batch, against what
+ * the statements before it wrote.
  */
 export function buildRecordStatement(
   db: Db,
   input: { weddingId: string; familyId: string; changes: readonly RsvpChangeInput[] },
   now: Date,
+  when?: SQL,
 ): BatchItem<"sqlite"> | null {
   const { changes } = input;
   if (changes.length === 0) return null;
@@ -155,7 +159,11 @@ export function buildRecordStatement(
   });
   return db
     .insert(rsvpChanges)
-    .select(sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload})`);
+    .select(
+      when
+        ? sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload}) WHERE ${when}`
+        : sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload})`,
+    );
 }
 
 /** One unseen row, as the feed read returns it. */
