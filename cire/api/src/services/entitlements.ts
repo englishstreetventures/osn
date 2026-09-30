@@ -1,8 +1,8 @@
 import { families, guests, weddingEntitlements } from "@cire/db";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { type AnyColumn, and, eq, inArray, ne, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { type Db, DbService, dbQuery } from "../db";
+import { type Db, DbService, dbQuery, outerColumn } from "../db";
 
 export const ENTITLEMENT_KEYS = [
   "premium_templates",
@@ -89,16 +89,22 @@ function grantStatement(
 }
 
 /**
- * A column that is 1 when `weddingId` holds `key` and 0 when it does not, for a
- * role gate to add to the query it already runs instead of making a second
- * round trip. `hostsService.authorize()` and `weddingOwner()` both use it, so
- * the two folds cannot disagree about what "holds" means.
+ * A column that is 1 when the wedding holds `key` and 0 when it does not, for a
+ * gate to add to the query it already runs instead of making a second round
+ * trip. `hostsService.authorize()`, `weddingOwner()` and the guest registry gate
+ * all use it, so the folds cannot disagree about what "holds" means.
+ *
+ * The wedding is either an id already in hand, or a column of the outer query —
+ * `weddings.id` when the gate resolves the wedding from its slug in the same
+ * statement. A column is correlated through {@link outerColumn}, so it names
+ * the outer row whatever shape the outer select has.
  *
  * It stays a raw `sql` fragment on purpose. Built from `db.select()` it would
  * read as a second query to anything counting builder calls, and the query
  * count is the reason the fold exists.
  */
-export function entitlementPresent(weddingId: string, key: EntitlementKey) {
+export function entitlementPresent(wedding: string | AnyColumn, key: EntitlementKey) {
+  const weddingId = typeof wedding === "string" ? wedding : outerColumn(wedding);
   return sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = ${key})`;
 }
 

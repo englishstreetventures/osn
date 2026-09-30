@@ -11,8 +11,10 @@ import {
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
+import { Effect, Exit } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type {
@@ -20,8 +22,9 @@ import type {
   ImageTransformHandle,
   OutputFormat,
 } from "../../src/services/invite-image-transform";
+import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 
 const SLUG = "cire-wedding";
 const OTHER_WEDDING_ID = "wed_other";
@@ -115,6 +118,8 @@ async function withCaches<T>(stub: CacheStorage, fn: () => Promise<T>): Promise<
 function buildApp(
   opts: {
     entitled?: boolean;
+    /** False: the couple never saved the registry, so it has no settings row. */
+    opened?: boolean;
     published?: boolean;
     shippingAddress?: string | null;
     shippingVisibleFrom?: string | null;
@@ -126,6 +131,7 @@ function buildApp(
 ) {
   const {
     entitled = true,
+    opened = true,
     published = true,
     shippingAddress = null,
     shippingVisibleFrom = null,
@@ -175,23 +181,25 @@ function buildApp(
       .run();
   }
 
-  db.insert(registrySettings)
-    .values({
-      weddingId: BOOTSTRAP_WEDDING_ID,
-      published,
-      headline: "Gifts",
-      message: "Your presence is the present.",
-      cashGiftsEnabled,
-      stripeChargesEnabled,
-      shippingAddress,
-      shippingVisibleFrom,
-      // Present so a leak test has something to catch: no guest payload may
-      // carry the couple's Stripe account, published or not.
-      stripeAccountId: "acct_secret_123",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  if (opened) {
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published,
+        headline: "Gifts",
+        message: "Your presence is the present.",
+        cashGiftsEnabled,
+        stripeChargesEnabled,
+        shippingAddress,
+        shippingVisibleFrom,
+        // Present so a leak test has something to catch: no guest payload may
+        // carry the couple's Stripe account, published or not.
+        stripeAccountId: "acct_secret_123",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
   db.insert(registrySettings)
     .values({
       weddingId: OTHER_WEDDING_ID,
@@ -329,6 +337,9 @@ describe("the guest registry is one 404, whatever the reason", () => {
     ["an unknown slug", () => buildApp(), "no-such-wedding"],
     ["a wedding without the entitlement", () => buildApp({ entitled: false }), SLUG],
     ["an unpublished registry", () => buildApp({ published: false }), SLUG],
+    // Entitled, but the couple never saved the registry: no settings row, which
+    // reads as the defaults (unpublished), never as a fault.
+    ["a registry never opened", () => buildApp({ opened: false }), SLUG],
   ] as const;
 
   for (const [label, make, slug] of scenarios) {
@@ -358,6 +369,40 @@ describe("the guest registry is one 404, whatever the reason", () => {
       expect(await jsonBody(released)).toEqual({ error: "registry_not_found" });
     });
   }
+
+  it("reads a household's list with the household check inside the gate", async () => {
+    // Gate (with the household), then the items and the claim counts
+    // together: two hops, never a third for the household or the currency.
+    const { app, db } = buildApp();
+    const cookie = await guestCookie(app);
+    const statements = recordStatements(db);
+    await listView(app, cookie);
+    const registryReads = statements.filter((s) => /"registry_|"weddings"/.test(s.sql));
+    expect(registryReads).toHaveLength(3);
+    expect(registryReads[0]!.sql).toContain('"families"');
+    const householdOnly = statements.filter(
+      (s) => /from "families"/.test(s.sql) && !s.sql.includes('"weddings"'),
+    );
+    expect(householdOnly).toEqual([]);
+  });
+
+  it("decides all of it in one statement", async () => {
+    // Every guest route pays this gate, and the image route pays it per image.
+    for (const [opts, slug, visible] of [
+      [{}, SLUG, true],
+      [{ opened: false }, SLUG, false],
+      [{ entitled: false }, SLUG, false],
+      [{}, "no-such-wedding", false],
+    ] as const) {
+      const { db } = buildApp(opts);
+      const statements = recordStatements(db);
+      const exit = await Effect.runPromiseExit(
+        registryGuestService.visibleWeddingId(slug).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isSuccess(exit)).toBe(visible);
+      expect(statements).toHaveLength(1);
+    }
+  });
 
   it("401s the session-gated routes with no cookie at all, before the slug is read", async () => {
     const { app } = buildApp();
@@ -791,8 +836,9 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
   });
 
   // Why the Worker's own copy may keep a year while the browser's may not: every
-  // lookup in it runs after the gate, so each way the couple can close the list
-  // takes effect at once over a warm Worker cache.
+  // lookup in it runs after the gate, so each way the couple can withdraw an
+  // image — the whole list, or the one gift that shows it — takes effect at once
+  // over a warm Worker cache.
   const closings = [
     [
       "the list is unpublished",
@@ -815,6 +861,13 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
             ),
           )
           .run(),
+    ],
+    [
+      // The list stays published: the gate checks that an item of this wedding
+      // still names the image, not only that the list is open.
+      "the gift is deleted",
+      (db: ReturnType<typeof buildApp>["db"]) =>
+        db.delete(registryItems).where(eq(registryItems.id, PAN)).run(),
     ],
   ] as const;
 
@@ -865,11 +918,118 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
   });
 
-  it("404s a well-formed name with no object behind it, same body as everything else", async () => {
-    const { app } = buildApp();
+  it("404s a listed name with no object behind it, same body as everything else", async () => {
+    // The item names the image, so the gate passes and the R2 read is what
+    // fails: the row outlived its object.
+    const { app, db } = buildApp();
+    db.update(registryItems)
+      .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-missing` })
+      .where(eq(registryItems.id, BOWL))
+      .run();
     const res = await appRequest(app, `${guestBase()}/image/registry-missing`);
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+
+  it("404s an object no item of this wedding names, though R2 still holds it", async () => {
+    // A picture from a deleted gift waiting for the reconcile sweep, or a
+    // well-formed name somebody guessed: the bytes exist, but no gift shows them.
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-orphan`);
+    expect((await appRequest(app, `${guestBase()}/image/registry-orphan`)).status).toBe(404);
+
+    // An item that names an image under ANOTHER wedding's prefix does not count
+    // either: the key is rebuilt from this slug's wedding, and must match whole.
+    // Both objects exist, so only the gate can refuse.
+    plant(assets, `assets/${OTHER_WEDDING_ID}/registry-elsewhere`);
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-elsewhere`);
+    db.update(registryItems)
+      .set({ imageKey: `assets/${OTHER_WEDDING_ID}/registry-elsewhere` })
+      .where(eq(registryItems.id, BOWL))
+      .run();
+    const res = await appRequest(app, `${guestBase()}/image/registry-elsewhere`);
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+
+  it("404s this wedding's image when only another wedding's item names it", async () => {
+    // The item check is scoped to the slug's wedding: a row of wedding B
+    // holding wedding A's key opens nothing on A's list. Writes refuse such a
+    // key already; this is the gate holding without them.
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-cross`);
+    db.update(registryItems)
+      .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-cross` })
+      .where(eq(registryItems.id, OTHER_ITEM))
+      .run();
+    const res = await appRequest(app, `${guestBase()}/image/registry-cross`);
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+
+  it("stops serving a replaced picture's old name, over a warm Worker cache", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const { app, assets, db } = buildApp({ images: createImagesStub() });
+      plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+      expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
+
+      // Saving a new picture mints a new name. The old object stays in R2 until
+      // the sweep and in the Worker cache for a year; neither may answer for it.
+      plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/registry-pan-new`);
+      db.update(registryItems)
+        .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-pan-new` })
+        .where(eq(registryItems.id, PAN))
+        .run();
+
+      expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(404);
+      expect((await appRequest(app, `${guestBase()}/image/registry-pan-new`)).status).toBe(200);
+    });
+  });
+
+  it("revalidates with a 304 only after the gate, never instead of it", async () => {
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+    const url = `${guestBase()}/image/${PAN_IMAGE}`;
+    const first = await appRequest(app, url);
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/"/);
+
+    // The browser's hour ran out; it asks with the tag it holds.
+    const again = { headers: { "If-None-Match": etag! } };
+    const fresh = await appRequest(app, url, again);
+    expect(fresh.status).toBe(304);
+    expect(fresh.headers.get("cache-control")).toBe("public, max-age=3600");
+
+    // The gift is withdrawn: the same question now gets the same 404 as
+    // everything else, not a 304 telling the browser to keep the picture.
+    db.delete(registryItems).where(eq(registryItems.id, PAN)).run();
+    const gone = await appRequest(app, url, again);
+    expect(gone.status).toBe(404);
+    expect(await jsonBody(gone)).toEqual({ error: "registry_not_found" });
+  });
+
+  it("gates each request with one statement, through the image index", async () => {
+    const { app, assets, db } = buildApp();
+    plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
+    const statements = recordStatements(db);
+    expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
+    // Slug, entitlement, settings and item in one read: this route runs it on
+    // every image request that reaches the Worker, dozens to a page.
+    expect(statements).toHaveLength(1);
+    // bun:sqlite's planner, not D1's, but the same engine: the item check is a
+    // probe of `(wedding_id, image_key)`, not a walk of the wedding's items.
+    const plan = (
+      db.$client.query(`EXPLAIN QUERY PLAN ${statements[0]!.sql}`).all() as Array<{
+        detail: string;
+      }>
+    )
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toMatch(
+      /SEARCH registry_items USING (COVERING )?INDEX registry_items_wedding_image_idx \(wedding_id=\? AND image_key=\?\)/,
+    );
+    expect(plan).not.toMatch(/SCAN registry_items/);
   });
 
   it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing (S-M1)", async () => {

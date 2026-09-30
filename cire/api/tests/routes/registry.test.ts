@@ -863,17 +863,16 @@ describe("GET /registry/gifts", () => {
     expect(body.gifts.map((g) => g.id)).toEqual(["rct_0001", "rct_0000"]);
     expect(body.giftsHasMore).toBe(false);
 
-    // Every registry table this request read is one of the gift log's two —
-    // not the settings row, the item list, the claim counts or the totals.
+    // The only registry read is the gift log's one statement over its two
+    // tables — not the settings row, the item list, the claim counts or the
+    // totals.
     const registryReads = statements
       .map((s) => s.sql)
       .filter((sql) => /"registry_[a-z_]+"/.test(sql));
-    expect(registryReads).toHaveLength(2);
-    expect(registryReads.filter((sql) => /from "registry_claims"/.test(sql))).toHaveLength(1);
-    expect(registryReads.filter((sql) => /from "registry_contributions"/.test(sql))).toHaveLength(
-      1,
-    );
-    expect(registryReads.some((sql) => sql.includes('"registry_settings"'))).toBe(false);
+    expect(registryReads).toHaveLength(1);
+    expect(registryReads[0]).toContain('from "registry_claims"');
+    expect(registryReads[0]).toContain('from "registry_contributions"');
+    expect(registryReads[0]).not.toContain('"registry_settings"');
   });
 
   it("walks the log page by page and says when it has run out", async () => {

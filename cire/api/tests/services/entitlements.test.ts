@@ -63,6 +63,27 @@ describe("entitlementPresent", () => {
     expect(present(unpaid, "vendors")).toBe(0);
     expect(present(paid, "registry")).toBe(0);
   });
+
+  it("correlates to the outer row when given a column instead of an id", async () => {
+    const db = createDb();
+    seedWedding(db, "wed_unpaid");
+    const paid = seedWedding(db, "wed_paid");
+    await run(
+      db,
+      entitlementService.grant(paid, "registry", { source: "comp", grantedBy: "usr_owner" }),
+    );
+    // One table, so Drizzle writes a column placed directly in a selected `sql`
+    // field bare. The outer reference must still name `weddings`, or inside the
+    // subquery it could bind to the inner table's own column of that name.
+    const query = db
+      .select({ id: weddings.id, v: entitlementPresent(weddings.id, "registry") })
+      .from(weddings);
+    expect(query.toSQL().sql).toContain(`= "weddings"."id"`);
+    expect(query.all().toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "wed_paid", v: 1 },
+      { id: "wed_unpaid", v: 0 },
+    ]);
+  });
 });
 
 describe("grant + has", () => {

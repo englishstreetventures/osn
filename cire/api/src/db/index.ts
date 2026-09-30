@@ -1,4 +1,5 @@
 import * as schema from "@cire/db";
+import { type AnyColumn, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
@@ -51,6 +52,20 @@ export function createD1Db(client: D1QueryClient): Db {
  */
 export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
   Effect.promise(() => Promise.resolve(run()));
+
+/**
+ * A reference to `column` that always renders qualified, as `"table"."column"`,
+ * for a subquery that correlates to the row of the query around it.
+ *
+ * Drizzle writes a column that sits directly in a selected `sql` field bare —
+ * `"id"`, not `"weddings"."id"` — whenever the select reads a single table.
+ * Inside `EXISTS (SELECT 1 FROM other WHERE …)` a bare name binds to the
+ * subquery's own table first when that table has a column of the same name, so
+ * the check compares the inner row with itself and answers wrongly without an
+ * error. Wrapped one level down, as here, the column renders qualified whatever
+ * shape the outer select has.
+ */
+export const outerColumn = (column: AnyColumn): SQL => sql`${column}`;
 
 /**
  * A non-empty statement list — the shape `batch()` demands (D1 rejects an empty
