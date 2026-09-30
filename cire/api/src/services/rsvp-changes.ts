@@ -3,9 +3,10 @@
  *
  * `POST /api/rsvp` records one row per guest×event pair whose reply is new or
  * differs from the stored one, in the same batch as the reply (see
- * {@link buildRecordStatement}). The organiser portal reads the rows past the
- * caller's own marker for its "since your last visit" card and the RSVP
- * table's "New" badges; the daily digest (`services/rsvp-digest.ts`) reads them
+ * {@link buildRecordStatement}); the guest plus-one writes record theirs the
+ * same way. The organiser portal reads the rows past the caller's own marker
+ * for its "since your last visit" card and, separately, the RSVP table's
+ * "New" badges; the daily digest (`services/rsvp-digest.ts`) reads them
  * past each recipient's digest marker. A daily cron deletes rows older than
  * {@link RSVP_CHANGE_RETENTION_MS}.
  *
@@ -22,7 +23,7 @@ import {
 } from "@cire/db";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, getTableColumns, gt, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
@@ -33,8 +34,11 @@ import { metricRsvpChangeSwept } from "../metrics";
 /** Change rows older than this are deleted by the daily cron. */
 export const RSVP_CHANGE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** The most unseen rows one feed read returns. Past it the feed says `truncated`. */
-export const UNSEEN_ROW_LIMIT = 500;
+/** The most change rows one feed read takes. Past it the card's count is a floor. */
+export const UNSEEN_SCAN_LIMIT = 5000;
+
+/** The most guest×event pairs the RSVP table badges in one visit. */
+export const UNSEEN_PAIR_LIMIT = 500;
 
 /** How many households the feed lists by name. */
 export const FEED_ITEM_LIMIT = 5;
@@ -166,40 +170,119 @@ export function buildRecordStatement(
     );
 }
 
-/** One unseen row, as the feed read returns it. */
-export interface UnseenRow {
-  seq: number;
+/**
+ * The caller's read marker, as a scalar subquery, so a read needs no separate
+ * round trip for it. No notice row reads as 0: nothing seen.
+ */
+const seenMarker = (weddingId: string, osnProfileId: string): SQL =>
+  sql`coalesce((SELECT ${hostRsvpNotices.seenSeq} FROM ${hostRsvpNotices} WHERE ${hostRsvpNotices.weddingId} = ${weddingId} AND ${hostRsvpNotices.osnProfileId} = ${osnProfileId}), 0)`;
+
+/**
+ * The caller's unseen rows, `UNSEEN_SCAN_LIMIT + 1` of them from one end of
+ * the range, as a CTE named `w`. Served by `rsvp_changes_wedding_idx` with a
+ * rowid range in either direction (pinned by a plan test), so each read costs
+ * at most that many rows however long the unseen range is.
+ */
+function unseenWindow(db: Db, weddingId: string, osnProfileId: string, from: "newest" | "oldest") {
+  return db.$with("w").as(
+    db
+      .select({
+        seq: rsvpChanges.seq,
+        familyId: rsvpChanges.familyId,
+        guestId: rsvpChanges.guestId,
+        eventId: rsvpChanges.eventId,
+        kind: rsvpChanges.kind,
+        createdAt: rsvpChanges.createdAt,
+      })
+      .from(rsvpChanges)
+      .where(
+        and(
+          eq(rsvpChanges.weddingId, weddingId),
+          gt(rsvpChanges.seq, seenMarker(weddingId, osnProfileId)),
+        ),
+      )
+      .orderBy(from === "newest" ? desc(rsvpChanges.seq) : asc(rsvpChanges.seq))
+      .limit(UNSEEN_SCAN_LIMIT + 1),
+  );
+}
+
+/** One row of {@link buildUnseenHouseholdsQuery}: a (household, kind) group. */
+export interface UnseenHouseholdRow {
   familyId: string;
   familyName: string;
-  guestId: string;
-  eventId: string | null;
   kind: RsvpChangeKind;
-  createdAt: Date;
+  /** The group's newest seq. */
+  last: number;
+  /** The group's newest `created_at`, as stored (epoch seconds). */
+  at: number;
+  /** Distinct households in the whole window. */
+  households: number;
+  /** Rows in the window: past {@link UNSEEN_SCAN_LIMIT}, the count is a floor. */
+  scanned: number;
 }
 
 /**
- * The caller's unseen rows, newest first, one past the limit so a full read
- * can say it was cut short. The marker is read in a subquery so this runs
- * alongside the caller's settings read rather than after it. Served by
- * `rsvp_changes_wedding_idx` with a rowid range (pinned by a plan test).
+ * The card's read: the newest `UNSEEN_SCAN_LIMIT + 1` unseen rows, folded in
+ * SQL to one row per (household, kind) for the {@link FEED_ITEM_LIMIT}
+ * households with the newest change, each row carrying the window's household
+ * and row counts. At most five kinds for five households reach the Worker. The
+ * household names are joined after the fold, outside the window.
  */
-export function buildUnseenQuery(db: Db, weddingId: string, osnProfileId: string) {
-  const seenSeq = sql`coalesce((SELECT ${hostRsvpNotices.seenSeq} FROM ${hostRsvpNotices} WHERE ${hostRsvpNotices.weddingId} = ${weddingId} AND ${hostRsvpNotices.osnProfileId} = ${osnProfileId}), 0)`;
+export function buildUnseenHouseholdsQuery(db: Db, weddingId: string, osnProfileId: string) {
+  const w = unseenWindow(db, weddingId, osnProfileId, "newest");
+  const newestFamilies = db
+    .select({ familyId: w.familyId })
+    .from(w)
+    .groupBy(w.familyId)
+    .orderBy(sql`max(${w.seq}) DESC`)
+    .limit(FEED_ITEM_LIMIT);
   return db
+    .with(w)
     .select({
-      seq: rsvpChanges.seq,
-      familyId: rsvpChanges.familyId,
+      familyId: w.familyId,
       familyName: families.familyName,
-      guestId: rsvpChanges.guestId,
-      eventId: rsvpChanges.eventId,
-      kind: rsvpChanges.kind,
-      createdAt: rsvpChanges.createdAt,
+      kind: w.kind,
+      last: sql<number>`max(${w.seq})`.as("last"),
+      at: sql<number>`max(${w.createdAt})`.as("at"),
+      households: sql<number>`(SELECT count(DISTINCT "family_id") FROM "w")`.as("households"),
+      scanned: sql<number>`(SELECT count(*) FROM "w")`.as("scanned"),
     })
-    .from(rsvpChanges)
-    .innerJoin(families, eq(families.id, rsvpChanges.familyId))
-    .where(and(eq(rsvpChanges.weddingId, weddingId), gt(rsvpChanges.seq, seenSeq)))
-    .orderBy(desc(rsvpChanges.seq))
-    .limit(UNSEEN_ROW_LIMIT + 1);
+    .from(w)
+    .innerJoin(families, eq(families.id, w.familyId))
+    .where(inArray(w.familyId, newestFamilies))
+    .groupBy(w.familyId, w.kind);
+}
+
+/** One row of {@link buildUnseenPairsQuery}: a changed guest×event pair. */
+export interface UnseenPairRow {
+  guestId: string;
+  eventId: string | null;
+  /** The pair's oldest unseen seq in the window. */
+  first: number;
+  /** Its newest. */
+  last: number;
+}
+
+/**
+ * The RSVP table's read: the OLDEST `UNSEEN_SCAN_LIMIT + 1` unseen rows,
+ * grouped by guest×event, in the order each pair first changed, one pair past
+ * {@link UNSEEN_PAIR_LIMIT}. Oldest first is what lets the table mark seen only
+ * what it badged (see {@link summarisePairs}).
+ */
+export function buildUnseenPairsQuery(db: Db, weddingId: string, osnProfileId: string) {
+  const w = unseenWindow(db, weddingId, osnProfileId, "oldest");
+  return db
+    .with(w)
+    .select({
+      guestId: w.guestId,
+      eventId: w.eventId,
+      first: sql<number>`min(${w.seq})`.as("first"),
+      last: sql<number>`max(${w.seq})`.as("last"),
+    })
+    .from(w)
+    .groupBy(w.guestId, w.eventId)
+    .orderBy(sql`min(${w.seq})`)
+    .limit(UNSEEN_PAIR_LIMIT + 1);
 }
 
 /** A household's unseen changes, folded for the feed card. */
@@ -213,61 +296,80 @@ export interface UnseenHousehold {
 }
 
 export interface UnseenSummary {
-  /** The newest unseen seq — what the portal sends back to mark it all seen. 0 when none. */
-  markSeq: number;
   /** Households with an unseen change, among the rows read. */
   households: number;
-  /** The read hit its limit, so `households` and `rows` may be short. */
+  /** More rows are unseen than one read takes, so `households` is a floor. */
   truncated: boolean;
+  /** The households with the newest change, newest first. */
   items: UnseenHousehold[];
-  /** Distinct changed rows for the RSVP table; `eventId: null` means every row of that guest. */
+}
+
+/** Fold the card's rows (see {@link buildUnseenHouseholdsQuery}). */
+export function summariseHouseholds(rows: readonly UnseenHouseholdRow[]): UnseenSummary {
+  const byFamily = new Map<
+    string,
+    { familyName: string; kinds: Set<RsvpChangeKind>; last: number; at: number }
+  >();
+  for (const row of rows) {
+    const family = byFamily.get(row.familyId);
+    if (!family) {
+      byFamily.set(row.familyId, {
+        familyName: row.familyName,
+        kinds: new Set([row.kind]),
+        last: row.last,
+        at: row.at,
+      });
+      continue;
+    }
+    family.kinds.add(row.kind);
+    family.last = Math.max(family.last, row.last);
+    family.at = Math.max(family.at, row.at);
+  }
+  const items = [...byFamily.entries()]
+    .toSorted(([, a], [, b]) => b.last - a.last)
+    .map(([familyId, f]) => ({
+      familyId,
+      familyName: f.familyName,
+      kinds: RSVP_CHANGE_KINDS.filter((kind) => f.kinds.has(kind)),
+      // `created_at` is `integer({ mode: "timestamp" })`: epoch seconds.
+      at: new Date(f.at * 1000),
+    }));
+  const [first] = rows;
+  return {
+    households: first?.households ?? 0,
+    truncated: (first?.scanned ?? 0) > UNSEEN_SCAN_LIMIT,
+    items,
+  };
+}
+
+export interface UnseenRows {
+  /**
+   * What the table sends back to mark seen: every unseen change at or below it
+   * sits in one of `rows`. 0 when nothing is unseen.
+   */
+  markSeq: number;
+  /** Changed rows to badge; `eventId: null` means every row of that guest. */
   rows: { guestId: string; eventId: string | null }[];
 }
 
 /**
- * Fold rows (newest first) into the feed's shape. `rowLimit` is the limit the
- * read ran with; a read that returned more than it was cut short.
+ * Fold the table's pairs (see {@link buildUnseenPairsQuery}), oldest first.
+ *
+ * With more pairs than `pairLimit`, the marker stops just below the first
+ * pair left out: a change at or below it has a seq below that pair's first,
+ * so its own pair first changed earlier and is one of those shown. Otherwise
+ * every row the read took is in a shown pair, and the marker is the newest of
+ * them; any row past the read's window is newer still. Either way the marker
+ * is past the old one whenever anything is unseen, and nothing is marked seen
+ * that the table did not badge.
  */
-export function summariseUnseen(
-  rowsNewestFirst: readonly UnseenRow[],
-  itemLimit: number,
-  rowLimit: number,
-): UnseenSummary {
-  const truncated = rowsNewestFirst.length > rowLimit;
-  const rows = truncated ? rowsNewestFirst.slice(0, rowLimit) : rowsNewestFirst;
-
-  const households = new Map<
-    string,
-    { familyName: string; kinds: Set<RsvpChangeKind>; at: Date }
-  >();
-  const pairs = new Map<string, { guestId: string; eventId: string | null }>();
-  for (const row of rows) {
-    const household = households.get(row.familyId);
-    if (household) household.kinds.add(row.kind);
-    else
-      households.set(row.familyId, {
-        familyName: row.familyName,
-        kinds: new Set([row.kind]),
-        at: row.createdAt,
-      });
-    const key = `${row.guestId}::${row.eventId ?? ""}`;
-    if (!pairs.has(key)) pairs.set(key, { guestId: row.guestId, eventId: row.eventId });
-  }
-
-  const items = [...households.entries()].slice(0, itemLimit).map(([familyId, h]) => ({
-    familyId,
-    familyName: h.familyName,
-    kinds: RSVP_CHANGE_KINDS.filter((kind) => h.kinds.has(kind)),
-    at: h.at,
-  }));
-
-  return {
-    markSeq: rows[0]?.seq ?? 0,
-    households: households.size,
-    truncated,
-    items,
-    rows: [...pairs.values()],
-  };
+export function summarisePairs(pairs: readonly UnseenPairRow[], pairLimit: number): UnseenRows {
+  const shown = pairs.slice(0, pairLimit);
+  const next = pairs[pairLimit];
+  const markSeq = next
+    ? next.first - 1
+    : shown.reduce((newest, pair) => Math.max(newest, pair.last), 0);
+  return { markSeq, rows: shown.map(({ guestId, eventId }) => ({ guestId, eventId })) };
 }
 
 export interface RsvpChangeFeed extends UnseenSummary {
@@ -279,7 +381,7 @@ const newestSeq = (weddingId: string): SQL =>
   sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId})`;
 
 export const rsvpChangeService = {
-  /** The caller's unseen changes and their digest setting. */
+  /** The card's summary of the caller's unseen changes, and their digest setting. */
   feed(
     weddingId: string,
     osnProfileId: string,
@@ -300,15 +402,27 @@ export const rsvpChangeService = {
               )
               .all(),
           ),
-          dbQuery(() => buildUnseenQuery(db, weddingId, osnProfileId).all()),
+          dbQuery(() => buildUnseenHouseholdsQuery(db, weddingId, osnProfileId).all()),
         ],
         { concurrency: "unbounded" },
       );
       return {
-        ...summariseUnseen(rows, FEED_ITEM_LIMIT, UNSEEN_ROW_LIMIT),
+        ...summariseHouseholds(rows),
         digestEnabled: settings[0]?.digestEnabled ?? true,
       };
     }).pipe(Effect.withSpan("cire.rsvp_changes.feed"));
+  },
+
+  /** The RSVP table's changed rows, and the marker that covers exactly them. */
+  unseenRows(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<UnseenRows, RsvpChangeError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const pairs = yield* dbQuery(() => buildUnseenPairsQuery(db, weddingId, osnProfileId).all());
+      return summarisePairs(pairs, UNSEEN_PAIR_LIMIT);
+    }).pipe(Effect.withSpan("cire.rsvp_changes.unseenRows"));
   },
 
   /**

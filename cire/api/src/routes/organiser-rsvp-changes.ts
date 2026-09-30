@@ -32,9 +32,14 @@ const invalidBody = (set: { status?: number | string }) =>
  * RSVP changes — READ surface, and the caller's own read marker:
  *
  *   GET  /api/organiser/weddings/:weddingId/rsvp-changes       (weddingMember)
+ *   GET  /api/organiser/weddings/:weddingId/rsvp-changes/rows  (weddingMember)
  *   POST /api/organiser/weddings/:weddingId/rsvp-changes/seen  (weddingMember)
  *
  * Every role that reads the RSVPs (owner, editor, viewer) gets the feed. The
+ * Overview card reads the first (a count, the latest households, the digest
+ * switch); the RSVP table reads the second (the rows to badge, and the
+ * marker that covers exactly those), so neither downloads what it never
+ * shows, and only the marker the table was shown can be posted back. The
  * POST is behind the read gate because it writes only the caller's own row in
  * `host_rsvp_notices` — no wedding data — and a viewer has changes to mark
  * seen like anyone else. Split from the write factory so the two gates never
@@ -67,6 +72,23 @@ export const createOrganiserRsvpChangeReadRoutes = (db: Db, osnAuthOptions: OsnA
                     enabled: digestEnabled,
                   },
                 };
+              }),
+              Effect.provideService(DbService, db),
+              Effect.catchTag("RsvpChangeError", () => internalError(set)),
+              Effect.catchDefect(() => internalError(set)),
+            ),
+          );
+        })
+        .get("/rsvp-changes/rows", ({ weddingId, osnProfileId, set }) => {
+          if (!weddingId || !osnProfileId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            rsvpChangeService.unseenRows(weddingId, osnProfileId).pipe(
+              Effect.map((rows) => {
+                set.headers["cache-control"] = "no-store";
+                return rows;
               }),
               Effect.provideService(DbService, db),
               Effect.catchTag("RsvpChangeError", () => internalError(set)),
