@@ -37,7 +37,7 @@ vi.mock("../../src/lib/download", () => ({
 
 import GuestTable from "../../src/components/GuestTable";
 import { __resetEventsCache } from "../../src/lib/events-store";
-import { __resetGuestsCache } from "../../src/lib/guests-store";
+import { __resetGuestsCache, guestsAccessor } from "../../src/lib/guests-store";
 import {
   authFetchMock,
   resetOrganiserMocks,
@@ -164,6 +164,97 @@ describe("GuestTable", () => {
       ).toBe(true),
     );
     expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("keeps a copied household Sent when Households is left and opened again", async () => {
+    withClipboard();
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
+    const { unmount } = render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    // Jones was sent before; Sharma is copied now.
+    expect(screen.getAllByText("Sent")).toHaveLength(1);
+    fireEvent.click(screen.getAllByRole("button", { name: /Copy message/i })[0]!);
+    await waitFor(() => expect(screen.getAllByText("Sent")).toHaveLength(2));
+    await waitFor(() =>
+      expect(guestsAccessor("wed_a")()!.find((r) => r.familyId === "fam_a")!.codeSharedAt).toBe(1),
+    );
+    unmount();
+
+    // The remount paints from the cache, with only the invite read to answer.
+    authFetchMock.mockResolvedValueOnce(json({ inviteMessage: null }));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    expect(screen.getAllByText("Sent")).toHaveLength(2);
+  });
+
+  it("keeps an owner's copy Sent and quiet when the server does not record it", async () => {
+    withClipboard();
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    const copy = screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(copy);
+
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/mark-shared"))).toBe(
+        true,
+      ),
+    );
+    // A missed mark only under-counts the re-mint warning: the copy worked, so
+    // the row reads as sent and no error is raised.
+    expect(screen.getAllByText("Sent")).toHaveLength(2);
+    expect(toastSuccess).toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("marks nothing sent for a co-host, who may copy but not record it", async () => {
+    withClipboard();
+    primeLoad();
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage={false}
+        canEdit
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    const copy = screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(copy);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(writeText.mock.calls[0]![0]).toContain("SHARMA-WIDGET-AB3K9-X7QPM");
+    // The mark-shared route is owner-only: no request, and only Jones (sent
+    // before) reads as sent.
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/mark-shared"))).toBe(false);
+    expect(screen.getAllByText("Sent")).toHaveLength(1);
   });
 
   it("uses the host's custom message as the first line when one is set", async () => {

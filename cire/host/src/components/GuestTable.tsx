@@ -41,6 +41,7 @@ import {
 } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
+import { markHouseholdShared } from "../lib/mark-shared";
 import {
   type ConfirmedPlusOne,
   householdPermission,
@@ -172,8 +173,9 @@ function householdMatches(family: FamilyGroup, tokens: string[], lowerQuery: str
 interface GuestTableProps {
   weddingId: string;
   /** True when the signed-in organiser OWNS this wedding. Claim codes are the
-   *  guest credential, so cutting one off (deactivate/reactivate) is owner-only
-   *  — the API gates it with weddingOwner(), this just hides the buttons. */
+   *  guest credential, so cutting one off (deactivate/reactivate) and marking
+   *  one sent are owner-only — the API gates them with weddingOwner(); this
+   *  hides the buttons and skips the mark. */
   canManage: boolean;
   /** Owner or editor? Who may bring a plus-one is an editor write (the API
    *  gates it with weddingEditor()); anyone else sees each guest's switch
@@ -358,16 +360,15 @@ export default function GuestTable(props: GuestTableProps) {
   });
 
   /** Best-effort: tell the API the family's code was just shared. Never blocks
-   *  or surfaces an error to the organiser — the copy already succeeded. */
+   *  or surfaces an error to the organiser — the copy already succeeded. The
+   *  API records it for the owner only, so a co-host's copy marks nothing: no
+   *  request that can only be refused, and no "Sent" the server never saw. */
   function markShared(family: FamilyGroup) {
+    if (!props.canManage) return;
+    // The flip stays if the POST fails: a missed mark only under-counts the
+    // remint warning.
     setSharedNow((prev) => new Set(prev).add(family.publicId));
-    void authFetch(
-      apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/mark-shared`),
-      { method: "POST" },
-    ).catch(() => {
-      // Intentionally swallowed — a missed mark only under-counts the remint
-      // warning; the optimistic UI flip stays so the organiser isn't confused.
-    });
+    void markHouseholdShared(authFetch, props.weddingId, family.familyId);
   }
 
   /**
