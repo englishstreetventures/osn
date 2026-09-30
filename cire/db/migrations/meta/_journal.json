@@ -85,6 +85,13 @@
       "when": 1790517424596,
       "tag": "0068_rsvp_change_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1790549142694,
+      "tag": "0069_change_rev_and_claim",
+      "breakpoints": true
     }
   ]
 }

@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS weddings (
   rsvp_deadline TEXT,
   rsvp_deadline_timezone TEXT,
   updated_by_osn_profile_id TEXT,
+  change_rev INTEGER NOT NULL DEFAULT 0,
+  change_claim TEXT,
+  change_claimed_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
