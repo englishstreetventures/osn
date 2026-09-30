@@ -13,6 +13,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
@@ -230,22 +231,16 @@ const handler: ExportedHandler<Env> = {
       return misconfigured(`missing ${missing.join(", ")}`);
     }
 
+    // A bad WEB_ORIGIN entry would widen the CORS allowlist, the CSRF origin
+    // guard and the session cookie's `Secure` flag at once, so refuse to serve
+    // instead. The rule lives in lib/web-origin.ts.
+    const originProblem = webOriginProblem(env.WEB_ORIGIN, () => isDeployedTier(env));
+    if (originProblem) {
+      return misconfigured(originProblem);
+    }
     const origins = env.WEB_ORIGIN.split(",")
       .map((o) => o.trim())
       .filter(Boolean);
-
-    // S-L1: a schemeless WEB_ORIGIN entry would be scheme-stripped by the
-    // CORS matcher (allowlisting BOTH http:// and https:// for credentialed
-    // requests) and would silently disable the session cookie's Secure flag.
-    // Fail closed instead of serving with a widened allowlist.
-    const badOrigin = origins.find(
-      (o) => !(o.startsWith("https://") || o.startsWith("http://localhost")),
-    );
-    if (badOrigin) {
-      return misconfigured(
-        `WEB_ORIGIN entry "${badOrigin}" must be https:// (or http://localhost in dev)`,
-      );
-    }
 
     // C1/C4 (fail-closed): in a *deployed* tier the native Workers rate-limit
     // binding is MANDATORY. createApp otherwise silently falls back to a
@@ -713,13 +708,22 @@ const handler: ExportedHandler<Env> = {
     // recipient's marker past changes nobody was told about. Its lookup keeps
     // "osn-api did not answer" apart from "no address", so an outage holds the
     // markers. The portal link uses the tier's organiser origin, the second
-    // entry of WEB_ORIGIN.
+    // entry of WEB_ORIGIN, so the digest is skipped when WEB_ORIGIN fails the
+    // same check `fetch` applies: an isolate woken only by cron never runs it.
+    const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedTier(env));
+    if (digestOriginProblem) {
+      await runCire(
+        Effect.logError("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured", {
+          detail: digestOriginProblem,
+        }),
+      );
+    }
     const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
       osnApiUrl: env.OSN_API_URL,
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
-    if (organiserEmailLookup && resendApiKey) {
+    if (organiserEmailLookup && resendApiKey && !digestOriginProblem) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       runSweep(() =>
         Effect.runPromise(

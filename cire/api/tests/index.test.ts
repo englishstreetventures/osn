@@ -173,6 +173,46 @@ describe("Worker boot (no bootstrap-owner config)", () => {
 // `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
 // the env object — not `process.env`, which is empty on workerd at the moment
 // this decision is made.
+describe("WEB_ORIGIN boot check", () => {
+  const fetchWith = (env: Record<string, unknown>) =>
+    handler.fetch!(
+      new Request("https://api.example.com/api/organiser/weddings"),
+      { ...BASE_ENV, DB, ...env } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1],
+      ctx,
+    );
+
+  it("refuses a host that only starts with localhost", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost.attacker.example" });
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({
+      error:
+        "Worker misconfigured: WEB_ORIGIN entry 1 must be https:// (http://localhost only outside a deployed tier)",
+    });
+  });
+
+  it("refuses an entry with a trailing slash, and never echoes userinfo", async () => {
+    const slash = await fetchWith({ WEB_ORIGIN: "https://app.example.com/" });
+    expect(slash.status).toBe(503);
+    const withUser = await fetchWith({
+      WEB_ORIGIN: "https://app.example.com,https://user:secret@app.example.com",
+    });
+    expect(withUser.status).toBe(503);
+    const body = JSON.stringify(await jsonBody(withUser));
+    expect(body).toContain("WEB_ORIGIN entry 2");
+    expect(body).not.toContain("secret");
+  });
+
+  it("refuses http://localhost in a deployed tier", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321" });
+    expect(res.status).toBe(503);
+  });
+
+  it("serves with http://localhost in the local tier", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321", OSN_ENV: undefined });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
