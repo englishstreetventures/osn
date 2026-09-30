@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { MAX_EVENTS } from "../../src/schemas/import";
 import {
   parseEventsCsv,
   parseGuestsCsv,
@@ -259,6 +260,22 @@ describe("parseEventsCsv", () => {
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
     expect(events).toHaveLength(1);
+  });
+
+  it(`refuses a schedule of more than ${MAX_EVENTS} events, naming the first row over`, async () => {
+    const row = (i: number) => `Event ${i},2026-09-18T16:00,,Australia/Sydney,,,,,,`;
+    const atCap = [EVENTS_HEADER, ...Array.from({ length: MAX_EVENTS }, (_, i) => row(i))];
+    expect(await Effect.runPromise(parseEventsCsv(atCap.join("\n")))).toHaveLength(MAX_EVENTS);
+
+    const error = await Effect.runPromise(
+      Effect.flip(parseEventsCsv([...atCap, row(MAX_EVENTS)].join("\n"))),
+    );
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect(error).toMatchObject({
+      reason: "too many events",
+      atRow: MAX_EVENTS + 2,
+      sheet: "events",
+    });
   });
 
   it("returns MalformedSpreadsheet for empty content", async () => {

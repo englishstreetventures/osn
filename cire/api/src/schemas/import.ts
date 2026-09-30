@@ -1,10 +1,37 @@
+import { isSafeCssColor } from "@cire/theme";
 import { Schema } from "effect";
+
+// ── Size limits ───────────────────────────────────────────────────────────────
+
+/**
+ * The most rows one uploaded sheet may carry, and so the most households an
+ * editor draft may carry: the two front doors admit the same wedding.
+ */
+export const MAX_ROWS = 5000;
+
+/**
+ * The most events a wedding's schedule may hold, at either front door. Every
+ * guest row of a checkpoint's before-image carries one attendance cell per
+ * event, so the event count multiplies the size of every before-image, and of
+ * every revert that parses one; this cap keeps that product small.
+ */
+export const MAX_EVENTS = 200;
 
 // ── Parsed sheet shapes ───────────────────────────────────────────────────────
 
+/**
+ * One dress-code swatch. The colour must pass the same allow-list the guest
+ * site checks before it paints one (`isSafeCssColor`), so neither front door
+ * can store a value such as `url(...)` that a renderer using the `background`
+ * shorthand would fetch.
+ */
 export const PaletteSwatch = Schema.Struct({
   name: Schema.String,
-  color: Schema.String,
+  color: Schema.String.check(
+    Schema.makeFilter((s) =>
+      isSafeCssColor(s) ? undefined : "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
+    ),
+  ),
 });
 export type PaletteSwatch = Schema.Schema.Type<typeof PaletteSwatch>;
 
@@ -87,8 +114,8 @@ export type ParsedFamily = Schema.Schema.Type<typeof ParsedFamily>;
  * household; there is no code-less household path.
  */
 export const DesiredState = Schema.Struct({
-  events: Schema.Array(ParsedEvent),
-  families: Schema.Array(ParsedFamily),
+  events: Schema.Array(ParsedEvent).check(Schema.isMaxLength(MAX_EVENTS)),
+  families: Schema.Array(ParsedFamily).check(Schema.isMaxLength(MAX_ROWS)),
 });
 export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
 

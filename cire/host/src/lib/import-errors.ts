@@ -83,6 +83,8 @@ function malformedDetail(body: ImportErrorBody): string {
   switch (body.reason) {
     case "too many rows":
       return `${capitalise(sheet)} has more than 5,000 rows, which is the most one import can carry.`;
+    case "too many events":
+      return at(body, "a schedule can hold at most 200 events. This row is the first one over.");
     case "cell too large":
       return at(
         body,
