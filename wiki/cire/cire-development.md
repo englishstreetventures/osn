@@ -20,7 +20,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-10-01
 ---
 
 # Cire development guide
@@ -306,11 +306,23 @@ A profile avatar can come from any https host. The organiser portal loads it
 and the report-only header reports it; the vendor portal blocks it. Both
 avatar components show the account's initial when the image fails to load.
 
-The guest site (`cire/invites`) solves the same problem another way. It is an
-SSR Worker, so its CSP is built by middleware from constants in
-`src/lib/security-headers.ts`, and it keeps loopback origins in its production
-policy so local runs work. It does not yet derive the API origin per build, so
-its dev tier's policy still names the production API.
+The guest site (`cire/invites`) is an SSR Worker, so it carries its policy in
+two places, and both name the API of the build. The middleware in
+`src/lib/security-headers.ts` builds the CSP for every Worker-rendered page from
+the origin of `PUBLIC_API_URL`, read through `resolveApiUrl` in
+`src/lib/api-origin.ts`, the same chain `src/lib/invite.ts` uses.
+`public/_headers` covers the static assets and the prerendered legal pages, and
+`src/lib/tier-headers.ts` rewrites its copy in `dist/client/` the way the
+portals' integration does. Its bundle check reads the server bundle, because the
+pages read the API URL on the server and hand it to the islands as a prop. The
+committed file names only the production API and no loopback origin:
+
+| Run | The guest-site policy names |
+|---|---|
+| Production build | The committed file, byte for byte |
+| Dev build | The dev API and its collector |
+| Local build, env unset | `http://localhost:8787` |
+| `astro dev` (portless or not) | The middleware's policy for the devloop's `PUBLIC_API_URL`; no `_headers` applies |
 
 ### Checking a policy change
 

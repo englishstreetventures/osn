@@ -12,7 +12,9 @@
  * were MISSING on exactly the most sensitive pages — the guest invites. The
  * Astro `onRequest` middleware (`src/middleware.ts`) attaches these headers to
  * every SSR HTML response; `public/_headers` is kept in sync to cover the
- * static-asset paths (and to document intent).
+ * static-asset paths (and to document intent). That file is written for
+ * production and the build points its copy at this build's cire-api
+ * (`lib/tier-headers.ts`), the same origin {@link API_ORIGIN} names here.
  *
  * NB: Astro middleware does NOT run for prerendered routes at request time
  * (they are served straight from the asset layer), which is exactly why we keep
@@ -22,33 +24,35 @@
  * site actually loads — see `CSP_DIRECTIVES` below for the per-origin rationale.
  */
 
+import { apiPreconnectHref } from "./api-origin";
+import { API_URL } from "./invite";
+
+/** The cire-api origin `public/_headers` is written for. */
+export const PRODUCTION_API_ORIGIN = "https://api.cireweddings.com";
+
 /**
- * Origins the guest site genuinely talks to, grouped by purpose. Production
- * hosts are the source of truth; the localhost entries keep `astro dev` / a
- * local `wrangler dev` working without loosening production. Everything here is
- * an explicit allowlist. The one wildcard is `apiLocalProxy`, and it is confined
- * to the reserved loopback-only `.localhost` namespace.
+ * The origin of the cire-api this build calls — the `PUBLIC_API_URL` baked in
+ * at build time (`lib/invite.ts`), so each tier's policy names its own API and
+ * its own report collector: production, dev, the portless devloop's
+ * `api.cire.localhost`, or `http://localhost:8787` when the env is unset. The
+ * build fails on an API URL that is not a plain http(s) origin
+ * (`lib/tier-headers.ts`), so the fallback here only keeps a module load from
+ * throwing; it never ships.
+ */
+export const API_ORIGIN = apiPreconnectHref(API_URL) ?? PRODUCTION_API_ORIGIN;
+
+/**
+ * Third-party origins the guest site genuinely talks to, grouped by purpose.
+ * Everything here is an explicit allowlist, with no wildcard. The first-party
+ * cire-api origin is not listed: it differs per build, so {@link cspDirectives}
+ * takes it as an argument.
  */
 const ORIGINS = {
-  /** First-party cire-api (invite JSON fetch + invite/event image bytes). */
-  api: "https://api.cireweddings.com",
-  /** Local dev API origin (the PUBLIC_API_URL default in `lib/invite.ts`). */
-  apiLocal: "http://localhost:8787",
-  /**
-   * The same API behind the portless devloop, where it answers on
-   * `api.cire.localhost` — branch-prefixed in a linked worktree, so the exact
-   * host is not knowable here. `.localhost` is reserved and loopback-only, so
-   * it names nothing anyone else can serve, which is why the same reasoning
-   * that keeps `apiLocal` in the production policy applies. Without it the
-   * devloop breaks the day the policy stops being Report-Only.
-   * See `wiki/conventions/devloop-urls.md`.
-   */
-  apiLocalProxy: "https://*.localhost",
-  // No OSN issuer origin here on purpose. The "Link my Pulse account" flow used
-  // to fetch the issuer directly; it now signs in by TOP-LEVEL redirect to
-  // musubi and cire-api does the code exchange, so the guest site never fetches
-  // a second origin. A top-level navigation is not a `connect-src` subject, so
-  // nothing needs to be allowlisted for it.
+  // No OSN issuer origin here on purpose. The "Link my Pulse account" flow
+  // signs in by TOP-LEVEL redirect to musubi and cire-api does the code
+  // exchange, so the guest site never fetches a second origin. A top-level
+  // navigation is not a `connect-src` subject, so nothing needs to be
+  // allowlisted for it.
   // Pinterest moodboard widget (PinterestBoard.tsx / pinterest.ts).
   pinterestScript: "https://assets.pinterest.com", // pinit_main.js
   pinterestConnect: "https://widgets.pinterest.com", // pidgets data fetch
@@ -63,20 +67,23 @@ const ORIGINS = {
 } as const;
 
 /**
- * First-party CSP violation-report collector — the `POST /api/csp-report` route
- * on cire-api. Derived from the SAME {@link ORIGINS.api} const that `connect-src`
- * / `img-src` already reference, so the report origin can never drift from the
- * audited cire-api origin. The guest CSP's `report-uri` (legacy, widely
- * supported) and `report-to` (modern Reporting API) both target this URL; the
- * `report-to` group is named by {@link REPORTING_ENDPOINT_NAME} and resolved via
- * the `Reporting-Endpoints` response header ({@link reportingEndpointsHeader}).
+ * The first-party CSP violation-report collector for `apiOrigin` — the
+ * `POST /api/csp-report` route on that cire-api. The guest CSP's `report-uri`
+ * (legacy, widely supported) and `report-to` (modern Reporting API) both
+ * target it; the `report-to` group is named by {@link REPORTING_ENDPOINT_NAME}
+ * and resolved via the `Reporting-Endpoints` response header
+ * ({@link reportingEndpointsHeader}). Each tier reports to its own API, so dev
+ * reports never reach the production collector.
  *
  * NB: while the policy is Report-Only it STILL sends reports — that is the whole
- * point of pointing it at a collector. The endpoint stays production (cire-api
- * `localhost:8787` has no public collector in dev and we don't want dev noise);
- * a local report simply fails to POST, which is harmless.
+ * point of pointing it at a collector.
  */
-export const CSP_REPORT_ENDPOINT = `${ORIGINS.api}/api/csp-report` as const;
+export function cspReportEndpoint(apiOrigin: string = API_ORIGIN): string {
+  return `${apiOrigin}/api/csp-report`;
+}
+
+/** This build's collector. */
+export const CSP_REPORT_ENDPOINT = cspReportEndpoint();
 
 /** The `report-to` group name, shared by the CSP directive + the header. */
 export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
@@ -108,59 +115,56 @@ export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
  * header-only; it is ignored inside a `<meta>` CSP, another reason the policy
  * lives in the response header), `object-src 'none'`, `base-uri 'self'`.
  */
-export const CSP_DIRECTIVES = {
-  "default-src": ["'self'"],
-  // Astro island hydration inline scripts need 'unsafe-inline'; hosts are
-  // still tightly allowlisted (no wildcard).
-  "script-src": ["'self'", "'unsafe-inline'", ORIGINS.pinterestScript, ORIGINS.turnstile],
-  // Astro/Tailwind inline styles. Fonts are self-hosted — the
-  // @font-face rules load from 'self', no third-party stylesheet host needed.
-  "style-src": ["'self'", "'unsafe-inline'"],
-  // Inline element style attributes (the invite theme vars). Low-risk.
-  "style-src-attr": ["'unsafe-inline'"],
-  // Self-hosted fontsource woff2 files — served from 'self'.
-  "font-src": ["'self'"],
-  // First-party invite/event image bytes (served from cire-api), Pinterest pin
-  // thumbnails, Google Maps tiles, plus data:/blob: (inline SVG/blur placeholders).
-  "img-src": [
-    "'self'",
-    "data:",
-    "blob:",
-    ORIGINS.api,
-    ORIGINS.apiLocal,
-    ORIGINS.apiLocalProxy,
-    ORIGINS.pinterestImg,
-    ORIGINS.googleMapsImg,
-    ORIGINS.googleMapsImg2,
-  ],
-  // Runtime fetches: cire-api (claim, the invite JSON retry, account-link,
-  // including the session probe behind the Pulse account-link panel) and the
-  // Pinterest pidgets data endpoint the widget calls.
-  "connect-src": [
-    "'self'",
-    ORIGINS.api,
-    ORIGINS.apiLocal,
-    ORIGINS.apiLocalProxy,
-    ORIGINS.pinterestConnect,
-  ],
-  // Embedded iframes: the Google Maps embed, the Pinterest board widget, and
-  // the Turnstile challenge.
-  "frame-src": ["'self'", ORIGINS.googleMapsFrame, ORIGINS.pinterestFrame, ORIGINS.turnstile],
-  // Clickjacking defence (header-only directive — ignored in <meta>).
-  "frame-ancestors": ["'none'"],
-  "object-src": ["'none'"],
-  "base-uri": ["'self'"],
-  "form-action": ["'self'"],
-  // Reporting: where the browser sends CSP violation reports (works in
-  // Report-Only too — that is the point). `report-uri` is the legacy, broadly
-  // supported directive (a URL); `report-to` is the modern Reporting API
-  // directive (a GROUP NAME resolved by the `Reporting-Endpoints` header, set
-  // alongside this CSP — see `securityHeaders`). We ship BOTH for coverage
-  // across browser versions. Both target the first-party cire-api collector
-  // (`CSP_REPORT_ENDPOINT`) — no third-party service.
-  "report-uri": [CSP_REPORT_ENDPOINT],
-  "report-to": [REPORTING_ENDPOINT_NAME],
-} as const satisfies Record<string, readonly string[]>;
+export function cspDirectives(apiOrigin: string = API_ORIGIN) {
+  return {
+    "default-src": ["'self'"],
+    // Astro island hydration inline scripts need 'unsafe-inline'; hosts are
+    // still tightly allowlisted (no wildcard).
+    "script-src": ["'self'", "'unsafe-inline'", ORIGINS.pinterestScript, ORIGINS.turnstile],
+    // Astro/Tailwind inline styles. Fonts are self-hosted — the
+    // @font-face rules load from 'self', no third-party stylesheet host needed.
+    "style-src": ["'self'", "'unsafe-inline'"],
+    // Inline element style attributes (the invite theme vars). Low-risk.
+    "style-src-attr": ["'unsafe-inline'"],
+    // Self-hosted fontsource woff2 files — served from 'self'.
+    "font-src": ["'self'"],
+    // First-party invite/event image bytes (served from cire-api), Pinterest pin
+    // thumbnails, Google Maps tiles, plus data:/blob: (inline SVG/blur placeholders).
+    "img-src": [
+      "'self'",
+      "data:",
+      "blob:",
+      apiOrigin,
+      ORIGINS.pinterestImg,
+      ORIGINS.googleMapsImg,
+      ORIGINS.googleMapsImg2,
+    ],
+    // Runtime fetches: cire-api (claim, the invite JSON retry, account-link,
+    // including the session probe behind the Pulse account-link panel) and the
+    // Pinterest pidgets data endpoint the widget calls.
+    "connect-src": ["'self'", apiOrigin, ORIGINS.pinterestConnect],
+    // Embedded iframes: the Google Maps embed, the Pinterest board widget, and
+    // the Turnstile challenge.
+    "frame-src": ["'self'", ORIGINS.googleMapsFrame, ORIGINS.pinterestFrame, ORIGINS.turnstile],
+    // Clickjacking defence (header-only directive — ignored in <meta>).
+    "frame-ancestors": ["'none'"],
+    "object-src": ["'none'"],
+    "base-uri": ["'self'"],
+    "form-action": ["'self'"],
+    // Reporting: where the browser sends CSP violation reports (works in
+    // Report-Only too — that is the point). `report-uri` is the legacy, broadly
+    // supported directive (a URL); `report-to` is the modern Reporting API
+    // directive (a GROUP NAME resolved by the `Reporting-Endpoints` header, set
+    // alongside this CSP — see `securityHeaders`). We ship BOTH for coverage
+    // across browser versions. Both target the first-party cire-api collector
+    // (`cspReportEndpoint`) — no third-party service.
+    "report-uri": [cspReportEndpoint(apiOrigin)],
+    "report-to": [REPORTING_ENDPOINT_NAME],
+  } as const satisfies Record<string, readonly string[]>;
+}
+
+/** This build's policy, as a directive map. */
+export const CSP_DIRECTIVES = cspDirectives();
 
 /** Serialise the directive map into a single CSP header value. */
 export function buildCsp(directives: Record<string, readonly string[]> = CSP_DIRECTIVES): string {
@@ -189,10 +193,10 @@ export function cspHeaderName(): "Content-Security-Policy" | "Content-Security-P
  * The `Reporting-Endpoints` header value that resolves the CSP `report-to`
  * group name to the first-party collector URL — `csp-endpoint="<url>"`. Required
  * for the modern Reporting API path to deliver anything (the legacy `report-uri`
- * directive needs no companion header). Mirrors {@link CSP_REPORT_ENDPOINT}.
+ * directive needs no companion header). Mirrors {@link cspReportEndpoint}.
  */
-export function reportingEndpointsHeader(): string {
-  return `${REPORTING_ENDPOINT_NAME}="${CSP_REPORT_ENDPOINT}"`;
+export function reportingEndpointsHeader(apiOrigin: string = API_ORIGIN): string {
+  return `${REPORTING_ENDPOINT_NAME}="${cspReportEndpoint(apiOrigin)}"`;
 }
 
 /**
@@ -215,12 +219,12 @@ export function reportingEndpointsHeader(): string {
  * its doc. The non-CSP headers are always enforced (they carry no breakage
  * risk).
  */
-export function securityHeaders() {
+export function securityHeaders(apiOrigin: string = API_ORIGIN) {
   return {
-    [cspHeaderName()]: buildCsp(),
+    [cspHeaderName()]: buildCsp(cspDirectives(apiOrigin)),
     // Resolves the CSP `report-to csp-endpoint` group to the first-party
     // collector. Harmless when only `report-uri` is honoured by the browser.
-    "Reporting-Endpoints": reportingEndpointsHeader(),
+    "Reporting-Endpoints": reportingEndpointsHeader(apiOrigin),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Frame-Options": "DENY",
