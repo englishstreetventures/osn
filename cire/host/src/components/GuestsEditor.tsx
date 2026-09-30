@@ -10,7 +10,12 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { isChangeInProgress, loadHeadRevision, revisionOf } from "../lib/change-revision";
+import {
+  isChangeInProgress,
+  isHeadMoved,
+  loadHeadRevision,
+  revisionOf,
+} from "../lib/change-revision";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -63,6 +68,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Set when a save is refused because someone else's change landed after
+  // this draft was loaded; offers to reload with the unsaved edits kept.
+  const [stale, setStale] = createSignal(false);
+  // What the last keep-edits reload could not keep, or wants checked.
+  const [replayNotes, setReplayNotes] = createSignal<string[]>([]);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const shownPreview = heldWhileClosing(preview);
 
@@ -86,7 +96,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
    *  fall back to `?? []` — that reads as "delete everything in this slice".
    *  The `!fresh` checks below throw instead, so the load error is surfaced
    *  rather than seeding an empty draft. */
-  async function loadInto(knownRevision?: string) {
+  async function fetchRows(knownRevision?: string) {
     // After a save, the apply response already names the head its own commit
     // left, and it was read before the rows below are: no second request.
     const revision = knownRevision ?? (await loadHeadRevision(authFetch, props.weddingId));
@@ -136,7 +146,31 @@ export default function GuestsEditor(props: { weddingId: string }) {
         return rows;
       }),
     ]);
-    store.load(events, guests, households, revision);
+    return { revision, events, guests, households };
+  }
+
+  async function loadInto(knownRevision?: string) {
+    const rows = await fetchRows(knownRevision);
+    store.load(rows.events, rows.guests, rows.households, rows.revision);
+  }
+
+  /** Reload the rows after someone else's change and put the organiser's
+   *  unsaved edits back on top, so the next save is built on the new head. */
+  async function handleKeepEdits() {
+    setSaveError(null);
+    setBusy(true);
+    try {
+      const rows = await fetchRows();
+      setReplayNotes(store.rebase(rows.events, rows.guests, rows.households, rows.revision));
+      setStale(false);
+      haptic("commit");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      setSaveError("Could not reload the guest list. Try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   onMount(async () => {
@@ -200,7 +234,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        if (res.status === 409 && body.reason === "stale_draft") {
+          setStale(true);
+          throw new Error("Someone else changed the guest list since you opened the editor.");
+        }
         throw new Error(body.error ?? `Preview failed (${res.status})`);
       }
       setPreview((await res.json()) as PreviewResponse);
@@ -238,6 +276,10 @@ export default function GuestsEditor(props: { weddingId: string }) {
         // say so, since the same edit will save once that one finishes.
         if (res.status === 409) {
           setPreview(null);
+          if (isHeadMoved(body)) {
+            setStale(true);
+            throw new Error("Someone else changed the guest list since you opened the editor.");
+          }
           throw new Error(
             isChangeInProgress(body) && body.error
               ? body.error
@@ -257,6 +299,8 @@ export default function GuestsEditor(props: { weddingId: string }) {
       try {
         await loadInto(revisionOf(applied));
         store.commit();
+        setStale(false);
+        setReplayNotes([]);
       } catch (err) {
         // The save went through, so the draft describes rows the server has
         // since given ids the draft never received: saving it again would post
@@ -298,6 +342,15 @@ export default function GuestsEditor(props: { weddingId: string }) {
       <Show when={loadError()}>
         <Notice tone="danger" alert>
           {loadError()}
+        </Notice>
+      </Show>
+
+      <Show when={replayNotes().length > 0}>
+        <Notice tone="warn" alert>
+          <p>Your edits are back on top of the latest guest list. Check these before saving:</p>
+          <ul class="mt-2 list-disc pl-5">
+            <For each={replayNotes()}>{(note) => <li>{note}</li>}</For>
+          </ul>
         </Notice>
       </Show>
 
@@ -419,6 +472,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
                   onClick={() => {
                     haptic("dismiss");
                     store.discard();
+                    setReplayNotes([]);
                   }}
                   disabled={busy()}
                 >
@@ -440,7 +494,18 @@ export default function GuestsEditor(props: { weddingId: string }) {
             <Show when={saveError()}>
               <div class="page-frame pb-3">
                 <Notice tone="danger" alert>
-                  {saveError()}
+                  <p>{saveError()}</p>
+                  <Show when={stale()}>
+                    <Button
+                      class="mt-3"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleKeepEdits()}
+                      disabled={busy()}
+                    >
+                      Reload and keep my edits
+                    </Button>
+                  </Show>
                 </Notice>
               </div>
             </Show>

@@ -24,7 +24,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { loadHeadRevision, revisionOf } from "../lib/change-revision";
+import { isHeadMoved, loadHeadRevision, revisionOf } from "../lib/change-revision";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -91,6 +91,11 @@ export default function EventsEditor(props: { weddingId: string }) {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Set when a save is refused because someone else's change landed after
+  // this draft was loaded; offers to reload with the unsaved edits kept.
+  const [stale, setStale] = createSignal(false);
+  // What the last keep-edits reload could not keep, or wants checked.
+  const [replayNotes, setReplayNotes] = createSignal<string[]>([]);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const shownPreview = heldWhileClosing(preview);
   /** The draft key of the event whose drawer is open, or null when closed. */
@@ -139,7 +144,7 @@ export default function EventsEditor(props: { weddingId: string }) {
    *  mid-fetch — would fall through `?? []` and seed a draft saying the wedding
    *  has no events, which reads as "delete every event". `ensureEventsLoaded`
    *  resolving `false` is what the check below refuses. */
-  async function loadInto(knownRevision?: string) {
+  async function fetchRows(knownRevision?: string) {
     // After a save, the apply response already names the head its own commit
     // left, and it was read before the rows below are: no second request.
     const revision = knownRevision ?? (await loadHeadRevision(authFetch, props.weddingId));
@@ -157,7 +162,32 @@ export default function EventsEditor(props: { weddingId: string }) {
       if (!fresh || rows == null) throw new Error("event slice unavailable");
       return rows;
     });
-    store.load(events, [], [], revision);
+    return { revision, events };
+  }
+
+  async function loadInto(knownRevision?: string) {
+    const rows = await fetchRows(knownRevision);
+    store.load(rows.events, [], [], rows.revision);
+  }
+
+  /** Reload the schedule after someone else's change and put the organiser's
+   *  unsaved edits back on top, so the next save is built on the new head. */
+  async function handleKeepEdits() {
+    setSaveError(null);
+    setBusy(true);
+    try {
+      const rows = await fetchRows();
+      setReplayNotes(store.rebase(rows.events, [], [], rows.revision));
+      setStale(false);
+      setEditingKey(null);
+      haptic("commit");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      setSaveError("Could not reload the schedule. Try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   onMount(async () => {
@@ -235,7 +265,11 @@ export default function EventsEditor(props: { weddingId: string }) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        if (res.status === 409 && body.reason === "stale_draft") {
+          setStale(true);
+          throw new Error("Someone else changed the schedule since you opened the editor.");
+        }
         throw new Error(body.error ?? `Preview failed (${res.status})`);
       }
       setPreview((await res.json()) as PreviewResponse);
@@ -265,7 +299,12 @@ export default function EventsEditor(props: { weddingId: string }) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        if (res.status === 409 && isHeadMoved(body)) {
+          setPreview(null);
+          setStale(true);
+          throw new Error("Someone else changed the schedule since you opened the editor.");
+        }
         // 409 is usually a co-host applying in between, which makes the previewed
         // diff stale. It is no longer only that: the server also 409s a stored
         // change whose scope it cannot read, and telling that organiser the
@@ -291,6 +330,8 @@ export default function EventsEditor(props: { weddingId: string }) {
       try {
         await loadInto(revisionOf(applied));
         store.commit();
+        setStale(false);
+        setReplayNotes([]);
       } catch (err) {
         // The save went through, so the draft describes rows the server has
         // since given ids the draft never received: saving it again would post
@@ -331,6 +372,15 @@ export default function EventsEditor(props: { weddingId: string }) {
       <Show when={loadError()}>
         <Notice tone="danger" alert>
           {loadError()}
+        </Notice>
+      </Show>
+
+      <Show when={replayNotes().length > 0}>
+        <Notice tone="warn" alert>
+          <p>Your edits are back on top of the latest schedule. Check these before saving:</p>
+          <ul class="mt-2 list-disc pl-5">
+            <For each={replayNotes()}>{(note) => <li>{note}</li>}</For>
+          </ul>
         </Notice>
       </Show>
 
@@ -470,6 +520,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                     store.discard();
                     reorder.clearAnnouncement();
                     setEditingKey(null);
+                    setReplayNotes([]);
                   }}
                   disabled={busy()}
                 >
@@ -491,9 +542,19 @@ export default function EventsEditor(props: { weddingId: string }) {
               </p>
             </Show>
             <Show when={saveError()}>
-              <p class="border-error/20 bg-error/5 text-error page-frame text-ui-sm border-t py-2">
-                {saveError()}
-              </p>
+              <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
+                <p>{saveError()}</p>
+                <Show when={stale()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleKeepEdits()}
+                    disabled={busy()}
+                  >
+                    Reload and keep my edits
+                  </Button>
+                </Show>
+              </div>
             </Show>
           </div>
         </Portal>

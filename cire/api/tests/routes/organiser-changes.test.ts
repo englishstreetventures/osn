@@ -1395,10 +1395,13 @@ describe("POST /changes/apply — 409 on stale baseRevision", () => {
     expect(applyA.status).toBe(409);
     const body = (await applyA.json()) as {
       error: string;
+      reason: string;
       baseRevision: string;
       currentRevision: string;
     };
     expect(body.error).toBe("State changed — re-preview");
+    // Named, so an editor can offer to reload with its edits kept.
+    expect(body.reason).toBe("head_moved");
     // A preview at head 0, a head that has since moved to B's commit.
     expect(body.baseRevision).toBe("0");
     expect(body.currentRevision).toBe("1");
