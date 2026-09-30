@@ -10,7 +10,7 @@ related:
   - "[[dpia/cire-guest-data]]"
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 # Plus-ones
 
@@ -89,7 +89,7 @@ Names are trimmed and at most 100 characters each. They may not contain control,
 
 **Each guest write reads its whole context in one statement** — the household, the deadline, the inviter, their plus-one with invitations, and the wedding's capacity entitlements — so naming costs that read, the guest count and one batch; renaming costs the read and one batch of two (clear any dietary answers, write the name and return it); removing costs the read and one write. Only a save's read carries the check for dietary answers on file.
 
-**Naming is one D1 batch.** The guest insert is skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`, untargeted, since a conflict target cannot name a partial index; the row's id is a fresh UUID, so that index is the only thing it can meet), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
+**Naming is one D1 batch, and it checks its rules inside the insert.** The guest row is an `INSERT … SELECT` from the inviter's row, which writes nothing unless, at that moment, the inviter is in the session's household, has permission, is not a plus-one, and the wedding has room for one more guest under the cap its capacity entitlements give it (`roomForOneMoreGuest` in `cire/api/src/services/entitlements.ts`). D1 runs batches one at a time, so an organiser's revoke or another household's naming that commits first is seen by the one that commits second. When the insert writes nothing and the read-back finds no plus-one, a fresh read decides the answer: `403 plus_one_not_allowed` or `409 guest_capacity`, as the read before the write would have given. The insert is also skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`, untargeted, since a conflict target cannot name a partial index; the row's id is a fresh UUID, so that index is the only thing it can meet), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
 
 ### The reply
 
@@ -193,7 +193,6 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 
 - A revert, or a spreadsheet first-name change without an id (a remove + create), re-creates a guest **without** their permission and without the plus-one that went with them.
 - Plus-ones named after a checkpoint **survive** a revert to it.
-- Naming a plus-one checks the guest cap and the inviter's permission in reads before its insert. Concurrent requests can overshoot the cap by the number in flight, and a plus-one whose naming read the permission before an organiser's revoke committed is still inserted after it, under the revoked permission. The revoke side checks inside its own write; the naming side does not yet. Tracked as a follow-up to check both inside the insert.
 
 ---
 
