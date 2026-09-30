@@ -211,6 +211,11 @@ const isDeployedTier = (env: Env): boolean =>
   loadConfig({ serviceName: "cire-api", env: parseDeploymentEnvironment(env.OSN_ENV) }).env !==
   "local";
 
+// The same tier signal without `loadConfig`, which can throw on a malformed
+// OTLP header value. The WEB_ORIGIN check runs in `scheduled` outside any
+// catch, so it must not be able to stop the sweeps that follow it.
+const isDeployedEnv = (env: Env): boolean => parseDeploymentEnvironment(env.OSN_ENV) !== "local";
+
 const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     // Fail closed at the edge if any required binding/var is missing, rather
@@ -234,7 +239,7 @@ const handler: ExportedHandler<Env> = {
     // A bad WEB_ORIGIN entry would widen the CORS allowlist, the CSRF origin
     // guard and the session cookie's `Secure` flag at once, so refuse to serve
     // instead. The rule lives in lib/web-origin.ts.
-    const originProblem = webOriginProblem(env.WEB_ORIGIN, () => isDeployedTier(env));
+    const originProblem = webOriginProblem(env.WEB_ORIGIN, () => isDeployedEnv(env));
     if (originProblem) {
       return misconfigured(originProblem);
     }
@@ -710,7 +715,7 @@ const handler: ExportedHandler<Env> = {
     // markers. The portal link uses the tier's organiser origin, the second
     // entry of WEB_ORIGIN, so the digest is skipped when WEB_ORIGIN fails the
     // same check `fetch` applies: an isolate woken only by cron never runs it.
-    const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedTier(env));
+    const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedEnv(env));
     if (digestOriginProblem) {
       await runCire(
         Effect.logError("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured", {

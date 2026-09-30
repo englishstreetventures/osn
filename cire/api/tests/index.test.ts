@@ -8,6 +8,7 @@ import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { jsonBody } from "./test-helpers";
+import { captureLogs } from "./test-helpers/capture-logs";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -503,5 +504,23 @@ describe("D1 session routing at the entry points", () => {
     // Either half missing: no digest.
     expect((await runCron(mail)).pending).toHaveLength(7);
     expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(7);
+  });
+
+  it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
+    // A cron-only isolate never runs the `fetch` check, and the digest builds
+    // its portal links from WEB_ORIGIN.
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    let result: Awaited<ReturnType<typeof runCron>> | undefined;
+    const logs = await captureLogs(async () => {
+      result = await runCron({
+        RESEND_API_KEY: "re_test",
+        OSN_API_URL: "https://osn.example.test",
+        CIRE_API_ARC_PRIVATE_KEY: jwk,
+        CIRE_API_ARC_KEY_ID: "kid_test",
+        WEB_ORIGIN: "http://localhost:4321",
+      });
+    });
+    expect(result?.pending).toHaveLength(7);
+    expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });

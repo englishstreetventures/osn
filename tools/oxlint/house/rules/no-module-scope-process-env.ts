@@ -30,11 +30,20 @@ function runsAtModuleLoad(node: ESTree.Node): boolean {
   return true;
 }
 
+/** `process` or `globalThis.process`. */
 function isProcessIdentifier(node: ESTree.Node): boolean {
-  return node.type === "Identifier" && node.name === "process";
+  if (node.type === "Identifier") return node.name === "process";
+  return (
+    node.type === "MemberExpression" &&
+    !node.computed &&
+    node.object.type === "Identifier" &&
+    node.object.name === "globalThis" &&
+    node.property.type === "Identifier" &&
+    node.property.name === "process"
+  );
 }
 
-/** `process.env` or `process["env"]`. */
+/** `process.env` or `process["env"]`, optional chaining included. */
 function isProcessEnv(node: ESTree.MemberExpression): boolean {
   if (!isProcessIdentifier(node.object)) return false;
   const { property } = node;

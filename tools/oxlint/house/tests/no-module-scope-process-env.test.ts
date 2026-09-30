@@ -71,6 +71,24 @@ export class Config {
 	}
 }
 `,
+  "global-this.ts": `
+export const ttl = globalThis.process.env.TTL;
+`,
+  "optional-chain.ts": `
+export const ttl = process?.env?.TTL;
+`,
+  "renamed-destructure.ts": `
+const { env: e } = process;
+export const ttl = e.TTL;
+`,
+  "static-arrow.ts": `
+export class Config {
+	static issuer = () => process.env.ISSUER;
+}
+`,
+  "iife.ts": `
+export const ttl = (() => process.env.TTL)();
+`,
   "other-object.ts": `
 const settings = { env: { TTL: "1" } };
 export const ttl = settings.env.TTL;
@@ -121,10 +139,15 @@ describe("house/no-module-scope-process-env", () => {
   });
 
   it("reports every read that runs while the module loads", () => {
+    // `iife.ts` is absent on purpose: an immediately invoked function runs at
+    // load, but the rule stops at the first function it meets.
     expect(reportedFiles(diagnostics)).toEqual([
       "computed-key.ts",
       "destructured.ts",
+      "global-this.ts",
       "object-literal.ts",
+      "optional-chain.ts",
+      "renamed-destructure.ts",
       "static-block.ts",
       "static-field.ts",
       "top-level-const.ts",

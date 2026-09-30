@@ -459,12 +459,12 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     const logs = await captureLogs(() =>
       Effect.runPromise(
         serveTransformedImage({
-          request: new Request("https://api.example/invite/anna-and-ben/image/hero"),
+          request: new Request("https://api.example/invite/anna-and-ben/image/story"),
           key: KEY,
           version: "1718000000",
-          cacheSlot: "anna-and-ben:hero",
-          logSlot: "hero",
-          variant: "hero",
+          cacheSlot: "anna-and-ben:story",
+          logSlot: "story",
+          variant: "thumb",
           format: "image/webp",
           images: createImagesStub({ throwOn: "output" }),
         }).pipe(Effect.provideService(AssetsR2Service, assets)),
@@ -473,7 +473,8 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
 
     expect(logs).toContain("invite image transform failed; serving original");
     expect(logs).toContain("image cache put failed");
-    expect(logs).toContain("hero");
+    // Both warnings carry the slot kind as a field.
+    expect(logs.match(/"?slot"?[:=] ?"?story/g)?.length ?? 0).toBe(2);
     expect(logs).not.toContain("anna-and-ben");
   });
 });
