@@ -6,6 +6,7 @@ import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { formatWallTime } from "../../src/lib/event-time";
 import type { ParsedFamily } from "../../src/schemas/import";
 import { diffAgainstDb } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
@@ -236,13 +237,13 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
         yield* seedGuestless;
         const snapshot = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
         const header = lines(snapshot)[0]!;
-        // Same header as full fidelity.
+        // The full-fidelity header, then the two provenance columns.
         expect(header).toBe(
-          lines(yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full"))[0],
+          `${lines(yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full"))[0]},Family Source,Guest Source`,
         );
         const row = lines(snapshot).find((l) => l.includes("Emptyhouse"))!;
         const cells = row.split(",");
-        const eventColumns = header.split(",").length - 7;
+        const eventColumns = header.split(",").length - 9;
         expect(cells).toEqual([
           "fam_guestless",
           "Emptyhouse",
@@ -251,6 +252,8 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
           "",
           ...Array.from({ length: eventColumns }, () => ""),
           "EMPTY-0001",
+          "",
+          "import",
           "",
         ]);
         expect(snapshot).not.toContain("HOST-AAAA");
@@ -264,12 +267,60 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
   );
 
   it(
-    "writes the events sheet exactly as full fidelity does",
+    "writes the events sheet as full fidelity does, except for stored Start/End",
     withDb(
       Effect.gen(function* () {
-        expect(yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot")).toBe(
-          yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full"),
+        const db = yield* DbService;
+        const stored = yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID)).all(),
         );
+        const snapshot = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        const full = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
+        expect(lines(snapshot)[0]).toBe(lines(full)[0]);
+        let expected = full;
+        for (const e of stored) {
+          expected = expected.replace(
+            `,${formatWallTime(e.startAt)},${e.timezone},${formatWallTime(e.endAt)},`,
+            `,${e.startAt},${e.timezone},${e.endAt},`,
+          );
+        }
+        expect(snapshot).toBe(expected);
+        // Every seeded event carries an offset, so the snapshot does too.
+        expect(stored.every((e) => snapshot.includes(e.startAt))).toBe(true);
+      }),
+    ),
+  );
+
+  it(
+    "writes values that start = + - @ without the spreadsheet guard, where a download keeps it",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedGuestless;
+        const db = yield* DbService;
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({ address: "-12 Smith Street" })
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .run(),
+        );
+        yield* dbQuery(() =>
+          db
+            .update(families)
+            .set({ familyName: "=Emptyhouse" })
+            .where(eq(families.id, "fam_guestless"))
+            .run(),
+        );
+
+        const snapEvents = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        const snapGuests = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
+        expect(snapEvents).toContain(",-12 Smith Street,");
+        expect(snapGuests).toContain(",=Emptyhouse,");
+        expect(snapEvents).not.toContain("'-12");
+        expect(snapGuests).not.toContain("'=Emptyhouse");
+
+        const fullEvents = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
+        expect(fullEvents).toContain(",'-12 Smith Street,");
       }),
     ),
   );
@@ -281,7 +332,7 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
         yield* seedGuestless;
         const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
         const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
-        const parsedEvents = yield* parseEventsCsv(eventsCsv);
+        const parsedEvents = yield* parseEventsCsv(eventsCsv, { snapshot: true });
         const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents, { snapshot: true });
         expect(parsedFamilies.find((f) => f.id === "fam_guestless")!.guests).toHaveLength(0);
 
@@ -534,7 +585,9 @@ describe("round trip with a plus-one named", () => {
           const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
           expect(guestsCsv).not.toContain("Samwise");
           expect(guestsCsv).not.toContain(samId);
-          const parsedEvents = yield* parseEventsCsv(eventsCsv);
+          const parsedEvents = yield* parseEventsCsv(eventsCsv, {
+            snapshot: fidelity === "snapshot",
+          });
           const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents, {
             snapshot: fidelity === "snapshot",
           });

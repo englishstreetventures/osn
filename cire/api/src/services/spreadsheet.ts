@@ -5,13 +5,15 @@ import {
   EVENT_ID_HEADER,
   EVENT_SHEET_REQUIRED_HEADERS,
   FAMILY_CODE_HEADER,
+  FAMILY_SOURCE_HEADER,
   GUEST_ID_HEADER,
   GUEST_NICKNAME_HEADER,
   GUEST_SHEET_FIXED_HEADERS,
+  GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
 import { MAX_EVENTS, MAX_ROWS } from "../schemas/import";
-import type { ParsedEvent, ParsedFamily, ParsedGuest } from "../schemas/import";
+import type { DesiredFamily, DesiredGuest, ParsedEvent, Provenance } from "../schemas/import";
 import {
   FORMULA_MARKERS,
   isTruthy,
@@ -395,11 +397,40 @@ function detectFormulaInjection(
 // when Address is blank (see `services/import.ts`).
 const REQUIRED_EVENT_COLUMNS = EVENT_SHEET_REQUIRED_HEADERS;
 
+/** A stored Start/End that carries its own UTC offset (or `Z`). */
+const HAS_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
+export interface ParseEventsOptions {
+  /**
+   * The sheet is a checkpoint before-image (`stateExportService.eventsCsv(_,
+   * "snapshot")`) that a revert is reading back — never an upload. Only
+   * `services/revert.ts` passes it.
+   *
+   * A snapshot is the app's own output, and the events editor stores values an
+   * upload may not carry, so the reader restores what was stored:
+   *  - no row or cell cap and no formula scan (the snapshot is written without
+   *    the `'` guard);
+   *  - Start, End and Timezone are taken as stored. A zone that resolves
+   *    re-stamps the offset as an upload does; one that does not keeps the
+   *    stored value, offset and all. A zone that does not resolve on a value
+   *    with no offset (a before-image written before snapshots kept offsets)
+   *    is still refused, since there is no instant to restore;
+   *  - a URL that is not http(s) reads as blank.
+   *
+   * Event Name stays required, and `MAX_EVENTS` still applies.
+   */
+  readonly snapshot?: boolean;
+}
+
 export function parseEventsCsv(
   content: string,
+  options: ParseEventsOptions = {},
 ): Effect.Effect<ParsedEvent[], SpreadsheetParseError> {
+  const snapshot = options.snapshot === true;
   return Effect.gen(function* () {
-    const result = parseCsvBounded(content);
+    const result: CsvParseResult = snapshot
+      ? { ok: true, rows: parseCsv(content) }
+      : parseCsvBounded(content);
     if (!result.ok) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: result.reason }));
     }
@@ -408,8 +439,10 @@ export function parseEventsCsv(
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: "empty events sheet" }));
     }
 
-    const formula = detectFormulaInjection(rows, 0);
-    if (formula) return yield* Effect.fail(formula);
+    if (!snapshot) {
+      const formula = detectFormulaInjection(rows, 0);
+      if (formula) return yield* Effect.fail(formula);
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);
@@ -463,6 +496,38 @@ export function parseEventsCsv(
             atColumn: idxName + 1,
           }),
         );
+      }
+      if (snapshot) {
+        const zoneKnown = isKnownTimeZone(timezone);
+        if (!zoneKnown && ![startAt, endAt].every((v) => v === "" || HAS_OFFSET_RE.test(v))) {
+          return yield* Effect.fail(
+            new MalformedSpreadsheet({
+              reason: "Timezone must be an IANA timezone name",
+              atRow: r + 1,
+              atColumn: idxTz + 1,
+            }),
+          );
+        }
+        const id =
+          idxEventId === -1 ? undefined : (nullableString(row[idxEventId] ?? "") ?? undefined);
+        const event: Types.Mutable<ParsedEvent> = {
+          name,
+          startAt: zoneKnown ? stampEventOffset(startAt, timezone) : startAt,
+          endAt: zoneKnown ? stampEventOffset(endAt, timezone) : endAt,
+          timezone,
+          location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
+          address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
+          dressCodeDescription:
+            idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
+          dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),
+          pinterestUrl:
+            idxPinterest === -1 ? null : (parseHttpUrl(row[idxPinterest] ?? "") ?? null),
+          mapsUrl: idxMaps === -1 ? null : (parseHttpUrl(row[idxMaps] ?? "") ?? null),
+          sortOrder: out.length,
+        };
+        if (id !== undefined) event.id = id;
+        out.push(event);
+        continue;
       }
       if (startAt.length === 0) {
         return yield* Effect.fail(
@@ -598,7 +663,11 @@ export interface ParseGuestsOptions {
    *    otherwise describe;
    *  - a row carrying a `Guest ID` is a guest even when its first name is blank;
    *  - households are grouped by `Family ID` rather than by name, so two
-   *    households with the same name stay two households.
+   *    households with the same name stay two households;
+   *  - no formula scan: the snapshot is written without the `'` guard, so a
+   *    value such as `-12 Smith Street` comes back as stored;
+   *  - the `Family Source` / `Guest Source` columns are read, so a row the
+   *    revert re-creates keeps its provenance.
    */
   readonly snapshot?: boolean;
 }
@@ -608,7 +677,7 @@ export function parseGuestsCsv(
   // Only the names are read: they are what the attendance columns must match.
   events: readonly Pick<ParsedEvent, "name">[],
   options: ParseGuestsOptions = {},
-): Effect.Effect<ParsedFamily[], SpreadsheetParseError> {
+): Effect.Effect<DesiredFamily[], SpreadsheetParseError> {
   const snapshot = options.snapshot === true;
   return Effect.gen(function* () {
     const result: CsvParseResult = snapshot
@@ -622,8 +691,10 @@ export function parseGuestsCsv(
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: "empty guests sheet" }));
     }
 
-    const formula = detectFormulaInjection(rows, 0);
-    if (formula) return yield* Effect.fail(formula);
+    if (!snapshot) {
+      const formula = detectFormulaInjection(rows, 0);
+      if (formula) return yield* Effect.fail(formula);
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);
@@ -680,7 +751,14 @@ export function parseGuestsCsv(
     };
     const idxGuestId = chosenFidelityIndex(GUEST_ID_HEADER);
     const idxFamilyCode = chosenFidelityIndex(FAMILY_CODE_HEADER);
-    for (const label of [GUEST_ID_HEADER, FAMILY_CODE_HEADER]) {
+    // Provenance columns exist only in a snapshot; an upload reads them as
+    // event columns like any other header.
+    const idxFamilySource = snapshot ? chosenFidelityIndex(FAMILY_SOURCE_HEADER) : -1;
+    const idxGuestSource = snapshot ? chosenFidelityIndex(GUEST_SOURCE_HEADER) : -1;
+    const fidelityLabels = snapshot
+      ? [GUEST_ID_HEADER, FAMILY_CODE_HEADER, FAMILY_SOURCE_HEADER, GUEST_SOURCE_HEADER]
+      : [GUEST_ID_HEADER, FAMILY_CODE_HEADER];
+    for (const label of fidelityLabels) {
       const norm = normaliseName(label);
       const indices: number[] = [];
       headerNorm.forEach((h, i) => {
@@ -717,8 +795,13 @@ export function parseGuestsCsv(
     // Group rows into households by (case+whitespace-normalised) family name —
     // or, in a snapshot, by Family ID. The first row's spelling wins; subsequent
     // rows just append guests.
-    const families: ParsedFamily[] = [];
-    const familyByKey = new Map<string, ParsedFamily>();
+    const families: DesiredFamily[] = [];
+    const familyByKey = new Map<string, DesiredFamily>();
+    const provenanceAt = (idx: number, row: string[]): Provenance | undefined => {
+      if (idx === -1) return undefined;
+      const cell = (row[idx] ?? "").trim();
+      return cell === "import" || cell === "manual" ? cell : undefined;
+    };
 
     for (let r = 1; r < rows.length; r += 1) {
       const row = rows[r]!;
@@ -781,29 +864,33 @@ export function parseGuestsCsv(
         snapshot && familyId !== undefined ? `id:${familyId}` : `name:${normaliseName(familyName)}`;
       let family = familyByKey.get(key);
       if (!family) {
-        const created: Types.Mutable<ParsedFamily> = {
+        const created: Types.Mutable<DesiredFamily> = {
           familyName,
           guests: [],
         };
         if (familyId !== undefined) created.id = familyId;
         if (publicId !== undefined) created.publicId = publicId;
+        const familySource = provenanceAt(idxFamilySource, row);
+        if (familySource !== undefined) created.source = familySource;
         family = created;
         familyByKey.set(key, family);
         families.push(family);
       }
       if (householdOnly) continue;
 
-      const guest: Types.Mutable<ParsedGuest> = {
+      const guest: Types.Mutable<DesiredGuest> = {
         firstName,
         lastName,
         nickname,
         eventNames,
       };
       if (guestId !== undefined) guest.id = guestId;
+      const guestSource = provenanceAt(idxGuestSource, row);
+      if (guestSource !== undefined) guest.source = guestSource;
       // Mutate in place — the array reference is the same one in `families`.
       // The family's id/publicId come from its FIRST row; subsequent rows only
       // append guests, matching how the exporter writes one code per family.
-      (family.guests as ParsedGuest[]).push(guest);
+      (family.guests as DesiredGuest[]).push(guest);
     }
 
     return families;

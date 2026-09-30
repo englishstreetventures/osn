@@ -63,3 +63,14 @@ export const GUEST_ID_HEADER = "Guest ID";
 /** The family's claim code / `publicId` (guests sheet, full fidelity) — a
  *  full-fidelity download contains live invite credentials. */
 export const FAMILY_CODE_HEADER = "Family Code";
+
+// ── Snapshot-only columns ────────────────────────────────────────────────────
+// Written only into a checkpoint before-image (`"snapshot"` fidelity) and read
+// only by the revert's snapshot parser, so a row a revert re-creates keeps the
+// provenance it had. A download never carries them, and an upload that does
+// has them read as event columns like any other header.
+
+/** The household's `source` (`import` / `manual`), on every guests-sheet row. */
+export const FAMILY_SOURCE_HEADER = "Family Source";
+/** The guest's `source` (`import` / `manual`); blank on a household-only row. */
+export const GUEST_SOURCE_HEADER = "Guest Source";

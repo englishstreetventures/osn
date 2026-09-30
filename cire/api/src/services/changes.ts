@@ -30,7 +30,7 @@ import { Cause, Data, Effect, Option, Schema } from "effect";
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { ChangeScope, DesiredState } from "../schemas/import";
-import type { ImportPlan, ParsedEvent, ParsedFamily } from "../schemas/import";
+import type { ImportPlan, ParsedEvent, ParsedFamily, Provenance } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 import type { SpreadsheetParseError } from "./spreadsheet";
@@ -184,6 +184,20 @@ export interface DecodedChange {
    * and a revert restores only those halves.
    */
   readonly scope: ChangeScope;
+  /**
+   * The `source` stamped on every household and guest the change creates
+   * ({@link createSourceFor}), passed to the diff as `createSource`.
+   */
+  readonly createSource: Provenance;
+}
+
+/**
+ * The provenance a change of this kind stamps on the rows it creates: `'manual'`
+ * for an editor save, `'import'` for a spreadsheet upload. Apply re-derives it
+ * from the stored `kind`, so preview and apply stamp the same value.
+ */
+export function createSourceFor(kind: "import" | "editor"): Provenance {
+  return kind === "editor" ? "manual" : "import";
 }
 
 /**
@@ -287,6 +301,7 @@ export function decodeChangeBody(
         uploadedCsv: null,
         kind: "editor",
         scope: body.scope ?? "both",
+        createSource: createSourceFor("editor"),
       } satisfies DecodedChange;
     }
 
@@ -321,6 +336,7 @@ export function decodeChangeBody(
       uploadedCsv: { eventsCsv: body.eventsCsv ?? null, guestsCsv: body.guestsCsv ?? null },
       kind: "import",
       scope,
+      createSource: createSourceFor("import"),
     } satisfies DecodedChange;
   });
 }

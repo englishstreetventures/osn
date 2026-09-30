@@ -16,6 +16,7 @@ import {
   clearedHalves,
   commitClaimStatement,
   committedRevision,
+  createSourceFor,
   currentEventsAsParsed,
   decodeChangeBody,
   headRevision,
@@ -395,6 +396,7 @@ export const createOrganiserChangeRoutes = (
                     removeManual: decoded.removeManual,
                     scope: decoded.scope,
                     matchByName: decoded.matchByName,
+                    createSource: decoded.createSource,
                   },
                 );
 
@@ -612,6 +614,9 @@ export const createOrganiserChangeRoutes = (
                       Schema.decodeUnknownOption(Schema.Boolean)(stored.matchByName),
                       () => row.kind !== "editor",
                     ),
+                    // From the column, as the preview's was from the body:
+                    // an editor save's new rows are `'manual'`.
+                    createSource: createSourceFor(row.kind),
                   },
                 );
 
