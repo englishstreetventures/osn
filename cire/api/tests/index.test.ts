@@ -413,6 +413,92 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
+  // The per-IP limiter on a guest route must answer before `sessionAuth` looks
+  // the cookie up: a refused request costs no D1 query. Each case mounts a
+  // refusing binding for the limiter that route reads, and sends an unknown
+  // `cire_session` cookie that would otherwise cost one `sessions` lookup.
+  describe("a refused guest request never reaches the session lookup", () => {
+    const refusingLimiter = { limit: async () => ({ success: false }) };
+    const cases: { name: string; method: string; path: string; binding: string }[] = [
+      {
+        name: "GET /api/claim/session",
+        method: "GET",
+        path: "/api/claim/session",
+        binding: "CLAIM_SESSION_RATE_LIMITER",
+      },
+      {
+        name: "DELETE /api/account/link/:guestId",
+        method: "DELETE",
+        path: "/api/account/link/gst_probe",
+        binding: "CLAIM_RATE_LIMITER",
+      },
+      {
+        name: "POST /api/account/link",
+        method: "POST",
+        path: "/api/account/link",
+        binding: "CLAIM_RATE_LIMITER",
+      },
+      {
+        name: "POST /api/invite/:slug/registry/items/:itemId/claim",
+        method: "POST",
+        path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
+        binding: "REGISTRY_GUEST_RATE_LIMITER",
+      },
+      {
+        name: "DELETE /api/invite/:slug/registry/items/:itemId/claim",
+        method: "DELETE",
+        path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
+        binding: "REGISTRY_GUEST_RATE_LIMITER",
+      },
+    ];
+
+    const send = async (method: string, path: string, limiters: Record<string, unknown>) => {
+      const probe = probeD1();
+      const env = { ...BASE_ENV, ...limiters, DB: probe.binding } as unknown as Parameters<
+        NonNullable<typeof handler.fetch>
+      >[1];
+      const res = await handler.fetch!(
+        new Request(`https://api.example.com${path}`, {
+          method,
+          headers: {
+            "cf-connecting-ip": "203.0.113.7",
+            // The CSRF guard refuses a write without an allowed Origin.
+            origin: BASE_ENV.WEB_ORIGIN,
+            cookie: "cire_session=no-such-session",
+            ...(method === "GET" ? {} : { "content-type": "application/json" }),
+          },
+          ...(method === "GET" ? {} : { body: "{}" }),
+        }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+      const statements = probe.sessionQueries.flat().filter((entry) => !entry.startsWith("bind:"));
+      return { res, statements, probe };
+    };
+
+    for (const { name, method, path, binding } of cases) {
+      it(`${name}: 429 with no query`, async () => {
+        const { res, statements, probe } = await send(method, path, {
+          [binding]: refusingLimiter,
+        });
+
+        expect(res.status).toBe(429);
+        expect(statements).toEqual([]);
+        expect(probe.bindingQueries).toEqual([]);
+      });
+    }
+
+    it("the same cookie on an allowed request does cost the lookup", async () => {
+      // Control: without it, a cookie the Worker never parsed would pass the
+      // cases above too.
+      const { res, statements } = await send("DELETE", "/api/account/link/gst_probe", {});
+
+      expect(res.status).toBe(401);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toMatch(/^select .* from "sessions" where/i);
+    });
+  });
+
   const runCron = async (extraEnv: Record<string, string> = {}) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<

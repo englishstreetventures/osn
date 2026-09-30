@@ -94,9 +94,11 @@ export const createAccountLinkPostRoute = (
   webOrigin = "http://localhost:4321",
 ) =>
   new Elysia({ prefix: PREFIX })
-    // Rate limit runs in onBeforeHandle (before the handler), so it gates the
-    // ARC-sign + S2S amplifier and the family-membership oracle even though the
-    // auth derives run first (S-L1).
+    // The limiter answers before the guest session lookup (a before-handle
+    // resolve, mounted after it) and before the handler, so it gates the D1
+    // read, the ARC-sign + S2S amplifier and the family-membership oracle.
+    // `osnAuth` still resolves its credential in the transform phase, ahead of
+    // the limiter.
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
     .use(osnAuth(osnAuthOptions))
