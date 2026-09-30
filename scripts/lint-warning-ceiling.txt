@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-996   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-rsvp-change-digest merged with main @ 2026-09-28 — the cron handler's rewritten header comment dropped two finding tags on top of main's count. No rule was disabled and nothing was suppressed.
+995   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-api-boot-followups on main @ 2026-09-30 — the rewritten WEB_ORIGIN boot-check comment in cire/api/src/index.ts dropped one finding tag. No rule was disabled and nothing was suppressed.
