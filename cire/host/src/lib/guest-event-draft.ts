@@ -503,12 +503,17 @@ export function replayDraft(
         for (const field of GUEST_FIELDS) {
           if (cg[field] !== bg[field]) Object.assign(g, { [field]: cg[field] });
         }
-        const ticked = cg.eventKeys.filter((k) => !bg.eventKeys.includes(k));
-        const unticked = bg.eventKeys.filter((k) => !cg.eventKeys.includes(k));
-        const drop = new Set(unticked.map((k) => eventKeyMap.get(k)).filter(Boolean));
-        const keys = g.eventKeys.filter((k) => !drop.has(k));
-        for (const k of mapKeys(ticked, cg.firstName)) if (!keys.includes(k)) keys.push(k);
-        g.eventKeys = keys;
+        const baseKeys = new Set(bg.eventKeys);
+        const curKeys = new Set(cg.eventKeys);
+        const ticked = cg.eventKeys.filter((k) => !baseKeys.has(k));
+        const unticked = bg.eventKeys.filter((k) => !curKeys.has(k));
+        if (ticked.length > 0 || unticked.length > 0) {
+          const drop = new Set(unticked.map((k) => eventKeyMap.get(k)));
+          // A Set keeps insertion order: the fresh ticks first, then the new ones.
+          const keys = new Set(g.eventKeys.filter((k) => !drop.has(k)));
+          for (const k of mapKeys(ticked, cg.firstName)) keys.add(k);
+          g.eventKeys = [...keys];
+        }
       }
       kept.push(g);
     }
@@ -832,10 +837,12 @@ export function createGuestEventDraft(): GuestEventDraft {
     revision: string,
   ): string[] {
     const fresh = buildDraft(events, guests, households);
-    const { draft: replayed, notes } = replayDraft(baselineDraft(), snapshot(draft), fresh);
+    // `replayDraft` copies what it takes from the live draft and from `fresh`,
+    // so neither needs a copy of its own here.
+    const { draft: replayed, notes } = replayDraft(baselineDraft(), unwrap(draft), fresh);
     setDraft(reconcile(replayed, { key: "key" }));
     setBaseline(fingerprint(fresh));
-    setBaselineDraft(structuredClone(fresh));
+    setBaselineDraft(fresh);
     setUndoStack([]);
     setBaseRevision(revision);
     setLoaded(true);

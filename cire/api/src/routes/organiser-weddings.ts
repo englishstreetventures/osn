@@ -21,7 +21,7 @@ import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
-import { stateExportService } from "../services/state-export";
+import { downloadFidelity, stateExportService } from "../services/state-export";
 import { tableExportService } from "../services/table-export";
 import { weddingsService } from "../services/weddings";
 
@@ -429,10 +429,10 @@ export const createOrganiserExportRoutes = (
             set.status = 500;
             return { error: "Internal error" };
           }
-          const fidelity = query.fidelity === "full" ? "full" : "import";
+          const fidelity = downloadFidelity(query.fidelity);
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* stateExportService.eventsCsv(weddingId, fidelity);
+              const csv = yield* stateExportService.downloadEventsCsv(weddingId, fidelity);
               return csvAttachment(csv, `cire-export-events-${weddingSlug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
@@ -445,10 +445,10 @@ export const createOrganiserExportRoutes = (
             set.status = 500;
             return { error: "Internal error" };
           }
-          const fidelity = query.fidelity === "full" ? "full" : "import";
+          const fidelity = downloadFidelity(query.fidelity);
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* stateExportService.guestsCsv(weddingId, fidelity);
+              const csv = yield* stateExportService.downloadGuestsCsv(weddingId, fidelity);
               return csvAttachment(csv, `cire-export-guests-${weddingSlug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),

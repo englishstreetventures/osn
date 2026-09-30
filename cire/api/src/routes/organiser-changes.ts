@@ -178,7 +178,7 @@ function staleDraft(set: { status?: number | string }) {
  * an editor can offer to reload with its edits kept), while another change
  * still writing means the same preview can be confirmed again in a moment.
  */
-function claimRefused(set: { status?: number | string }, e: ChangeConflict, retry: string) {
+export function claimRefused(set: { status?: number | string }, e: ChangeConflict, retry: string) {
   set.status = 409;
   return e.reason === "in_progress"
     ? {

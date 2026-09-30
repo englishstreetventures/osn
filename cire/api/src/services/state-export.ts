@@ -51,6 +51,20 @@ import { decodePalette, safeHttpUrl } from "./claim";
 export type ExportFidelity = "import" | "full" | "snapshot";
 
 /**
+ * The fidelities a download may be served at. `"snapshot"` is not one: it
+ * drops the spreadsheet formula guard, so it must only ever reach the
+ * checkpoint's R2 store. Routes take a value of this type from
+ * {@link downloadFidelity} and call the `download*` methods, which cannot be
+ * handed `"snapshot"`.
+ */
+export type DownloadFidelity = Exclude<ExportFidelity, "snapshot">;
+
+/** A download's `?fidelity=` query value, narrowed: `full` or `import`. */
+export function downloadFidelity(query: string | undefined): DownloadFidelity {
+  return query === "full" ? "full" : "import";
+}
+
+/**
  * Format a decoded palette back into the sheet's `Name:#rgb|Name:#rgb` cell.
  * Import-written names can never contain `|`/`:` (the parser splits on them),
  * but future writers might — strip the delimiters so the cell always re-parses
@@ -65,6 +79,22 @@ function paletteCell(raw: string | null): string {
 }
 
 export const stateExportService = {
+  /** {@link stateExportService.eventsCsv} for a download — never unguarded. */
+  downloadEventsCsv(
+    weddingId: string,
+    fidelity: DownloadFidelity,
+  ): Effect.Effect<string, never, DbService> {
+    return stateExportService.eventsCsv(weddingId, fidelity);
+  },
+
+  /** {@link stateExportService.guestsCsv} for a download — never unguarded. */
+  downloadGuestsCsv(
+    weddingId: string,
+    fidelity: DownloadFidelity,
+  ): Effect.Effect<string, never, DbService> {
+    return stateExportService.guestsCsv(weddingId, fidelity);
+  },
+
   /**
    * Events sheet: one row per event in `sortOrder` order — the parser assigns
    * `sortOrder` from row order, so exporting in that order makes the
@@ -152,10 +182,14 @@ export const stateExportService = {
         lastName: guests.lastName,
         nickname: guests.nickname,
         sortOrder: guests.sortOrder,
-        guestSource: guests.source,
         familyId: families.id,
         familyName: families.familyName,
         publicId: families.publicId,
+      };
+      // Provenance is written only into a snapshot, so only it reads the columns.
+      const snapshotColumns = {
+        ...guestColumns,
+        guestSource: guests.source,
         familySource: families.source,
       };
 
@@ -179,7 +213,7 @@ export const stateExportService = {
           snapshot
             ? dbQuery(() =>
                 db
-                  .select(guestColumns)
+                  .select(snapshotColumns)
                   .from(families)
                   .leftJoin(guests, eq(guests.familyId, families.id))
                   .where(guestScope)
@@ -234,7 +268,7 @@ export const stateExportService = {
             familyId: row.familyId,
             familyName: row.familyName,
             publicId: row.publicId,
-            source: row.familySource,
+            source: "familySource" in row ? row.familySource : "import",
             guests: [],
           };
           byFamily.set(row.familyId, household);
@@ -247,7 +281,7 @@ export const stateExportService = {
           lastName: row.lastName,
           nickname: row.nickname,
           sortOrder: row.sortOrder ?? 0,
-          source: row.guestSource ?? "import",
+          source: ("guestSource" in row ? row.guestSource : null) ?? "import",
         });
       }
       const householdKey = (h: Household) => h.familyName.trim().toLowerCase();

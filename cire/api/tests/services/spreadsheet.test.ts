@@ -1016,6 +1016,18 @@ describe("parseEventsCsv — { snapshot: true } (checkpoint before-image)", () =
     expect(event!.pinterestUrl).toBeNull();
   });
 
+  it("restores a blank Start and a non-http Maps URL as the app would store them", async () => {
+    const csv = [
+      "Event Name,Start,Timezone,End,Maps URL",
+      "Mehndi,,Australia/Sydney,,ftp://maps.example",
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
+    // No Event ID column: the event is id-less and matches by name.
+    expect(event!.id).toBeUndefined();
+    expect(event!.startAt).toBe("");
+    expect(event!.mapsUrl).toBeNull();
+  });
+
   it("still caps the schedule at MAX_EVENTS", async () => {
     const rows = Array.from(
       { length: MAX_EVENTS + 1 },
