@@ -244,7 +244,7 @@ describe("an editor draft is bounded in events and households", () => {
     expect(res.status).toBe(400);
 
     const atCap = await editorPreview(app, {
-      desiredState: { events: [], families: families.slice(0, MAX_ROWS) },
+      desiredState: { events: [], families: households.slice(0, MAX_ROWS) },
       scope: "guests",
     });
     expect(atCap.status).toBe(200);
