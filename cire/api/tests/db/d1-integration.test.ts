@@ -18,6 +18,8 @@ import {
   rsvpChanges,
   rsvps,
   tasks,
+  vendorClaims,
+  vendors,
   weddingFaqs,
   weddingEntitlements,
   weddingInviteCustomisations,
@@ -42,7 +44,7 @@ import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
-import { createDirectoryService } from "../../src/services/directory";
+import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
@@ -228,6 +230,8 @@ afterAll(async () => {
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
   for (const table of [
+    vendorClaims,
+    vendors,
     directoryVendorCategories,
     directoryVendors,
     rsvpChanges,
@@ -959,18 +963,147 @@ describe("cire/api over real D1 (Miniflare)", () => {
         { directoryVendorId: "dv_two", category: "catering" },
         { directoryVendorId: "dv_draft", category: "venue" },
       ]);
+      // The wedding's CRM links dv_two only.
+      await db.insert(vendors).values({
+        id: "ven_two",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        directoryVendorId: "dv_two",
+        name: "Two Categories",
+        category: "venue",
+        createdAt: now,
+        updatedAt: now,
+      });
       const directory = createDirectoryService();
 
-      const two = await run(directory.getLiveListingById("dv_two"));
+      const two = await run(directory.getLiveListingById("dv_two", BOOTSTRAP_WEDDING_ID));
       expect(two?.name).toBe("Two Categories");
       expect(two?.createdAt).toBe(Math.floor(now.getTime() / 1000) * 1000);
       expect(two?.categories.toSorted()).toEqual(["catering", "venue"]);
+      // D1 returns the EXISTS as an integer; the service hands back a boolean.
+      expect(two?.inWedding).toBe(true);
 
-      const none = await run(directory.getLiveListingById("dv_none"));
+      const none = await run(directory.getLiveListingById("dv_none", BOOTSTRAP_WEDDING_ID));
       expect(none?.categories).toEqual([]);
+      expect(none?.inWedding).toBe(false);
 
-      expect(await run(directory.getLiveListingById("dv_draft"))).toBeNull();
-      expect(await run(directory.getLiveListingById("dv_missing"))).toBeNull();
+      expect(await run(directory.getLiveListingById("dv_draft", BOOTSTRAP_WEDDING_ID))).toBeNull();
+      expect(
+        await run(directory.getLiveListingById("dv_missing", BOOTSTRAP_WEDDING_ID)),
+      ).toBeNull();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "consumeClaim burns the token and binds the listing from the bind's RETURNING row",
+    async () => {
+      const now = new Date();
+      await db.insert(vendors).values({
+        id: "ven_claim",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        name: "Claim Florals",
+        category: "florals",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const directory = createDirectoryService();
+      const { claimToken, directoryVendorId } = await run(
+        directory.seedFromCrm(BOOTSTRAP_WEDDING_ID, "ven_claim", {
+          name: "Claim Florals",
+          description: null,
+          email: "claim@example.com",
+          phone: null,
+          website: null,
+          instagram: null,
+          locationText: null,
+          priceBand: null,
+          priceMinMinor: null,
+          priceMaxMinor: null,
+          categories: ["florals", "decor_styling"],
+        }),
+      );
+
+      const listing = await run(directory.consumeClaim(claimToken, "org_claim", "usr_claim"));
+      expect(listing.id).toBe(directoryVendorId);
+      expect(listing.ownerOrgId).toBe("org_claim");
+      expect(listing.listed).toBe("live");
+      expect(listing.categories.toSorted()).toEqual(["decor_styling", "florals"]);
+
+      const [row] = await db
+        .select()
+        .from(directoryVendors)
+        .where(eq(directoryVendors.id, directoryVendorId));
+      expect(row?.claimedByProfileId).toBe("usr_claim");
+      const [claim] = await db
+        .select()
+        .from(vendorClaims)
+        .where(eq(vendorClaims.directoryVendorId, directoryVendorId));
+      expect(claim?.consumedAt).not.toBeNull();
+
+      const reuse = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(claimToken, "org_other", "usr_other")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(reuse) &&
+          Option.getOrUndefined(Cause.findErrorOption(reuse.cause)) instanceof ClaimInvalid,
+      ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "upsertListingForOrg answers an update from the UPDATE's RETURNING row",
+    async () => {
+      const directory = createDirectoryService();
+      const body = {
+        name: "Upsert Cakes",
+        description: null,
+        email: "cakes@example.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: "Hobart",
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        categories: ["cake"],
+      };
+      const first = await run(directory.upsertListingForOrg("org_upsert", body));
+      const second = await run(
+        directory.upsertListingForOrg("org_upsert", {
+          ...body,
+          name: "Upsert Cakes Renamed",
+          categories: ["venue", "cake"],
+        }),
+      );
+
+      expect(second.id).toBe(first.id);
+      expect(second.name).toBe("Upsert Cakes Renamed");
+      expect(second.locationText).toBe("Hobart");
+      // Stored at second precision; the first save answers from memory.
+      expect(second.createdAt).toBe(Math.floor(first.createdAt / 1000) * 1000);
+      expect(second.categories).toEqual(["cake", "venue"]);
+      const stored = await db
+        .select({ category: directoryVendorCategories.category })
+        .from(directoryVendorCategories)
+        .where(eq(directoryVendorCategories.directoryVendorId, second.id));
+      expect(stored.map((r) => r.category).toSorted()).toEqual(second.categories);
+
+      // A repeated category fails the replace batch on its primary key, and
+      // the batch commits nothing: the stored set is the one saved above.
+      const dup = await Effect.runPromiseExit(
+        directory
+          .upsertListingForOrg("org_upsert", { ...body, categories: ["florals", "florals"] })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(dup)).toBe(true);
+      const after = await db
+        .select({ category: directoryVendorCategories.category })
+        .from(directoryVendorCategories)
+        .where(eq(directoryVendorCategories.directoryVendorId, second.id));
+      expect(after.map((r) => r.category).toSorted()).toEqual(["cake", "venue"]);
     },
     MF_TIMEOUT_MS,
   );
