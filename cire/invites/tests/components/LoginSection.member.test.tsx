@@ -156,3 +156,29 @@ it("'Not you?' keeps the member when the musubi sign-out fails", async () => {
   expect(await view.findByRole("alert")).toBeTruthy();
   expect(result().member).toEqual({ guestId: "g-Chidi" });
 });
+
+it("'Not you?' sends one request while one is in flight, and a retry clears the error", async () => {
+  let release: (res: Response) => void = () => {};
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        release = resolve;
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const { view } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
+  const button = view.getByRole("button", { name: "Not you?" }) as HTMLButtonElement;
+
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await waitFor(() => expect(button.disabled).toBe(true));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  release(new Response(null, { status: 503 }));
+  expect(await view.findByRole("alert")).toBeTruthy();
+  expect(button.disabled).toBe(false);
+
+  fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+  fireEvent.click(button);
+  expect(await view.findByText("Who are you?")).toBeTruthy();
+  expect(view.queryByRole("alert")).toBeNull();
+});
