@@ -1127,8 +1127,8 @@ describe("owner change notices", () => {
     expect(res.status).toBe(200);
 
     const sent = mail.recorded();
-    expect(sent.map((m) => m.to).sort()).toEqual(
-      ["alice@example.test", "second@example.test", "third@example.test"].sort(),
+    expect(sent.map((m) => m.to).toSorted()).toEqual(
+      ["alice@example.test", "second@example.test", "third@example.test"].toSorted(),
     );
     expect(sent.every((m) => m.template === "wedding-owner-change")).toBe(true);
     const to = byAddress(mail);
@@ -1172,7 +1172,7 @@ describe("owner change notices", () => {
     expect(left.status).toBe(200);
     to = byAddress(mail);
     // The leaver and the one owner who remains.
-    expect([...to.keys()].sort()).toEqual(["second@example.test", "third@example.test"]);
+    expect([...to.keys()].toSorted()).toEqual(["second@example.test", "third@example.test"]);
     expect(to.get("second@example.test")?.text).toContain("You left Hosts Wedding.");
   });
 
