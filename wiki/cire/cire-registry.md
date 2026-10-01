@@ -233,7 +233,7 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | `POST \| DELETE /registry/items/:itemId/claim`          | per-IP limiter, then `sessionAuth` |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
-**Every gated route checks the family against the WEDDING**, and they must not drift: the list and `/mine` fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`), and claim, release and contribute run the shared `familyInWedding` read. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
+**Every gated route checks the family against the WEDDING**, and they must not drift: the list, `/mine` and contribute fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`; contribute also passes its `itemId`, answered as `itemBelongs` rather than as a refusal), claim reads the family inside its own write, and release runs the shared `familyInWedding` read on its failure path. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
 
 | Route                                          | A household of another wedding gets                                                    |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |

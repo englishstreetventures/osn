@@ -4,6 +4,7 @@ import {
   BOOTSTRAP_WEDDING_ID,
   families,
   registryContributions,
+  registryItems,
   registrySettings,
   weddingEntitlements,
   weddings,
@@ -19,7 +20,7 @@ import {
   type CreateCheckoutSessionInput,
   type StripeClient,
 } from "../../src/services/stripe";
-import { appRequest, jsonBody, TEST_ORIGIN } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, TEST_ORIGIN } from "../test-helpers";
 
 /**
  * A guest giving money.
@@ -170,6 +171,15 @@ function buildApp({
   return { app, db };
 }
 type App = ReturnType<typeof buildApp>["app"];
+type Db = ReturnType<typeof buildApp>["db"];
+
+/** A gift line on the given wedding. */
+function insertItem(db: Db, id: string, weddingId: string) {
+  const now = new Date();
+  db.insert(registryItems)
+    .values({ id, weddingId, title: "Copper pan", createdAt: now, updatedAt: now })
+    .run();
+}
 
 /** Claim a code and keep the `cire_session` cookie it mints. */
 async function guestCookie(app: App, publicId = FAMILY): Promise<string> {
@@ -252,6 +262,18 @@ describe("the couple must be taking money", () => {
       expect(stripe.sessions).toHaveLength(0);
     });
   }
+
+  it("refuses a household of another wedding as the 404 first, even when cash is off", async () => {
+    // The household check comes before the cash checks: a 409 here would tell
+    // a stranger's cookie that this wedding has a list.
+    const stripe = stripeStub();
+    const { app } = buildApp({ cashGiftsEnabled: false, stripe: stripe.client });
+    const foreign = await guestCookie(app, FOREIGN_FAMILY);
+    const res = await contribute(app, foreign, { amountMinor: 5000 });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+    expect(stripe.sessions).toHaveLength(0);
+  });
 
   it("refuses an unpublished registry as a 404, like every other guest route", async () => {
     const stripe = stripeStub();
@@ -400,6 +422,54 @@ describe("what reaches Stripe, and what does not", () => {
     const rows = await db.select().from(registryContributions).all();
     expect(rows[0]?.itemId).toBeNull();
     expect(rows[0]?.amountMinor).toBe(5000);
+  });
+
+  it("keeps an item id that is this wedding's", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
+    const cookie = await guestCookie(app);
+
+    await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" });
+
+    const rows = await db.select().from(registryContributions).all();
+    expect(rows[0]?.itemId).toBe("reg_pan");
+  });
+
+  it("drops an item that exists but belongs to another wedding", async () => {
+    // The item row is real, so only the wedding check can drop it.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_other_pan", "wed_other");
+    const cookie = await guestCookie(app);
+
+    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_other_pan" });
+
+    expect(res.status).toBe(200);
+    const rows = await db.select().from(registryContributions).all();
+    expect(rows[0]?.itemId).toBeNull();
+  });
+
+  it("checks the household and the item inside the registry gate's one statement", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
+    const cookie = await guestCookie(app);
+    const statements = recordStatements(db);
+
+    expect((await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" })).status).toBe(
+      200,
+    );
+
+    const gate = statements.filter((s) => s.sql.includes('"weddings"'));
+    expect(gate).toHaveLength(1);
+    expect(gate[0]!.sql).toContain('"families"');
+    expect(gate[0]!.sql).toContain('"registry_items"');
+    // No second hop for either check.
+    const standalone = statements.filter(
+      (s) => /from "(families|registry_items)"/.test(s.sql) && !s.sql.includes('"weddings"'),
+    );
+    expect(standalone).toEqual([]);
   });
 
   /**

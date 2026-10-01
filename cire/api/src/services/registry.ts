@@ -663,8 +663,9 @@ function contributionsByCurrency(
 /**
  * Whether a household belongs to a wedding.
  *
- * Its own function because THREE gates now depend on it and they must not
- * drift: the list read, this household's read, and the claim/release writes. A
+ * `releaseClaim` reads it on its failure path, to tell a household of another
+ * wedding from an item of another wedding. The guest gate makes the same check
+ * inside its own statement (`resolveVisibleRegistry` with a `familyId`). A
  * `cire_session` names a household and nothing else, so without this check one
  * leaked code reaches every couple's list on the platform.
  *
@@ -682,30 +683,6 @@ function familyInWedding(
         .select({ id: families.id })
         .from(families)
         .where(and(eq(families.id, familyId), eq(families.weddingId, weddingId)))
-        .all(),
-    );
-    return (rows as Array<{ id: string }>).length > 0;
-  });
-}
-
-/**
- * Whether an item id is one of this wedding's.
- *
- * A free function for the same reason `familyInWedding` is one: a cash gift
- * needs it at the same moment it needs the family check, and the two are then
- * one `Effect.all` rather than two serial D1 hops.
- */
-function itemInWedding(
-  weddingId: string,
-  itemId: string,
-): Effect.Effect<boolean, never, DbService> {
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const rows = yield* dbQuery(() =>
-      db
-        .select({ id: registryItems.id })
-        .from(registryItems)
-        .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
         .all(),
     );
     return (rows as Array<{ id: string }>).length > 0;
@@ -1520,7 +1497,7 @@ export const registryService = {
     familyId: string;
     /**
      * The line the guest aimed the money at, if they picked one. Checked here
-     * rather than by the caller so it rides along with the family check instead
+     * rather than by the caller so it rides in the gate's own statement instead
      * of costing a round trip of its own; an id that is not this wedding's
      * comes back as `null` rather than as a refusal.
      */
@@ -1531,25 +1508,13 @@ export const registryService = {
     DbService
   > {
     return Effect.gen(function* () {
-      const { settings, weddingId, currency } = yield* resolveVisibleRegistry(input.slug);
-      // Two independent point reads against the same wedding, so they go
-      // together. The item check runs even on a request the family check is
-      // about to turn away — one extra indexed read on a request that was never
-      // going to charge, against a round trip saved on every one that does.
-      const gates = yield* Effect.all(
-        {
-          familyBelongs: familyInWedding(weddingId, input.familyId),
-          itemBelongs: input.itemId
-            ? itemInWedding(weddingId, input.itemId)
-            : Effect.succeed(false),
-        },
-        { concurrency: "unbounded" },
+      // The household and item checks ride in the gate's own statement. A
+      // household of another wedding fails the gate as `RegistryNotVisible`,
+      // so it is still refused before the cash checks below.
+      const { settings, weddingId, currency, itemBelongs } = yield* resolveVisibleRegistry(
+        input.slug,
+        { familyId: input.familyId, itemId: input.itemId || undefined },
       );
-      // The household check every guest route makes, answered with the same
-      // failure, so a cookie for one wedding buys nothing on another.
-      if (!gates.familyBelongs) {
-        return yield* Effect.fail(new RegistryNotVisible());
-      }
       if (!settings.cashGiftsEnabled || !settings.stripeChargesEnabled) {
         return yield* Effect.fail(new CashGiftsUnavailable());
       }
@@ -1562,19 +1527,9 @@ export const registryService = {
         // An item id that is not this wedding's is dropped, not refused: what
         // the guest is doing is giving money, and which line they aimed it at
         // is the smaller half of that.
-        itemId: gates.itemBelongs ? (input.itemId ?? null) : null,
+        itemId: itemBelongs ? (input.itemId ?? null) : null,
       };
     }).pipe(Effect.withSpan("cire.registry.contributionContext"));
-  },
-
-  /** Whether an item id is one of this wedding's — for a contribution TOWARDS a gift. */
-  itemBelongsToWedding(input: {
-    weddingId: string;
-    itemId: string;
-  }): Effect.Effect<boolean, never, DbService> {
-    return itemInWedding(input.weddingId, input.itemId).pipe(
-      Effect.withSpan("cire.registry.itemBelongsToWedding"),
-    );
   },
 
   /**
@@ -2871,8 +2826,15 @@ const toPublicItemDto = (
  *   couple's list; answering it as `RegistryNotVisible` keeps a stranger
  *   household's 404 identical to an unpublished list's.
  *
+ * One more check answers rather than fails:
+ *
+ * - `itemId` — whether that item is one of THIS wedding's, returned as
+ *   `itemBelongs` (always `false` when not asked). A cash gift aimed at a line
+ *   that is not this wedding's is kept and its line dropped, so a foreign item
+ *   must not close the gate.
+ *
  * ONE statement, whatever the answer: the slug read, the entitlement, the
- * settings row and both checks are keyed on the id the slug read produces, so
+ * settings row and every check are keyed on the id the slug read produces, so
  * each is folded into it rather than run after it. Every guest route pays this
  * gate, and the image route pays it per image.
  *
@@ -2885,13 +2847,13 @@ function resolveVisibleRegistry(
   slug: string,
   also: GateChecks = {},
 ): Effect.Effect<
-  { weddingId: string; settings: RegistrySettingsRecord; currency: string },
+  { weddingId: string; settings: RegistrySettingsRecord; currency: string; itemBelongs: boolean },
   RegistryNotVisible,
   DbService
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const { imageName, familyId } = also;
+    const { imageName, familyId, itemId } = also;
     const [found] = yield* dbQuery(() =>
       db
         .select({
@@ -2908,6 +2870,11 @@ function resolveVisibleRegistry(
             ? sql<number>`1`
             : sql<number>`EXISTS (SELECT 1 FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
           ).as("family_listed"),
+          // The constant 0 here, not 1: this check answers, it does not gate.
+          itemListed: (itemId === undefined
+            ? sql<number>`0`
+            : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.id} = ${itemId} AND ${registryItems.weddingId} = ${outerColumn(weddings.id)})`
+          ).as("item_listed"),
           // NULL exactly when the wedding has no settings row: the LEFT JOIN
           // leaves every settings column NULL then, and this one is the key.
           settingsWeddingId: registrySettings.weddingId,
@@ -2934,7 +2901,12 @@ function resolveVisibleRegistry(
       return yield* Effect.fail(new RegistryNotVisible());
     }
     // Same fallback `primaryCurrency` has always used.
-    return { weddingId: row.id, settings, currency: row.currency ?? "AUD" };
+    return {
+      weddingId: row.id,
+      settings,
+      currency: row.currency ?? "AUD",
+      itemBelongs: Boolean(row.itemListed),
+    };
   });
 }
 
@@ -2942,6 +2914,7 @@ function resolveVisibleRegistry(
 interface GateChecks {
   imageName?: string;
   familyId?: string;
+  itemId?: string;
 }
 
 /** The one row the guest gate reads — see {@link resolveVisibleRegistry}. */
@@ -2951,6 +2924,7 @@ interface GateRow {
   entitled: number;
   imageListed: number;
   familyListed: number;
+  itemListed: number;
   settingsWeddingId: string | null;
   published: boolean | null;
   headline: string | null;
