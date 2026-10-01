@@ -69,17 +69,13 @@ const VIEW = {
 
 const feed = (rows: { guestId: string; eventId: string | null }[], markSeq: number) => ({
   markSeq,
-  households: rows.length > 0 ? 1 : 0,
-  truncated: false,
-  items: [],
   rows,
-  digest: { available: true, enabled: true },
 });
 
 function routeFetch(changes: unknown) {
   authFetchMock.mockImplementation((url: string) => {
     if (url.endsWith("/rsvp-changes/seen")) return Promise.resolve(json({ seenSeq: 1 }));
-    if (url.endsWith("/rsvp-changes")) return Promise.resolve(json(changes));
+    if (url.endsWith("/rsvp-changes/rows")) return Promise.resolve(json(changes));
     if (url.endsWith("/rsvps")) return Promise.resolve(json(VIEW));
     return Promise.resolve(json({}, 404));
   });
@@ -129,9 +125,9 @@ describe("RsvpView — New badges", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await screen.findByRole("heading", { name: "Reception" });
     await waitFor(() =>
-      expect(authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes"))).toBe(
-        true,
-      ),
+      expect(
+        authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
+      ).toBe(true),
     );
     expect(seenCalls()).toEqual([]);
     expect(screen.queryByText("New")).toBeNull();
@@ -150,7 +146,7 @@ describe("RsvpView — New badges", () => {
   it("marks nothing seen when the RSVPs themselves fail to load", async () => {
     let feedAnswered = false;
     authFetchMock.mockImplementation((url: string) => {
-      if (url.endsWith("/rsvp-changes")) {
+      if (url.endsWith("/rsvp-changes/rows")) {
         feedAnswered = true;
         return Promise.resolve(json(feed([{ guestId: "g1", eventId: "evt_1" }], 9)));
       }
@@ -167,7 +163,7 @@ describe("RsvpView — New badges", () => {
 
   it("marks nothing seen when the organiser is signed out", async () => {
     authFetchMock.mockImplementation((url: string) => {
-      if (url.endsWith("/rsvp-changes")) {
+      if (url.endsWith("/rsvp-changes/rows")) {
         return Promise.resolve(json(feed([{ guestId: "g1", eventId: "evt_1" }], 9)));
       }
       if (url.endsWith("/rsvps")) return Promise.resolve(json({ error: "unauthorised" }, 401));
