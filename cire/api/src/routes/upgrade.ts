@@ -25,7 +25,7 @@
  */
 
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
@@ -36,7 +36,8 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
-import { isPurchasable, type UpgradeCatalogue } from "../services/upgrade-catalogue";
+import { StartUpgradeSessionBody } from "../schemas/upgrade";
+import type { UpgradeCatalogue } from "../services/upgrade-catalogue";
 import type { UpgradeService } from "../services/upgrades";
 
 export interface UpgradeDeps {
@@ -164,36 +165,40 @@ export const createUpgradeRoutes = (db: Db, osnAuthOptions: OsnAuthOptions, deps
       group
         .use(weddingOwner(db))
         .use(rateLimitMiddlewareByUser(deps.limiter))
-        .post("/upgrade/session", ({ weddingId, body, osnProfileId, set }) => {
-          const request = body as { tier?: unknown; module?: unknown } | null;
-          const tier = request?.tier;
-          if (!weddingId || !osnProfileId) {
-            set.status = 500;
-            return { error: "internal" };
-          }
-          if (typeof tier !== "string" || !isPurchasable(tier)) {
-            // Not a tier this surface sells. 404 rather than 400: a value that
-            // exists but is not self-serve is, from here, indistinguishable
-            // from one that does not exist.
-            set.status = 404;
-            return { error: "not_purchasable" };
-          }
-          const module =
-            typeof request?.module === "string" && RETURN_MODULES.has(request.module)
-              ? request.module
-              : "overview";
-          return runCire(
-            deps.upgrades
-              .startPurchase({
-                weddingId,
-                tier,
-                actorProfileId: osnProfileId,
-                successUrlFor: (purchaseId) =>
-                  returnUrl(deps.organiserOrigin, weddingId, module, purchaseId),
-                cancelUrl: returnUrl(deps.organiserOrigin, weddingId, module),
-              })
-              .pipe(
+        .post(
+          "/upgrade/session",
+          async ({ weddingId, request, osnProfileId, set }) => {
+            if (!weddingId || !osnProfileId) {
+              set.status = 500;
+              return { error: "internal" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                // The whole body is checked here, before the service sees any
+                // of it. A tier this surface does not sell fails the schema.
+                const body = yield* Schema.decodeUnknownEffect(StartUpgradeSessionBody)(raw);
+                const module =
+                  body.module !== undefined && RETURN_MODULES.has(body.module)
+                    ? body.module
+                    : "overview";
+                return yield* deps.upgrades.startPurchase({
+                  weddingId,
+                  tier: body.tier,
+                  actorProfileId: osnProfileId,
+                  successUrlFor: (purchaseId) =>
+                    returnUrl(deps.organiserOrigin, weddingId, module, purchaseId),
+                  cancelUrl: returnUrl(deps.organiserOrigin, weddingId, module),
+                });
+              }).pipe(
                 Effect.provideService(DbService, db),
+                // Not a body this surface can sell from. 404 rather than 400: a
+                // tier that exists but is not self-serve is, from here,
+                // indistinguishable from one that does not exist.
+                Effect.catchTag("SchemaError", () => {
+                  set.status = 404;
+                  return Effect.succeed({ error: "not_purchasable" });
+                }),
                 Effect.catchTag("UpgradeConflict", (e) => {
                   set.status = 409;
                   return Effect.succeed({ error: e.reason });
@@ -233,6 +238,10 @@ export const createUpgradeRoutes = (db: Db, osnAuthOptions: OsnAuthOptions, deps
                   return Effect.succeed({ error: "internal" });
                 }),
               ),
-          );
-        }),
+            );
+          },
+          // The body is read by hand and decoded above, so a malformed one
+          // reaches the schema's answer rather than a framework parse error.
+          { parse: () => ({}) },
+        ),
     );

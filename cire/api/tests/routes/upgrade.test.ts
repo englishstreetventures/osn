@@ -189,6 +189,36 @@ describe("what may be bought", () => {
     expect((await startSession(app, OWNER, { tier: null })).status).toBe(404);
   });
 
+  /**
+   * The body is checked whole, at the boundary, before anything reaches the
+   * service: a `module` that is not a short string is refused there, not
+   * quietly replaced, so a field added later gets the same treatment.
+   */
+  it("404s a body whose module is not a short string, and opens no checkout", async () => {
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client });
+    for (const module of [42, ["budget"], { name: "budget" }, "m".repeat(33)]) {
+      const res = await startSession(app, OWNER, { tier: "gold", module });
+      expect(res.status, JSON.stringify(module)).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "not_purchasable" });
+    }
+    expect(stripe.created).toEqual([]);
+  });
+
+  it("404s a body that is not JSON", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${base}/session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await auth.sign(OWNER)}`,
+      },
+      body: "{tier: gold",
+    });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "not_purchasable" });
+  });
+
   it("409s a tier the wedding already holds, or one below it", async () => {
     for (const [held, buying] of [
       ["gold", "gold"],

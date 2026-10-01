@@ -18,13 +18,9 @@ import { Effect } from "effect";
 import { type StripeClient, StripeError, type StripePrice } from "./stripe";
 import { PAID_TIERS, type PaidTier, type Tier, tierAtLeast } from "./tiers";
 
-/** The tiers sold self-serve: every paid tier. */
+/** The tiers sold self-serve: every paid tier. The session route's body
+ *  schema admits exactly these. */
 export const PURCHASABLE_TIERS = PAID_TIERS;
-
-export function isPurchasable(value: string): value is PaidTier {
-  // `includes` on a closed readonly tuple walks no prototype chain.
-  return (PURCHASABLE_TIERS as readonly string[]).includes(value);
-}
 
 /** The copy shown on the upgrade dialog. Not in the database: it is product
  *  writing that ships with the release, and a row would only let it drift from

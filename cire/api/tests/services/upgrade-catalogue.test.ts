@@ -3,11 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 
 import { type StripeClient, StripeError, type StripePrice } from "../../src/services/stripe";
-import {
-  createUpgradeCatalogue,
-  isPurchasable,
-  PRICE_CACHE_TTL_MS,
-} from "../../src/services/upgrade-catalogue";
+import { createUpgradeCatalogue, PRICE_CACHE_TTL_MS } from "../../src/services/upgrade-catalogue";
 
 /**
  * What matters here is what the catalogue REFUSES to do: sell a tier with no
@@ -43,27 +39,6 @@ function stubStripe(prices: Record<string, StripePrice | "fail">): {
 }
 
 const AUD = (n: number): StripePrice => ({ unitAmountMinor: n, currency: "AUD" });
-
-describe("isPurchasable", () => {
-  it("admits the two paid tiers and nothing else", () => {
-    expect(isPurchasable("gold")).toBe(true);
-    expect(isPurchasable("crimson")).toBe(true);
-    // The free tier, and the legacy per-module keys, are not for sale.
-    expect(isPurchasable("ivory")).toBe(false);
-    expect(isPurchasable("vendors")).toBe(false);
-    expect(isPurchasable("registry")).toBe(false);
-    expect(isPurchasable("capacity_500")).toBe(false);
-    expect(isPurchasable("premium_templates")).toBe(false);
-  });
-
-  it("does not admit an inherited Object property", () => {
-    // A membership test that walks the prototype chain would say yes here, and
-    // the caller then treats `constructor` as a tier.
-    expect(isPurchasable("constructor")).toBe(false);
-    expect(isPurchasable("toString")).toBe(false);
-    expect(isPurchasable("__proto__")).toBe(false);
-  });
-});
 
 const ALL_PRICES = { gold: "price_g", crimson: "price_c", crimsonFromGold: "price_cg" };
 const ALL_AMOUNTS = { price_g: AUD(4900), price_c: AUD(9900), price_cg: AUD(5000) };
