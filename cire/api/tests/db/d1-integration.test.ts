@@ -464,6 +464,57 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "submitRsvpIfNamed inserts, updates and refuses over async D1",
+    async () => {
+      const reply = {
+        guestId: GUEST_1,
+        eventId: EVENT_A,
+        status: "attending" as const,
+        dietary: "",
+        dietaryPresets: ["vegan" as const],
+        dietaryConsent: true,
+        consentSource: "organiser_attested" as const,
+        recordedByOsnProfileId: "usr_d1_organiser",
+      };
+      const stored = () =>
+        db
+          .select({
+            status: rsvps.status,
+            at: rsvps.dietaryConsentAt,
+            createdAt: rsvps.createdAt,
+            attestedBy: rsvps.dietaryAttestedByOsnProfileId,
+          })
+          .from(rsvps)
+          .where(eq(rsvps.guestId, GUEST_1));
+
+      // Inserted: the INSERT … SELECT … WHERE parses and binds on D1, and
+      // the hand-encoded timestamps read back as the dates they were.
+      const before = Date.now() - 1000;
+      expect(await run(rsvpService.submitRsvpIfNamed(reply, "Alice Test"))).toBe(true);
+      let rows = await stored();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.attestedBy).toBe("usr_d1_organiser");
+      expect(rows[0]?.createdAt.getTime()).toBeGreaterThanOrEqual(before);
+      expect(rows[0]?.at?.getTime()).toBe(rows[0]?.createdAt.getTime());
+
+      // Conflict-updated in place.
+      expect(
+        await run(rsvpService.submitRsvpIfNamed({ ...reply, status: "maybe" }, "Alice Test")),
+      ).toBe(true);
+      rows = await stored();
+      expect(rows.map((r) => r.status)).toEqual(["maybe"]);
+
+      // Refused: the row carries another name, so nothing is written.
+      expect(
+        await run(rsvpService.submitRsvpIfNamed({ ...reply, status: "declined" }, "Alex Test")),
+      ).toBe(false);
+      rows = await stored();
+      expect(rows.map((r) => r.status)).toEqual(["maybe"]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "of two change claims at the same head on D1, one takes the wedding",
     async () => {
       const first = await run(claimChanges(BOOTSTRAP_WEDDING_ID, "0"));
