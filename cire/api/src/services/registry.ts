@@ -39,10 +39,11 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatches, DbService, dbQuery } from "../db";
-import { entitlementService } from "./entitlements";
+import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
+import { entitlementPresent } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
 // Nothing at runtime crosses between them, so no import cycle.
@@ -972,10 +973,25 @@ export const registryService = {
 
   /**
    * Claims and contributions, merged and newest-first — the view the couple works
-   * from after the day. Two queries rather than a SQL UNION: the tables carry
-   * different columns, and the merge is a sort over one page's worth of rows.
+   * from after the day.
    *
-   * PAGINATED (P-C1). A wedding's gift log is unbounded — every household may
+   * ONE statement: the two tables are one `UNION ALL`, ordered newest first and
+   * cut to the page in SQLite, so the Worker receives the page plus one row and
+   * nothing else. Each branch walks its own `(wedding_id, created_at)` index in
+   * order and SQLite merges the two, so the deepest page walks `offset + limit +
+   * 1` rows in total rather than that many from each table. The branches match
+   * by POSITION, so both list the same columns in the same order, with an
+   * aliased NULL where a column belongs to the other table; `created_at` is
+   * aliased because a compound SELECT can only ORDER BY a name its first branch
+   * declares with AS. The export (`giftExportService.giftsCsv`) reads the same
+   * tables the same way, and a parity test holds the two to the same rows.
+   *
+   * Claims are the FIRST branch, and that is load-bearing: on a tie in
+   * `created_at` the merge emits the left branch first, so a claim precedes a
+   * cash gift from the same second on every read and no gift can move across a
+   * page boundary between two requests.
+   *
+   * PAGINATED. A wedding's gift log is unbounded — every household may
    * claim every item and contribute on top — so an unpaged read is an unbounded
    * response and an unbounded D1 result set.
    *
@@ -989,11 +1005,6 @@ export const registryService = {
    * offset past it gets an empty page, and the page whose successor would pass
    * it reports `hasMore: false`. Clamping instead would serve the last page
    * again, still marked `hasMore`, to a caller that pages by rows held.
-   *
-   * Each side reads `offset + limit + 1` rows: enough that the merge can serve
-   * the requested window whichever table the newest rows came from, plus one to
-   * decide `hasMore` without a count. The two reads run together, since neither
-   * needs the other and on a further page they are the request's whole cost.
    */
   giftLog(
     weddingId: string,
@@ -1005,96 +1016,96 @@ export const registryService = {
       if (requested > MAX_GIFT_LOG_OFFSET) return { entries: [], hasMore: false };
       const limit = clamp(options?.limit ?? GIFT_LOG_PAGE, 1, GIFT_LOG_PAGE);
       const offset = clamp(requested, 0, MAX_GIFT_LOG_OFFSET);
-      const readAhead = offset + limit + 1;
-      const claimQuery = dbQuery(() =>
-        db
-          .select({
-            id: registryClaims.id,
-            itemId: registryClaims.itemId,
-            itemTitle: registryItems.title,
-            familyId: registryClaims.familyId,
-            familyName: families.familyName,
-            displayName: registryClaims.displayName,
-            quantity: registryClaims.quantity,
-            status: registryClaims.status,
-            note: registryClaims.note,
-            noteHiddenAt: registryClaims.noteHiddenAt,
-            thankedAt: registryClaims.thankedAt,
-            createdAt: registryClaims.createdAt,
-          })
-          .from(registryClaims)
-          .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
-          .innerJoin(families, eq(registryClaims.familyId, families.id))
-          .where(eq(registryClaims.weddingId, weddingId))
-          .orderBy(desc(registryClaims.createdAt))
-          .limit(readAhead)
-          .all(),
-      );
-      const contributionQuery = dbQuery(() =>
-        db
-          .select({
-            id: registryContributions.id,
-            itemId: registryContributions.itemId,
-            itemTitle: registryItems.title,
-            familyId: registryContributions.familyId,
-            familyName: families.familyName,
-            displayName: registryContributions.displayName,
-            status: registryContributions.status,
-            note: registryContributions.message,
-            noteHiddenAt: registryContributions.noteHiddenAt,
-            amountMinor: registryContributions.amountMinor,
-            currency: registryContributions.currency,
-            primaryAmountMinor: registryContributions.primaryAmountMinor,
-            primaryCurrency: registryContributions.primaryCurrency,
-            fxRate: registryContributions.fxRate,
-            thankedAt: registryContributions.thankedAt,
-            createdAt: registryContributions.createdAt,
-          })
-          .from(registryContributions)
-          // LEFT: a general cash gift has no item, and an item deleted after the
-          // fact sets `item_id` NULL rather than erasing the gift.
-          .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
-          .innerJoin(families, eq(registryContributions.familyId, families.id))
-          .where(
-            and(
-              eq(registryContributions.weddingId, weddingId),
-              // A gift whose money never moved is not a gift. A bounced
-              // bank debit or a session the guest abandoned leaves a `failed`
-              // row, which is kept for the audit trail and the idempotency
-              // anchor — but showing it to the couple would be telling them
-              // somebody gave them money that nobody gave them, and inviting a
-              // thank-you note for it. `refunded` is NOT hidden: that one did
-              // happen, and then went back, and the couple should see both.
-              ne(registryContributions.status, "failed"),
-            ),
-          )
-          .orderBy(desc(registryContributions.createdAt))
-          .limit(readAhead)
-          .all(),
-      );
-      const [claimRows, contributionRows] = yield* Effect.all([claimQuery, contributionQuery], {
-        concurrency: "unbounded",
-      });
 
-      const claims: GiftLogEntryDto[] = (
-        claimRows as Array<{
-          id: string;
-          itemId: string;
-          itemTitle: string;
-          familyId: string;
-          familyName: string;
-          displayName: string | null;
-          quantity: number;
-          status: string;
-          note: string | null;
-          noteHiddenAt: Date | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => {
+      // The claims branch's `itemId`, `itemTitle`, `quantity` and `status` are
+      // widened to the cash-gift types, because Drizzle types the whole union
+      // from its first branch.
+      const claims = db
+        .select({
+          kind: sql<GiftKind>`'claim'`.as("kind"),
+          id: registryClaims.id,
+          itemId: sql<string | null>`${registryClaims.itemId}`,
+          itemTitle: sql<string | null>`${registryItems.title}`,
+          familyId: registryClaims.familyId,
+          familyName: families.familyName,
+          displayName: registryClaims.displayName,
+          quantity: sql<number | null>`${registryClaims.quantity}`,
+          status: sql<string>`${registryClaims.status}`,
+          note: registryClaims.note,
+          noteHiddenAt: registryClaims.noteHiddenAt,
+          amountMinor: sql<number | null>`NULL`.as("amount_minor"),
+          currency: sql<string | null>`NULL`.as("currency"),
+          primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
+          primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
+          fxRate: sql<string | null>`NULL`.as("fx_rate"),
+          thankedAt: registryClaims.thankedAt,
+          createdAt: sql<Date>`${registryClaims.createdAt}`
+            .mapWith(registryClaims.createdAt)
+            .as("created_at"),
+        })
+        .from(registryClaims)
+        .innerJoin(registryItems, eq(registryClaims.itemId, registryItems.id))
+        .innerJoin(families, eq(registryClaims.familyId, families.id))
+        .where(eq(registryClaims.weddingId, weddingId));
+
+      const contributions = db
+        .select({
+          kind: sql<GiftKind>`'contribution'`.as("kind"),
+          id: registryContributions.id,
+          itemId: registryContributions.itemId,
+          itemTitle: registryItems.title,
+          familyId: registryContributions.familyId,
+          familyName: families.familyName,
+          displayName: registryContributions.displayName,
+          quantity: sql<number | null>`NULL`.as("quantity"),
+          status: registryContributions.status,
+          note: registryContributions.message,
+          noteHiddenAt: registryContributions.noteHiddenAt,
+          amountMinor: registryContributions.amountMinor,
+          currency: registryContributions.currency,
+          primaryAmountMinor: registryContributions.primaryAmountMinor,
+          primaryCurrency: registryContributions.primaryCurrency,
+          fxRate: registryContributions.fxRate,
+          thankedAt: registryContributions.thankedAt,
+          createdAt: sql<Date>`${registryContributions.createdAt}`
+            .mapWith(registryContributions.createdAt)
+            .as("created_at"),
+        })
+        .from(registryContributions)
+        // LEFT: a general cash gift has no item, and an item deleted after the
+        // fact sets `item_id` NULL rather than erasing the gift.
+        .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
+        .innerJoin(families, eq(registryContributions.familyId, families.id))
+        .where(
+          and(
+            eq(registryContributions.weddingId, weddingId),
+            // A gift whose money never moved is not a gift. A bounced
+            // bank debit or a session the guest abandoned leaves a `failed`
+            // row, which is kept for the audit trail and the idempotency
+            // anchor — but showing it to the couple would be telling them
+            // somebody gave them money that nobody gave them, and inviting a
+            // thank-you note for it. `refunded` is NOT hidden: that one did
+            // happen, and then went back, and the couple should see both.
+            ne(registryContributions.status, "failed"),
+          ),
+        );
+
+      // One row past the page decides `hasMore` without a count — except on
+      // a page whose successor would pass the offset cap, where the answer is
+      // already no and the extra row could not change it.
+      const lastReachable = offset + limit > MAX_GIFT_LOG_OFFSET;
+      const rows = yield* dbQuery(() =>
+        unionAll(claims, contributions)
+          .orderBy(desc(sql`created_at`))
+          .limit(lastReachable ? limit : limit + 1)
+          .offset(offset)
+          .all(),
+      );
+
+      const entries: GiftLogEntryDto[] = rows.slice(0, limit).map((r) => {
         const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
         return {
-          kind: "claim" as const,
+          kind: r.kind,
           id: r.id,
           itemId: r.itemId,
           itemTitle: r.itemTitle,
@@ -1102,49 +1113,6 @@ export const registryService = {
           familyName: r.familyName,
           displayName: r.displayName,
           quantity: r.quantity,
-          status: r.status,
-          note,
-          noteHidden,
-          amountMinor: null,
-          currency: null,
-          primaryAmountMinor: null,
-          primaryCurrency: null,
-          fxRate: null,
-          thankedAt: r.thankedAt ? r.thankedAt.getTime() : null,
-          createdAt: r.createdAt.getTime(),
-        };
-      });
-
-      const contributions: GiftLogEntryDto[] = (
-        contributionRows as Array<{
-          id: string;
-          itemId: string | null;
-          itemTitle: string | null;
-          familyId: string;
-          familyName: string;
-          displayName: string | null;
-          status: string;
-          note: string | null;
-          noteHiddenAt: Date | null;
-          amountMinor: number;
-          currency: string;
-          primaryAmountMinor: number | null;
-          primaryCurrency: string | null;
-          fxRate: string | null;
-          thankedAt: Date | null;
-          createdAt: Date;
-        }>
-      ).map((r) => {
-        const { note, noteHidden } = giftNoteView(r.note, r.noteHiddenAt);
-        return {
-          kind: "contribution" as const,
-          id: r.id,
-          itemId: r.itemId,
-          itemTitle: r.itemTitle,
-          familyId: r.familyId,
-          familyName: r.familyName,
-          displayName: r.displayName,
-          quantity: null,
           status: r.status,
           note,
           noteHidden,
@@ -1158,16 +1126,9 @@ export const registryService = {
         };
       });
 
-      // `merged` is built here and returned to nobody else, so sorting it in
-      // place is not the shared-array aliasing hazard oxlint's `no-array-sort`
-      // guards against — and `toSorted` is ES2023, past this package's ES2022 lib.
-      const merged: GiftLogEntryDto[] = [...claims, ...contributions];
-      merged.sort((a, b) => b.createdAt - a.createdAt);
-
-      const next = offset + limit;
       return {
-        entries: merged.slice(offset, next),
-        hasMore: merged.length > next && next <= MAX_GIFT_LOG_OFFSET,
+        entries,
+        hasMore: !lastReachable && rows.length > limit,
       };
     }).pipe(Effect.withSpan("cire.registry.giftLog"));
   },
@@ -1584,8 +1545,8 @@ export const registryService = {
         },
         { concurrency: "unbounded" },
       );
-      // The same shared check the list read and the writes use, so the three
-      // gates cannot drift.
+      // The household check every guest route makes, answered with the same
+      // failure, so a cookie for one wedding buys nothing on another.
       if (!gates.familyBelongs) {
         return yield* Effect.fail(new RegistryNotVisible());
       }
@@ -2898,12 +2859,31 @@ const toPublicItemDto = (
  * same 404 — so an unentitled wedding, an unpublished one and a slug nobody
  * registered are indistinguishable from outside.
  *
+ * Two optional checks join them, each failing the same way:
+ *
+ * - `imageName` — an item of this wedding still names the image
+ *   `assets/<weddingId>/<imageName>`. The public image route asks it, so a gift
+ *   the couple deleted, or a picture they replaced, stops serving by its name
+ *   at once — including from the Worker's own cache, whose every lookup runs
+ *   after this gate.
+ * - `familyId` — the household belongs to THIS wedding. A `cire_session` names
+ *   a household, not a wedding, so without it one leaked code would open every
+ *   couple's list; answering it as `RegistryNotVisible` keeps a stranger
+ *   household's 404 identical to an unpublished list's.
+ *
+ * ONE statement, whatever the answer: the slug read, the entitlement, the
+ * settings row and both checks are keyed on the id the slug read produces, so
+ * each is folded into it rather than run after it. Every guest route pays this
+ * gate, and the image route pays it per image.
+ *
  * The settings row travels back with the id because every caller that needs the
  * gate also needs the settings, and re-reading it per route would be a second
- * round trip for a row already in hand.
+ * round trip for a row already in hand. So does the wedding's currency, which
+ * saves `guestView` and `contributionContext` a second read of the same row.
  */
 function resolveVisibleRegistry(
   slug: string,
+  also: GateChecks = {},
 ): Effect.Effect<
   { weddingId: string; settings: RegistrySettingsRecord; currency: string },
   RegistryNotVisible,
@@ -2911,41 +2891,93 @@ function resolveVisibleRegistry(
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    // The CURRENCY rides along: SQLite reads the whole row for the slug
-    // lookup regardless, so the extra column is free — and it saves
-    // `primaryCurrency` a second read of the same row, one round trip down, on
-    // the read a guest waits on to reach a payment page.
-    const [weddingRow] = yield* dbQuery(() =>
+    const { imageName, familyId } = also;
+    const [found] = yield* dbQuery(() =>
       db
-        .select({ id: weddings.id, currency: weddings.currency })
+        .select({
+          id: weddings.id,
+          currency: weddings.currency,
+          entitled: entitlementPresent(weddings.id, "registry").as("entitled"),
+          // A check the caller did not ask for is the constant 1, so the row
+          // keeps one shape.
+          imageListed: (imageName === undefined
+            ? sql<number>`1`
+            : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
+          ).as("image_listed"),
+          familyListed: (familyId === undefined
+            ? sql<number>`1`
+            : sql<number>`EXISTS (SELECT 1 FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
+          ).as("family_listed"),
+          // NULL exactly when the wedding has no settings row: the LEFT JOIN
+          // leaves every settings column NULL then, and this one is the key.
+          settingsWeddingId: registrySettings.weddingId,
+          published: registrySettings.published,
+          headline: registrySettings.headline,
+          message: registrySettings.message,
+          cashGiftsEnabled: registrySettings.cashGiftsEnabled,
+          shippingAddress: registrySettings.shippingAddress,
+          shippingVisibleFrom: registrySettings.shippingVisibleFrom,
+          stripeAccountId: registrySettings.stripeAccountId,
+          stripeChargesEnabled: registrySettings.stripeChargesEnabled,
+          stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
+          updatedAt: registrySettings.updatedAt,
+        })
         .from(weddings)
+        .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
         .where(eq(weddings.slug, slug))
         .all(),
     );
-    const wedding = weddingRow as { id: string; currency: string } | undefined;
-    const weddingId = wedding?.id;
-    if (!weddingId) return yield* Effect.fail(new RegistryNotVisible());
-
-    // Both gates read together: neither answer depends on the other, and the
-    // common case (locked feature, no settings row) pays one round trip's
-    // latency rather than two.
-    const { entitled, settingsRows } = yield* Effect.all(
-      {
-        entitled: entitlementService.has(weddingId, "registry"),
-        settingsRows: dbQuery(() =>
-          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
-        ),
-      },
-      { concurrency: "unbounded" },
-    );
-    const settings = settingsRows[0]
-      ? toSettingsRecord(settingsRows[0] as SettingsRow)
-      : defaultSettings(weddingId);
-    if (!entitled || !settings.published) return yield* Effect.fail(new RegistryNotVisible());
+    const row = found as GateRow | undefined;
+    if (!row) return yield* Effect.fail(new RegistryNotVisible());
+    const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
+    if (!row.entitled || !settings.published || !row.imageListed || !row.familyListed) {
+      return yield* Effect.fail(new RegistryNotVisible());
+    }
     // Same fallback `primaryCurrency` has always used.
-    return { weddingId, settings, currency: wedding?.currency ?? "AUD" };
+    return { weddingId: row.id, settings, currency: row.currency ?? "AUD" };
   });
 }
+
+/** The optional checks {@link resolveVisibleRegistry} folds into its read. */
+interface GateChecks {
+  imageName?: string;
+  familyId?: string;
+}
+
+/** The one row the guest gate reads — see {@link resolveVisibleRegistry}. */
+interface GateRow {
+  id: string;
+  currency: string | null;
+  entitled: number;
+  imageListed: number;
+  familyListed: number;
+  settingsWeddingId: string | null;
+  published: boolean | null;
+  headline: string | null;
+  message: string | null;
+  cashGiftsEnabled: boolean | null;
+  shippingAddress: string | null;
+  shippingVisibleFrom: string | null;
+  stripeAccountId: string | null;
+  stripeChargesEnabled: boolean | null;
+  stripePayoutsEnabled: boolean | null;
+  updatedAt: Date | null;
+}
+
+/** The settings half of a gate row whose wedding HAS a settings row. */
+const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
+  weddingId: r.id,
+  published: r.published === true,
+  headline: r.headline,
+  message: r.message,
+  cashGiftsEnabled: r.cashGiftsEnabled === true,
+  shippingAddress: r.shippingAddress,
+  shippingVisibleFrom: r.shippingVisibleFrom,
+  stripeAccountId: r.stripeAccountId,
+  stripeChargesEnabled: r.stripeChargesEnabled === true,
+  stripePayoutsEnabled: r.stripePayoutsEnabled === true,
+  updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
+});
 
 export const registryGuestService = {
   /**
@@ -2961,6 +2993,26 @@ export const registryGuestService = {
     return resolveVisibleRegistry(slug).pipe(
       Effect.map((r) => r.weddingId),
       Effect.withSpan("cire.registry.visibleWeddingId"),
+    );
+  },
+
+  /**
+   * The R2 key of a gift image a guest may fetch, or `RegistryNotVisible`.
+   *
+   * The list must be visible AND an item of this wedding must still name the
+   * image, so withdrawing one gift — deleting it, or saving a new picture over
+   * it — closes its image URL without unpublishing the list. The key is rebuilt
+   * from the wedding the SLUG resolves to and a `name` the caller has already
+   * matched against `REGISTRY_IMAGE_NAME`, so no request can name another
+   * wedding's object or climb out of the prefix.
+   */
+  visibleImageKey(
+    slug: string,
+    name: string,
+  ): Effect.Effect<string, RegistryNotVisible, DbService> {
+    return resolveVisibleRegistry(slug, { imageName: name }).pipe(
+      Effect.map((r) => `assets/${r.weddingId}/${name}`),
+      Effect.withSpan("cire.registry.visibleImageKey"),
     );
   },
 
@@ -2987,11 +3039,11 @@ export const registryGuestService = {
   }): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
-      if (!(yield* familyInWedding(weddingId, input.familyId))) {
-        return yield* Effect.fail(new RegistryNotVisible());
-      }
-      const { claimed, currency, itemRows } = yield* Effect.all(
+      // The household check rides in the gate's own statement.
+      const { settings, weddingId, currency } = yield* resolveVisibleRegistry(input.slug, {
+        familyId: input.familyId,
+      });
+      const { claimed, itemRows } = yield* Effect.all(
         {
           itemRows: dbQuery(() =>
             db
@@ -3002,7 +3054,6 @@ export const registryGuestService = {
               .all(),
           ),
           claimed: claimedByItem(weddingId),
-          currency: primaryCurrency(weddingId),
         },
         { concurrency: "unbounded" },
       );
@@ -3038,15 +3089,15 @@ export const registryGuestService = {
   }): Effect.Effect<HouseholdRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
-      // The same gate the list read keeps (S-M1). Without it this route answered
-      // 200 `{claims: []}` for a visible registry and 404 for an invisible one —
-      // so anyone holding any valid session could walk slugs and learn which
-      // weddings have a published gift list, which is the exact fact the single
-      // 404 code exists to hide.
-      if (!(yield* familyInWedding(weddingId, input.familyId))) {
-        return yield* Effect.fail(new RegistryNotVisible());
-      }
+      // The same household check the list read keeps, in the gate's own
+      // statement. Without it this route answered 200 `{claims: []}` for a
+      // visible registry and 404 for an invisible one — so anyone holding any
+      // valid session could walk slugs and learn which weddings have a
+      // published gift list, which is the exact fact the single 404 code exists
+      // to hide.
+      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug, {
+        familyId: input.familyId,
+      });
       const rows = yield* dbQuery(() =>
         db
           .select({

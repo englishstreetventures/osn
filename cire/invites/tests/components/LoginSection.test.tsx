@@ -33,6 +33,34 @@ vi.mock("../../src/components/PulseAccountLink", () => ({
   ),
 }));
 
+// The plus-one prompt is stubbed for the same reason: its own behaviour is in
+// PlusOnePrompt.test.tsx. The stub shows what the panel hands it and lets a
+// test fire its change callback.
+vi.mock("../../src/components/PlusOnePrompt", () => ({
+  PlusOnePrompt: (props: {
+    apiUrl: string;
+    members: FamilyMember[];
+    closed: boolean;
+    class?: string;
+    onChange: (update: (r: ClaimResult) => ClaimResult) => void;
+  }) => (
+    <div
+      data-testid="plus-one-prompt-stub"
+      class={props.class}
+      data-api-url={props.apiUrl}
+      data-members={props.members.map((m) => m.guestId).join(",")}
+      data-closed={String(props.closed)}
+    >
+      <button
+        type="button"
+        onClick={() => props.onChange((r) => ({ ...r, familyName: "Changed" }))}
+      >
+        stub change
+      </button>
+    </div>
+  ),
+}));
+
 // Turnstile off by default, which is what the real widget reports with no
 // sitekey configured. A test that needs the challenge turns it on and drives
 // the token by hand.
@@ -176,6 +204,42 @@ describe("LoginSection greeting", () => {
     ));
     expect(individual.container.textContent).toContain(greeting);
     expect(individual.container.textContent).not.toContain("We are delighted to invite you");
+  });
+});
+
+describe("LoginSection greeting with a plus-one", () => {
+  const withGuest = (inviter: FamilyMember): FamilyMember[] => [
+    { ...inviter, plusOneAllowed: true, plusOneOf: null },
+    { ...member("Sam"), lastName: "Park", plusOneOf: inviter.guestId },
+  ];
+
+  // A lone guest who names a plus-one is still one invited guest: the greeting
+  // speaks to them, not to a "family" of two.
+  it("still greets a lone guest by name once they have named a guest", () => {
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result(withGuest(member("Chidi", "Chi")))}
+        onClaimed={noop}
+        onSignOut={noop}
+      />
+    ));
+    const text = container.textContent ?? "";
+    expect(text).toContain("Dear Chi");
+    expect(text).not.toContain("Family");
+    expect(text).toContain("Not Chi? Sign out");
+  });
+
+  it("leaves a plus-one out of the family greeting's names", () => {
+    const { getByText } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([...withGuest(member("Chidi")), member("Ada")])}
+        onClaimed={noop}
+      />
+    ));
+    const names = getByText(/Welcome, the Okafor Family/).nextElementSibling?.nextElementSibling;
+    expect(names?.textContent).toBe("Chidi, Ada");
   });
 });
 
@@ -665,6 +729,117 @@ describe("LoginSection household controls", () => {
     await settle();
     expect(getByText(/Preview mode/)).toBeTruthy();
     expect(queryByTestId("pulse-account-link-stub")).toBeNull();
+  });
+});
+
+describe("LoginSection plus-one prompt", () => {
+  const permitted = () => ({ ...member("Chidi"), plusOneAllowed: true, plusOneOf: null });
+
+  it("sits before the account link and the sign-out, and hands its changes to the page", async () => {
+    const onPlusOneChange = vi.fn();
+    const { findByTestId, getByText } = render(() => (
+      <LoginSection
+        apiUrl="https://api.test"
+        result={offeringLink(result([permitted(), member("Ada")]))}
+        onClaimed={noop}
+        onSignOut={noop}
+        onPlusOneChange={onPlusOneChange}
+      />
+    ));
+    const prompt = await findByTestId("plus-one-prompt-stub");
+    const link = await findByTestId("pulse-account-link-stub");
+    expect(prompt.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      prompt.compareDocumentPosition(getByText(/Sign out/)) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(prompt.dataset.apiUrl).toBe("https://api.test");
+    expect(prompt.dataset.members).toBe("g-Chidi,g-Ada");
+    expect(prompt.dataset.closed).toBe("false");
+    expect(prompt.className).toContain("mb-8");
+
+    // Its changes go to the page, which owns the claim result.
+    fireEvent.click(getByText("stub change"));
+    expect(onPlusOneChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks with the rest of the invite once RSVPs close", async () => {
+    const { findByTestId } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([permitted()])}
+        onClaimed={noop}
+        onPlusOneChange={noop}
+        rsvpDeadlineState="closed"
+      />
+    ));
+    expect((await findByTestId("plus-one-prompt-stub")).dataset.closed).toBe("true");
+  });
+
+  // Permission can be taken away while a guest is named; the prompt still
+  // appears, so the household can remove them.
+  it("appears for a named guest even once the member may no longer bring one", async () => {
+    const { findByTestId } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi"), { ...member("Sam"), plusOneOf: "g-Chidi" }])}
+        onClaimed={noop}
+        onPlusOneChange={noop}
+      />
+    ));
+    expect((await findByTestId("plus-one-prompt-stub")).dataset.members).toBe("g-Chidi,g-Sam");
+  });
+
+  // Removing the last guest a member may no longer bring leaves nobody to
+  // offer the prompt to; it stays mounted for this household, so its
+  // confirmation and focus survive the removal.
+  it("stays for the household once shown, even when nothing is left to offer", async () => {
+    const [current, setCurrent] = createSignal<ClaimResult>(
+      result([member("Chidi"), { ...member("Sam"), plusOneOf: "g-Chidi" }]),
+    );
+    const { findByTestId, queryByTestId } = render(() => (
+      <LoginSection apiUrl="http://x" result={current()} onClaimed={noop} onPlusOneChange={noop} />
+    ));
+    await findByTestId("plus-one-prompt-stub");
+
+    setCurrent(result([member("Chidi")]));
+    expect(queryByTestId("plus-one-prompt-stub")).not.toBeNull();
+
+    // Another household is another matter.
+    setCurrent({ ...result([member("Ada")], "Adeyemi"), publicId: "ADEYEMI-OAK-AB12" });
+    expect(queryByTestId("plus-one-prompt-stub")).toBeNull();
+  });
+
+  it("is absent when nobody may bring a guest and none is named", async () => {
+    const { queryByTestId } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi")])}
+        onClaimed={noop}
+        onPlusOneChange={noop}
+      />
+    ));
+    await settle();
+    expect(queryByTestId("plus-one-prompt-stub")).toBeNull();
+  });
+
+  it("is absent without a handler, and in host preview", async () => {
+    const { queryByTestId, unmount } = render(() => (
+      <LoginSection apiUrl="http://x" result={result([permitted()])} onClaimed={noop} />
+    ));
+    await settle();
+    expect(queryByTestId("plus-one-prompt-stub")).toBeNull();
+    unmount();
+
+    const preview = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...result([permitted()]), preview: true }}
+        onClaimed={noop}
+        onPlusOneChange={noop}
+      />
+    ));
+    await settle();
+    expect(preview.queryByTestId("plus-one-prompt-stub")).toBeNull();
   });
 });
 

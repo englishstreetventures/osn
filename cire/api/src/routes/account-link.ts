@@ -94,9 +94,11 @@ export const createAccountLinkPostRoute = (
   webOrigin = "http://localhost:4321",
 ) =>
   new Elysia({ prefix: PREFIX })
-    // Rate limit runs in onBeforeHandle (before the handler), so it gates the
-    // ARC-sign + S2S amplifier and the family-membership oracle even though the
-    // auth derives run first (S-L1).
+    // The limiter answers before the guest session lookup (a before-handle
+    // resolve, mounted after it) and before the handler, so it gates the D1
+    // read, the ARC-sign + S2S amplifier and the family-membership oracle.
+    // `osnAuth` still resolves its credential in the transform phase, ahead of
+    // the limiter.
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
     .use(osnAuth(osnAuthOptions))
@@ -112,6 +114,9 @@ export const createAccountLinkPostRoute = (
         // flag is off, reject a hand-crafted POST so linking can't be driven
         // while the feature is disabled. Same 503 "disabled" contract as the
         // no-ARC-key branch below.
+        // No `waitUntil`: this is the enforcement check, so a stale payload is
+        // refreshed in line rather than served, and turning the flag off stops
+        // links within the cache TTL.
         const linking = await flags.forRequest({ id: familyId });
         if (!linking.isOn(ACCOUNT_LINKING_FLAG)) {
           metricAccountLinkRequest("disabled");
@@ -152,7 +157,7 @@ export const createAccountLinkPostRoute = (
               osnProfileId: profileId,
             });
 
-            // C6: rotate the guest session on a successful link — session-fixation
+            // Rotate the guest session on a successful link — session-fixation
             // defence. The link is a privilege change (the household is now bound
             // to an OSN account), so any pre-existing token (possibly attacker-
             // planted before the legitimate user linked) is revoked and a fresh
@@ -189,6 +194,12 @@ export const createAccountLinkPostRoute = (
                   metricAccountLinkRequest("error");
                   set.status = 403;
                   return { error: "Guest does not belong to this family" };
+                }),
+              PlusOneSeatNotLinkable: () =>
+                Effect.sync(() => {
+                  metricAccountLinkRequest("error");
+                  set.status = 403;
+                  return { error: "plus_one_seat" };
                 }),
               AccountLinkConflict: () =>
                 Effect.sync(() => {

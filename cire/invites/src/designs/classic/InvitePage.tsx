@@ -316,6 +316,14 @@ export default function InvitePage(props: InvitePageProps) {
     }
   }
 
+  // A plus-one named, renamed or removed in the welcome panel. The panel has
+  // already made the request; this applies the change to the one claim result
+  // the Respond dialog, the greeting and every card read.
+  function handlePlusOneChange(update: (result: ClaimResult) => ClaimResult) {
+    const current = claimResult();
+    if (current) setClaimResult(update(current));
+  }
+
   // The household signed out. `LoginSection` has already revoked the session,
   // dropped the restore hint and reset its form; this puts the page back to
   // its unclaimed state in one commit.
@@ -341,6 +349,7 @@ export default function InvitePage(props: InvitePageProps) {
         welcomeMessage={liveInvite().welcomeMessage}
         rsvpDeadlineState={rsvpState()}
         onSignOut={handleSignOut}
+        onPlusOneChange={handlePlusOneChange}
       />
 
       <Show when={claimResult()}>

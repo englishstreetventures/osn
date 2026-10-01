@@ -1,3 +1,4 @@
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { toast } from "@shared/toast";
 import { render, cleanup, fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
@@ -85,6 +86,35 @@ const consentBox = () =>
 
 const queryConsentBox = () =>
   screen.queryByRole("checkbox", { name: /being stored and shared with the caterers/i });
+
+/** The household's own consent box and the attestation box it gives for its
+ *  plus-ones. Both end "…stored and shared with the caterers", so each is
+ *  found by how it opens. */
+const ownBox = () => screen.getByRole("checkbox", { name: /^I agree/ }) as HTMLInputElement;
+const queryOwnBox = () => screen.queryByRole("checkbox", { name: /^I agree/ });
+const attestBox = () => screen.getByRole("checkbox", { name: /^I confirm/ }) as HTMLInputElement;
+const queryAttestBox = () => screen.queryByRole("checkbox", { name: /^I confirm/ });
+
+const bo: FamilyMember = {
+  guestId: "guest-bo",
+  firstName: "Bo",
+  lastName: "Lee",
+  nickname: null,
+  eventIds: ["event-1"],
+  plusOneAllowed: true,
+  plusOneOf: null,
+};
+
+/** Bo's plus-one. */
+const sam: FamilyMember = {
+  guestId: "guest-sam",
+  firstName: "Sam",
+  lastName: "Park",
+  nickname: null,
+  eventIds: ["event-1"],
+  plusOneAllowed: false,
+  plusOneOf: "guest-bo",
+};
 
 describe("RsvpModal", () => {
   // The picker renders its checkboxes inline below the `md:` breakpoint and
@@ -2275,5 +2305,305 @@ describe("RsvpModal", () => {
     // `pt-0` is only correct while the legend carries its own bottom margin —
     // drop that and the first control lands flush against the card's border.
     expect(card.querySelector("legend")!.className).toContain("mb-3");
+  });
+
+  /**
+   * A plus-one never holds the household's code or sees the invite, so the
+   * household's tick for their dietary requirements is the household's
+   * confirmation that they agreed — worded as that, versioned apart from the
+   * household's own consent, and never folded into it.
+   */
+  describe("a plus-one", () => {
+    const okResponse = () =>
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ rsvps: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    it("says whose guest they are", () => {
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      const legend = fieldsetFor("Sam").querySelector("legend");
+      expect(legend?.textContent).toContain("Sam Park");
+      expect(legend?.textContent).toContain("Bo's guest");
+      expect(fieldsetFor("Bo").querySelector("legend")?.textContent).not.toContain("guest");
+    });
+
+    it("asks the household to confirm the plus-one agreed, apart from its own consent", () => {
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Bo"), /^vegan$/i);
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+
+      // Two boxes: the household's own consent names only Bo; the attestation
+      // is the shared wording, naming only Sam.
+      expect(ownBox().closest("label")?.textContent).toMatch(/for Bo —/);
+      expect(ownBox().closest("label")?.textContent).not.toContain("Sam");
+      expect(attestBox().closest("label")?.textContent).toContain(
+        PLUS_ONE_DIETARY_ATTESTATION.text("Sam"),
+      );
+      expect(ownBox().checked).toBe(false);
+      expect(attestBox().checked).toBe(false);
+    });
+
+    it("shows only the attestation when only the plus-one gives dietary data", () => {
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      expect(queryOwnBox()).toBeNull();
+      expect(queryAttestBox()).not.toBeNull();
+    });
+
+    it("blocks submit until the attestation is ticked, whatever the household's own box says", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Bo"), /^vegan$/i);
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      fireEvent.click(ownBox());
+
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Sam agreed/));
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("sends the attestation's version on the plus-one's reply, and only there", async () => {
+      const fetchSpy = okResponse();
+      vi.stubGlobal("fetch", fetchSpy);
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Bo"), /^vegan$/i);
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      fireEvent.click(ownBox());
+      fireEvent.click(attestBox());
+
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      const body = JSON.parse(fetchSpy.mock.calls[0]![1].body) as { rsvps: unknown[] };
+      expect(body.rsvps).toEqual([
+        {
+          guestId: "guest-bo",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["vegan"],
+          dietaryConsent: true,
+        },
+        {
+          guestId: "guest-sam",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["nuts"],
+          dietaryConsent: true,
+          dietaryAttestation: PLUS_ONE_DIETARY_ATTESTATION.version,
+          // Who the attestation was shown for, so the API can refuse it once
+          // the household has renamed them.
+          dietaryAttestedName: "Sam Park",
+        },
+      ]);
+    });
+
+    it("sends a plus-one's status-only reply with no attestation", async () => {
+      const fetchSpy = okResponse();
+      vi.stubGlobal("fetch", fetchSpy);
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Not attending"));
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      const body = JSON.parse(fetchSpy.mock.calls[0]![1].body) as { rsvps: unknown[] };
+      expect(body.rsvps).toEqual([
+        {
+          guestId: "guest-sam",
+          eventId: "event-1",
+          status: "declined",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsent: false,
+          dietaryAttestation: "",
+          dietaryAttestedName: "",
+        },
+      ]);
+    });
+
+    // One person's record never carries another's, and neither box's record
+    // carries the other box: the household's own consent is not an
+    // attestation for its guest, nor the reverse.
+    it("opens each box ticked only from its own people's records", () => {
+      const rows = (boCurrent: boolean, samCurrent: boolean): RsvpSummary[] => [
+        {
+          guestId: "guest-bo",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["vegan"],
+          dietaryConsentCurrent: boCurrent,
+        },
+        {
+          guestId: "guest-sam",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: ["nuts"],
+          dietaryConsentCurrent: samCurrent,
+        },
+      ];
+
+      const first = render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          existingRsvps={rows(true, false)}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+        />
+      ));
+      expect(ownBox().checked).toBe(true);
+      expect(attestBox().checked).toBe(false);
+      first.unmount();
+
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          existingRsvps={rows(false, true)}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+        />
+      ));
+      expect(ownBox().checked).toBe(false);
+      expect(attestBox().checked).toBe(true);
+    });
+
+    it("lets a pre-ticked attestation be unticked, and then blocks submit", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          existingRsvps={[
+            {
+              guestId: "guest-sam",
+              eventId: "event-1",
+              status: "attending",
+              dietary: "",
+              dietaryPresets: ["nuts"],
+              dietaryConsentCurrent: true,
+            },
+          ]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+        />
+      ));
+      expect(attestBox().checked).toBe(true);
+      fireEvent.click(attestBox());
+      expect(attestBox().checked).toBe(false);
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("explains a refusal of the plus-one's dietary data", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "plus_one_dietary_unavailable" }), {
+            status: 422,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      fireEvent.click(attestBox());
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toMatch(/guest's dietary requirements/),
+      );
+    });
+
+    it("asks for a reload when the plus-one was renamed since the page opened", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "plus_one_changed" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      render(() => (
+        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      fireEvent.click(attestBox());
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toMatch(/name has changed.*reload/),
+      );
+    });
+
+    // The Respond button's tick does not wait for a plus-one's reply
+    // (`hasHouseholdResponded`), so the celebration that marks crossing into it
+    // must not either.
+    it("does not celebrate a save that answers only for the plus-one", async () => {
+      vi.stubGlobal("fetch", okResponse());
+      vi.useFakeTimers();
+      const onConfirmed = vi.fn();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      fireEvent.click(screen.getByText("Save"));
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onConfirmed).not.toHaveBeenCalled();
+    });
+
+    it("celebrates the save that completes the household's own answers", async () => {
+      vi.stubGlobal("fetch", okResponse());
+      vi.useFakeTimers();
+      const onConfirmed = vi.fn();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[bo, sam]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
+      fireEvent.click(screen.getByText("Save"));
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onConfirmed).toHaveBeenCalledTimes(1);
+    });
   });
 });

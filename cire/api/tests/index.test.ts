@@ -8,6 +8,7 @@ import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { jsonBody } from "./test-helpers";
+import { captureLogs } from "./test-helpers/capture-logs";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -173,6 +174,46 @@ describe("Worker boot (no bootstrap-owner config)", () => {
 // `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
 // the env object — not `process.env`, which is empty on workerd at the moment
 // this decision is made.
+describe("WEB_ORIGIN boot check", () => {
+  const fetchWith = (env: Record<string, unknown>) =>
+    handler.fetch!(
+      new Request("https://api.example.com/api/organiser/weddings"),
+      { ...BASE_ENV, DB, ...env } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1],
+      ctx,
+    );
+
+  it("refuses a host that only starts with localhost", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost.attacker.example" });
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({
+      error:
+        "Worker misconfigured: WEB_ORIGIN entry 1 must be https:// (http://localhost only outside a deployed tier)",
+    });
+  });
+
+  it("refuses an entry with a trailing slash, and never echoes userinfo", async () => {
+    const slash = await fetchWith({ WEB_ORIGIN: "https://app.example.com/" });
+    expect(slash.status).toBe(503);
+    const withUser = await fetchWith({
+      WEB_ORIGIN: "https://app.example.com,https://user:secret@app.example.com",
+    });
+    expect(withUser.status).toBe(503);
+    const body = JSON.stringify(await jsonBody(withUser));
+    expect(body).toContain("WEB_ORIGIN entry 2");
+    expect(body).not.toContain("secret");
+  });
+
+  it("refuses http://localhost in a deployed tier", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321" });
+    expect(res.status).toBe(503);
+  });
+
+  it("serves with http://localhost in the local tier", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321", OSN_ENV: undefined });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -413,6 +454,92 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
+  // The per-IP limiter on a guest route must answer before `sessionAuth` looks
+  // the cookie up: a refused request costs no D1 query. Each case mounts a
+  // refusing binding for the limiter that route reads, and sends an unknown
+  // `cire_session` cookie that would otherwise cost one `sessions` lookup.
+  describe("a refused guest request never reaches the session lookup", () => {
+    const refusingLimiter = { limit: async () => ({ success: false }) };
+    const cases: { name: string; method: string; path: string; binding: string }[] = [
+      {
+        name: "GET /api/claim/session",
+        method: "GET",
+        path: "/api/claim/session",
+        binding: "CLAIM_SESSION_RATE_LIMITER",
+      },
+      {
+        name: "DELETE /api/account/link/:guestId",
+        method: "DELETE",
+        path: "/api/account/link/gst_probe",
+        binding: "CLAIM_RATE_LIMITER",
+      },
+      {
+        name: "POST /api/account/link",
+        method: "POST",
+        path: "/api/account/link",
+        binding: "CLAIM_RATE_LIMITER",
+      },
+      {
+        name: "POST /api/invite/:slug/registry/items/:itemId/claim",
+        method: "POST",
+        path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
+        binding: "REGISTRY_GUEST_RATE_LIMITER",
+      },
+      {
+        name: "DELETE /api/invite/:slug/registry/items/:itemId/claim",
+        method: "DELETE",
+        path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
+        binding: "REGISTRY_GUEST_RATE_LIMITER",
+      },
+    ];
+
+    const send = async (method: string, path: string, limiters: Record<string, unknown>) => {
+      const probe = probeD1();
+      const env = { ...BASE_ENV, ...limiters, DB: probe.binding } as unknown as Parameters<
+        NonNullable<typeof handler.fetch>
+      >[1];
+      const res = await handler.fetch!(
+        new Request(`https://api.example.com${path}`, {
+          method,
+          headers: {
+            "cf-connecting-ip": "203.0.113.7",
+            // The CSRF guard refuses a write without an allowed Origin.
+            origin: BASE_ENV.WEB_ORIGIN,
+            cookie: "cire_session=no-such-session",
+            ...(method === "GET" ? {} : { "content-type": "application/json" }),
+          },
+          ...(method === "GET" ? {} : { body: "{}" }),
+        }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+      const statements = probe.sessionQueries.flat().filter((entry) => !entry.startsWith("bind:"));
+      return { res, statements, probe };
+    };
+
+    for (const { name, method, path, binding } of cases) {
+      it(`${name}: 429 with no query`, async () => {
+        const { res, statements, probe } = await send(method, path, {
+          [binding]: refusingLimiter,
+        });
+
+        expect(res.status).toBe(429);
+        expect(statements).toEqual([]);
+        expect(probe.bindingQueries).toEqual([]);
+      });
+    }
+
+    it("the same cookie on an allowed request does cost the lookup", async () => {
+      // Control: without it, a cookie the Worker never parsed would pass the
+      // cases above too.
+      const { res, statements } = await send("DELETE", "/api/account/link/gst_probe", {});
+
+      expect(res.status).toBe(401);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toMatch(/^select .* from "sessions" where/i);
+    });
+  });
+
   const runCron = async (extraEnv: Record<string, string> = {}) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
@@ -463,5 +590,23 @@ describe("D1 session routing at the entry points", () => {
     // Either half missing: no digest.
     expect((await runCron(mail)).pending).toHaveLength(7);
     expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(7);
+  });
+
+  it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
+    // A cron-only isolate never runs the `fetch` check, and the digest builds
+    // its portal links from WEB_ORIGIN.
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    let result: Awaited<ReturnType<typeof runCron>> | undefined;
+    const logs = await captureLogs(async () => {
+      result = await runCron({
+        RESEND_API_KEY: "re_test",
+        OSN_API_URL: "https://osn.example.test",
+        CIRE_API_ARC_PRIVATE_KEY: jwk,
+        CIRE_API_ARC_KEY_ID: "kid_test",
+        WEB_ORIGIN: "http://localhost:4321",
+      });
+    });
+    expect(result?.pending).toHaveLength(7);
+    expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });

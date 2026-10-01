@@ -5,9 +5,10 @@ import { ROLE_COPY } from "../lib/wedding-roles";
 
 /**
  * The three places that together make the message an organiser sends a
- * household: its first line (the invite builder's Message section), the code on
- * its last line (Invite → Codes, where the owner changes the code style), and
- * the copy action (Guests → Households).
+ * household: its first line (the invite builder's Message section, which can
+ * also copy one household's message), the code on its last line (Invite →
+ * Codes, where the owner changes the code style), and the household list with a
+ * copy action on every row (Guests → Households).
  */
 export type InviteMessagePlace = "message" | "codes" | "households";
 
@@ -44,14 +45,15 @@ type PlaceRenderer = (place: InviteMessagePlace) => JSX.Element;
 const SENTENCE = {
   message: (place) => (
     <>
-      Save, then copy each household's message from {place("households")}. The code on its last line
-      keeps the style chosen when the wedding was created; change it in {place("codes")}.
+      Save, then copy a household's message above, or from {place("households")}. The code on its
+      last line keeps the style chosen when the wedding was created; change it in {place("codes")}.
     </>
   ),
   codes: (place) => (
     <>
       Each code is the last line of a household's invite message. Write the line above it in{" "}
-      {place("message")}, and copy each household's message from {place("households")}.
+      {place("message")}, and copy each household's message from there or from {place("households")}
+      .
     </>
   ),
   households: (place) => (

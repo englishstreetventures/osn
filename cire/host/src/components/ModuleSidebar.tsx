@@ -18,11 +18,21 @@ const rowBase =
   "transition-colors duration-(--dur-fast) ease-(--ease-out)";
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
-const rowActive = "text-gold bg-gold/10";
+
+/**
+ * The selected row's label is `gold-ink`, not `gold`. Gold is a metal with no
+ * contrast contract (`styles/global.css`): in the light theme it paints about
+ * 2.2:1 on its own wash, and this label, the one that says where the organiser
+ * is, is normal-size text that needs 4.5:1. `gold-ink` clears that on the wash
+ * in both themes. The icon beside it stays gold, set on the icon itself: it is
+ * decoration (hidden from assistive tech, the label names the row), so no
+ * contrast floor applies to it.
+ */
+const rowActive = "text-gold-ink bg-gold/10";
 
 /** The rail's active row carries no background of its own — the pill behind it
  *  is the background, and it travels. Colour is all the row has to change. */
-const railActive = "text-gold";
+const railActive = "text-gold-ink";
 
 /**
  * A locked row: dimmer than an idle one, and it changes nothing on hover
@@ -241,7 +251,10 @@ export default function ModuleSidebar(props: {
             const locked = () => isModuleLocked(mod.id, props.entitlements);
             const Body = () => (
               <>
-                <ModuleIcon icon={mod.icon} class="opacity-80" />
+                <ModuleIcon
+                  icon={mod.icon}
+                  class={isActive() ? "text-gold opacity-80" : "opacity-80"}
+                />
                 <span class="min-w-0 truncate">{mod.label}</span>
               </>
             );

@@ -6,6 +6,7 @@ import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show 
 
 import { redirectToLogin } from "../lib/api";
 import { createAutoSize } from "../lib/auto-size";
+import { reloadOnRestore } from "../lib/bfcache";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
 import { drainClaimedListing, type OrgSummary } from "../lib/vendor-store";
@@ -254,6 +255,9 @@ export default function VendorApp() {
   // Keep following the OS after the boot script's one-shot resolution: a vendor
   // on "system" whose machine flips at sunset sees the portal flip with it.
   onMount(() => onCleanup(initTheme()));
+  // Back after sign-out must not bring the signed-in page back from the
+  // back/forward cache; see `lib/bfcache.ts`.
+  onMount(() => onCleanup(reloadOnRestore()));
 
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>

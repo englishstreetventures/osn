@@ -180,6 +180,7 @@ export const createInvitePublicRoutes = (
             key,
             version,
             cacheSlot: `${params.slug}:${slot}`,
+            logSlot: slot,
             visibility: slotRequiresSession(slot) ? "private" : "public",
             variant,
             format,
@@ -239,6 +240,7 @@ export const createInvitePublicRoutes = (
             key,
             version: version ?? undefined,
             cacheSlot: `${params.slug}:event:${params.eventId}`,
+            logSlot: "event",
             variant,
             format,
             images,
@@ -317,9 +319,9 @@ export const createInviteOrganiserRoutes = (
         }
         // `?include=faqs` adds the FAQ entries, read beside the customisation.
         // Only the builder's first load asks for them; the other readers of this
-        // route (the getting-started checklist, the guest table) and every
-        // write's read-back leave them out, so they pay nothing for a list they
-        // never show.
+        // route (the getting-started checklist, the guest table) leave them
+        // out, so they pay nothing for a list they never show. The writes answer
+        // without them too.
         const withFaqs = query.include === "faqs";
         return runCire(
           Effect.gen(function* () {
@@ -357,8 +359,8 @@ export const createInviteOrganiserRoutes = (
         .use(weddingEditor(db))
         .put(
           "/invite/text",
-          async ({ request, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -366,20 +368,13 @@ export const createInviteOrganiserRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(InviteTextBody)(raw);
-                yield* inviteService.upsertText(weddingId, body);
-                return yield* inviteService.getForWeddingId(weddingId);
+                return yield* inviteService.upsertText(weddingId, weddingSlug, body);
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
-                  }),
-                ),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
                   }),
                 ),
                 Effect.catchDefect(() =>
@@ -396,8 +391,8 @@ export const createInviteOrganiserRoutes = (
         )
         .put(
           "/invite/theme",
-          async ({ request, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -405,8 +400,7 @@ export const createInviteOrganiserRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(InviteThemeBody)(raw);
-                yield* inviteService.upsertTheme(weddingId, body);
-                return yield* inviteService.getForWeddingId(weddingId);
+                return yield* inviteService.upsertTheme(weddingId, weddingSlug, body);
               }).pipe(
                 Effect.provideService(DbService, db),
                 // A bad colour (allow-list miss) or unknown font (enum miss) both
@@ -415,12 +409,6 @@ export const createInviteOrganiserRoutes = (
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Invalid colour or font" };
-                  }),
-                ),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
                   }),
                 ),
                 Effect.catchDefect(() =>
@@ -442,8 +430,8 @@ export const createInviteOrganiserRoutes = (
         // the server is the gate).
         .put(
           "/invite/design",
-          async ({ request, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -463,20 +451,13 @@ export const createInviteOrganiserRoutes = (
                     return { error: "premium_design" };
                   }
                 }
-                yield* inviteService.setDesign(weddingId, design.id);
-                return yield* inviteService.getForWeddingId(weddingId);
+                return yield* inviteService.setDesign(weddingId, weddingSlug, design.id);
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
-                  }),
-                ),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
                   }),
                 ),
                 Effect.catchDefect(() =>
@@ -496,8 +477,8 @@ export const createInviteOrganiserRoutes = (
         // a 400. The content of a switched-off section is kept untouched.
         .put(
           "/invite/visibility",
-          async ({ request, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -505,20 +486,13 @@ export const createInviteOrganiserRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(InviteVisibilityBody)(raw);
-                yield* inviteService.setVisibility(weddingId, body);
-                return yield* inviteService.getForWeddingId(weddingId);
+                return yield* inviteService.setVisibility(weddingId, weddingSlug, body);
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
-                  }),
-                ),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
                   }),
                 ),
                 Effect.catchDefect(() =>
@@ -535,8 +509,8 @@ export const createInviteOrganiserRoutes = (
         )
         .post(
           "/invite/image/:slot",
-          async ({ request, params, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, params, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -580,10 +554,9 @@ export const createInviteOrganiserRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const slug = yield* inviteService.weddingSlug(weddingId);
                 const imageUrl = yield* inviteService.setImage(
                   weddingId,
-                  slug,
+                  weddingSlug,
                   slot,
                   bytes,
                   contentType,
@@ -592,12 +565,6 @@ export const createInviteOrganiserRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(AssetsR2Service, assets as AssetsBucket),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
-                  }),
-                ),
                 Effect.catchTag("AssetR2Error", () =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite image store failed", { weddingId });
@@ -617,8 +584,8 @@ export const createInviteOrganiserRoutes = (
           },
           manualParse,
         )
-        .delete("/invite/image/:slot", ({ params, weddingId, set }) => {
-          if (!weddingId) {
+        .delete("/invite/image/:slot", ({ params, weddingId, weddingSlug, set }) => {
+          if (!weddingId || !weddingSlug) {
             set.status = 500;
             return { error: "Internal error" };
           }
@@ -629,17 +596,10 @@ export const createInviteOrganiserRoutes = (
           const slot = params.slot;
           return runCire(
             Effect.gen(function* () {
-              yield* inviteService.removeImage(weddingId, slot);
-              return yield* inviteService.getForWeddingId(weddingId);
+              return yield* inviteService.removeImage(weddingId, weddingSlug, slot);
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.provideService(AssetsR2Service, assets as AssetsBucket),
-              Effect.catchTag("WeddingNotFound", () =>
-                Effect.sync(() => {
-                  set.status = 404;
-                  return { error: "Not found" };
-                }),
-              ),
               Effect.catchDefect(() =>
                 Effect.gen(function* () {
                   yield* Effect.logError("invite image remove failed", { weddingId });
@@ -662,8 +622,8 @@ export const createInviteOrganiserRoutes = (
         // aspects, so `screen: "mobile"` on any other slot is a 400.
         .put(
           "/invite/image/:slot/crop",
-          async ({ request, params, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, params, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -681,20 +641,19 @@ export const createInviteOrganiserRoutes = (
                   set.status = 400;
                   return { error: "Only the hero image has a phone crop" };
                 }
-                yield* inviteService.setCrop(weddingId, slot, body.crop, screen);
-                return yield* inviteService.getForWeddingId(weddingId);
+                return yield* inviteService.setCrop(
+                  weddingId,
+                  weddingSlug,
+                  slot,
+                  body.crop,
+                  screen,
+                );
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Invalid crop rectangle" };
-                  }),
-                ),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
                   }),
                 ),
                 Effect.catchDefect(() =>
@@ -717,8 +676,8 @@ export const createInviteOrganiserRoutes = (
         // can't write an image onto another wedding's event.
         .post(
           "/events/:eventId/image",
-          async ({ request, params, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, params, weddingId, weddingSlug, set }) => {
+            if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -758,10 +717,9 @@ export const createInviteOrganiserRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const slug = yield* inviteService.weddingSlug(weddingId);
                 const imageUrl = yield* eventImageService.setImage(
                   weddingId,
-                  slug,
+                  weddingSlug,
                   eventId,
                   bytes,
                   contentType,
@@ -770,12 +728,6 @@ export const createInviteOrganiserRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(AssetsR2Service, assets as AssetsBucket),
-                Effect.catchTag("WeddingNotFound", () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "Not found" };
-                  }),
-                ),
                 Effect.catchTag("EventNotFound", () =>
                   Effect.sync(() => {
                     set.status = 404;

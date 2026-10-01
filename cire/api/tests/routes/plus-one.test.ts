@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddings } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -144,8 +145,41 @@ describe("PUT /api/plus-one/:guestId", () => {
     expect(renamed.status).toBe(200);
     expect(await jsonBody(renamed)).toMatchObject({
       created: false,
+      dietaryCleared: false,
       plusOne: { guestId: body.plusOne.guestId, firstName: "Samira", lastName: "" },
     });
+  });
+
+  it("says when a rename cleared the plus-one's dietary answers", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: "halal",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: "inviter-2026-09-27",
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const cookie = await cookieFor(SAMPLETON);
+
+    const res = await put(bo.id, cookie, { firstName: "Alex" });
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toMatchObject({ created: false, dietaryCleared: true });
+    expect(
+      db
+        .select({ presets: rsvps.dietaryPresets })
+        .from(rsvps)
+        .where(eq(rsvps.guestId, samId))
+        .get(),
+    ).toEqual({ presets: "" });
   });
 
   it("400s a blank, oversized or control-character name", async () => {
@@ -382,5 +416,15 @@ describe("the plus-one write limiter", () => {
     const limited = await put(bo.id, cookie, { firstName: "Pat" });
     expect(limited.status).toBe(429);
     expect(plusOnesOf(bo.id)).toHaveLength(0);
+  });
+
+  it("answers 429 before the session gate answers 401", async () => {
+    app = createApp(db, {
+      plusOneLimiter: { check: async () => false },
+    });
+    const bo = guestNamed(db, "Bo");
+    // No cookie: the session gate would say 401, so 429 proves the limiter ran first.
+    expect((await put(bo.id, null, { firstName: "Sam" })).status).toBe(429);
+    expect((await del(bo.id, null)).status).toBe(429);
   });
 });
