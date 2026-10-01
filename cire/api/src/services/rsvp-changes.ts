@@ -28,7 +28,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
 import type { Db } from "../db";
-import { DbService, dbQuery } from "../db";
+import { DbService } from "../db";
 import { metricRsvpChangeSwept } from "../metrics";
 
 /** Change rows older than this are deleted by the daily cron. */
@@ -384,6 +384,13 @@ export interface RsvpChangeFeed extends UnseenSummary {
 const newestSeq = (weddingId: string): SQL =>
   sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId})`;
 
+/** A feed read, failing as {@link RsvpChangeError} rather than as a defect. */
+const read = <A>(run: () => A | Promise<A>) =>
+  Effect.tryPromise({
+    try: () => Promise.resolve(run()),
+    catch: (e) => new RsvpChangeError({ op: "feed", reason: String(e) }),
+  });
+
 export const rsvpChangeService = {
   /** The card's summary of the caller's unseen changes, and their digest setting. */
   feed(
@@ -394,7 +401,7 @@ export const rsvpChangeService = {
       const db = yield* DbService;
       const [settings, rows] = yield* Effect.all(
         [
-          dbQuery(() =>
+          read(() =>
             db
               .select({ digestEnabled: hostRsvpNotices.digestEnabled })
               .from(hostRsvpNotices)
@@ -406,7 +413,7 @@ export const rsvpChangeService = {
               )
               .all(),
           ),
-          dbQuery(() => buildUnseenHouseholdsQuery(db, weddingId, osnProfileId).all()),
+          read(() => buildUnseenHouseholdsQuery(db, weddingId, osnProfileId).all()),
         ],
         { concurrency: "unbounded" },
       );
@@ -424,7 +431,7 @@ export const rsvpChangeService = {
   ): Effect.Effect<UnseenRows, RsvpChangeError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const pairs = yield* dbQuery(() => buildUnseenPairsQuery(db, weddingId, osnProfileId).all());
+      const pairs = yield* read(() => buildUnseenPairsQuery(db, weddingId, osnProfileId).all());
       return summarisePairs(pairs, UNSEEN_PAIR_LIMIT);
     }).pipe(Effect.withSpan("cire.rsvp_changes.unseenRows"));
   },

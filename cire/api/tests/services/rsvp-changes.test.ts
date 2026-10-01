@@ -21,6 +21,7 @@ import {
   buildUnseenHouseholdsQuery,
   buildUnseenPairsQuery,
   classifyRsvpChanges,
+  FEED_ITEM_LIMIT,
   pairKey,
   RSVP_CHANGE_RETENTION_MS,
   rsvpChangeService,
@@ -288,6 +289,12 @@ describe("summarisePairs", () => {
     });
   });
 
+  it("marks up to the newest change when exactly the limit is shown", () => {
+    const summary = summarisePairs([pair("g1", 4, 40), pair("g2", 5, 6)], 2);
+    expect(summary.rows).toHaveLength(2);
+    expect(summary.markSeq).toBe(40);
+  });
+
   it("stops the marker just below the first pair left out", () => {
     const summary = summarisePairs([pair("g1", 4, 40), pair("g2", 5, 6), pair("g3", 9, 9)], 2);
     expect(summary.rows.map((r) => r.guestId)).toEqual(["g1", "g2"]);
@@ -478,6 +485,18 @@ describe("typed failures", () => {
   const flip = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.flip, Effect.provideService(DbService, db)));
 
+  it("fails both feed reads as RsvpChangeError, never a defect", async () => {
+    const { db } = fixture();
+    db.run(sql`DROP TABLE rsvp_changes`);
+    expect(await flip(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).toMatchObject({
+      _tag: "RsvpChangeError",
+      op: "feed",
+    });
+    expect(await flip(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toMatchObject(
+      { _tag: "RsvpChangeError", op: "feed" },
+    );
+  });
+
   it("fails markSeen, setDigest and sweepExpired as RsvpChangeError, never a defect", async () => {
     const { db } = fixture();
     db.run(sql`DROP TABLE host_rsvp_notices`);
@@ -589,6 +608,68 @@ describe("the feed's limits", () => {
     expect(feed.items.map((i) => i.familyId)).toEqual([ada.familyId, bo.familyId]);
     const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
     expect(table.rows).toHaveLength(51);
+  });
+
+  it("names only the five households with the newest change, and counts them all", async () => {
+    const { db } = fixture();
+    const now = new Date();
+    for (let i = 0; i < FEED_ITEM_LIMIT + 2; i++) {
+      db.insert(families)
+        .values({
+          id: `fam_n${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          publicId: `NEWEST-${i}`,
+          familyName: `N${i}`,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      await record(db, `fam_n${i}`, [{ guestId: `g_n${i}`, eventId: HINDU, kind: "reply_new" }]);
+    }
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.households).toBe(FEED_ITEM_LIMIT + 2);
+    expect(feed.items.map((i) => i.familyId)).toEqual([
+      "fam_n6",
+      "fam_n5",
+      "fam_n4",
+      "fam_n3",
+      "fam_n2",
+    ]);
+  });
+
+  it("marks seen only the window it read when one pair fills it", async () => {
+    const { db, ada, bo } = fixture();
+    // More rows than one read takes, all on ten pairs, then a new pair.
+    for (let round = 0; round < Math.ceil((UNSEEN_SCAN_LIMIT + 10) / 200); round++) {
+      await record(
+        db,
+        ada.familyId,
+        Array.from({ length: 200 }, (_, i) => ({
+          guestId: `${ada.id}-${i % 10}`,
+          eventId: HINDU,
+          kind: "reply_edited" as const,
+        })),
+      );
+    }
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    const [boRow] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.guestId, bo.id))
+      .all();
+
+    const first = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(first.rows).toHaveLength(10);
+    expect(first.markSeq).toBeLessThan(boRow!.seq);
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, first.markSeq));
+
+    const later = new Set<string>();
+    for (let visit = 0; visit < 3; visit++) {
+      const next = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+      for (const row of next.rows) later.add(row.guestId);
+      await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, next.markSeq));
+    }
+    expect(later.has(bo.id)).toBe(true);
   });
 
   it("dates each household's latest change from the stored time", async () => {

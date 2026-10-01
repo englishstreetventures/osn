@@ -1364,6 +1364,34 @@ describe("plusOneService — the RSVP change log", () => {
     expect(changeLog()).toEqual([]);
   });
 
+  it("logs a rename of the last name alone", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "Li" }));
+    expect(changeLog()).toEqual([change(bo.familyId, bo.id, "plus_one_renamed")]);
+  });
+
+  it("logs no rename when another device gave the same name first", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let raced = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!raced && sql.startsWith('insert into "rsvp_changes"')) {
+          raced = true;
+          prepare("update guests set first_name = 'Alex' where id = ?").run(samId);
+        }
+        return prepare(sql);
+      },
+    });
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+    expect(raced).toBe(true);
+    expect(changeLog()).toEqual([]);
+  });
+
   it("logs no removal when the plus-one is gone before the remove's batch", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
