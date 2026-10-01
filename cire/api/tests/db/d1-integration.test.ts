@@ -2415,10 +2415,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
       for (const statement of fullWeddingStatements(id, { owner: "usr_d1_owner" })) {
         await db.run(statement);
       }
-      // A gift checkout from an hour ago can still settle: the batch's refusal
-      // read names it, and nothing is written.
+      // A gift checkout page from an hour ago can still be paid: the batch's
+      // refusal read names it, and nothing is written.
       await db.run(
-        sql`UPDATE registry_contributions SET status = 'pending', created_at = ${Math.floor(Date.now() / 1000) - 3600} WHERE wedding_id = ${id}`,
+        sql`UPDATE registry_contributions SET status = 'pending', stripe_checkout_session_id = ${`cs_${id}`}, created_at = ${Math.floor(Date.now() / 1000) - 3600} WHERE wedding_id = ${id}`,
       );
       const refused = await Effect.runPromiseExit(
         weddingLifecycleService

@@ -649,14 +649,15 @@ export const hostsService = {
 
   /**
    * `authorize()` for the one route that must see a soft-deleted wedding: its
-   * owners' restore. The same single query without the live-wedding predicate,
-   * carrying `deletedAt` (null for a live wedding). No other caller may use
-   * it — every other organiser route answers a deleted wedding as unknown.
+   * owners' restore. The same single query without the live-wedding predicate.
+   * Whether the wedding is deleted, and for how long, is the restore's own
+   * guarded write to decide. No other caller may use it — every other
+   * organiser route answers a deleted wedding as unknown.
    */
   authorizeIncludingDeleted(
     weddingId: string,
     osnProfileId: string,
-  ): Effect.Effect<(AuthorizeResult & { deletedAt: Date | null }) | null, never, DbService> {
+  ): Effect.Effect<AuthorizeResult | null, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
@@ -667,14 +668,13 @@ export const hostsService = {
             seatId: weddingHosts.id,
             role: weddingHosts.role,
             runSheetScope: weddingHosts.runSheetScope,
-            deletedAt: weddings.deletedAt,
           })
           .from(weddings)
           .leftJoin(weddingHosts, callerSeat(osnProfileId))
           .where(eq(weddings.id, weddingId))
           .all(),
       );
-      return row ? { ...resolveSeat(row), deletedAt: row.deletedAt } : null;
+      return row ? resolveSeat(row) : null;
     }).pipe(Effect.withSpan("cire.host.authorizeIncludingDeleted"));
   },
 };

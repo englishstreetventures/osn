@@ -315,34 +315,33 @@ export const maintenanceSweeps = {
         new MaintenanceSweepError({ op: "purge_deleted_weddings", reason: String(e) });
 
       // Two reads, both on the partial index: how many are due and held, and
-      // the first few that are not held.
-      const [totals] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(
+      // the first few that are not held. Neither needs the other's answer, so
+      // they go in one batch: one round trip, the run with nothing due included.
+      const [totalRows, candidates] = yield* Effect.tryPromise({
+        try: async () => {
+          const [totalsRead, candidatesRead] = await commitBatchResults(db, [
             db
               .select({
                 due: count(),
                 held: sql<number>`coalesce(sum(CASE WHEN ${heldHere} THEN 1 ELSE 0 END), 0)`,
               })
               .from(weddings)
-              .where(pastWindow)
-              .all(),
-          ),
-        catch: failRead,
-      });
-      const candidates = yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(
+              .where(pastWindow),
             db
               .select({ id: weddings.id, deletedBy: weddings.deletedByOsnProfileId })
               .from(weddings)
               .where(and(pastWindow, not(heldHere)))
               .orderBy(asc(weddings.deletedAt))
-              .limit(MAX_PURGES_PER_RUN)
-              .all(),
-          ),
+              .limit(MAX_PURGES_PER_RUN),
+          ]);
+          return [
+            totalsRead as readonly { due: number; held: number }[],
+            candidatesRead as readonly { id: string; deletedBy: string | null }[],
+          ] as const;
+        },
         catch: failRead,
       });
+      const [totals] = totalRows;
       const due = Number(totals?.due ?? 0);
       let held = Number(totals?.held ?? 0);
       const unheld = due - held;

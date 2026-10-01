@@ -582,14 +582,15 @@ describe("D1 session routing at the entry points", () => {
   it("gives the wedding purge a session of its own", async () => {
     // The purge's candidate reads are the only cron queries that compare
     // `deleted_at` with a cutoff; every statement in that session is the
-    // purge's own, on `weddings`.
+    // purge's own, on `weddings`, and the two reads go in one batch.
     const { probe } = await runCron();
     const purge = probe.sessionQueries.filter((queries) =>
       queries.some((q) => /deleted_at" <= \?/.test(q)),
     );
     expect(purge).toHaveLength(1);
-    const statements = purge[0]!.filter((q) => !q.startsWith("bind:"));
-    expect(statements.length).toBeGreaterThan(0);
+    expect(purge[0]!.filter((q) => q.startsWith("batch:"))).toEqual(["batch:2"]);
+    const statements = purge[0]!.filter((q) => !q.startsWith("bind:") && !q.startsWith("batch:"));
+    expect(statements).toHaveLength(2);
     expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
   });
 

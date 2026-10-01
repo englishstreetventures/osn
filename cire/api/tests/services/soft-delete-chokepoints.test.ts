@@ -54,15 +54,12 @@ describe("hostsService.authorize", () => {
     expect(Exit.isSuccess(gone) && gone.value).toBeNull();
   });
 
-  it("is seen by the restore-only variant, with when it was deleted", async () => {
+  it("is seen by the restore-only variant", async () => {
     const db = makeDb();
     setDeleted(db, true);
     const seen = await run(db, hostsService.authorizeIncludingDeleted(WID, OWNER));
     expect(Exit.isSuccess(seen)).toBe(true);
-    if (Exit.isSuccess(seen)) {
-      expect(seen.value?.role).toBe("owner");
-      expect(seen.value?.deletedAt).toBeInstanceOf(Date);
-    }
+    if (Exit.isSuccess(seen)) expect(seen.value?.role).toBe("owner");
   });
 });
 

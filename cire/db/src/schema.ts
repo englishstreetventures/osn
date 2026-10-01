@@ -622,6 +622,10 @@ export const vendorEnquiries = sqliteTable(
     index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt),
     // Vendor inbox: find a listing's enquiries.
     index("vendor_enquiries_directory_idx").on(t.directoryVendorId),
+    // The `ON DELETE cascade` from `vendors`: deleting a CRM vendor (a purge
+    // deletes all of a wedding's) searches this table on `vendor_id`, which
+    // without an index is a scan of every wedding's enquiries per vendor.
+    index("vendor_enquiries_vendor_idx").on(t.vendorId),
     // The daily hand-off sweep's queue: only buffered enquiries, least
     // recently tried first (a failed hand-off bumps `updated_at`).
     index("vendor_enquiries_buffered_idx")
@@ -863,6 +867,10 @@ export const registryClaims = sqliteTable(
     // registryService.claim tractable.
     uniqueIndex("registry_claims_item_family_uniq").on(t.itemId, t.familyId),
     index("registry_claims_wedding_created_idx").on(t.weddingId, t.createdAt),
+    // The `ON DELETE cascade` from `families`: every household the retention
+    // sweep or a purge deletes searches this table on `family_id`, which
+    // without an index is a scan of every wedding's claims per household.
+    index("registry_claims_family_idx").on(t.familyId),
     // The remaining-quantity subquery reads
     // `WHERE item_id = ? AND status <> 'released' AND family_id <> ?` and sums
     // `quantity`. Carrying all four columns makes it a covering index — the
@@ -959,6 +967,8 @@ export const registryContributions = sqliteTable(
   (t) => [
     index("registry_contributions_wedding_created_idx").on(t.weddingId, t.createdAt),
     index("registry_contributions_item_idx").on(t.itemId),
+    // The `ON DELETE cascade` from `families`, as on `registry_claims`.
+    index("registry_contributions_family_idx").on(t.familyId),
     // A refund event names a payment intent and nothing else — no session id,
     // and no metadata worth trusting — so this is the column the refund path
     // reads by. Without the index that read scans every gift on the platform.
@@ -1254,6 +1264,9 @@ export const guestAccountLinks = sqliteTable(
     index("guest_account_links_account_idx").on(t.osnAccountId),
     // List all links for a household (guest-facing status endpoint).
     index("guest_account_links_family_idx").on(t.familyId),
+    // The `ON DELETE cascade` from `weddings`: a purge searches this table on
+    // `wedding_id`, which without an index is a scan of every wedding's links.
+    index("guest_account_links_wedding_idx").on(t.weddingId),
   ],
 );
 

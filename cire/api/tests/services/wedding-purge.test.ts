@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
@@ -246,5 +247,57 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
     );
     expect(run).toEqual({ purged: 0, held: 1, errors: 0, backlog: 0 });
     expect(exists(db, "wed_back")).toBe(true);
+  });
+});
+
+describe("maintenanceSweeps.purgeDeletedWeddings — failures", () => {
+  it("fails the run with a typed error, counted, when the candidate read fails", async () => {
+    const throwingDb = {
+      select: () => {
+        throw new Error("boom: select");
+      },
+    } as unknown as Db;
+    const before = await counterValue(CIRE_METRICS.weddingPurged, { result: "error" });
+    const err = await Effect.runPromise(
+      Effect.flip(
+        maintenanceSweeps
+          .purgeDeletedWeddings(NOW)
+          .pipe(Effect.provideService(DbService, throwingDb)),
+      ),
+    );
+    expect(err._tag).toBe("MaintenanceSweepError");
+    expect(err.op).toBe("purge_deleted_weddings");
+    expect(await counterValue(CIRE_METRICS.weddingPurged, { result: "error" })).toBe(before + 1);
+  });
+
+  it("counts one wedding's failed purge and goes on to the next", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_old", daysAgo(10));
+    seedWedding(db, "wed_new", daysAgo(8));
+    // The oldest is taken first; its batch fails as its delete is built.
+    let deletes = 0;
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "delete") {
+          return (table: typeof weddings) => {
+            deletes += 1;
+            if (deletes === 1) throw new Error("boom: cascade");
+            return target.delete(table);
+          };
+        }
+        const value: unknown = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const before = await counterValue(CIRE_METRICS.weddingPurged, { result: "error" });
+
+    const run = await Effect.runPromise(
+      maintenanceSweeps.purgeDeletedWeddings(NOW).pipe(Effect.provideService(DbService, failing)),
+    );
+
+    expect(run).toEqual({ purged: 1, held: 0, errors: 1, backlog: 0 });
+    expect(exists(db, "wed_old")).toBe(true);
+    expect(exists(db, "wed_new")).toBe(false);
+    expect(await counterValue(CIRE_METRICS.weddingPurged, { result: "error" })).toBe(before + 1);
   });
 });

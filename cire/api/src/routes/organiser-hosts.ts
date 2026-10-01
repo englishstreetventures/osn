@@ -112,9 +112,9 @@ export const createOrganiserHostsReadRoutes = (
                       osnProfileId: h.osnProfileId,
                       role: h.role,
                       createdAt: h.createdAt.getTime(),
-                      // Attribution: `POST /hosts` is open to editors, so a seat
-                      // no owner created is a thing owners need to be able to
-                      // see. Same handle-then-id fallback as below.
+                      // Attribution: any of a wedding's equal owners may seat
+                      // someone, so each owner needs to see which seats another
+                      // owner created. Same handle-then-id fallback as below.
                       addedByOsnProfileId: h.addedByOsnProfileId,
                     };
                     // Handle is the display value; profileId stays as the

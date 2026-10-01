@@ -55,6 +55,13 @@ const failed = (set: SetStatus, error: string) =>
  *
  * Its own instance, mounted past the app's `AnyElysia` widening: the organiser
  * chain inside `createApp` is at TypeScript's instantiation-depth limit.
+ *
+ * The owner gate is defence in depth, kept on purpose. `softDelete`'s guarded
+ * UPDATE re-proves existence, liveness and the caller's owner seat in the
+ * statement that writes, so the gate's read is a second check of the same
+ * facts; it keeps this route on the same gate as every other owner-only route,
+ * so a change to the service's guard cannot open it. A rare, owner-only action
+ * pays one extra statement for that.
  */
 export const createOrganiserWeddingDeleteRoute = (
   db: Db,
@@ -113,6 +120,10 @@ export const createOrganiserWeddingDeleteRoute = (
  * The only organiser route that reaches a deleted wedding, through its own
  * gate. 409 `not_deleted` for a live wedding, 409 `restore_window_passed` once
  * the window has closed, 404 once the purge has run.
+ *
+ * The gate is defence in depth, kept on purpose, as on the delete route:
+ * `restore`'s guarded UPDATE re-proves the owner seat and the window in the
+ * statement that writes.
  */
 export const createOrganiserWeddingRestoreRoute = (
   db: Db,

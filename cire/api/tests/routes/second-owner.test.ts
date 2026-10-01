@@ -284,4 +284,33 @@ describe("marking a household's code shared", () => {
       expect(res.status, caller).toBe(200);
     }
   });
+
+  it.each([
+    ["viewer", "read_only_role"],
+    ["helper", "forbidden"],
+  ] as const)("is refused to a %s with 403 %s, recording nothing", async (role, error) => {
+    const { app, db, familyId } = buildApp();
+    const caller = `usr_${role}`;
+    db.insert(weddingHosts)
+      .values({
+        id: `whost_${caller}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: caller,
+        addedByOsnProfileId: CREATOR,
+        role,
+        createdAt: new Date(),
+      })
+      .run();
+    db.update(families).set({ codeSharedAt: null }).where(eq(families.id, familyId)).run();
+
+    const res = await call(app, "POST", `/families/${familyId}/mark-shared`, caller);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error });
+    const [family] = db
+      .select({ codeSharedAt: families.codeSharedAt })
+      .from(families)
+      .where(eq(families.id, familyId))
+      .all();
+    expect(family!.codeSharedAt).toBeNull();
+  });
 });

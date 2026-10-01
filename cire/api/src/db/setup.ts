@@ -212,6 +212,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_guest_uniq ON guest_accoun
 CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
 CREATE INDEX IF NOT EXISTS guest_account_links_account_idx ON guest_account_links(osn_account_id);
 CREATE INDEX IF NOT EXISTS guest_account_links_family_idx ON guest_account_links(family_id);
+CREATE INDEX IF NOT EXISTS guest_account_links_wedding_idx ON guest_account_links(wedding_id);
 
 CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   wedding_id TEXT PRIMARY KEY REFERENCES weddings(id) ON DELETE CASCADE,
@@ -408,6 +409,7 @@ CREATE TABLE IF NOT EXISTS vendor_enquiries (
 CREATE UNIQUE INDEX IF NOT EXISTS vendor_enquiries_wedding_directory_uniq ON vendor_enquiries(wedding_id, directory_vendor_id);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_wedding_last_msg_idx ON vendor_enquiries(wedding_id, last_message_at);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_directory_idx ON vendor_enquiries(directory_vendor_id);
+CREATE INDEX IF NOT EXISTS vendor_enquiries_vendor_idx ON vendor_enquiries(vendor_id);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_buffered_idx ON vendor_enquiries(updated_at, id) WHERE status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL;
 CREATE TABLE IF NOT EXISTS wedding_entitlements (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -480,6 +482,7 @@ CREATE TABLE IF NOT EXISTS registry_claims (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS registry_claims_item_family_uniq ON registry_claims(item_id, family_id);
 CREATE INDEX IF NOT EXISTS registry_claims_wedding_created_idx ON registry_claims(wedding_id, created_at);
+CREATE INDEX IF NOT EXISTS registry_claims_family_idx ON registry_claims(family_id);
 CREATE INDEX IF NOT EXISTS registry_claims_item_status_idx ON registry_claims(item_id, status, family_id, quantity);
 CREATE INDEX IF NOT EXISTS registry_claims_wedding_item_status_idx ON registry_claims(wedding_id, item_id, status, quantity);
 CREATE TABLE IF NOT EXISTS registry_contributions (
@@ -508,6 +511,7 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
 );
 CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registry_contributions(wedding_id, created_at);
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
+CREATE INDEX IF NOT EXISTS registry_contributions_family_idx ON registry_contributions(family_id);
 CREATE INDEX IF NOT EXISTS registry_contributions_payment_intent_idx ON registry_contributions(stripe_payment_intent_id);
 CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   id TEXT PRIMARY KEY,

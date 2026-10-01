@@ -41,9 +41,16 @@ export const PURCHASE_SESSION_LIFETIME_S = 24 * 60 * 60;
 const STALE_PENDING_S = Math.ceil(STALE_PENDING_MS / 1000);
 
 /**
- * How long a pending gift blocks a delete. Gifts may be paid by bank debit,
- * which settles days after checkout; a pending row older than this is an
- * abandoned checkout and does not block.
+ * How long a gift's Checkout page can still be paid. The gift checkout sets no
+ * `expires_at`, so Stripe closes it this long after creation. Counted from the
+ * pending row, which is written just before the session is created.
+ */
+export const GIFT_SESSION_LIFETIME_S = 24 * 60 * 60;
+
+/**
+ * How long a gift whose checkout has completed but whose money has not moved —
+ * a delayed bank debit — blocks a delete. The debit settles days after
+ * checkout; a pending row older than this does not block.
  */
 export const GIFT_IN_FLIGHT_S = 7 * 24 * 60 * 60;
 
@@ -54,9 +61,18 @@ type WeddingRef = SQL | string;
 export const purchaseInFlight = (wedding: WeddingRef, nowS: number): SQL =>
   sql`EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND ${weddingUpgradePurchases.status} = 'pending' AND ((${weddingUpgradePurchases.checkoutSessionId} IS NOT NULL AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURCHASE_SESSION_LIFETIME_S}) OR (${weddingUpgradePurchases.checkoutSessionId} IS NULL AND ${weddingUpgradePurchases.createdAt} > ${nowS - STALE_PENDING_S})))`;
 
-/** A gift checkout recent enough to still settle. `nowS` in seconds. */
+/**
+ * A gift whose money can still move. `nowS` in seconds. Only a pending gift
+ * with a Checkout session counts, and only while its page can still be paid
+ * ({@link GIFT_SESSION_LIFETIME_S}) or, once the checkout has completed — the
+ * settle records the payment intent and leaves the row pending — while a
+ * delayed debit can still settle ({@link GIFT_IN_FLIGHT_S}). A pending row
+ * with no session never got a payment page, so it never blocks: any guest can
+ * write one, and it must not hold the owners' delete. The purge's own hold
+ * still waits on every pending gift, so nothing that settles late is lost.
+ */
 export const giftInFlight = (wedding: WeddingRef, nowS: number): SQL =>
-  sql`EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND ${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - GIFT_IN_FLIGHT_S})`;
+  sql`EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND ${registryContributions.status} = 'pending' AND ${registryContributions.stripeCheckoutSessionId} IS NOT NULL AND (${registryContributions.createdAt} > ${nowS - GIFT_SESSION_LIFETIME_S} OR (${registryContributions.stripePaymentIntentId} IS NOT NULL AND ${registryContributions.createdAt} > ${nowS - GIFT_IN_FLIGHT_S})))`;
 
 /**
  * A change apply or revert holding the wedding right now. Reads the row the
