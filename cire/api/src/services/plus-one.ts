@@ -38,7 +38,7 @@ import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet } from "../metrics";
 import type { ConfirmedPlusOne } from "../schemas/plus-one";
 import type { CapacityExceeded } from "./entitlements";
-import { CAPACITY_ENTITLEMENT_KEYS, entitlementService } from "./entitlements";
+import { CAPACITY_ENTITLEMENT_KEYS, entitlementService, roomForOneMoreGuest } from "./entitlements";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -121,21 +121,35 @@ function toRecord(rows: readonly PlusOneRow[], inviterGuestId: string): PlusOneR
   };
 }
 
+/** `value` as a bound parameter, sent through `column`'s encoder the way
+ *  `.values()` sends it — for a select that feeds an insert. */
+function bound(value: unknown, column: AnySQLiteColumn) {
+  return sql`${sql.param(value, column)}`.as(column.name);
+}
+
 /**
  * The statements that name a new plus-one, as ONE group so they commit in one
  * D1 batch:
  *
- *  1. The guest row, skipped (`ON CONFLICT DO NOTHING`) when a plus-one of this
- *     inviter already exists — a double submit that raced past the caller's
- *     read. The id is a fresh UUID, so the one-per-guest index is the only
- *     constraint it can meet; the conflict takes no target because a target
- *     cannot name a partial index.
+ *  1. The guest row, copied out of the inviter's row (`INSERT … SELECT`) only
+ *     while the rules still hold inside this statement: the inviter is in this
+ *     household, has permission, is not a plus-one themselves, and the wedding
+ *     has room for one more guest. So a permission revoked, or the last place
+ *     under the cap taken by another household, after the caller's read and
+ *     before this batch runs writes nothing: D1 runs batches one at a time, and
+ *     whichever commits second sees the first. The row is also skipped
+ *     (`ON CONFLICT DO NOTHING`) when a plus-one of this inviter already exists
+ *     — a double submit that raced past the caller's read. The id is a fresh
+ *     UUID, so the one-per-guest index is the only constraint it can meet; the
+ *     conflict takes no target because a target cannot name a partial index.
+ *     The select keeps its WHERE as its last clause, which is what lets SQLite
+ *     read the `ON CONFLICT` as the insert's rather than a join's.
  *  2. The inviter's invitations, copied by reading them in the same batch. The
  *     select reaches the new id only through a JOIN on the row statement 1 just
  *     wrote, so when statement 1 was skipped this copies nothing, rather than
  *     pointing links at a guest that does not exist.
  *
- * Exported for the test that drives the skipped path directly: bun:sqlite runs
+ * Exported for the tests that drive the skipped paths directly: bun:sqlite runs
  * statements one at a time, so a real race cannot be staged there.
  */
 export function buildCreatePlusOne(
@@ -144,28 +158,48 @@ export function buildCreatePlusOne(
     newId: string;
     inviterGuestId: string;
     familyId: string;
+    weddingId: string;
     sortOrder: number;
     name: PlusOneName;
     now: Date;
   },
 ): BatchItem<"sqlite">[] {
+  const inviter = alias(guests, "inviter");
   const plusOne = alias(guests, "plus_one");
   return [
     db
       .insert(guests)
-      .values({
-        id: input.newId,
-        familyId: input.familyId,
-        firstName: input.name.firstName,
-        lastName: input.name.lastName,
-        // Beside their inviter; the claim payload places them right after.
-        sortOrder: input.sortOrder,
-        source: "manual",
-        plusOneAllowed: false,
-        plusOneOfGuestId: input.inviterGuestId,
-        createdAt: input.now,
-        updatedAt: input.now,
-      })
+      .select(
+        // Every `guests` column, in the table's order: an insert from a select
+        // writes each of them. Values go through their column's encoder, as
+        // `.values()` would send them.
+        db
+          .select({
+            id: bound(input.newId, guests.id),
+            familyId: inviter.familyId,
+            firstName: bound(input.name.firstName, guests.firstName),
+            lastName: bound(input.name.lastName, guests.lastName),
+            nickname: sql`NULL`.as("nickname"),
+            // Beside their inviter; the claim payload places them right after.
+            sortOrder: bound(input.sortOrder, guests.sortOrder),
+            externalId: sql`NULL`.as("external_id"),
+            source: bound("manual", guests.source),
+            plusOneAllowed: bound(false, guests.plusOneAllowed),
+            plusOneOfGuestId: inviter.id,
+            createdAt: bound(input.now, guests.createdAt),
+            updatedAt: bound(input.now, guests.updatedAt),
+          })
+          .from(inviter)
+          .where(
+            and(
+              eq(inviter.id, input.inviterGuestId),
+              eq(inviter.familyId, input.familyId),
+              eq(inviter.plusOneAllowed, true),
+              isNull(inviter.plusOneOfGuestId),
+              roomForOneMoreGuest(input.weddingId),
+            ),
+          ),
+      )
       .onConflictDoNothing(),
     db.insert(guestEvents).select(
       db
@@ -462,6 +496,44 @@ function writePermission(
   });
 }
 
+/**
+ * Why a naming whose own write inserted nothing was refused. The insert checks
+ * the permission and the guest cap inside its statement, and is the only cap
+ * check a naming makes, so an empty read-back means the wedding is full or the
+ * permission changed after the caller's read. A fresh read says which, and
+ * answers the same error a check before the write would have. Anything the fresh read itself refuses (the household or the inviter
+ * gone, the deadline passed) fails as it would on any other request.
+ */
+function refusedInsideTheWrite(
+  familyId: string,
+  inviterGuestId: string,
+): Effect.Effect<
+  never,
+  | PlusOneHouseholdGone
+  | PlusOnePreview
+  | PlusOneRsvpClosed
+  | PlusOneGuestNotFound
+  | PlusOneCannotInvite
+  | PlusOneNotAllowed
+  | CapacityExceeded,
+  DbService
+> {
+  return Effect.gen(function* () {
+    const now = yield* readGuestContext(familyId, inviterGuestId, { dietary: false });
+    if (!now.inviter.plusOneAllowed) {
+      yield* Effect.sync(() => metricPlusOneBlocked("not_allowed"));
+      return yield* Effect.fail(new PlusOneNotAllowed());
+    }
+    yield* entitlementService
+      .assertGuestCapacity(now.weddingId, 1, now.cap)
+      .pipe(Effect.tapError(() => Effect.sync(() => metricPlusOneBlocked("capacity"))));
+    // Every rule holds again: the place or the permission came back between
+    // the write and this read. Nothing was written, and nothing can be said
+    // about why, so this is a defect rather than an answer.
+    return yield* Effect.die(new Error("plus-one insert skipped with every rule holding"));
+  });
+}
+
 export const plusOneService = {
   /**
    * Name the plus-one of `inviterGuestId`, or rename the one already named.
@@ -511,11 +583,8 @@ export const plusOneService = {
       }
 
       // A new guest row: it counts against the wedding's cap like any other.
-      // The cap comes from the context read, so only the count is a new query.
-      yield* entitlementService
-        .assertGuestCapacity(context.weddingId, 1, context.cap)
-        .pipe(Effect.tapError(() => Effect.sync(() => metricPlusOneBlocked("capacity"))));
-
+      // The insert checks the cap itself, so no count runs ahead of it; a
+      // refusal is explained by `refusedInsideTheWrite`.
       const newId = crypto.randomUUID();
       const rows = yield* dbQuery(() =>
         commitGroupedBatchesReturning<PlusOneRow>(
@@ -525,6 +594,7 @@ export const plusOneService = {
               newId,
               inviterGuestId,
               familyId,
+              weddingId: context.weddingId,
               sortOrder: context.inviter.sortOrder,
               name: clean,
               now: new Date(),
@@ -534,7 +604,7 @@ export const plusOneService = {
         ),
       );
       const plusOne = toRecord(rows, inviterGuestId);
-      if (!plusOne) return yield* Effect.die(new Error("plus-one read-back returned no row"));
+      if (!plusOne) return yield* refusedInsideTheWrite(familyId, inviterGuestId);
       // Another submit named one first: theirs stands, and this reads as a
       // rename that did not happen rather than a second plus-one.
       const created = plusOne.guestId === newId;
