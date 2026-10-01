@@ -484,8 +484,10 @@ export const hostsService = {
    * The last-owner guard rides in the UPDATE's own WHERE, so it holds however
    * many owners act at once: moving an owner down needs another owner to
    * remain. A refused change writes nothing. A role change neither adds nor
-   * removes a seat, so the seat cap does not apply. A read of the seat rides in
-   * the same batch, so the reason given is the one the UPDATE saw.
+   * removes a seat, so the seat cap does not apply. A read of the seat opens
+   * the same batch, so the reason given is the one the UPDATE saw, and the
+   * result carries the role the seat held before (`previousRole`) — what tells
+   * a caller an owner was demoted.
    *
    * Fails `HostNotFound` when the profile holds no seat, and `LastOwner` when
    * the seat is the wedding's only owner.
@@ -494,7 +496,11 @@ export const hostsService = {
     weddingId: string;
     osnProfileId: string;
     role: AssignableHostRole;
-  }): Effect.Effect<WeddingHostRow, HostNotFound | LastOwner | HostWriteError, DbService> {
+  }): Effect.Effect<
+    WeddingHostRow & { previousRole: WeddingRole },
+    HostNotFound | LastOwner | HostWriteError,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // An owner staying an owner, or any seat moving to owner, leaves the
@@ -508,6 +514,12 @@ export const hostsService = {
       const results = yield* Effect.tryPromise({
         try: () =>
           commitBatchResults(db, [
+            // The seat as it stood before the UPDATE: whether it exists, and
+            // the role it held, which is how a caller tells a demotion apart.
+            db
+              .select({ role: weddingHosts.role })
+              .from(weddingHosts)
+              .where(seatOf(input.weddingId, input.osnProfileId)),
             db
               .update(weddingHosts)
               .set({ role: input.role })
@@ -517,10 +529,6 @@ export const hostsService = {
                 createdAt: weddingHosts.createdAt,
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
               }),
-            db
-              .select({ id: weddingHosts.id })
-              .from(weddingHosts)
-              .where(seatOf(input.weddingId, input.osnProfileId)),
           ]),
         catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
       }).pipe(
@@ -528,12 +536,12 @@ export const hostsService = {
           Effect.logError("host role update failed", { reason: err.reason }),
         ),
       );
-      const [updated] = results[0] as readonly {
+      const [seat] = results[0] as readonly { role: string }[];
+      const [updated] = results[1] as readonly {
         id: string;
         createdAt: Date;
         addedByOsnProfileId: string;
       }[];
-      const [seat] = results[1] as readonly { id: string }[];
 
       if (!updated) {
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
@@ -549,6 +557,8 @@ export const hostsService = {
         role: input.role,
         createdAt: updated.createdAt,
         addedByOsnProfileId: updated.addedByOsnProfileId,
+        // `seat` is present whenever the UPDATE wrote: both ran in one batch.
+        previousRole: seat ? normaliseHostRole(seat.role) : input.role,
       };
     }).pipe(Effect.withSpan("cire.host.setRole"));
   },
@@ -565,12 +575,13 @@ export const hostsService = {
    * go in the same batch, ahead of the seat and under the same guard, so a
    * refused removal keeps both and a batch that fails part-way never leaves a
    * seat without its notice row. A read of the seat closes the batch: still
-   * there means the guard refused it, which fails `LastOwner`.
+   * there means the guard refused it, which fails `LastOwner`. On success,
+   * `removedRole` is the role the seat held, or `null` when there was none.
    */
   remove(input: {
     weddingId: string;
     osnProfileId: string;
-  }): Effect.Effect<void, LastOwner | HostWriteError, DbService> {
+  }): Effect.Effect<{ removedRole: WeddingRole | null }, LastOwner | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const results = yield* Effect.tryPromise({
@@ -601,7 +612,8 @@ export const hostsService = {
                   seatOf(input.weddingId, input.osnProfileId),
                   or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
                 ),
-              ),
+              )
+              .returning({ role: weddingHosts.role }),
             db
               .select({ id: weddingHosts.id })
               .from(weddingHosts)
@@ -616,6 +628,8 @@ export const hostsService = {
         yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
         return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
       }
+      const [removed] = results[1] as readonly { role: string }[];
+      return { removedRole: removed ? normaliseHostRole(removed.role) : null };
     }).pipe(Effect.withSpan("cire.host.remove"));
   },
 

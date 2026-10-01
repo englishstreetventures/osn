@@ -47,6 +47,14 @@ import {
   renderVendorClaimReviewPending,
   type VendorClaimReviewPendingData,
 } from "./vendor-claim-review";
+import {
+  renderWeddingDeleteStarted,
+  renderWeddingOwnerChange,
+  type WeddingDeleteStartedData,
+  type WeddingOwnerAudience,
+  type WeddingOwnerChangeData,
+  type WeddingOwnerNewRole,
+} from "./wedding-owner";
 
 /** Canonical list of templates. Keep sorted; one per outbound auth email. */
 export type EmailTemplate =
@@ -68,7 +76,9 @@ export type EmailTemplate =
   | "registry-gift-summary"
   | "rsvp-change-digest"
   | "vendor-claim-invite"
-  | "vendor-claim-review-pending";
+  | "vendor-claim-review-pending"
+  | "wedding-delete-started"
+  | "wedding-owner-change";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
@@ -91,6 +101,8 @@ export interface EmailTemplateDataMap {
   "rsvp-change-digest": RsvpChangeDigestData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
   "vendor-claim-review-pending": VendorClaimReviewPendingData;
+  "wedding-delete-started": WeddingDeleteStartedData;
+  "wedding-owner-change": WeddingOwnerChangeData;
 }
 
 export type EmailTemplateData<T extends EmailTemplate> = EmailTemplateDataMap[T];
@@ -158,6 +170,10 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderVendorClaimReviewPending(
         data as EmailTemplateData<"vendor-claim-review-pending">,
       );
+    case "wedding-delete-started":
+      return renderWeddingDeleteStarted(data as EmailTemplateData<"wedding-delete-started">);
+    case "wedding-owner-change":
+      return renderWeddingOwnerChange(data as EmailTemplateData<"wedding-owner-change">);
   }
   // Exhaustive — compile error if a template is added without a branch.
   const _exhaustive: never = template;
@@ -184,6 +200,8 @@ export {
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
   renderVendorClaimReviewPending,
+  renderWeddingDeleteStarted,
+  renderWeddingOwnerChange,
 };
 
 export type {
@@ -195,4 +213,8 @@ export type {
   RsvpDigestChangeKind,
   VendorClaimInviteData,
   VendorClaimReviewPendingData,
+  WeddingDeleteStartedData,
+  WeddingOwnerAudience,
+  WeddingOwnerChangeData,
+  WeddingOwnerNewRole,
 };
