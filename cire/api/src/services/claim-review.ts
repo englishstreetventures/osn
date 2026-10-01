@@ -10,7 +10,8 @@
  *    sweep hands each such enquiry to the vendor (`flushBufferedEnquiry`). The
  *    work is read from that state, not from a flag, so an enquiry whose
  *    hand-off failed stays buffered and is retried the next day. Enquiries
- *    sent after the confirm go straight to the vendor.
+ *    sent after the confirm go straight to the vendor. A failed hand-off
+ *    moves its enquiry to the back of the queue.
  *  - Reminder. It counts the claims still waiting and logs a warning when any
  *    are, so an operator reading Workers Logs sees them daily.
  *
@@ -70,13 +71,19 @@ export const claimReviewService = {
               )
               .where(
                 and(
-                  eq(vendorEnquiries.status, "open"),
+                  // A literal, not a bound 'open': SQLite uses the partial
+                  // `vendor_enquiries_buffered_idx` only when the query's
+                  // WHERE visibly implies the index's own.
+                  sql`${vendorEnquiries.status} = 'open'`,
                   isNull(vendorEnquiries.zapChatId),
                   isNotNull(vendorEnquiries.pendingBody),
                   isNotNull(directoryVendors.claimedByProfileId),
                 ),
               )
-              .orderBy(asc(vendorEnquiries.createdAt), asc(vendorEnquiries.id))
+              // Least recently tried first: a failed hand-off bumps
+              // `updated_at`, so an enquiry that keeps failing moves to the
+              // back instead of holding the run's slots.
+              .orderBy(asc(vendorEnquiries.updatedAt), asc(vendorEnquiries.id))
               .limit(limit)
               .all(),
           ),

@@ -402,6 +402,7 @@ CREATE TABLE IF NOT EXISTS vendor_enquiries (
 CREATE UNIQUE INDEX IF NOT EXISTS vendor_enquiries_wedding_directory_uniq ON vendor_enquiries(wedding_id, directory_vendor_id);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_wedding_last_msg_idx ON vendor_enquiries(wedding_id, last_message_at);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_directory_idx ON vendor_enquiries(directory_vendor_id);
+CREATE INDEX IF NOT EXISTS vendor_enquiries_buffered_idx ON vendor_enquiries(updated_at, id) WHERE status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL;
 CREATE TABLE IF NOT EXISTS wedding_entitlements (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   entitlement TEXT NOT NULL,

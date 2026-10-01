@@ -145,6 +145,24 @@ describe("claimReviewService.sweep", () => {
     for (const id of ids) expect(enquiry(db, id).pendingBody).not.toBeNull();
   });
 
+  it("skips enquiries that are closed or already have a chat", async () => {
+    const db = db0();
+    listing(db, "dv_confirmed", VENDOR, null);
+    const [closed, chatted] = buffer(db, "dv_confirmed", 2);
+    db.update(vendorEnquiries)
+      .set({ status: "closed" })
+      .where(eq(vendorEnquiries.id, closed!))
+      .run();
+    db.update(vendorEnquiries)
+      .set({ zapChatId: "chat_existing" })
+      .where(eq(vendorEnquiries.id, chatted!))
+      .run();
+    const zap = fakeZap();
+
+    expect((await sweep(db, zap.client)).handedOff).toBe(0);
+    expect(zap.provisions).toHaveLength(0);
+  });
+
   it("takes at most `limit` enquiries a run, oldest first, and the rest the next run", async () => {
     const db = db0();
     listing(db, "dv_busy", VENDOR, null);

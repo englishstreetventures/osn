@@ -298,7 +298,6 @@ describe("vendor portal routes", () => {
     it("applies rate limiting on vendor portal routes", async () => {
       // 1-request budget: first request burns the budget (404 = unknown token),
       // second must be 429.
-      const { createRateLimiter } = await import("@shared/rate-limit");
       const tightLimiter = createRateLimiter({ maxRequests: 1, windowMs: 60_000 });
       const db2 = createDb(":memory:");
       seedDb(db2);

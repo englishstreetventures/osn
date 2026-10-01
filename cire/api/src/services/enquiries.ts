@@ -183,9 +183,13 @@ const threadUrl = (base: string, enquiryId: string): string =>
  * enquiry cannot stop the others.
  *
  * Nothing is cleared before the send succeeds, so a failure leaves the
- * enquiry buffered and the next run retries it. The final UPDATE matches only
- * while `zap_chat_id IS NULL`, so a second runner cannot overwrite the first's
- * chat. The daily cron calls this (`claimReviewService.sweep`) for listings an
+ * enquiry buffered and the next run retries it; the failure bumps
+ * `updated_at`, which moves it to the back of the sweep's queue. A chat
+ * provisioned before a failed send is not reused: recording it early would
+ * leave an open enquiry with both a chat and a buffered body. The final UPDATE matches only
+ * while the enquiry is open with `zap_chat_id IS NULL`, so a second runner
+ * cannot overwrite the first's chat and a thread the couple closed meanwhile
+ * is not marked delivered. The daily cron calls this (`claimReviewService.sweep`) for listings an
  * operator has confirmed; nothing in the request path does.
  */
 export function flushBufferedEnquiry(
@@ -212,16 +216,34 @@ export function flushBufferedEnquiry(
       db
         .update(vendorEnquiries)
         .set({ zapChatId: chatId, pendingBody: null, lastMessageAt: now, updatedAt: now })
-        .where(and(eq(vendorEnquiries.id, enq.id), isNull(vendorEnquiries.zapChatId)))
+        .where(
+          and(
+            eq(vendorEnquiries.id, enq.id),
+            eq(vendorEnquiries.status, "open"),
+            isNull(vendorEnquiries.zapChatId),
+          ),
+        )
         .run(),
     );
     return rowsChanged(result) === 1;
   }).pipe(
     Effect.catchDefect((cause) =>
-      Effect.logError("[enquiries] buffered enquiry hand-off failed").pipe(
-        Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
-        Effect.as(false),
-      ),
+      Effect.gen(function* () {
+        yield* Effect.logError("[enquiries] buffered enquiry hand-off failed").pipe(
+          Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
+        );
+        // Move it to the back of the sweep's queue (ordered by `updated_at`),
+        // so an enquiry that keeps failing cannot hold every run's slots.
+        const db = yield* DbService;
+        yield* dbQuery(() =>
+          db
+            .update(vendorEnquiries)
+            .set({ updatedAt: new Date() })
+            .where(eq(vendorEnquiries.id, enq.id))
+            .run(),
+        ).pipe(Effect.catchDefect(() => Effect.void));
+        return false;
+      }),
     ),
     Effect.withSpan("cire.enquiries.flushBuffered"),
   );
