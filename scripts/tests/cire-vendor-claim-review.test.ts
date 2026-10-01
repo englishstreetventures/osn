@@ -20,21 +20,33 @@ import {
   type Runner,
 } from "../cire-vendor-claim-review";
 
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "cire", "db", "migrations");
+const ROOT = join(import.meta.dir, "..", "..");
 
-/** The cire schema as production has it: every migration, in name order. */
-function migratedDb(): Database {
+/** A schema as production has it: every migration in `dir`, in name order. */
+function migratedDb(dir: string): Database {
   const db = new Database(":memory:");
-  for (const file of readdirSync(MIGRATIONS_DIR)
+  for (const file of readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .toSorted()) {
-    db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+    db.exec(readFileSync(join(dir, file), "utf8"));
   }
   return db;
 }
 
 function setup() {
-  const db = migratedDb();
+  const db = migratedDb(join(ROOT, "cire", "db", "migrations"));
+  const osn = migratedDb(join(ROOT, "osn", "db", "drizzle"));
+  // Only the columns the lookup reads matter; the profile needs no account row.
+  osn.exec("PRAGMA foreign_keys = OFF;");
+  osn.run(
+    `INSERT INTO users (id, account_id, handle, created_at, updated_at) VALUES ('usr_v', 'acc_v', 'bloomvendor', 0, 0)`,
+  );
+  osn.run(
+    `INSERT INTO organisations (id, handle, name, owner_id, created_at, updated_at) VALUES ('org_v', 'bloom', 'Bloom Florals', 'usr_v', 0, 0)`,
+  );
+  osn.run(
+    `INSERT INTO organisation_members (id, organisation_id, profile_id, role, created_at) VALUES ('orgm_v', 'org_v', 'usr_v', 'admin', 0)`,
+  );
   db.run(
     `INSERT INTO directory_vendors (id, name, email, website, created_at, updated_at, review_org_id, review_profile_id, review_requested_at)
      VALUES ('dv_pending', 'Bloom', 'hi@bloom.test', 'bloom.test', 0, 0, 'org_v', 'usr_v', 100)`,
@@ -43,12 +55,12 @@ function setup() {
     `INSERT INTO directory_vendors (id, name, created_at, updated_at) VALUES ('dv_free', 'Free', 0, 0)`,
   );
   const sent: string[] = [];
-  const runner: Runner = async (_env, sql) => {
+  const runner: Runner = async (target, _env, sql) => {
     sent.push(sql);
-    return [{ results: db.query(sql).all() }];
+    return [{ results: (target === "cire" ? db : osn).query(sql).all() }];
   };
   const lines: string[] = [];
-  return { db, runner, sent, lines, print: (l: string) => lines.push(l) };
+  return { db, osn, runner, sent, lines, print: (l: string) => lines.push(l) };
 }
 
 const row = (db: Database, id: string) =>
@@ -86,10 +98,22 @@ describe("SQL builders", () => {
     expect(() => rejectSql("dv_a", "org_a; DROP TABLE x")).toThrow();
   });
 
-  test("target each tier's database", () => {
-    expect(targetArgs("production")).toEqual(["cire-db", "--env", "production", "--remote"]);
-    expect(targetArgs("dev")).toEqual(["cire-db-dev", "--env", "dev", "--remote"]);
-    expect(targetArgs("local")).toEqual(["cire-db", "--local"]);
+  test("target each tier's database, and never --remote without --env", () => {
+    expect(targetArgs("cire", "production")).toEqual([
+      "cire-db",
+      "--env",
+      "production",
+      "--remote",
+    ]);
+    expect(targetArgs("cire", "dev")).toEqual(["cire-db-dev", "--env", "dev", "--remote"]);
+    expect(targetArgs("cire", "local")).toEqual(["cire-db", "--local"]);
+    expect(targetArgs("osn", "production")).toEqual([
+      "osn-db-prod",
+      "--env",
+      "production",
+      "--remote",
+    ]);
+    expect(targetArgs("osn", "local")).toEqual(["osn-db", "--local"]);
   });
 });
 
@@ -153,13 +177,40 @@ describe("run", () => {
     expect(row(t.db, "dv_pending").owner_org_id).toBeNull();
   });
 
+  test("confirm shows the claimant's organisation from OSN", async () => {
+    const t = setup();
+    expect(await run(["confirm", "dv_pending", "--env", "dev"], t.runner, t.print)).toBe(0);
+    const out = t.lines.join("\n");
+    expect(out).toContain('Organisation "Bloom Florals" (@bloom)');
+    expect(out).toContain("Claimant @bloomvendor is a admin of @bloom");
+  });
+
+  test("refuses to confirm when the claimant has left the organisation", async () => {
+    const t = setup();
+    t.osn.run("DELETE FROM organisation_members");
+    expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], t.runner, t.print)).toBe(
+      1,
+    );
+    expect(t.lines.join("\n")).toContain("no longer a member of @bloom");
+    expect(row(t.db, "dv_pending").owner_org_id).toBeNull();
+  });
+
+  test("refuses to confirm a claim for an organisation OSN does not have", async () => {
+    const t = setup();
+    t.db.run("UPDATE directory_vendors SET review_org_id = 'org_gone' WHERE id = 'dv_pending'");
+    expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], t.runner, t.print)).toBe(
+      1,
+    );
+    expect(t.lines.join("\n")).toContain("OSN has no organisation");
+  });
+
   test("reports a claim that changed between the check and the write", async () => {
     const t = setup();
-    const racing: Runner = async (env, sql) => {
+    const racing: Runner = async (target, env, sql) => {
       if (/^update/i.test(sql)) {
         t.db.run("UPDATE directory_vendors SET review_org_id = NULL WHERE id = 'dv_pending'");
       }
-      return t.runner(env, sql);
+      return t.runner(target, env, sql);
     };
     expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], racing, t.print)).toBe(
       1,
