@@ -36,9 +36,7 @@ describe("_headers", () => {
   // The first rule, up to the blank line that ends it.
   const wildcardBlock = contents.split("\n\n")[0]!;
   const enforced = headerValues(contents, "Content-Security-Policy");
-  const reportOnly = headerValues(contents, "Content-Security-Policy-Report-Only");
   const csp = enforced[0] ?? "";
-  const imageReport = reportOnly[0] ?? "";
 
   it("sets the platform security baseline headers", () => {
     expect(contents).toMatch(/X-Frame-Options:\s*DENY/);
@@ -59,7 +57,7 @@ describe("_headers", () => {
       ["style-src", "'self'", "'unsafe-inline'"],
       ["style-src-attr", "'unsafe-inline'"],
       ["font-src", "'self'"],
-      ["img-src", "'self'", "data:", "blob:", "https://api.cireweddings.com", "https:"],
+      ["img-src", "'self'", "data:", "blob:", "https://api.cireweddings.com"],
       ["connect-src", "'self'", "https://api.cireweddings.com"],
       ["frame-src", "'none'"],
       ["worker-src", "'none'"],
@@ -103,36 +101,24 @@ describe("_headers", () => {
     expect(csp).not.toContain("fonts.gstatic.com");
   });
 
-  it("admits any https image, for the shop link picker's candidates", () => {
-    // The candidates load straight from each shop's own host. The cire-api
-    // origin stays listed beside `https:` so a local build, whose API is
+  it("admits no https image origin but cire-api's", () => {
+    // The shop link picker's candidates come through cire-api, re-encoded, so
+    // no image host a page or injected markup names can load. The cire-api
+    // origin is spelled out beside 'self' so a local build, whose API is
     // `http://localhost:8787`, still loads its images.
     expect(sources(csp, "img-src")).toEqual([
       "'self'",
       "data:",
       "blob:",
       "https://api.cireweddings.com",
-      "https:",
     ]);
+    expect(sources(csp, "img-src")).not.toContain("https:");
   });
 
-  it("reports every image the tight list would block, and nothing else", () => {
-    // The enforced `img-src` is the tight list plus `https:`, so this header
-    // files a report for exactly the images `https:` alone lets through.
-    expect(reportOnly).toHaveLength(1);
-    expect(headerValues(wildcardBlock, "Content-Security-Policy-Report-Only")).toEqual(reportOnly);
-    expect(sources(imageReport, "img-src")).toEqual(
-      sources(csp, "img-src")!.filter((source) => source !== "https:"),
-    );
-    // Every other directive is enforced and reports already; repeating one
-    // here would file each of its violations twice.
-    expect(imageReport.split(";").map((part) => part.trim().split(/\s+/)[0])).toEqual([
-      "img-src",
-      "report-uri",
-      "report-to",
-    ]);
-    expect(imageReport).toContain("report-uri https://api.cireweddings.com/api/csp-report;");
-    expect(imageReport).toContain("report-to csp-endpoint");
+  it("sends no report-only policy", () => {
+    // Every directive is enforced and reports already; a report-only twin
+    // would file each violation twice.
+    expect(contents).not.toMatch(/^\s+Content-Security-Policy-Report-Only:/m);
   });
 
   it("is the production policy: no other tier's API, no loopback", () => {
@@ -151,12 +137,11 @@ describe("_headers", () => {
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"));
     expect(headerLines.filter((line) => line.includes("api.cireweddings.com"))).toEqual([]);
-    // Both policies, enforced and report-only, report to the dev collector.
+    // The policy reports to the dev collector.
     const dev = retargetHeaders(contents, "https://api.dev.cireweddings.com");
-    for (const policy of [
-      ...headerValues(dev, "Content-Security-Policy"),
-      ...headerValues(dev, "Content-Security-Policy-Report-Only"),
-    ]) {
+    const policies = headerValues(dev, "Content-Security-Policy");
+    expect(policies).toHaveLength(1);
+    for (const policy of policies) {
       expect(policy).toContain("report-uri https://api.dev.cireweddings.com/api/csp-report;");
     }
   });

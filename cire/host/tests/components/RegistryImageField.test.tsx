@@ -7,7 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RegistryImageField from "../../src/components/RegistryImageField";
 
 const authFetch = vi.fn();
-vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
+/** The candidate thumbnails, kept apart so each test's `authFetch` sequence
+ *  stays the preview/save calls it is about. */
+const thumbFetch = vi.fn();
+const THUMB_PATH = "/registry/link-preview/image";
+vi.mock("@shared/rp-auth/solid", () => ({
+  useAuth: () => ({
+    authFetch: (url: unknown, init?: RequestInit) =>
+      String(url).includes(THUMB_PATH) ? thumbFetch(url, init) : authFetch(url, init),
+  }),
+}));
 
 const redirectToLogin = vi.fn();
 vi.mock("../../src/lib/api", async () => {
@@ -61,6 +70,8 @@ afterEach(() => {
 
 beforeEach(() => {
   authFetch.mockReset();
+  thumbFetch.mockReset();
+  thumbFetch.mockImplementation(() => res(200));
   redirectToLogin.mockReset();
 });
 
@@ -283,8 +294,15 @@ describe("RegistryImageField — a candidate is untrusted input", () => {
 
     const radios = await screen.findAllByRole("radio");
     expect(radios).toHaveLength(1);
+    // Only the https candidate is asked for, and only through cire-api.
+    await waitFor(() => expect(thumbFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(thumbFetch.mock.calls[0]![1].body)).toEqual({
+      url: "https://shop.example/ok.jpg",
+    });
+    // No candidate URL ever reaches an `src`.
+    await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
     const srcs = [...container.querySelectorAll("img")].map((img) => img.getAttribute("src"));
-    expect(srcs).toEqual(["https://shop.example/ok.jpg"]);
+    expect(srcs.some((src) => src?.includes("shop.example"))).toBe(false);
     // And nothing became a link at all.
     expect(container.querySelectorAll("a")).toHaveLength(0);
   });
@@ -298,6 +316,52 @@ describe("RegistryImageField — a candidate is untrusted input", () => {
 
     expect(await screen.findByText(/couldn't find a picture on that page/i)).toBeInTheDocument();
     expect(screen.queryByRole("radio")).toBeNull();
+  });
+});
+
+describe("RegistryImageField — the candidates' pictures come from cire-api", () => {
+  it("asks for each candidate's thumbnail and shows the object url, never the shop's", async () => {
+    authFetch.mockImplementation(() =>
+      res(200, preview(["https://shop.example/a.jpg", "https://shop.example/b.jpg?w=800&h=800"])),
+    );
+    const { container } = render(() => (
+      <RegistryImageField weddingId="wed_1" imageKey={null} onChange={() => {}} idPrefix="v" />
+    ));
+    await findPictures();
+
+    await waitFor(() => expect(thumbFetch).toHaveBeenCalledTimes(2));
+    for (const [url, init] of thumbFetch.mock.calls) {
+      expect(String(url)).toContain("/api/organiser/weddings/wed_1/registry/link-preview/image");
+      expect(init.method).toBe("POST");
+      // The format the API re-encodes to follows what this browser decodes.
+      expect(init.headers.Accept).toContain("image/webp");
+    }
+    // The URL rides in the body, query string intact.
+    expect(thumbFetch.mock.calls.map(([, init]) => JSON.parse(init.body).url)).toEqual([
+      "https://shop.example/a.jpg",
+      "https://shop.example/b.jpg?w=800&h=800",
+    ]);
+    await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(2));
+    for (const img of container.querySelectorAll("img")) {
+      expect(img.getAttribute("src")).not.toContain("shop.example");
+    }
+  });
+
+  it("labels a candidate whose thumbnail failed, and keeps it selectable", async () => {
+    authFetch.mockImplementation(() => res(200, preview(["https://shop.example/a.jpg"])));
+    thumbFetch.mockImplementation(() => res(502, { error: "thumbnail_failed" }));
+    const { container } = render(() => (
+      <RegistryImageField weddingId="wed_1" imageKey={null} onChange={() => {}} idPrefix="w" />
+    ));
+    await findPictures();
+
+    const radio = await screen.findByRole("radio");
+    await waitFor(() => expect(radio).toHaveTextContent("Picture 1"));
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    // Not an alert: the organiser can still pick it.
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(radio);
+    expect(radio).toHaveAttribute("aria-checked", "true");
   });
 });
 
