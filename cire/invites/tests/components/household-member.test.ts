@@ -86,13 +86,13 @@ describe("the member step", () => {
 
 describe("Not you?", () => {
   /** Answers the member DELETE and the musubi sign-out with the given statuses. */
-  function answering(member: number, signout: number) {
+  function answering(memberStatus: number, signout: number) {
     const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         calls.push(`${init?.method} ${url}`);
-        const status = url.endsWith("/api/claim/member") ? member : signout;
+        const status = url.endsWith("/api/claim/member") ? memberStatus : signout;
         return Promise.resolve(new Response(null, { status }));
       }),
     );
@@ -102,7 +102,7 @@ describe("Not you?", () => {
   it("is done when the server cleared the member and the sign-in", async () => {
     const calls = answering(204, 200);
     expect(await notYou("https://api.test")).toBe(true);
-    expect(calls.sort()).toEqual([
+    expect(calls.toSorted()).toEqual([
       "DELETE https://api.test/api/claim/member",
       "POST https://api.test/api/auth/signout",
     ]);
