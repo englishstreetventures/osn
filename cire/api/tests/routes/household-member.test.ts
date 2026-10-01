@@ -11,7 +11,7 @@ import {
 } from "@cire/db";
 import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -268,6 +268,22 @@ describe("POST / DELETE /api/claim/member", () => {
   });
 });
 
+describe("DELETE /api/claim/member when the write fails", () => {
+  it("answers 500, so the page does not show a member it did not clear", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    db.run(
+      sql`CREATE TRIGGER refuse_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+    );
+    const res = await call(app, "DELETE", "/api/claim/member", cookie);
+    expect(res.status).toBe(500);
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(
+      guestId(db, "Bo"),
+    );
+  });
+});
+
 describe("return visit: the account the box may show", () => {
   type Link = { signedIn: boolean; account?: Record<string, unknown> };
 
@@ -362,6 +378,39 @@ describe("return visit: the account the box may show", () => {
     expect(state).not.toHaveProperty("account");
   });
 
+  it("asks osn-api once for a profile across repeat restores", async () => {
+    const asked: string[] = [];
+    const counted: OsnAccountResolver = async (profileId) => {
+      asked.push(profileId);
+      return { ok: true, accountId: "acc_usr_bob" };
+    };
+    const { db, app } = buildApp(true, counted);
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    linkRow(db, guestId(db, "Bo"), "usr_bob");
+    const org = await signIn(db, "usr_alice");
+    asked.length = 0;
+    expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
+    expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
+    expect(asked).toEqual(["usr_alice"]);
+  });
+
+  it("aborts the lookup's request once the wait is over", async () => {
+    const seen: { signal?: AbortSignal } = {};
+    const stalled = buildApp(true, (_profileId, options) => {
+      seen.signal = options?.signal;
+      return new Promise(() => {});
+    });
+    const a = await claim(stalled.app, SAMPLETON);
+    await call(stalled.app, "POST", "/api/claim/member", a.cookie, {
+      guestId: guestId(stalled.db, "Bo"),
+    });
+    linkRow(stalled.db, guestId(stalled.db, "Bo"), "usr_bob");
+    const org = await signIn(stalled.db, "usr_alice");
+    await linkState(stalled.app, `${a.cookie}; ${org}`);
+    expect(seen.signal?.aborted).toBe(true);
+  });
+
   it("shows no account when signed out", async () => {
     const { db, app } = buildApp();
     const { cookie } = await claim(app, SAMPLETON);
@@ -440,6 +489,30 @@ describe("POST /api/rsvp and the member step", () => {
     );
     expect(res.status).toBe(200);
     expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(true);
+  });
+
+  it("asks osn-api afresh for the stamp, so an erased profile stops matching at once", async () => {
+    let known = true;
+    const resolver: OsnAccountResolver = async () =>
+      known ? { ok: true, accountId: "acc_usr_bob" } : { ok: false, reason: "profile_not_found" };
+    const { db, app } = buildApp(true, resolver);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    linkRow(db, bo, "usr_bob");
+    const org = await signIn(db, "usr_alice");
+    // A restore caches usr_alice → acc_usr_bob.
+    await restore(app, `${cookie}; ${org}`);
+    known = false;
+    const res = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      `${cookie}; ${org}`,
+      reply(bo, firstEventOf(db, bo)),
+    );
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(false);
   });
 
   it("asks for no member, and stamps none, with the flag off", async () => {

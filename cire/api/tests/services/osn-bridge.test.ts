@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { generateArcKeyPair, exportKeyToJwk, importKeyFromJwk } from "@shared/crypto/jwk";
 
 import {
+  cacheAccountResolver,
   createAccountResolverFromEnv,
   createArcAccountResolver,
   createArcHandleResolver,
@@ -14,6 +15,7 @@ import {
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
 } from "../../src/services/osn-bridge";
+import type { OsnAccountResolution, OsnAccountResolver } from "../../src/services/osn-bridge";
 import { mockFetch } from "../test-helpers";
 
 const realFetch = globalThis.fetch;
@@ -99,6 +101,84 @@ describe("createArcAccountResolver", () => {
       arcKeyId: "kid-1",
     });
     await expect(resolve("usr_123")).rejects.toThrow(/missing accountId/);
+  });
+  it("passes the caller's abort signal to the request", async () => {
+    const { privateKey } = await testKeyMaterial();
+    let seen: AbortSignal | null | undefined;
+    globalThis.fetch = mockFetch(async (_url: string | URL | Request, init?: RequestInit) => {
+      seen = init?.signal;
+      return new Response(JSON.stringify({ accountId: "acc_xyz" }), { status: 200 });
+    });
+    const resolve = createArcAccountResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    const controller = new AbortController();
+    await resolve("usr_123", { signal: controller.signal });
+    expect(seen).toBe(controller.signal);
+  });
+});
+
+describe("cacheAccountResolver", () => {
+  function counting(answer: (profileId: string) => Promise<OsnAccountResolution>) {
+    const calls: string[] = [];
+    const resolve: OsnAccountResolver = (profileId) => {
+      calls.push(profileId);
+      return answer(profileId);
+    };
+    return { calls, resolve };
+  }
+
+  it("answers a repeat lookup from the cache until it expires", async () => {
+    let clock = 0;
+    const inner = counting(async (id) => ({ ok: true, accountId: `acc_${id}` }));
+    const resolve = cacheAccountResolver(inner.resolve, { ttlMs: 1000, now: () => clock });
+    expect(await resolve("usr_a")).toEqual({ ok: true, accountId: "acc_usr_a" });
+    clock = 999;
+    expect(await resolve("usr_a")).toEqual({ ok: true, accountId: "acc_usr_a" });
+    expect(inner.calls).toEqual(["usr_a"]);
+    clock = 1000;
+    await resolve("usr_a");
+    expect(inner.calls).toEqual(["usr_a", "usr_a"]);
+  });
+
+  it("keeps no unknown profile and no failure", async () => {
+    const missing = counting(async () => ({ ok: false, reason: "profile_not_found" }));
+    const cachedMissing = cacheAccountResolver(missing.resolve);
+    await cachedMissing("usr_gone");
+    await cachedMissing("usr_gone");
+    expect(missing.calls).toHaveLength(2);
+
+    const down = counting(() => Promise.reject(new Error("ECONNREFUSED")));
+    const cachedDown = cacheAccountResolver(down.resolve);
+    await expect(cachedDown("usr_a")).rejects.toThrow("ECONNREFUSED");
+    await expect(cachedDown("usr_a")).rejects.toThrow("ECONNREFUSED");
+    expect(down.calls).toHaveLength(2);
+  });
+
+  it("drops the oldest profile when full", async () => {
+    const inner = counting(async (id) => ({ ok: true, accountId: `acc_${id}` }));
+    const resolve = cacheAccountResolver(inner.resolve, { maxEntries: 2 });
+    await resolve("usr_a");
+    await resolve("usr_b");
+    await resolve("usr_c");
+    await resolve("usr_b");
+    await resolve("usr_c");
+    expect(inner.calls).toEqual(["usr_a", "usr_b", "usr_c"]);
+    await resolve("usr_a");
+    expect(inner.calls).toEqual(["usr_a", "usr_b", "usr_c", "usr_a"]);
+  });
+
+  it("passes the caller's signal through", async () => {
+    let seen: AbortSignal | undefined;
+    const resolve = cacheAccountResolver(async (_id, options) => {
+      seen = options?.signal;
+      return { ok: true, accountId: "acc_x" };
+    });
+    const controller = new AbortController();
+    await resolve("usr_a", { signal: controller.signal });
+    expect(seen).toBe(controller.signal);
   });
 });
 

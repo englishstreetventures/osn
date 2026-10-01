@@ -71,7 +71,10 @@ export type OsnAccountResolution =
  * reports the profile does not exist; throws on any transport/infra failure
  * so the caller can distinguish "not found" from "osn unavailable".
  */
-export type OsnAccountResolver = (profileId: string) => Promise<OsnAccountResolution>;
+export type OsnAccountResolver = (
+  profileId: string,
+  options?: { signal?: AbortSignal },
+) => Promise<OsnAccountResolution>;
 
 export interface ArcResolverConfig {
   /** Base URL of osn-api (no trailing slash), e.g. `https://api.osn.example`. */
@@ -91,7 +94,7 @@ export interface ArcResolverConfig {
 export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
 
-  return async (profileId) => {
+  return async (profileId, options) => {
     const token = await signArcToken(config.arcPrivateKey, {
       iss: ARC_ISSUER,
       aud: ARC_AUDIENCE,
@@ -101,7 +104,7 @@ export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountR
 
     const res = await instrumentedFetch(
       `${base}/graph/internal/profile-account?profileId=${encodeURIComponent(profileId)}`,
-      { headers: { authorization: `ARC ${token}` } },
+      { headers: { authorization: `ARC ${token}` }, signal: options?.signal },
     );
 
     if (res.status === 404) {
@@ -118,6 +121,52 @@ export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountR
       throw new Error("osn-api profile-account response missing accountId");
     }
     return { ok: true, accountId: data.accountId };
+  };
+}
+
+export interface AccountResolverCacheOptions {
+  /** How long a resolved account is reused. Default five minutes. */
+  ttlMs?: number;
+  /** Most profiles held at once; the oldest entry goes first. Default 1000. */
+  maxEntries?: number;
+  /** Clock, for tests. */
+  now?: () => number;
+}
+
+/**
+ * Fronts `resolve` with a cache of resolved accounts, keyed by profile id. A
+ * profile's owning account does not change, so a repeat lookup — every
+ * restore of a household whose member is linked from another profile — is
+ * answered without signing a token or calling osn-api. Only `ok` results are
+ * kept: a profile osn-api does not know, or a failed call, is asked again next
+ * time. Calls in flight are not shared, so one caller's abort never cancels
+ * another's lookup. The cache lives as long as the returned function — one
+ * Worker isolate when built with the app.
+ */
+export function cacheAccountResolver(
+  resolve: OsnAccountResolver,
+  options: AccountResolverCacheOptions = {},
+): OsnAccountResolver {
+  const ttlMs = options.ttlMs ?? 5 * 60_000;
+  const maxEntries = options.maxEntries ?? 1000;
+  const now = options.now ?? Date.now;
+  const entries = new Map<string, { accountId: string; expiresAt: number }>();
+
+  return async (profileId, callOptions) => {
+    const hit = entries.get(profileId);
+    if (hit) {
+      if (hit.expiresAt > now()) return { ok: true, accountId: hit.accountId };
+      entries.delete(profileId);
+    }
+    const resolution = await resolve(profileId, callOptions);
+    if (resolution.ok) {
+      if (entries.size >= maxEntries) {
+        const oldest = entries.keys().next();
+        if (!oldest.done) entries.delete(oldest.value);
+      }
+      entries.set(profileId, { accountId: resolution.accountId, expiresAt: now() + ttlMs });
+    }
+    return resolution;
   };
 }
 

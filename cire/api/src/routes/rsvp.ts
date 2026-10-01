@@ -163,7 +163,7 @@ export const createRsvpRoutes = (
                     .memberMatch(
                       submittedByGuestId,
                       parseOrganiserSessionToken(request.headers.get("cookie")),
-                      accountLinking?.resolveAccountId,
+                      accountLinking?.resolveAccountIdFresh,
                     )
                     .pipe(Effect.map((m) => m.result === "match"));
             const [[family], familyGuestEvents, submittedViaLink] = yield* Effect.all(

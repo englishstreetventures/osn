@@ -295,9 +295,21 @@ export function LoginSection(props: LoginSectionProps) {
     updateResult((result) => withChosenMember(result, guestId, answer.accountLink));
   }
 
-  function handleNotYou() {
-    // Back to "Who are you?" at once; both requests are fire-and-forget.
-    notYou(props.apiUrl);
+  const [clearing, setClearing] = createSignal(false);
+  const [notYouError, setNotYouError] = createSignal<string | null>(null);
+
+  async function handleNotYou() {
+    if (clearing()) return;
+    setNotYouError(null);
+    setClearing(true);
+    // Back to "Who are you?" only once the server has dropped the member and
+    // the musubi sign-in; otherwise a reload would bring the last person back.
+    const done = await notYou(props.apiUrl);
+    setClearing(false);
+    if (!done) {
+      setNotYouError("Couldn't sign you out. Please try again.");
+      return;
+    }
     updateResult(withoutMember);
   }
 
@@ -630,9 +642,19 @@ export function LoginSection(props: LoginSectionProps) {
                 Answering as {m().firstName}
                 <Show when={invited().length >= 2 || accountLink()?.signedIn}>
                   {" · "}
-                  <Button variant="touchLink" type="button" onClick={handleNotYou}>
+                  <Button
+                    variant="touchLink"
+                    type="button"
+                    disabled={clearing()}
+                    onClick={() => void handleNotYou()}
+                  >
                     Not you?
                   </Button>
+                </Show>
+                <Show when={notYouError()}>
+                  <span class="text-error mt-2 block" role="alert">
+                    {notYouError()}
+                  </span>
                 </Show>
               </p>
             )}
@@ -649,7 +671,7 @@ export function LoginSection(props: LoginSectionProps) {
                     state={state()}
                     onLinked={(id) => setLinked(id, true)}
                     onUnlinked={(id) => setLinked(id, false)}
-                    onNotYou={handleNotYou}
+                    onNotYou={() => void handleNotYou()}
                     class={`mb-8 ${layout().measure}`}
                   />
                 </Suspense>
