@@ -1,9 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import { DIETARY_PRESETS } from "@cire/dietary";
+import {
+  DIETARY_CONSENT_VERSION as SEED_DIETARY_CONSENT_VERSION,
+  ORGANISER_DIETARY_CONSENT_VERSION as SEED_ORGANISER_DIETARY_CONSENT_VERSION,
+} from "@cire/db/seed";
+import { DIETARY_PRESETS, ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { Schema } from "effect";
 
-import { BulkRsvpBody, OrganiserRsvpBody, RsvpBody } from "../../src/schemas/rsvp";
+import {
+  BulkRsvpBody,
+  DIETARY_CONSENT_VERSION,
+  OrganiserRsvpBody,
+  RsvpBody,
+} from "../../src/schemas/rsvp";
 
 // v4 replaces Either with Result: the tags are "Success"/"Failure", not
 // "Right"/"Left".
@@ -108,5 +117,33 @@ describe("dietary presets in the RSVP bodies", () => {
     if (presetsOnly._tag !== "Success") throw new Error("expected success");
     expect(presetsOnly.success.dietaryPresets).toEqual([]);
     expect("dietary" in presetsOnly.success).toBe(false);
+  });
+});
+
+describe("OrganiserRsvpBody.dietaryAttestation", () => {
+  const organiser = { status: "attending" } as const;
+  it("defaults to an empty string, so a status-only reply needs none", () => {
+    const r = dec(OrganiserRsvpBody, organiser);
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.dietaryAttestation).toBe("");
+  });
+  it("accepts 64 characters and refuses 65", () => {
+    expect(dec(OrganiserRsvpBody, { ...organiser, dietaryAttestation: "x".repeat(64) })._tag).toBe(
+      "Success",
+    );
+    expect(dec(OrganiserRsvpBody, { ...organiser, dietaryAttestation: "x".repeat(65) })._tag).toBe(
+      "Failure",
+    );
+  });
+});
+
+/**
+ * `@cire/db` cannot import these constants, so its seed holds copies. A copy
+ * that drifts seeds rows the live write path can no longer produce.
+ */
+describe("seeded consent versions", () => {
+  it("match the versions the API stamps", () => {
+    expect(SEED_DIETARY_CONSENT_VERSION).toBe(DIETARY_CONSENT_VERSION);
+    expect(SEED_ORGANISER_DIETARY_CONSENT_VERSION).toBe(ORGANISER_DIETARY_ATTESTATION.version);
   });
 });

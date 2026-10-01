@@ -9,7 +9,7 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
-import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
+import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -218,7 +218,7 @@ describe("organiserRsvpService.record", () => {
       .get();
     expect(row?.dietary).toBe("Coeliac");
     expect(row?.at).toBeInstanceOf(Date);
-    expect(row?.version).toBe(DIETARY_CONSENT_VERSION);
+    expect(row?.version).toBe(ORGANISER_DIETARY_ATTESTATION.version);
     expect(row?.source).toBe("organiser_attested");
   });
 

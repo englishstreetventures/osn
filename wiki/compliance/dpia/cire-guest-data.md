@@ -163,6 +163,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     the same server-set `dietary_consent_at` / `dietary_consent_version`
     evidence, so the stored record distinguishes **guest-given** from
     **organiser-attested** consent (who asserted it, when, which copy version).
+    The version names the organiser's own wording, not the guest's:
+    `ORGANISER_DIETARY_ATTESTATION` in `@cire/dietary` holds the sentence
+    beside its version (currently `"organiser-2026-10-01"`), the portal renders
+    that sentence and sends that version, and the API refuses (422
+    `dietary_attestation_outdated`) dietary data sent with any other. Organiser
+    rows stored before that version carry the guest's `"2026-09-17"`.
     The organiser (as the wedding **controller** — §1 Roles) is accountable for
     the truth of the attestation; cire (processor) captures it. No new
     subprocessor, no new data class beyond the `consent_source` discriminator.

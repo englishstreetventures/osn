@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -474,6 +475,7 @@ describe("RsvpView", () => {
       dietary: "Nut allergy",
       dietaryPresets: [],
       dietaryConsent: true,
+      dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
     });
   });
 
@@ -527,7 +529,30 @@ describe("RsvpView", () => {
       dietary: "",
       dietaryPresets: ["halal"],
       dietaryConsent: true,
+      dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
     });
+  });
+
+  it("asks for a reload when the API refuses the attestation as out of date", async () => {
+    // A portal tab opened before a change to the attestation wording shows the
+    // old words; the API refuses them rather than store evidence of copy it no
+    // longer stamps, and the organiser needs to know a reload fixes it.
+    restoreViewport = mockViewport(false);
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW)) // initial load
+      .mockResolvedValueOnce(json({ error: "dietary_attestation_outdated" }, 422)); // PUT
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Halal" }));
+    fireEvent.click(
+      await screen.findByLabelText(new RegExp(ORGANISER_DIETARY_ATTESTATION.text.slice(0, 30))),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    expect(await screen.findByText(/This page is out of date/i)).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("editor edits an existing reply (prefilled, overwrites)", async () => {
@@ -580,6 +605,7 @@ describe("RsvpView", () => {
       dietary: "",
       dietaryPresets: ["gluten"],
       dietaryConsent: true,
+      dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
     });
   });
 

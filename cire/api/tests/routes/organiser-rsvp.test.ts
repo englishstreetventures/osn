@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, events, guests, rsvps, weddings, weddingHosts } from "@cire/db";
-import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
+import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -11,6 +11,12 @@ import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { seedPlusOne } from "../test-helpers/plus-one";
+
+/** The attestation fields the portal sends beside dietary data. */
+const ATTESTED = {
+  dietaryConsent: true,
+  dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+};
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
@@ -198,7 +204,7 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
       // Submitted allergy-first and with a repeat; stored diet-first and
       // deduplicated, because the server re-serialises what it is sent.
       dietaryPresets: ["nuts", "vegetarian", "nuts"],
-      dietaryConsent: true,
+      ...ATTESTED,
     });
     expect(res.status).toBe(200);
     const row = db
@@ -223,11 +229,15 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     const res = await put(app, rsvpPath(db), OWNER, {
       status: "attending",
       dietary: "Coeliac",
-      dietaryConsent: true,
+      ...ATTESTED,
     });
     expect(res.status).toBe(200);
     const row = db
-      .select({ dietary: rsvps.dietary, at: rsvps.dietaryConsentAt })
+      .select({
+        dietary: rsvps.dietary,
+        at: rsvps.dietaryConsentAt,
+        version: rsvps.dietaryConsentVersion,
+      })
       .from(rsvps)
       .where(
         and(eq(rsvps.guestId, guestByName(db, "Ada")), eq(rsvps.eventId, eventBySlug(db, "hindu"))),
@@ -235,6 +245,38 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
       .get();
     expect(row?.dietary).toBe("Coeliac");
     expect(row?.at).toBeInstanceOf(Date);
+    // The row names the words the organiser ticked, not the guest's copy.
+    expect(row?.version).toBe(ORGANISER_DIETARY_ATTESTATION.version);
+  });
+
+  // A portal built from another commit showed other words, or none: its tick
+  // is refused rather than stored as evidence of copy nobody saw.
+  it.each([
+    { label: "no attestation version", dietaryAttestation: undefined },
+    { label: "another attestation version", dietaryAttestation: "organiser-2000-01-01" },
+  ])("returns 422 for attested dietary data with $label", async ({ dietaryAttestation }) => {
+    const { db, app } = buildApp();
+    const res = await put(app, rsvpPath(db), OWNER, {
+      status: "attending",
+      dietaryPresets: ["vegetarian"],
+      dietaryConsent: true,
+      dietaryAttestation,
+    });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("dietary_attestation_outdated");
+    const row = db
+      .select({ presets: rsvps.dietaryPresets })
+      .from(rsvps)
+      .where(
+        and(eq(rsvps.guestId, guestByName(db, "Ada")), eq(rsvps.eventId, eventBySlug(db, "hindu"))),
+      )
+      .get();
+    expect(row).toBeUndefined();
+  });
+
+  it("needs no attestation version for a status-only reply", async () => {
+    const { db, app } = buildApp();
+    expect((await put(app, rsvpPath(db), OWNER, { status: "declined" })).status).toBe(200);
   });
 
   it("returns 404 for an unknown wedding (multi-tenant isolation)", async () => {
@@ -277,7 +319,7 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
     const refused = await put(app, path, OWNER, {
       status: "attending",
       dietaryPresets: ["halal"],
-      dietaryConsent: true,
+      ...ATTESTED,
     });
     expect(refused.status).toBe(422);
     expect(((await refused.json()) as { error: string }).error).toBe(

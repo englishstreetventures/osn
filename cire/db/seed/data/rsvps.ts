@@ -19,6 +19,11 @@
 // stay NULL, exactly as the live write path leaves them.
 export const DIETARY_CONSENT_VERSION = "2026-09-17";
 
+// Matches ORGANISER_DIETARY_ATTESTATION.version in cire/dietary/src/attestation.ts
+// (`@cire/db` does not depend on `@cire/dietary`). Stamped instead of the guest's
+// version on an organiser-recorded row, as the live write path does.
+export const ORGANISER_DIETARY_CONSENT_VERSION = "organiser-2026-10-01";
+
 export type SeedRsvp = {
   readonly id: string;
   readonly guestId: string;

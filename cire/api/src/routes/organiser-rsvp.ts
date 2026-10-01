@@ -1,3 +1,4 @@
+import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -77,6 +78,18 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
               if (hasDietaryData && !body.dietaryConsent) {
                 set.status = 422;
                 return { error: "Dietary requirements need the guest's consent to store" };
+              }
+              // The attestation must name the words this API stamps. A portal
+              // built from another commit showed other words, so its tick is
+              // refused rather than stored as evidence of copy that was not on
+              // screen. Checked before the plus-one refusal in the service.
+              if (
+                hasDietaryData &&
+                body.dietaryAttestation !== ORGANISER_DIETARY_ATTESTATION.version
+              ) {
+                set.status = 422;
+                yield* Effect.logWarning("organiser rsvp: dietary attestation version refused");
+                return { error: "dietary_attestation_outdated" };
               }
 
               // Free text implies `other`, as on the guest path: an organiser

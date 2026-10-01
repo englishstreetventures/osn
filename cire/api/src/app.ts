@@ -14,6 +14,7 @@ import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
 import type { AccountLinking } from "./lib/account-linking";
+import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
@@ -67,6 +68,7 @@ import {
 } from "./routes/registry-guest";
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
+import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -295,6 +297,21 @@ const defaultOidcSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs:
  * events ever need.
  */
 const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the digest's one-click stop link. A person clicks
+ * once; a mail provider's one-click POSTs come from its own servers, so the
+ * bucket is generous enough that several recipients behind one provider never
+ * meet it. Every request is also refused before any read without a valid
+ * signed token.
+ */
+const defaultDigestStopLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
+
+/** Derives the stop-link key on the first stop request and keeps it for the
+ *  isolate, so no other route pays for the derivation. */
+function digestStopKeyOnce(secret: string): () => Promise<CryptoKey> {
+  let key: Promise<CryptoKey> | undefined;
+  return () => (key ??= deriveDigestStopKey(secret));
+}
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -387,6 +404,15 @@ export interface AppOptions {
   internalRevokeSecret?: string | null;
   /** Override the internal revoke rate limiter (useful for testing). */
   internalRevokeLimiter?: RateLimiterBackend;
+  /**
+   * The secret the digest's stop-link key is derived from — the OIDC client
+   * secret (`CIRE_OIDC_CLIENT_SECRET`, read in `index.ts`), under its own HKDF
+   * `info` (`lib/digest-stop.ts`). Absent ⇒ the stop route answers 503; the
+   * cron sends no link either, from the same value.
+   */
+  digestStopSecret?: string | null;
+  /** Override the digest stop-link rate limiter (useful for testing). */
+  digestStopLimiter?: RateLimiterBackend;
   /**
    * Resolves an OSN profile id to its account id (server-to-server, ARC) for
    * the optional guest account-linking POST. When omitted, the link endpoint
@@ -583,6 +609,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     oidcSessionLimiter = defaultOidcSessionLimiter,
     internalRevokeSecret = null,
     internalRevokeLimiter = defaultInternalRevokeLimiter,
+    digestStopSecret = null,
+    digestStopLimiter = defaultDigestStopLimiter,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
@@ -755,6 +783,15 @@ export function createApp(db: Db, options: AppOptions = {}) {
         createInternalRevokeRoutes(db, {
           revokeSecret: internalRevokeSecret,
           limiter: internalRevokeLimiter,
+        }),
+      )
+      // The digest's one-click stop link. Mounted BEFORE the origin guard: a
+      // mail provider's one-click POST has no Origin, and the confirm page's
+      // form posts from this API's own origin. A signed token authorises it.
+      .use(
+        createRsvpDigestStopRoutes(db, {
+          key: digestStopSecret ? digestStopKeyOnce(digestStopSecret) : null,
+          limiter: digestStopLimiter,
         }),
       )
       // C5 / S-L3: CSRF origin guard on every state-changing method, using the

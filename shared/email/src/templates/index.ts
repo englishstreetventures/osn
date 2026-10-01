@@ -94,6 +94,12 @@ export interface RenderedEmail {
   readonly subject: string;
   readonly text: string;
   readonly html: string;
+  /**
+   * Extra message headers, e.g. `List-Unsubscribe`. The Resend transport sends
+   * them; the Cloudflare and log transports do not. Values must hold no line
+   * break — the renderer strips them.
+   */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**

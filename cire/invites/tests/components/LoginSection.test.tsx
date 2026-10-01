@@ -530,6 +530,58 @@ describe("LoginSection claim", () => {
     expect(onClaimed).not.toHaveBeenCalled();
     expect(document.cookie).not.toContain("cire_claimed=1");
   });
+
+  /**
+   * The hint also says whether this claim shows the plus-one prompt, so a
+   * restore warms that chunk only for a household that uses it. A page that
+   * takes no plus-one changes never draws the prompt, whatever the payload.
+   */
+  const allowed = () => [{ ...member("Chidi"), plusOneAllowed: true, plusOneOf: null }];
+  it.each([
+    { label: "shows the prompt", onPlusOneChange: noop, hint: "cire_claimed=plus-one" },
+    { label: "takes no plus-one changes", onPlusOneChange: undefined, hint: "cire_claimed=1" },
+    {
+      label: "offers nobody a plus-one",
+      onPlusOneChange: noop,
+      members: () => [member("Chidi")],
+      hint: "cire_claimed=1",
+    },
+    {
+      label: "shows an already named plus-one",
+      onPlusOneChange: noop,
+      members: () => [member("Chidi"), { ...member("Sam"), plusOneOf: member("Chidi").guestId }],
+      hint: "cire_claimed=plus-one",
+    },
+    { label: "is a host preview", onPlusOneChange: noop, preview: true, hint: "cire_claimed=1" },
+  ])("records whether the claim showed the plus-one prompt when the page $label", async (c) => {
+    const claimed: ClaimResult = {
+      ...result((c.members ?? allowed)()),
+      preview: c.preview === true,
+    };
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(claimed), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const onClaimed = vi.fn();
+    const { getByLabelText, getByText } = render(() => (
+      <LoginSection
+        apiUrl="https://api.test"
+        result={null}
+        onClaimed={onClaimed}
+        onPlusOneChange={c.onPlusOneChange}
+      />
+    ));
+
+    fireEvent.input(getByLabelText("Invitation code"), {
+      target: { value: "OKAFOR-LILY-AB12CD" },
+    });
+    fireEvent.click(getByText("Open Invitation"));
+
+    await waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+    expect(document.cookie).toContain(c.hint);
+  });
 });
 
 describe("LoginSection layout", () => {

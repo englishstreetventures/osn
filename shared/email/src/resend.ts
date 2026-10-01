@@ -59,6 +59,7 @@ interface ResendEmailPayload {
   readonly subject: string;
   readonly html?: string;
   readonly text: string;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -100,6 +101,7 @@ const sendBatch = (
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
+        headers: rendered.headers,
       });
     }
 
@@ -182,6 +184,7 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
           subject: rendered.subject,
           html: rendered.html,
           text: rendered.text,
+          headers: rendered.headers,
         };
 
         const response = yield* Effect.tryPromise({
