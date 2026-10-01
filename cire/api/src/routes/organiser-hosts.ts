@@ -16,6 +16,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
@@ -52,7 +53,7 @@ class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
  * Co-host LISTING — owner OR co-host (weddingMember). A co-host can see who else
  * hosts the wedding from their dashboard; changing the list is the write
  * instance below (add: owner or editor; remove or re-role someone: owner only;
- * leave: any co-host, for their own seat). Split from the mutating routes so the
+ * leave: any seat holder, for their own seat). Split from the mutating routes so the
  * read isn't behind the per-user host-management limiter.
  */
 export const createOrganiserHostsReadRoutes = (
@@ -148,7 +149,7 @@ export const createOrganiserHostsReadRoutes = (
  * editor co-host can grow the team, which is what stops the owner being the
  * single person who has to hand out every claim code. Removing and role-changing
  * someone else stay `weddingOwner()`. Leaving (`DELETE /hosts/me`) is
- * `weddingMember()`. The split is deliberate and the line is
+ * `weddingSeat()`: any seat holder, a `helper` too. The split is deliberate and the line is
  * additive-versus-subtractive:
  *
  *   - An editor's ceiling is `editor`. Every assignable role ranks at or below
@@ -392,14 +393,14 @@ export const createOrganiserHostsWriteRoutes = (
           );
         }),
     )
-    // LEAVE — any co-host the member gate admits, for their own seat only. A
+    // LEAVE — any seat holder, `helper` included, for their own seat only. A
     // third group because it is a third gate. The static `/hosts/me` path is
     // matched ahead of the owner group's `/hosts/:osnProfileId`, and each
     // group's gate runs only for its own routes, so the owner gate never sees
     // this request.
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingSeat(db))
         .use(rateLimitMiddlewareByUser(limiter))
         .delete("/hosts/me", ({ weddingId, osnProfileId, weddingIsOwner, set }) => {
           if (!weddingId || !osnProfileId) {
