@@ -241,7 +241,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -436,7 +436,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
