@@ -24,6 +24,7 @@ import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget
 import {
   createClaimRoutes,
   createClaimSessionRoutes,
+  createClaimMemberRoutes,
   createClaimSignoutRoutes,
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
@@ -720,7 +721,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // What decides whether a household is offered account linking. The claim and
   // restore responses report it, and a link can only complete with a resolver.
-  const accountLinking: AccountLinking = { flags, canLink: resolveOsnAccountId !== undefined };
+  const accountLinking: AccountLinking = {
+    flags,
+    canLink: resolveOsnAccountId !== undefined,
+    resolveAccountId: resolveOsnAccountId,
+  };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -851,10 +856,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
         }),
       )
       .use(createClaimSignoutRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
+      // "Who are you?": choose or clear the household member this session
+      // says it is. The restore's page-load-sized limiter; after the origin
+      // guard, like every route here.
+      .use(createClaimMemberRoutes(db, { limiter: claimSessionLimiter, accountLinking }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
-      .use(createRsvpRoutes(db, { limiter: rsvpLimiter }))
+      .use(createRsvpRoutes(db, { limiter: rsvpLimiter, accountLinking }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
       .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))

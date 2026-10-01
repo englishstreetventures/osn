@@ -84,26 +84,48 @@ async function claimCookie(app: ReturnType<typeof createApp>, publicId: string):
   return `cire_session=${token}`;
 }
 
-function postLink(
+/** "Who are you?": choose the household member this session says it is. */
+function chooseMember(
   app: ReturnType<typeof createApp>,
-  opts: { cookie?: string; bearer?: string; guestId?: string },
+  cookie: string | undefined,
+  guestId: string,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "cf-connecting-ip": TEST_CF_IP,
     Origin: TEST_ORIGIN,
   };
-  if (opts.cookie) headers["Cookie"] = opts.cookie;
-  if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
+  if (cookie) headers["Cookie"] = cookie;
   return Promise.resolve(
     app.fetch(
-      new Request("http://localhost/api/account/link", {
+      new Request("http://localhost/api/claim/member", {
         method: "POST",
         headers,
-        body: JSON.stringify({ guestId: opts.guestId }),
+        body: JSON.stringify({ guestId }),
       }),
     ),
   );
+}
+
+/**
+ * Link the session's member. With `guestId`, that member is chosen first, the
+ * way the guest site does it; a refused choice is returned as it stands.
+ */
+async function postLink(
+  app: ReturnType<typeof createApp>,
+  opts: { cookie?: string; bearer?: string; guestId?: string },
+): Promise<Response> {
+  if (opts.guestId !== undefined) {
+    const chosen = await chooseMember(app, opts.cookie, opts.guestId);
+    if (chosen.status !== 200) return chosen;
+  }
+  const headers: Record<string, string> = {
+    "cf-connecting-ip": TEST_CF_IP,
+    Origin: TEST_ORIGIN,
+  };
+  if (opts.cookie) headers["Cookie"] = opts.cookie;
+  if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
+  return app.fetch(new Request("http://localhost/api/account/link", { method: "POST", headers }));
 }
 
 /**
@@ -164,8 +186,10 @@ describe("POST /api/account/link", () => {
       );
     expect((await restore(cookie)).status).toBe(401);
 
-    // The rotated cookie still works.
-    expect((await restore(`cire_session=${newToken}`)).status).toBe(200);
+    // The rotated cookie still works, and still names the member.
+    const restored = await restore(`cire_session=${newToken}`);
+    expect(restored.status).toBe(200);
+    expect(((await jsonBody(restored)) as { member: unknown }).member).toEqual({ guestId });
   });
 
   it("returns 401 without an OSN token (guest cookie alone is not enough)", async () => {
@@ -197,17 +221,56 @@ describe("POST /api/account/link", () => {
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
     const res = await postLink(app, { cookie, bearer, guestId: samId });
+    // Refused at the choice: a plus-one can never be the session's member.
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "plus_one_seat" });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 
-  it("returns 400 for a missing guestId", async () => {
-    const { app } = buildApp();
+  it("returns 409 member_required when the session has chosen no member", async () => {
+    const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
     const res = await postLink(app, { cookie, bearer });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "member_required" });
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
+  });
+
+  it("links the session's member and ignores any guestId in the body", async () => {
+    const { db, app } = buildApp();
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bo = guestIdByName(db, "Bo");
+    expect((await chooseMember(app, cookie, bo)).status).toBe(200);
+    const res = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: cookie,
+          Authorization: `Bearer ${await auth.sign("usr_alice")}`,
+          "cf-connecting-ip": TEST_CF_IP,
+          Origin: TEST_ORIGIN,
+        },
+        body: JSON.stringify({ guestId: guestIdByName(db, "Cleo") }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(
+      db
+        .select()
+        .from(guestAccountLinks)
+        .all()
+        .map((r) => r.guestId),
+    ).toEqual([bo]);
+  });
+
+  it("links a one-member household's only member with no choice made", async () => {
+    const { db, app } = buildApp();
+    const cookie = await claimCookie(app, TESTFAMILY);
+    const res = await postLink(app, { cookie, bearer: await auth.sign("usr_alice") });
+    expect(res.status).toBe(201);
+    expect(await jsonBody(res)).toEqual({ linked: true, guestId: guestIdByName(db, "Ada") });
   });
 
   it("returns 409 when the same invitee is linked twice", async () => {
@@ -264,10 +327,10 @@ describe("POST /api/account/link", () => {
   });
 
   it("returns 503 when account linking is not configured", async () => {
-    const { db, app } = buildApp("disabled");
+    const { app } = buildApp("disabled");
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
-    const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") });
+    const res = await postLink(app, { cookie, bearer });
     expect(res.status).toBe(503);
   });
 });
@@ -369,7 +432,9 @@ describe("account-linking feature flag (cire.account-linking OFF)", () => {
     const { db, app } = buildApp(okResolver, false);
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
-    const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") });
+    // With the flag off there is no member step either.
+    expect((await chooseMember(app, cookie, guestIdByName(db, "Bo"))).status).toBe(404);
+    const res = await postLink(app, { cookie, bearer });
     expect(res.status).toBe(503);
     // Nothing was written.
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
