@@ -6,7 +6,6 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
-  weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Logger, References } from "effect";
@@ -20,6 +19,7 @@ import { registryService } from "../../src/services/registry";
 import type { GiftLogEntryDto } from "../../src/services/registry";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith, recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -237,16 +237,14 @@ function seedParity(db: Db) {
   // Deleting the item sets the gift's `item_id` NULL rather than erasing it.
   db.delete(registryItems).where(eq(registryItems.id, "ritem_gone")).run();
 
-  db.insert(weddings)
-    .values({
-      id: "wed_parity_other",
-      slug: "parity-other",
-      displayName: "Another Wedding",
-      ownerOsnProfileId: "usr_parity_other",
-      createdAt: at(0),
-      updatedAt: at(0),
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_parity_other",
+    slug: "parity-other",
+    displayName: "Another Wedding",
+    createdAt: at(0),
+    updatedAt: at(0),
+    owners: ["usr_parity_other"],
+  });
   db.insert(families)
     .values({
       id: "fam_parity_other",

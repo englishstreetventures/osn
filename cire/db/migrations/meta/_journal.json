@@ -138,8 +138,29 @@
     {
       "idx": 76,
       "version": "6",
-      "when": 1790858034335,
-      "tag": "0076_vendor_enquiry_handoff_chat",
+      "when": 1790857877931,
+      "tag": "0076_wedding_owners",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1790857884710,
+      "tag": "0077_wedding_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1790857885296,
+      "tag": "0078_child_key_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1790864589365,
+      "tag": "0079_vendor_enquiry_handoff_chat",
       "breakpoints": true
     }
   ]

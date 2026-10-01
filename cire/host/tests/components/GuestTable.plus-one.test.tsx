@@ -598,7 +598,7 @@ describe("GuestTable — plus-one permission", () => {
     answerPut = () => json({ error: "read_only_role" }, 403);
     fireEvent.click(switchFor("Bo Sharma"));
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("Only the owner and editors can change plus-ones."),
+      expect(toastError).toHaveBeenCalledWith("Only owners and editors can change plus-ones."),
     );
     expect(switchFor("Bo Sharma").checked).toBe(false);
   });

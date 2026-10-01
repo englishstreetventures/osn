@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "aec738c2-11bc-4cc7-8b8c-7cd238fab8f7",
+  "id": "9f650788-e4f9-49d6-a2f1-314650c1b3e9",
   "prevId": "fc084040-66b6-4c78-9d78-5bb6a72abc68",
   "tables": {
     "budget_items": {
@@ -2838,13 +2838,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "handoff_chat_id": {
-          "name": "handoff_chat_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "status": {
           "name": "status",
           "type": "text",
@@ -3914,13 +3907,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "owner_osn_profile_id": {
-          "name": "owner_osn_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "code_style": {
           "name": "code_style",
           "type": "text",
@@ -4045,13 +4031,6 @@
             "slug"
           ],
           "isUnique": true
-        },
-        "weddings_owner_idx": {
-          "name": "weddings_owner_idx",
-          "columns": [
-            "owner_osn_profile_id"
-          ],
-          "isUnique": false
         },
         "weddings_created_at_idx": {
           "name": "weddings_created_at_idx",

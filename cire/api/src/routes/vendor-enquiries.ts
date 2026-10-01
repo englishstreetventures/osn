@@ -1,11 +1,12 @@
 import { directoryVendors, vendorEnquiries, vendors, weddings } from "@cire/db";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { weddingIdIsLive, weddingIsLive } from "../db/live-wedding";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -117,7 +118,8 @@ const loadEnquiryForVendor = (
         })
         .from(vendorEnquiries)
         .innerJoin(directoryVendors, eq(vendorEnquiries.directoryVendorId, directoryVendors.id))
-        .where(eq(vendorEnquiries.id, enquiryId))
+        // A soft-deleted wedding's enquiry is answered as unknown.
+        .where(and(eq(vendorEnquiries.id, enquiryId), weddingIdIsLive(vendorEnquiries.weddingId)))
         .all(),
     );
     const found = row as { enquiry: EnquiryRow; ownerOrgId: string | null } | undefined;
@@ -189,7 +191,8 @@ export function createVendorEnquiriesRoutes(
                 )
                 .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
                 .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
-                .where(inArray(directoryVendors.ownerOrgId, callerOrgIds))
+                // A soft-deleted wedding's enquiries, and its name, drop out.
+                .where(and(inArray(directoryVendors.ownerOrgId, callerOrgIds), weddingIsLive))
                 // Newest-first by last message, in SQL rather than a JS sort.
                 .orderBy(desc(vendorEnquiries.lastMessageAt))
                 .all(),

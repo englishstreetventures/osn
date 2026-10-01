@@ -1,14 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  events,
-  families,
-  guestEvents,
-  guests,
-  rsvps,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
 import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { and, eq, inArray } from "drizzle-orm";
@@ -22,6 +14,7 @@ import type { RsvpView } from "../../src/services/rsvp-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -368,16 +361,14 @@ describe("rsvpExportService.build", () => {
         const db = yield* DbService;
         const now = new Date();
         // A second, real wedding with its own family/guest.
-        db.insert(weddings)
-          .values({
-            id: "wed_other_scope",
-            slug: "other-scope",
-            displayName: "Other Scope",
-            ownerOsnProfileId: "usr_other",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_other_scope",
+          slug: "other-scope",
+          displayName: "Other Scope",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_other"],
+        });
         db.insert(families)
           .values({
             id: "fam_x",
@@ -623,6 +614,68 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
         expect(adaRow.dietaryPresets).toEqual(["vegetarian", "nuts"]);
         // The free text stays its own field — the view does not pre-join them.
         expect(adaRow.dietary).toBe("No onion");
+      }),
+    ),
+  );
+
+  it(
+    "carries who sent each reply, and whether through a linked account",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const bo = yield* guestByName(db, "Bo");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const [adaRow] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ familyId: guests.familyId })
+              .from(guests)
+              .where(eq(guests.id, ada.id))
+              .all(),
+          ),
+        );
+        if (!adaRow) throw new Error("missing guest");
+        const [boRow] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select({ familyId: guests.familyId }).from(guests).where(eq(guests.id, bo.id)).all(),
+          ),
+        );
+        if (!boRow) throw new Error("missing guest");
+        expect(boRow.familyId).not.toBe(adaRow.familyId);
+        // A second member of Ada's household, who answers for her.
+        const cyId = crypto.randomUUID();
+        db.insert(guests)
+          .values({
+            id: cyId,
+            familyId: adaRow.familyId,
+            firstName: "Cy",
+            lastName: "Testfamily",
+            sortOrder: 99,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .run();
+        rsvp(db, ada.id, catholic.id, "attending");
+        rsvp(db, bo.id, catholic.id, "attending");
+        db.update(rsvps)
+          .set({ submittedByGuestId: cyId, submittedViaLink: true })
+          .where(and(eq(rsvps.guestId, ada.id), eq(rsvps.eventId, catholic.id)))
+          .run();
+        // A submitter id from another household never surfaces a name.
+        db.update(rsvps)
+          .set({ submittedByGuestId: ada.id, submittedViaLink: false })
+          .where(and(eq(rsvps.guestId, bo.id), eq(rsvps.eventId, catholic.id)))
+          .run();
+
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.guests.find((g) => g.guestId === ada.id)!.submittedBy).toEqual({
+          guestId: cyId,
+          firstName: "Cy",
+          viaLink: true,
+        });
+        expect(event.guests.find((g) => g.guestId === bo.id)!.submittedBy).toBeNull();
       }),
     ),
   );
@@ -954,16 +1007,14 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     // another wedding, or in another household, yields no name.
     const { db, run, hindu } = setUp();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other-wedding",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other-wedding",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other"],
+    });
     db.insert(families)
       .values({
         id: "fam_other",

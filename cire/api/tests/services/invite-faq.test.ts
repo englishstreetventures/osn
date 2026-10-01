@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingFaqs, weddingInviteCustomisations, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingFaqs, weddingInviteCustomisations } from "@cire/db";
 import { asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
@@ -8,22 +8,21 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { FaqLimitReached, FaqNotInWedding, inviteFaqService } from "../../src/services/invite-faq";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
 
 function db0() {
   const db = createDb(":memory:");
   seedDb(db);
-  db.insert(weddings)
-    .values({
-      id: OTHER,
-      slug: "other",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER,
+    slug: "other",
+    displayName: "Other",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    owners: ["usr_bob"],
+  });
   return db;
 }
 

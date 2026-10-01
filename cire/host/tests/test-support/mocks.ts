@@ -25,6 +25,9 @@ import { type Mock, vi } from "vitest";
 export const authFetchMock: Mock = vi.fn();
 /** Called when the mocked `redirectToLogin()` fires. */
 export const redirectSpy: Mock = vi.fn();
+/** The signed-in profile id the mocked `useAuth()` reports; `null` (signed
+ *  out of every seat on screen) unless a test sets it. */
+export const activeProfileIdMock: Mock<() => string | null> = vi.fn(() => null);
 /** Receives the message passed to `toast.success(...)`. */
 export const toastSuccess: Mock = vi.fn();
 /** Receives the message passed to `toast.error(...)`. */
@@ -32,7 +35,9 @@ export const toastError: Mock = vi.fn();
 
 /** Factory for `vi.mock("@shared/rp-auth/solid", ...)`. */
 export function rpAuthSolidMock() {
-  return { useAuth: () => ({ authFetch: authFetchMock }) };
+  return {
+    useAuth: () => ({ authFetch: authFetchMock, activeProfileId: () => activeProfileIdMock() }),
+  };
 }
 
 /** Factory for `vi.mock("@shared/toast", ...)`. */
@@ -71,6 +76,8 @@ export async function organiserApiMock() {
 export function resetOrganiserMocks(): void {
   authFetchMock.mockReset();
   redirectSpy.mockReset();
+  activeProfileIdMock.mockReset();
+  activeProfileIdMock.mockImplementation(() => null);
   toastSuccess.mockReset();
   toastError.mockReset();
 }

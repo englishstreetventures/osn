@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts } from "@cire/db";
 import { EmailError, EmailService, makeLogEmailLive, type LogEmailTransport } from "@shared/email";
 import { Effect, Layer } from "effect";
 
@@ -12,6 +12,7 @@ import type { VendorDto } from "../../src/services/vendors";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
@@ -53,16 +54,14 @@ function buildApp({
       createdAt: now,
     })
     .run();
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
 
   // Vendors is a Crimson module: put the wedding on it so the route gate passes
   // (unless a 402 test asks for a lower tier), and usr_bob's wedding too, for

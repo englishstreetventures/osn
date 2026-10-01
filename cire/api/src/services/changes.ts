@@ -29,6 +29,7 @@ import { Cause, Data, Effect, Option, Schema } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { ChangeScope, DesiredState } from "../schemas/import";
 import type { ImportPlan, ParsedEvent, ParsedFamily, Provenance } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
@@ -424,6 +425,9 @@ export function claimChanges(
             eq(weddings.id, weddingId),
             eq(weddings.changeRev, rev),
             isNull(weddings.changeClaim),
+            // A soft-deleted wedding cannot be claimed, so no change starts
+            // writing into one; the delete in turn refuses a live claim.
+            weddingIsLive,
           ),
         )
         .returning({ id: weddings.id })

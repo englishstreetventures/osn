@@ -1,19 +1,24 @@
 import { Database } from "bun:sqlite";
 
 import * as schema from "@cire/db";
-import { DEV_OWNER_PROFILE_ID, events as eventsData, guests as guestsData } from "@cire/db/seed";
+import {
+  DEV_OWNER_PROFILE_ID,
+  DEV_OWNER_SEAT_ID,
+  events as eventsData,
+  guests as guestsData,
+} from "@cire/db/seed";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { Db } from "./index";
 
 // Re-exported for the seed path + tests. The single source of truth lives in
-// cire/db/seed/data/wedding.ts (DEV_OWNER_PROFILE_ID) — see seedBootstrapWedding
-// below. No real OSN profile exists in local dev or the test suite, so the
-// seeded wedding is owned by this fixed dev id; sign in as it (or repoint via
-// CIRE_DEV_OWNER_PROFILE_ID in the db:seed script) to see the sample wedding in
-// the portal. Deployed tiers never run this seed — a real signed-in OSN user
-// creates their own weddings via POST /api/organiser/weddings.
-export { DEV_OWNER_PROFILE_ID };
+// cire/db/seed/data/wedding.ts (DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID) — see
+// seedBootstrapWedding below. No real OSN profile exists in local dev or the
+// test suite, so the seeded wedding's owner seat is held by this fixed dev id;
+// sign in as it (or repoint the seat via CIRE_DEV_OWNER_PROFILE_ID) to see the
+// sample wedding in the portal. Deployed tiers never run this seed — a real
+// signed-in OSN user creates their own weddings via POST /api/organiser/weddings.
+export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
@@ -32,7 +37,6 @@ CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
-  owner_osn_profile_id TEXT NOT NULL,
   code_style TEXT NOT NULL DEFAULT 'secure',
   wedding_date TEXT,
   guest_count_estimate INTEGER,
@@ -48,10 +52,12 @@ CREATE TABLE IF NOT EXISTS weddings (
   tier_source TEXT,
   tier_granted_by TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER,
+  deleted_by_osn_profile_id TEXT
 );
-CREATE INDEX IF NOT EXISTS weddings_owner_idx ON weddings(owner_osn_profile_id);
 CREATE INDEX IF NOT EXISTS weddings_created_at_idx ON weddings(created_at);
+CREATE INDEX IF NOT EXISTS weddings_deleted_at_idx ON weddings(deleted_at) WHERE deleted_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS wedding_hosts (
   id TEXT PRIMARY KEY,
@@ -212,6 +218,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_guest_uniq ON guest_accoun
 CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
 CREATE INDEX IF NOT EXISTS guest_account_links_account_idx ON guest_account_links(osn_account_id);
 CREATE INDEX IF NOT EXISTS guest_account_links_family_idx ON guest_account_links(family_id);
+CREATE INDEX IF NOT EXISTS guest_account_links_wedding_idx ON guest_account_links(wedding_id);
 
 CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   wedding_id TEXT PRIMARY KEY REFERENCES weddings(id) ON DELETE CASCADE,
@@ -409,6 +416,7 @@ CREATE TABLE IF NOT EXISTS vendor_enquiries (
 CREATE UNIQUE INDEX IF NOT EXISTS vendor_enquiries_wedding_directory_uniq ON vendor_enquiries(wedding_id, directory_vendor_id);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_wedding_last_msg_idx ON vendor_enquiries(wedding_id, last_message_at);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_directory_idx ON vendor_enquiries(directory_vendor_id);
+CREATE INDEX IF NOT EXISTS vendor_enquiries_vendor_idx ON vendor_enquiries(vendor_id);
 CREATE INDEX IF NOT EXISTS vendor_enquiries_buffered_idx ON vendor_enquiries(updated_at, id) WHERE status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL;
 CREATE TABLE IF NOT EXISTS wedding_entitlements (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -481,6 +489,7 @@ CREATE TABLE IF NOT EXISTS registry_claims (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS registry_claims_item_family_uniq ON registry_claims(item_id, family_id);
 CREATE INDEX IF NOT EXISTS registry_claims_wedding_created_idx ON registry_claims(wedding_id, created_at);
+CREATE INDEX IF NOT EXISTS registry_claims_family_idx ON registry_claims(family_id);
 CREATE INDEX IF NOT EXISTS registry_claims_item_status_idx ON registry_claims(item_id, status, family_id, quantity);
 CREATE INDEX IF NOT EXISTS registry_claims_wedding_item_status_idx ON registry_claims(wedding_id, item_id, status, quantity);
 CREATE TABLE IF NOT EXISTS registry_contributions (
@@ -509,6 +518,7 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
 );
 CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registry_contributions(wedding_id, created_at);
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
+CREATE INDEX IF NOT EXISTS registry_contributions_family_idx ON registry_contributions(family_id);
 CREATE INDEX IF NOT EXISTS registry_contributions_payment_intent_idx ON registry_contributions(stripe_payment_intent_id);
 CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   id TEXT PRIMARY KEY,
@@ -561,11 +571,12 @@ export function createDb(path: string = ":memory:") {
 export type TestDb = ReturnType<typeof createDb>;
 
 // Sample wedding for local dev + the test suite — every seeded family/event is
-// scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID); exported so
-// tests that build their own fixtures on a bare createDb() can satisfy the
-// wedding_id FK. This is the local/test path only — deployed D1 has no seeded
-// wedding (migration 0015 removed the orphaned bootstrap row); real OSN users
-// create their own weddings via POST /api/organiser/weddings.
+// scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID), through an
+// `owner` seat with the fixed id DEV_OWNER_SEAT_ID; exported so tests that build
+// their own fixtures on a bare createDb() can satisfy the wedding_id FK. This is
+// the local/test path only — deployed D1 has no seeded wedding (migration 0015
+// removed the orphaned bootstrap row); real OSN users create their own weddings
+// via POST /api/organiser/weddings.
 export function seedBootstrapWedding(db: Db): void {
   const now = new Date();
   db.insert(schema.weddings)
@@ -573,9 +584,18 @@ export function seedBootstrapWedding(db: Db): void {
       id: schema.BOOTSTRAP_WEDDING_ID,
       slug: "cire-wedding",
       displayName: "Cire Wedding",
-      ownerOsnProfileId: DEV_OWNER_PROFILE_ID,
       createdAt: now,
       updatedAt: now,
+    })
+    .run();
+  db.insert(schema.weddingHosts)
+    .values({
+      id: DEV_OWNER_SEAT_ID,
+      weddingId: schema.BOOTSTRAP_WEDDING_ID,
+      osnProfileId: DEV_OWNER_PROFILE_ID,
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
     })
     .run();
 }

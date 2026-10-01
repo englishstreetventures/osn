@@ -5,24 +5,47 @@ import { refusesWedding, watchForbidden } from "../../src/lib/forbidden-watch";
 const WEDDING_URL = "https://api.test/api/organiser/weddings/wed_a/vendors";
 
 describe("refusesWedding", () => {
-  it("is a 403 from a route scoped to one wedding", () => {
+  const gone = () =>
+    new Response(JSON.stringify({ error: "wedding_not_found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  it("is a 403 from a route scoped to one wedding", async () => {
     const refused = new Response(null, { status: 403 });
-    expect(refusesWedding(WEDDING_URL, refused)).toBe(true);
-    expect(refusesWedding(new URL(WEDDING_URL), refused)).toBe(true);
-    expect(refusesWedding(new Request(WEDDING_URL), refused)).toBe(true);
+    expect(await refusesWedding(WEDDING_URL, refused)).toBe(true);
+    expect(await refusesWedding(new URL(WEDDING_URL), refused)).toBe(true);
+    expect(await refusesWedding(new Request(WEDDING_URL), refused)).toBe(true);
     expect(
-      refusesWedding("https://api.test/api/organiser/weddings/wed_a/tasks/t_1?x=1", refused),
+      await refusesWedding("https://api.test/api/organiser/weddings/wed_a/tasks/t_1?x=1", refused),
     ).toBe(true);
   });
 
-  it("is not the list route, another route, or another status", () => {
+  it("is a 404 naming the wedding itself gone, and leaves the body readable", async () => {
+    const res = gone();
+    expect(await refusesWedding(WEDDING_URL, res)).toBe(true);
+    expect(await res.json()).toEqual({ error: "wedding_not_found" });
+  });
+
+  it("is not a 404 for a row inside the wedding", async () => {
+    const rowGone = new Response(JSON.stringify({ error: "task_not_found" }), { status: 404 });
+    expect(await refusesWedding(WEDDING_URL, rowGone)).toBe(false);
+    expect(await refusesWedding(WEDDING_URL, new Response("not json", { status: 404 }))).toBe(
+      false,
+    );
+  });
+
+  it("is not the list route, another route, or another status", async () => {
     const refused = new Response(null, { status: 403 });
-    expect(refusesWedding("https://api.test/api/organiser/weddings", refused)).toBe(false);
-    expect(refusesWedding("https://api.test/api/organiser/weddings/wed_a", refused)).toBe(false);
-    expect(refusesWedding("https://api.test/api/directory/listings", refused)).toBe(false);
-    // 402 is a locked module, 404 an unknown row: neither says the role moved.
-    for (const status of [200, 402, 404, 500]) {
-      expect(refusesWedding(WEDDING_URL, new Response(null, { status }))).toBe(false);
+    expect(await refusesWedding("https://api.test/api/organiser/weddings", refused)).toBe(false);
+    expect(await refusesWedding("https://api.test/api/organiser/weddings/wed_a", refused)).toBe(
+      false,
+    );
+    expect(await refusesWedding("https://api.test/api/directory/listings", refused)).toBe(false);
+    expect(await refusesWedding("https://api.test/api/directory/listings", gone())).toBe(false);
+    // 402 is a locked module: it does not say the role moved.
+    for (const status of [200, 402, 500]) {
+      expect(await refusesWedding(WEDDING_URL, new Response(null, { status }))).toBe(false);
     }
   });
 });

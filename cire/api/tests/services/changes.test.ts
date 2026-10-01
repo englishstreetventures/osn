@@ -19,6 +19,7 @@ import {
 } from "../../src/services/changes";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -423,16 +424,14 @@ describe("headRevision and the change claim", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        db.insert(weddings)
-          .values({
-            id: "wed_elsewhere",
-            slug: "elsewhere",
-            displayName: "Elsewhere",
-            ownerOsnProfileId: "usr_elsewhere",
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_elsewhere",
+          slug: "elsewhere",
+          displayName: "Elsewhere",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          owners: ["usr_elsewhere"],
+        });
         const claim = yield* claimChanges("wed_elsewhere", "0");
         yield* Effect.promise(async () => {
           await commitClaimStatement(db, claim);

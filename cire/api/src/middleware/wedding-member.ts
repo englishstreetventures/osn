@@ -19,28 +19,17 @@ const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
   weddingIsOwner: false,
   weddingRole: undefined as WeddingRole | undefined,
-  weddingOwnerOsnProfileId: undefined as string | undefined,
   weddingSlug: undefined as string | undefined,
   weddingTier: undefined as Tier | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
-const pass = (
-  weddingId: string,
-  role: WeddingRole,
-  ownerOsnProfileId: string,
-  slug: string,
-  tier: Tier,
-) => ({
+const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
   weddingRole: role as WeddingRole | undefined,
-  // The wedding's OWNER — needed even on the read gate, since a read (unlike
-  // the write gates) is the one place the co-host list has to name the owner
-  // to show them alongside the hosts they don't stand among.
-  weddingOwnerOsnProfileId: ownerOsnProfileId as string | undefined,
-  // Read in the same query that found the owner. The CSV exports name their
-  // download after it, so they need not read the wedding row a second time.
+  // Read in the same query that found the caller's seat. The CSV exports name
+  // their download after it, so they need not read the wedding row a second time.
   weddingSlug: slug as string | undefined,
   // Read in the same query too, for a `weddingTier(db, min)` mounted after
   // this gate.
@@ -49,13 +38,13 @@ const pass = (
 });
 
 /**
- * Authz gate for /api/organiser/weddings/:weddingId/* — admits the wedding's
- * OWNER, or a co-host whose role carries the `member` capability. Requires
- * osnAuth() upstream (osnProfileId derived). 404 for unknown weddings, 403 for
- * callers who are neither owner nor host. Derives `weddingId` (on success),
- * `weddingIsOwner`, and `weddingRole` so a route can keep an owner-only action
- * (e.g. host management) gated even though co-hosts reach the shared dashboard
- * reads, plus `weddingSlug` from the same read.
+ * Authz gate for /api/organiser/weddings/:weddingId/* — admits any caller whose
+ * seat's role carries the `member` capability: every owner, and the co-hosts
+ * `policyFor()` says. Requires osnAuth() upstream (osnProfileId derived). 404
+ * for unknown weddings, 403 for callers who hold no such seat. Derives
+ * `weddingId` (on success), `weddingIsOwner`, and `weddingRole` so a route can
+ * keep an owner-only action gated even though co-hosts reach the shared
+ * dashboard reads, plus `weddingSlug` from the same read.
  *
  * Which roles those are is `policyFor()`'s to say, not this file's — see
  * `wedding-role.ts`. This gate does not enumerate the roles it excludes,
@@ -89,13 +78,7 @@ export function weddingMember(db: Db) {
       if (!result.role) return fail(403, "forbidden");
       const decision = decideCapability(result.role, "member");
       if (!decision.allowed) return fail(403, decision.error);
-      return pass(
-        weddingId,
-        result.role,
-        result.ownerOsnProfileId,
-        result.weddingSlug,
-        result.weddingTier,
-      );
+      return pass(weddingId, result.role, result.weddingSlug, result.weddingTier);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

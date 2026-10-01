@@ -448,7 +448,7 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
     const [only, ...rest] = statements(withCookie.probe.sessionQueries[0]);
     expect(rest).toEqual([]);
-    expect(only).toMatch(/^select .* from "sessions" where/i);
+    expect(only).toMatch(/^select .* from "sessions" .*where .*"sessions"."token" = \?/i);
 
     expect(withoutCookie.probe.bindingQueries).toEqual([]);
     expect(withCookie.probe.bindingQueries).toEqual([]);
@@ -536,7 +536,9 @@ describe("D1 session routing at the entry points", () => {
 
       expect(res.status).toBe(401);
       expect(statements).toHaveLength(1);
-      expect(statements[0]).toMatch(/^select .* from "sessions" where/i);
+      expect(statements[0]).toMatch(
+        /^select .* from "sessions" .*where .*"sessions"."token" = \?/i,
+      );
     });
   });
 
@@ -570,11 +572,26 @@ describe("D1 session routing at the entry points", () => {
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
     // each of them keeps advancing, so every read would be forwarded to the
     // primary regardless. With no mail transport the digest does not run, so
-    // eight sweeps.
+    // nine sweeps.
     const { pending, probe } = await runCron();
-    expect(pending).toHaveLength(8);
-    expect(probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(pending).toHaveLength(9);
+    expect(probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
+  });
+
+  it("gives the wedding purge a session of its own", async () => {
+    // The purge's candidate reads are the only cron queries that compare
+    // `deleted_at` with a cutoff; every statement in that session is the
+    // purge's own, on `weddings`, and the two reads go in one batch.
+    const { probe } = await runCron();
+    const purge = probe.sessionQueries.filter((queries) =>
+      queries.some((q) => /deleted_at" <= \?/.test(q)),
+    );
+    expect(purge).toHaveLength(1);
+    expect(purge[0]!.filter((q) => q.startsWith("batch:"))).toEqual(["batch:2"]);
+    const statements = purge[0]!.filter((q) => !q.startsWith("bind:") && !q.startsWith("batch:"));
+    expect(statements).toHaveLength(2);
+    expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
   });
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
@@ -583,13 +600,13 @@ describe("D1 session routing at the entry points", () => {
     const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
 
     const full = await runCron({ ...mail, ...arc });
-    expect(full.pending).toHaveLength(9);
-    expect(full.probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.pending).toHaveLength(10);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
     expect(full.probe.bindingQueries).toEqual([]);
 
     // Either half missing: no digest.
-    expect((await runCron(mail)).pending).toHaveLength(8);
-    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(8);
+    expect((await runCron(mail)).pending).toHaveLength(9);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(9);
   });
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
@@ -606,7 +623,7 @@ describe("D1 session routing at the entry points", () => {
         WEB_ORIGIN: "http://localhost:4321",
       });
     });
-    expect(result?.pending).toHaveLength(8);
+    expect(result?.pending).toHaveLength(9);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });

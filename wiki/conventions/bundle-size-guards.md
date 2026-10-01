@@ -172,7 +172,7 @@ the guard regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstventures/osn#1325 — see below)* |
-| cire/host | static | 256259 B | 267959 B *(re-baselined, englishstventures/osn#1238 — see below)* |
+| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstventures/osn#1304 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -236,6 +236,17 @@ Kobalte's switch the same change measured 257162 B, which is why `@shared/ui`'s
 on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
 `ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
 total the guard prints.*
+
+Equal wedding owners and the wedding soft delete (englishstventures/osn#1304)
+raised it again. `main` measured **265496 B** against the 267959 B threshold,
+2463 B of headroom. The owner rows and step-down in the hosts panel, the
+delete dialog in Settings and the "Recently deleted" list with Restore came to
+**268459 B**, **+2963 B**, with no new dependency.
+
+*Measured 2026-10-01 — `rm -rf cire/host/dist && bunx --bun astro build` in
+`cire/host`, then `scripts/guard-bundle-size.sh .`, on
+`claude/trusting-dijkstra-1eji1a` and on `origin/main`, reading the total the
+guard prints.*
 
 ### `cire/invites` went up for the household member step
 
@@ -371,13 +382,15 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **68** | **137** | 1,836 → 3,700 rows | ~54 now, ~27 at the line |
+| `cire/db/migrations` | **146** | **150** | 3,942 → 4,050 rows | ~25 now, ~24 at the line |
 
 The left two columns are exact; the right two move with the constant. The
 pre-squash chain, for scale: 269 schema writes, about 7,265 rows, roughly 13
 replays a day. Point the guard at `cire/db/migrations-archive` and it goes red,
 which is the fastest way to see it fail.
-*Measured 2026-09-10 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+*Measured 2026-10-01 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
+The line sits at 150 because the chain has regrown to 146 schema writes since the squash. The next breach is the cue to squash it into a fresh baseline, not to raise the line again.
 
 **Note the arithmetic on the pre-squash chain does not reproduce 8,007.** At 27
 it prices at 7,265 and the seed floor is 2,063, which sums past the reported
@@ -391,7 +404,7 @@ The rule further up this page — headroom smaller than the smallest mistake —
 assumes a baseline that is not supposed to move. A migration chain is supposed
 to grow, and the mistake here is not one bad migration: nothing in the chain
 that went over the ceiling was wrong. So the line is drawn at a **doubling** of
-the chain — 68 schema writes now, tripping at 137 — which is the smallest step
+the squashed baseline of 68 schema writes — which is the smallest step
 that materially changes the answer to "how many rebuilds a day can we afford".
 A budget tight enough to trip on one ordinary feature migration —
 `0057_registry` was 15 schema writes on its own — would be raised on sight every

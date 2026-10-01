@@ -1,29 +1,28 @@
 import { describe, it, expect } from "bun:test";
 
-import { families, sessions, weddings } from "@cire/db";
+import { families, sessions } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { isLegacyCode, remintFamilyCodes } from "../../src/scripts/remint-family-codes";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WED_A = "wed_a";
 const WED_B = "wed_b";
 
 function seedWedding(db: ReturnType<typeof createDb>, id: string, codeStyle: "simple" | "secure") {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id,
-      slug: `slug-${id}`,
-      displayName: id,
-      ownerOsnProfileId: "usr_owner",
-      codeStyle,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id,
+    slug: `slug-${id}`,
+    displayName: id,
+    codeStyle,
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_owner"],
+  });
 }
 
 function seedFamily(

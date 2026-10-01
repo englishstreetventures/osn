@@ -84,13 +84,13 @@ function answerReads(extra: Record<string, unknown> = {}) {
 const householdReads = () =>
   authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/households")).length;
 
-function renderOnMessage(canManage = true) {
+function renderOnMessage(canEdit = true) {
   render(() => (
     <InviteBuilder
       weddingId="wed_1"
       weddingSlug="anita-ben"
       weddingName="Anita & Ben"
-      canManage={canManage}
+      canEdit={canEdit}
       entitlements={[]}
       initialSection="invite-message"
       inviteMessageLinks={<p data-testid="invite-message-links" />}
@@ -118,7 +118,7 @@ describe("InviteBuilder Message section", () => {
         weddingId="wed_1"
         weddingSlug="anita-ben"
         weddingName="Anita & Ben"
-        canManage
+        canEdit
         entitlements={[]}
       />
     ));
@@ -135,7 +135,7 @@ describe("InviteBuilder Message section", () => {
         weddingId="wed_1"
         weddingSlug="anita-ben"
         weddingName="Anita & Ben"
-        canManage
+        canEdit
         entitlements={[]}
         initialSection="invite-message"
       />
@@ -154,7 +154,7 @@ describe("InviteBuilder Message section", () => {
         weddingId="wed_1"
         weddingSlug="anita-ben"
         weddingName="Anita & Ben"
-        canManage
+        canEdit
         entitlements={[]}
         inviteMessageLinks={<p data-testid="invite-message-links" />}
       />
@@ -186,7 +186,7 @@ describe("InviteBuilder Message section", () => {
         weddingId="wed_1"
         weddingSlug="anita-ben"
         weddingName="Anita & Ben"
-        canManage
+        canEdit
         entitlements={[]}
       />
     ));
@@ -253,18 +253,18 @@ describe("InviteBuilder Message section", () => {
     expect(writeText.mock.calls[0]![0].split("\n")[0]).toBe("Come to Goa, bring sunscreen!");
   });
 
-  it("marks the household sent for the owner, and not for a co-host editor", async () => {
+  it("marks the household sent for an owner or editor, and not for anyone else", async () => {
     writeText.mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const marks = () =>
       authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/mark-shared")).length;
 
-    for (const [canManage, expected] of [
+    for (const [canEdit, expected] of [
       [false, 0],
       [true, 1],
     ] as const) {
       answerReads();
-      renderOnMessage(canManage);
+      renderOnMessage(canEdit);
       await waitFor(() => expect(picker().options.length).toBe(2));
       fireEvent.change(picker(), { target: { value: "fam_a" } });
       fireEvent.click(copyButton());

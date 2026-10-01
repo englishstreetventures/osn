@@ -115,17 +115,27 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   proportionate (dietary needs vary widely) but carries the risk that
   guests volunteer more than needed (e.g. naming a medical condition). The
   form copy should ask only for dietary requirements, not reasons.
-- **Who can widen the recipient set (2026-08-01).** Adding a co-host moved from
-  owner-only to `weddingEditor()`, so an `editor` can seat another OSN account —
-  and every seat, at any role, reads this field plus the household claim codes.
-  Assessed as acceptable: `editor` is the ceiling anyone can grant (no seat
-  outranks its creator), removal and demotion stay owner-only, seats are capped
-  per wedding below the list's read ceiling so the owner's view can never
-  silently truncate, and each row records who created it. **Residual:** a new
-  seat is live immediately with no notification to the owner, so "the owner can
-  always revoke it" depends on them noticing. Tracked as `S-M2` in
-  `englishstventures/osn-tracker`; the mitigation is an owner notification on a
-  seat created by someone else.
+- **Who can widen the recipient set (2026-10-01).** Only an owner can seat
+  another OSN account (`weddingOwner()` on `POST /hosts`), and every seat but a
+  `helper` reads this field plus the household claim codes on screen; the CSV
+  exports that carry them are owner-only. Assessed as acceptable: removal and
+  demotion are owner-only too, seats are capped per wedding, owners counted,
+  below the list's read ceiling so no owner's view can silently truncate, and
+  each row records which owner created it. **Residual:** a new seat is live
+  immediately with no notification to the other owners, so "any owner can
+  revoke it" depends on them noticing. Tracked in the private findings
+  tracker; the mitigation is a notification to the other owners when one of
+  them seats someone.
+- **Several owners (2026-10-01).** A wedding can have several owners, all
+  equal, so an owner can seat another person with every owner power — the
+  guest list and its dietary field, the claim codes, billing, the registry's
+  payout account, and the power to remove every other seat, its creator's
+  included. Assessed as acceptable: both partners owning their wedding is the
+  intended model, only an owner can make an owner (an editor asking is refused
+  with 403), the portal asks before granting it, owners count towards the
+  per-wedding seat cap, and a wedding never loses its last owner. Mail about the wedding's data — the
+  RSVP digest and the retention sweep's parting gift summary — goes to every
+  owner. See [[cire-auth]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed
@@ -275,8 +285,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   **1-year guest-data sweep now exists** (`retentionService.sweepExpiredGuestData`,
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
   and `imports` rows are deleted for any wedding whose final event is >365 days
-  past. The residual C-H1 gap is the R2-object follow-up (uploaded sheets carry
-  guest PII; not yet reaped).
+  past, and the sheets their `imports` rows name are reaped from R2 in the same
+  sweep. A wedding its owners delete is purged whole 7–8 days later (later if
+  the daily purge cap or a payment still settling defers it): every row by
+  cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 
 ## 3. Risks to data subjects
 
@@ -284,7 +296,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 |---|---|---|---|
 | Special-category data collected without a valid Art. 9(2)(a) consent affordance | **Low (residual)** | High | **RESOLVED — C-H2 (cire dietary), PR #123.** The RSVP form now shows an explicit, unticked opt-in checkbox once dietary text is entered, the API rejects (422) any non-empty dietary without consent, and a server-stamped consent record (`rsvps.dietary_consent_at` / `dietary_consent_version`) evidences the Art. 9(2)(a) condition. Collection is now lawful. |
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
-| Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | No purge / R2 lifecycle yet (C-H1). Storage-limitation breach over time. |
+| Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | Mitigated: the 1-year guest-data sweep (rows and their sheets) and the purge of a deleted wedding (every row, both R2 buckets). Residuals: a failed sheets reap has no reconciler, browser copies of public images can live a year, and the couple's Stripe Express account and Zap enquiry chats outlive the purge. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
 | A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
 | A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering, and by musubi always showing the signed-in account before a link (`prompt=select_account`). `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list". |
@@ -326,9 +338,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   where a plus-one is named is refused unless the organiser also asks for the
   plus-one to be removed, so a plus-one's data is never deleted — or kept past
   its permission — without an explicit choice.
-- **C-H1.** Implement the wedding-lifecycle purge, the expired-`cire_session`
-  sweeper, and an R2 lifecycle rule that also fires on import revert. See
-  [[retention]].
+- **C-H1.** The wedding-lifecycle purge (an owner's delete, purged 7–8 days
+  later) and the expired-`cire_session` sweeper exist; an R2 lifecycle rule
+  that also fires on import revert does not. See [[retention]].
 - **C-M1.** Resolve the cross-DB DSAR/deletion path (ARC bridge) or re-affirm
   orphan-tolerance with a privacy-notice disclosure when `DELETE /account`
   lands. See [[dsar]].

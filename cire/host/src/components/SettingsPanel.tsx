@@ -10,6 +10,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { haptic } from "../lib/haptics";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
+import DeleteWeddingDialog from "./DeleteWeddingDialog";
 import SectionIntro from "./SectionIntro";
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its free-text `address` (the sole
@@ -70,6 +71,9 @@ interface SettingsPanelProps {
   /** Reports a saved name/slug up so the header + wedding list stay current
    *  without a refetch. */
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+  /** An owner deleted the wedding; it can be restored until `restoreUntil`
+   *  (ISO). Without it the danger zone is not offered. */
+  onWeddingDeleted?: (restoreUntil: string) => void;
 }
 
 /**
@@ -424,6 +428,12 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             </Button>
           </Show>
         </form>
+      </Show>
+
+      <Show when={props.canManage && !loading() && !loadError() && props.onWeddingDeleted}>
+        {(onDeleted) => (
+          <DeleteWeddingDialog weddingId={props.weddingId} slug={slug()} onDeleted={onDeleted()} />
+        )}
       </Show>
     </div>
   );

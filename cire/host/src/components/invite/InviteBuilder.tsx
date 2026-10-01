@@ -120,8 +120,8 @@ interface InviteBuilderProps {
   weddingSlug: string;
   /** The wedding's name — the default first line of the copied invite message. */
   weddingName: string;
-  /** Owner: copying a household's message also marks it sent. */
-  canManage: boolean;
+  /** Owner or editor: copying a household's message also marks it sent. */
+  canEdit: boolean;
   /** The wedding's entitlement keys — locks premium designs in the selector. */
   entitlements: string[];
   /** The section to open on, when a link elsewhere in the dashboard asked for
@@ -1539,7 +1539,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         weddingId={props.weddingId}
                         weddingName={props.weddingName}
                         weddingSlug={props.weddingSlug}
-                        canManage={props.canManage}
+                        canEdit={props.canEdit}
                         savedLine={d().inviteMessage ?? null}
                         draftLine={draft.inviteMessage}
                       />

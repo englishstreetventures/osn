@@ -8,6 +8,7 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware, rateLimitMiddlewareByUser } from "../middleware/rate-limit";
+import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
@@ -93,8 +94,9 @@ const noStore = (set: { headers: HTTPHeaders }) => {
  * platform-plan §3.5):
  *  - DASHBOARD READS (`/guests`, `/events`) use `weddingMember()` — owner OR
  *    any co-host (editor AND viewer). Co-hosts get the read dashboard, nothing
- *    destructive. The CSV exports + `/rsvps` view are in a sibling instance
- *    (`createOrganiserExportRoutes`) behind a per-user limiter (CSV-S-L1).
+ *    destructive. The CSV exports (owners only) + `/rsvps` view are in a
+ *    sibling instance (`createOrganiserExportRoutes`) behind a per-user
+ *    limiter.
  *  - CODE MANAGEMENT (`regenerate-code`, family deactivate/reactivate) uses
  *    `weddingOwner()` — claim codes are the guest credential, so cutting one
  *    off or rotating it is owner-only.
@@ -110,9 +112,22 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       return runCire(
         Effect.gen(function* () {
           const list = yield* weddingsService.listForMember(osnProfileId);
-          const premium = yield* tierService.premiumTemplateHolders(list.map((w) => w.id));
-          for (const w of list) w.entitlements = legacyEntitlementKeys(w.tier, premium.has(w.id));
-          return { weddings: list };
+          // Entitlement keys matter only to a wedding that can be opened.
+          const premium = yield* tierService.premiumTemplateHolders(list.weddings.map((w) => w.id));
+          for (const w of list.weddings) {
+            w.entitlements = legacyEntitlementKeys(w.tier, premium.has(w.id));
+          }
+          return {
+            weddings: list.weddings,
+            // An owner's soft-deleted weddings they can still restore.
+            deleted: list.deleted.map((w) => ({
+              id: w.id,
+              slug: w.slug,
+              displayName: w.displayName,
+              deletedAt: w.deletedAt.toISOString(),
+              restoreUntil: w.restoreUntil.toISOString(),
+            })),
+          };
         }).pipe(
           Effect.provideService(DbService, db),
           Effect.catchDefect(() =>
@@ -297,12 +312,17 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
 
 /**
  * CSV + JSON RSVP export routes, split into their own instance so the per-user
- * rate limiter (CSV-S-L1) gates only the export reads and not the dashboard's
- * `/guests` + `/events` reads above. Any authenticated organiser can trigger
- * these reads in a loop and burn D1 read quota / Worker CPU on the Free tier —
- * a modest per-user cap (~10/min) bounds the amplifier while remaining
- * transparent to normal hand-use. Same sibling-instance pattern as the preview
- * + remint routes; same weddingMember() gate (owner OR co-host).
+ * rate limiter gates only the export reads and not the dashboard's `/guests` +
+ * `/events` reads above. A caller can trigger these reads in a loop and burn D1
+ * read quota / Worker CPU on the Free tier — a modest per-user cap (~10/min)
+ * bounds the amplifier while remaining transparent to normal hand-use. Same
+ * sibling-instance pattern as the preview + remint routes.
+ *
+ * Two gates. Every CSV download is `weddingOwner()`: a file leaves the portal
+ * and goes wherever its holder sends it, so taking the wedding's data away is
+ * an owner's call, and editors and viewers read it on screen instead. The
+ * dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
+ * `weddingMember()`.
  *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
  * is already authenticated and wedding-scoped, so keying on their identity
@@ -316,16 +336,16 @@ export const createOrganiserExportRoutes = (
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
+    // The CSV downloads — owners only.
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingOwner(db))
         .use(rateLimitMiddlewareByUser(limiter))
         // RSVP CSV export — one row per guest (incl. guests who haven't RSVP'd),
         // then a status/dietary PAIR per event (dietary is stored per
         // (guest, event), so one aggregate column had to drop answers). Sorted
-        // by family code.
-        // Same weddingMember() gate as the reads above (owner OR co-host). The
-        // filename embeds the wedding slug.
+        // by family code. The filename embeds the wedding slug, which the owner
+        // gate reads with the caller's seat.
         .get("/rsvps.csv", ({ weddingId, weddingSlug, set }) => {
           if (!weddingId) {
             set.status = 500;
@@ -343,7 +363,7 @@ export const createOrganiserExportRoutes = (
         })
         // Guest-roster CSV export — one row per guest with household code,
         // invited event names, Sent/Opened timestamps, and code status. Same
-        // weddingMember() gate + attachment/no-store contract as rsvps.csv.
+        // owner gate + attachment/no-store contract as rsvps.csv.
         .get("/guests.csv", ({ weddingId, weddingSlug, set }) => {
           if (!weddingId) {
             set.status = 500;
@@ -360,8 +380,8 @@ export const createOrganiserExportRoutes = (
           );
         })
         // Event-list CSV export — one row per event (chronological) with the
-        // dashboard's details plus an invited-guest count. Same weddingMember()
-        // gate + attachment/no-store contract as rsvps.csv.
+        // dashboard's details plus an invited-guest count. Same owner gate +
+        // attachment/no-store contract as rsvps.csv.
         .get("/events.csv", ({ weddingId, weddingSlug, set }) => {
           if (!weddingId) {
             set.status = 500;
@@ -381,9 +401,8 @@ export const createOrganiserExportRoutes = (
         // newest first: the same log the registry tab pages through, whole.
         // This is the couple's copy of a record we delete a year after the
         // wedding, so it carries the detail the year-end summary cannot:
-        // who gave what, in which currency, and what they wrote. Same
-        // weddingMember() gate + attachment/no-store contract as the exports
-        // above.
+        // who gave what, in which currency, and what they wrote. Same owner
+        // gate + attachment/no-store contract as the exports above.
         //
         // No `weddingTier(db, "gold")` gate, unlike every other registry
         // surface, and that is deliberate: the log is the couple's own
@@ -414,7 +433,7 @@ export const createOrganiserExportRoutes = (
         // spreadsheet tool and re-uploaded through the import (unlike the
         // reporting exports above). `?fidelity=full` appends the snapshot
         // ID/code columns (the parser ignores them today; E2 honours them) —
-        // and therefore contains live claim codes. Same weddingMember() gate +
+        // and therefore contains live claim codes. Same owner gate +
         // attachment/no-store contract as the reporting exports.
         .get("/export/events.csv", ({ weddingId, weddingSlug, query, set }) => {
           if (!weddingId) {
@@ -447,7 +466,14 @@ export const createOrganiserExportRoutes = (
               Effect.catchDefect(() => exportDefect(set, "export/guests.csv", weddingId)),
             ),
           );
-        })
+        }),
+    )
+    // The dashboard's RSVP view — every member. A second `.group` on the same
+    // path, because a gate is applied per group.
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingMember(db))
+        .use(rateLimitMiddlewareByUser(limiter))
         // Read-only in-dashboard RSVP view — the same wedding-scoped, host-
         // excluded RSVP data as the CSV export, shaped BY EVENT (each event with
         // its responded guests + a status tally) for the dashboard's RSVPs tab.
@@ -587,11 +613,16 @@ export const createOrganiserPreviewRoutes = (
     );
 
 /**
- * Bulk claim-code re-mint onto a new style (C3) + per-family "mark shared"
- * (the Copy-message button). Both are owner-only (weddingOwner) and split into
- * their own instance behind a per-IP limiter so the destructive bulk-write +
- * the high-frequency mark-shared writes don't sit behind (or gate) the
- * dashboard reads. Same sibling-instance pattern as the preview + create routes.
+ * Bulk claim-code re-mint onto a new style + per-family "mark shared" (the
+ * Copy-message button), split into their own instance behind a per-IP limiter
+ * so the destructive bulk-write + the high-frequency mark-shared writes don't
+ * sit behind (or gate) the dashboard reads. Same sibling-instance pattern as
+ * the preview + create routes.
+ *
+ * Two gates. Re-minting rotates every guest's credential, so it is
+ * `weddingOwner()`. Marking a code shared is bookkeeping for whoever copied the
+ * message — it records that a code went out, and changes no credential — so
+ * it is `weddingEditor()`: an editor who sends the invites gets them counted.
  */
 export const createOrganiserRemintRoutes = (
   db: Db,
@@ -652,7 +683,14 @@ export const createOrganiserRemintRoutes = (
             );
           },
           manualParse,
-        )
+        ),
+    )
+    // MARK SHARED — owner or editor. A second `.group` on the same path,
+    // because a gate is applied per group.
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
+        .use(rateLimitMiddleware(limiter))
         // Mark a family's invite code as "shared" — best-effort, fired by the
         // Copy-message button. Bodiless. 404 if the family isn't in :weddingId.
         .post("/families/:familyId/mark-shared", ({ weddingId, params, set }) => {
