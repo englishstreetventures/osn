@@ -433,15 +433,22 @@ export default function HostsPanel(props: HostsPanelProps) {
 
   /**
    * Leave this wedding: delete the caller's own seat. A 403 means the seat is
-   * already gone (the owner removed it, or another tab left first), so it ends
-   * the same way as a success.
+   * already gone (the owner removed it, or another tab left first). That 403
+   * has already made the dashboard ask the API for the organiser's weddings
+   * (`watchForbidden`), and the answer drops this one, so `onLeft` is not
+   * called: a local drop would throw that answer away and ask a second time.
    */
   async function leave() {
     setLeaving(true);
     try {
       const res = await authFetch(`${endpoint()}/me`, { method: "DELETE" });
       if (res.status === 401) return redirectToLogin();
-      if (!res.ok && res.status !== 403) {
+      if (res.status === 403) {
+        setConfirmingLeave(false);
+        toast.success("You're no longer a host of this wedding.");
+        return;
+      }
+      if (!res.ok) {
         haptic("reject");
         toast.error(
           res.status === 409
