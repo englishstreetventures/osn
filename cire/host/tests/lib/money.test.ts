@@ -151,6 +151,10 @@ describe("parseMinor", () => {
     expect(parseMinor("1e-9", "AUD")).toBeNull();
   });
 
+  it("keeps a huge amount in exponent notation whole", () => {
+    expect(parseMinor("1e21", "JPY")).toBe(1e21);
+  });
+
   it("keeps a typed zero, and a fraction that rounds up to one minor unit", () => {
     expect(parseMinor("0", "AUD")).toBe(0);
     expect(parseMinor("0.00", "JPY")).toBe(0);

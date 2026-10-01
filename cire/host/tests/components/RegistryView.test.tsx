@@ -271,6 +271,23 @@ describe("RegistryView — the gift list", () => {
     expect(authFetch).not.toHaveBeenCalled();
   });
 
+  it("rejects an edited price below the currency's smallest unit, naming it", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ currency: "KWD", items: [item({ id: "a", title: "Copper pan" })] }),
+    );
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /edit copper pan/i }));
+    const editForm = container.querySelectorAll("form")[1]!;
+    fireEvent.input(within(editForm).getByLabelText("Price"), { target: { value: "0.0004" } });
+    fireEvent.submit(editForm);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Amounts between 0 and .*0\.001.* are not allowed\./);
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
   it("reorders with arrow buttons — optimistically, then PATCH /reorder", async () => {
     setCachedRegistry(
       "wed_1",
