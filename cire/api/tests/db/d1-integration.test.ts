@@ -18,7 +18,10 @@ import {
   rsvpChanges,
   rsvps,
   tasks,
+  vendorClaims,
+  vendors,
   weddingFaqs,
+  weddingEntitlements,
   weddingInviteCustomisations,
   weddings,
   BOOTSTRAP_WEDDING_ID,
@@ -47,14 +50,18 @@ import {
   headRevision,
 } from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
-import { createDirectoryService } from "../../src/services/directory";
+import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
-import { registryService, SettingsChanged } from "../../src/services/registry";
+import {
+  registryGuestService,
+  registryService,
+  SettingsChanged,
+} from "../../src/services/registry";
 import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
@@ -229,6 +236,8 @@ afterAll(async () => {
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
   for (const table of [
+    vendorClaims,
+    vendors,
     directoryVendorCategories,
     directoryVendors,
     rsvpChanges,
@@ -848,6 +857,110 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "guest registry gate: one joined read decides the list, and the image, on D1",
+    async () => {
+      // The correlated EXISTS columns and the LEFT JOIN's NULL settings run
+      // through the D1 driver's positional row mapping here, not only through
+      // bun:sqlite's.
+      const now = new Date();
+      const visible = (eff: Effect.Effect<string, unknown, DbService>) =>
+        Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
+      await db.insert(weddingEntitlements).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "registry",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: "usr_test",
+      });
+      // Entitled, never opened: no settings row reads as unpublished.
+      expect(Exit.isFailure(await visible(registryGuestService.visibleWeddingId("w")))).toBe(true);
+
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        headline: "Gifts",
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(await run(registryGuestService.visibleWeddingId("w"))).toBe(BOOTSTRAP_WEDDING_ID);
+      const view = await run(registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID }));
+      expect(view.headline).toBe("Gifts");
+      expect(view.cashGiftsEnabled).toBe(false);
+
+      await db.insert(registryItems).values({
+        id: "ritem_gate",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1"))).toBe(
+        `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
+      );
+      expect(
+        Exit.isFailure(await visible(registryGuestService.visibleImageKey("w", "registry-gone"))),
+      ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "gift log pages through one union with an offset on D1",
+    async () => {
+      const at = (seconds: number) => new Date(Date.UTC(2026, 7, 20, 10, 0, seconds));
+      await db.insert(registryItems).values({
+        id: "ritem_log",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      // The oldest gift is a claim; 51 cash gifts follow it, a second apart.
+      await db.insert(registryClaims).values({
+        id: "rclaim_log",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_log",
+        familyId: FAMILY_ID,
+        quantity: 1,
+        status: "reserved",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      // Ten rows per insert: D1 binds at most 100 variables per statement.
+      for (let start = 1; start <= 51; start += 10) {
+        await db.insert(registryContributions).values(
+          Array.from({ length: Math.min(10, 52 - start) }, (_, i) => ({
+            id: `rcon_log_${String(start + i).padStart(2, "0")}`,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: null,
+            familyId: FAMILY_ID,
+            status: "succeeded" as const,
+            amountMinor: 1_000,
+            currency: "AUD",
+            createdAt: at(start + i),
+            updatedAt: at(start + i),
+          })),
+        );
+      }
+
+      const first = await run(registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+      expect(first.entries).toHaveLength(50);
+      expect(first.hasMore).toBe(true);
+      expect(first.entries[0]!.id).toBe("rcon_log_51");
+
+      const second = await run(registryService.giftLog(BOOTSTRAP_WEDDING_ID, { offset: 50 }));
+      expect(second.hasMore).toBe(false);
+      expect(second.entries.map((e) => [e.kind, e.id, e.quantity, e.amountMinor])).toEqual([
+        ["contribution", "rcon_log_01", null, 1_000],
+        ["claim", "rclaim_log", 1, null],
+      ]);
+      expect(second.entries[1]!.createdAt).toBe(at(0).getTime());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "registry settings: a stale expected value is refused on D1 and changes nothing",
     async () => {
       // The refusal rests on the upsert's `DO UPDATE ... WHERE` returning no row
@@ -919,18 +1032,147 @@ describe("cire/api over real D1 (Miniflare)", () => {
         { directoryVendorId: "dv_two", category: "catering" },
         { directoryVendorId: "dv_draft", category: "venue" },
       ]);
+      // The wedding's CRM links dv_two only.
+      await db.insert(vendors).values({
+        id: "ven_two",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        directoryVendorId: "dv_two",
+        name: "Two Categories",
+        category: "venue",
+        createdAt: now,
+        updatedAt: now,
+      });
       const directory = createDirectoryService();
 
-      const two = await run(directory.getLiveListingById("dv_two"));
+      const two = await run(directory.getLiveListingById("dv_two", BOOTSTRAP_WEDDING_ID));
       expect(two?.name).toBe("Two Categories");
       expect(two?.createdAt).toBe(Math.floor(now.getTime() / 1000) * 1000);
       expect(two?.categories.toSorted()).toEqual(["catering", "venue"]);
+      // D1 returns the EXISTS as an integer; the service hands back a boolean.
+      expect(two?.inWedding).toBe(true);
 
-      const none = await run(directory.getLiveListingById("dv_none"));
+      const none = await run(directory.getLiveListingById("dv_none", BOOTSTRAP_WEDDING_ID));
       expect(none?.categories).toEqual([]);
+      expect(none?.inWedding).toBe(false);
 
-      expect(await run(directory.getLiveListingById("dv_draft"))).toBeNull();
-      expect(await run(directory.getLiveListingById("dv_missing"))).toBeNull();
+      expect(await run(directory.getLiveListingById("dv_draft", BOOTSTRAP_WEDDING_ID))).toBeNull();
+      expect(
+        await run(directory.getLiveListingById("dv_missing", BOOTSTRAP_WEDDING_ID)),
+      ).toBeNull();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "consumeClaim burns the token and binds the listing from the bind's RETURNING row",
+    async () => {
+      const now = new Date();
+      await db.insert(vendors).values({
+        id: "ven_claim",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        name: "Claim Florals",
+        category: "florals",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const directory = createDirectoryService();
+      const { claimToken, directoryVendorId } = await run(
+        directory.seedFromCrm(BOOTSTRAP_WEDDING_ID, "ven_claim", {
+          name: "Claim Florals",
+          description: null,
+          email: "claim@example.com",
+          phone: null,
+          website: null,
+          instagram: null,
+          locationText: null,
+          priceBand: null,
+          priceMinMinor: null,
+          priceMaxMinor: null,
+          categories: ["florals", "decor_styling"],
+        }),
+      );
+
+      const listing = await run(directory.consumeClaim(claimToken, "org_claim", "usr_claim"));
+      expect(listing.id).toBe(directoryVendorId);
+      expect(listing.ownerOrgId).toBe("org_claim");
+      expect(listing.listed).toBe("live");
+      expect(listing.categories.toSorted()).toEqual(["decor_styling", "florals"]);
+
+      const [row] = await db
+        .select()
+        .from(directoryVendors)
+        .where(eq(directoryVendors.id, directoryVendorId));
+      expect(row?.claimedByProfileId).toBe("usr_claim");
+      const [claim] = await db
+        .select()
+        .from(vendorClaims)
+        .where(eq(vendorClaims.directoryVendorId, directoryVendorId));
+      expect(claim?.consumedAt).not.toBeNull();
+
+      const reuse = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(claimToken, "org_other", "usr_other")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(reuse) &&
+          Option.getOrUndefined(Cause.findErrorOption(reuse.cause)) instanceof ClaimInvalid,
+      ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "upsertListingForOrg answers an update from the UPDATE's RETURNING row",
+    async () => {
+      const directory = createDirectoryService();
+      const body = {
+        name: "Upsert Cakes",
+        description: null,
+        email: "cakes@example.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: "Hobart",
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        categories: ["cake"],
+      };
+      const first = await run(directory.upsertListingForOrg("org_upsert", body));
+      const second = await run(
+        directory.upsertListingForOrg("org_upsert", {
+          ...body,
+          name: "Upsert Cakes Renamed",
+          categories: ["venue", "cake"],
+        }),
+      );
+
+      expect(second.id).toBe(first.id);
+      expect(second.name).toBe("Upsert Cakes Renamed");
+      expect(second.locationText).toBe("Hobart");
+      // Stored at second precision; the first save answers from memory.
+      expect(second.createdAt).toBe(Math.floor(first.createdAt / 1000) * 1000);
+      expect(second.categories).toEqual(["cake", "venue"]);
+      const stored = await db
+        .select({ category: directoryVendorCategories.category })
+        .from(directoryVendorCategories)
+        .where(eq(directoryVendorCategories.directoryVendorId, second.id));
+      expect(stored.map((r) => r.category).toSorted()).toEqual(second.categories);
+
+      // A repeated category fails the replace batch on its primary key, and
+      // the batch commits nothing: the stored set is the one saved above.
+      const dup = await Effect.runPromiseExit(
+        directory
+          .upsertListingForOrg("org_upsert", { ...body, categories: ["florals", "florals"] })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(dup)).toBe(true);
+      const after = await db
+        .select({ category: directoryVendorCategories.category })
+        .from(directoryVendorCategories)
+        .where(eq(directoryVendorCategories.directoryVendorId, second.id));
+      expect(after.map((r) => r.category).toSorted()).toEqual(["cake", "venue"]);
     },
     MF_TIMEOUT_MS,
   );
@@ -1009,6 +1251,74 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(guestEvents)
         .where(eq(guestEvents.guestId, rows[0]!.id));
       expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a plus-one's attested reply reads back current over D1, and a household rename clears it",
+    async () => {
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      const named = await run(
+        plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" }),
+      );
+      const samId = named.plusOne.guestId;
+      const dietary = { dietary: "", dietaryPresets: ["nuts"] as const, dietaryConsent: true };
+
+      // The read-back rides as the trailing statement of the real batch, cast
+      // to its row type: the join columns it reads to answer "current" must
+      // not leak into what the invite receives.
+      const rows = await run(
+        rsvpService.submitRsvpsAndList(
+          [
+            {
+              guestId: samId,
+              eventId: EVENT_A,
+              status: "attending",
+              ...dietary,
+              consentSource: "inviter_attested",
+            },
+            {
+              guestId: GUEST_2,
+              eventId: EVENT_A,
+              status: "attending",
+              ...dietary,
+              consentSource: "organiser_attested",
+            },
+          ],
+          FAMILY_ID,
+        ),
+      );
+      const sam = rows.find((r) => r.guestId === samId);
+      expect(sam?.dietaryConsentCurrent).toBe(true);
+      expect(rows.find((r) => r.guestId === GUEST_2)?.dietaryConsentCurrent).toBe(false);
+      expect(Object.keys(sam ?? {}).toSorted()).toEqual(
+        [
+          "dietary",
+          "dietaryConsentCurrent",
+          "dietaryPresets",
+          "eventId",
+          "guestId",
+          "status",
+        ].toSorted(),
+      );
+
+      // Renamed by the household: the old person's answers and the
+      // attestation go in the same batch as the name.
+      const renamed = await run(
+        plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Alex", lastName: "" }),
+      );
+      expect(renamed).toMatchObject({ created: false, dietaryCleared: true });
+      const [stored] = await db.select().from(rsvps).where(eq(rsvps.guestId, samId));
+      expect(stored).toMatchObject({
+        status: "attending",
+        dietary: "",
+        dietaryPresets: "",
+        dietaryConsentVersion: null,
+        dietaryConsentAt: null,
+      });
+      const [guest] = await db.select().from(guests).where(eq(guests.id, samId));
+      expect(guest?.firstName).toBe("Alex");
     },
     MF_TIMEOUT_MS,
   );
@@ -1221,10 +1531,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // First write inserts the row; a section the body leaves out gets the
-      // column default. A second write updates only what it names.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { story: false }));
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { footer: false }));
-      expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
+      // column default. A second write updates only what it names. Each write
+      // answers from the row its RETURNING clause handed back, which on D1
+      // comes through the driver's raw path — so it must equal the next read,
+      // booleans included.
+      const inserted = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { story: false }),
+      );
+      expect(inserted.visibility).toEqual({ hero: true, story: false, faq: true, footer: true });
+      const updated = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { footer: false }),
+      );
+      expect(updated).toEqual(await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID)));
+      expect(updated.visibility).toEqual({
         hero: true,
         story: false,
         faq: true,
@@ -1425,7 +1744,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // …and none once it is off, with the entries kept.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { faq: false }));
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { faq: false }));
       expect((await run(claimService.lookup(PUBLIC_ID))).faq).toEqual({
         visible: false,
         entries: [],

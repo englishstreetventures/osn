@@ -89,8 +89,15 @@
     {
       "idx": 69,
       "version": "6",
-      "when": 1790549142694,
-      "tag": "0069_change_rev_and_claim",
+      "when": 1790520017852,
+      "tag": "0069_registry_items_wedding_image_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1790782319511,
+      "tag": "0070_change_rev_and_claim",
       "breakpoints": true
     }
   ]

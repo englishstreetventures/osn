@@ -445,6 +445,7 @@ CREATE TABLE IF NOT EXISTS registry_items (
   CONSTRAINT registry_items_kind_ck CHECK (kind in ('product','cash_fund'))
 );
 CREATE INDEX IF NOT EXISTS registry_items_wedding_sort_idx ON registry_items(wedding_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS registry_items_wedding_image_idx ON registry_items(wedding_id, image_key);
 CREATE TABLE IF NOT EXISTS registry_claims (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

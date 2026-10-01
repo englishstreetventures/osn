@@ -261,9 +261,41 @@ describe("the couple must be taking money", () => {
     expect(res.status).toBe(404);
     expect(stripe.sessions).toHaveLength(0);
   });
+
+  it("refuses a registry that was never opened as the same 404", async () => {
+    // No settings row at all is the state of every entitled wedding until the
+    // couple first saves the registry. It reads as the defaults — unpublished,
+    // no cash gifts — never as a fault and never as `cash_gifts_unavailable`,
+    // which would tell a guest the list exists.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    db.delete(registrySettings).where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID)).run();
+    const cookie = await guestCookie(app);
+    const res = await contribute(app, cookie, { amountMinor: 5000 });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+    expect(stripe.sessions).toHaveLength(0);
+  });
 });
 
 describe("what reaches Stripe, and what does not", () => {
+  it("prices the gift in the wedding's own currency, read by the registry gate", async () => {
+    // AUD is both the seeded default and the fallback for a missing value, so
+    // only a different currency shows the gate actually read the column.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    const cookie = await guestCookie(app);
+
+    expect((await contribute(app, cookie, { amountMinor: 5000 })).status).toBe(200);
+    expect(stripe.sessions[0]?.currency).toBe("NZD");
+    const [row] = db
+      .select({ currency: registryContributions.currency })
+      .from(registryContributions)
+      .all();
+    expect(row?.currency).toBe("NZD");
+  });
+
   it("is a direct charge on the couple's account, in the wedding's currency", async () => {
     const stripe = stripeStub();
     const { app } = buildApp({ stripe: stripe.client });

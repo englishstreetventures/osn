@@ -92,7 +92,7 @@ export const weddings = sqliteTable(
     // CC6/CC7 attributability. NULL on every pre-0056 row and on any write that
     // predates the column, which reads as "unknown", never as "the owner".
     updatedByOsnProfileId: text("updated_by_osn_profile_id"),
-    // ── Guest-list and schedule change guard (migration 0069) ──────────────
+    // ── Guest-list and schedule change guard (migration 0070) ──────────────
     // `change_rev` is the head revision of the organiser change pipeline
     // (`cire/api/src/services/changes.ts`): it moves in the same D1 batch as
     // every committed change apply or revert, and whenever a change that may
@@ -752,6 +752,12 @@ export const registryItems = sqliteTable(
     // is the tie-break the ORDER BY actually uses, so the read is covered and
     // never falls back to a sort (P-I3).
     index("registry_items_wedding_sort_idx").on(t.weddingId, t.sortOrder, t.id),
+    // "Does an item of this wedding name this image?" The public gift-image
+    // route asks it on every request that reaches the Worker, so a deleted
+    // gift's picture stops serving by name, and removing an item asks it to
+    // decide whether the R2 object is orphaned. Without it both walk every item
+    // of the wedding.
+    index("registry_items_wedding_image_idx").on(t.weddingId, t.imageKey),
     // Zero (or negative) wanted makes the remaining-quantity arithmetic in
     // registryService.claim nonsense — every claim is instantly "full". The
     // service refuses it first; this is the floor under a future writer (S-M1).

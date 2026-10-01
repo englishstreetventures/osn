@@ -173,4 +173,29 @@ describe("hasHouseholdResponded", () => {
     ];
     expect(hasHouseholdResponded(event, members, rsvps)).toBe(true);
   });
+
+  /**
+   * A household that answered, then named a guest, must not lose its tick: the
+   * mark says the people the couple invited have answered. The plus-one prompt
+   * is what tells the household their guest still needs an answer.
+   */
+  it("does not wait for a plus-one's reply", () => {
+    const members = [
+      { guestId: "guest-1", eventIds: ["event-1"], plusOneOf: null },
+      { guestId: "guest-sam", eventIds: ["event-1"], plusOneOf: "guest-1" },
+    ];
+    expect(
+      hasHouseholdResponded(event, members, [{ guestId: "guest-1", eventId: "event-1" }]),
+    ).toBe(true);
+  });
+
+  it("is still false when only the plus-one has answered", () => {
+    const members = [
+      { guestId: "guest-1", eventIds: ["event-1"], plusOneOf: null },
+      { guestId: "guest-sam", eventIds: ["event-1"], plusOneOf: "guest-1" },
+    ];
+    expect(
+      hasHouseholdResponded(event, members, [{ guestId: "guest-sam", eventId: "event-1" }]),
+    ).toBe(false);
+  });
 });

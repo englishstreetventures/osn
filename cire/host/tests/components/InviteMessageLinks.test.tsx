@@ -46,7 +46,8 @@ describe("InviteMessageLinks", () => {
   it("in the message editor, sends the owner to Households and Codes", () => {
     const { onNavigate, text } = renderLinks("message", "owner");
 
-    expect(text()).toMatch(/^Save, then copy each household's message from/);
+    // The copy action sits above this line, in the same section.
+    expect(text()).toMatch(/^Save, then copy a household's message above, or from Guests/);
     fireEvent.click(screen.getByRole("button", { name: HOUSEHOLDS }));
     fireEvent.click(screen.getByRole("button", { name: CODES }));
     expect(onNavigate.mock.calls).toEqual([["households"], ["codes"]]);
@@ -65,6 +66,8 @@ describe("InviteMessageLinks", () => {
     const { onNavigate, text } = renderLinks("codes", "owner");
 
     expect(text()).toMatch(/^Each code is the last line of a household's invite message\./);
+    // Both places that copy a message are named.
+    expect(text()).toMatch(/copy each household's message from there or from Guests/);
     fireEvent.click(screen.getByRole("button", { name: MESSAGE }));
     fireEvent.click(screen.getByRole("button", { name: HOUSEHOLDS }));
     expect(onNavigate.mock.calls).toEqual([["message"], ["households"]]);

@@ -16,6 +16,7 @@ import type { Module } from "../lib/dashboard-route";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
+import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { createRsvpChangesResource } from "../lib/rsvp-changes";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
@@ -95,14 +96,6 @@ function daysUntil(isoDate: string, nowMs: number = Date.now()): number | null {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY);
-}
-
-function fmtBudget(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(2);
-  }
 }
 
 /** The module each agenda kind sends you to. The row navigates there and carries
@@ -702,18 +695,18 @@ export default function Overview(props: {
                     fallback={
                       <p class="text-text-muted text-ui-sm">
                         {(spentSoFarMemo() ?? 0) > 0
-                          ? `${fmtBudget(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
+                          ? `${formatMinor(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
                           : "No budget yet — add your first item."}
                       </p>
                     }
                   >
                     <p class="text-text text-ui-base">
                       <span class="text-gold text-ui-lg font-semibold">
-                        {fmtBudget(spentSoFarMemo() ?? 0, budgetCurrency())}
+                        {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
                       </span>{" "}
                       <span class="text-text-muted">
                         of{" "}
-                        {fmtBudget(
+                        {formatMinor(
                           (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
                             data()?.profile?.budgetTotalMinor)!,
                           budgetCurrency(),

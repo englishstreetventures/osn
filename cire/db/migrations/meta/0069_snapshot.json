@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1f793e24-f80e-49bb-894d-4213fdc5f431",
+  "id": "f175da61-0716-4ebe-899d-d3838ba2b639",
   "prevId": "020f3259-65df-41e6-9afb-1f5ed8ab3d53",
   "tables": {
     "budget_items": {
@@ -1968,6 +1968,14 @@
             "id"
           ],
           "isUnique": false
+        },
+        "registry_items_wedding_image_idx": {
+          "name": "registry_items_wedding_image_idx",
+          "columns": [
+            "wedding_id",
+            "image_key"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -3800,28 +3808,6 @@
         "updated_by_osn_profile_id": {
           "name": "updated_by_osn_profile_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "change_rev": {
-          "name": "change_rev",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "change_claim": {
-          "name": "change_claim",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "change_claimed_at": {
-          "name": "change_claimed_at",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

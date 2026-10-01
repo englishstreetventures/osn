@@ -25,7 +25,24 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import RemintPanel from "../../src/components/RemintPanel";
-import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
+import {
+  __resetGuestsCache,
+  ensureGuestsLoaded,
+  hasCachedGuests,
+  type OrganiserGuestRow,
+} from "../../src/lib/guests-store";
+import {
+  __resetHouseholdsCache,
+  ensureHouseholdsLoaded,
+  hasCachedHouseholds,
+  type OrganiserHouseholdRow,
+} from "../../src/lib/households-store";
+import {
+  authFetchMock,
+  resetOrganiserMocks,
+  toastError,
+  toastSuccess,
+} from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -78,6 +95,49 @@ describe("RemintPanel", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    __resetGuestsCache();
+    __resetHouseholdsCache();
+  });
+
+  /** Warm both roster caches, the way a visit to Guests leaves them. */
+  async function warmRosters() {
+    await ensureGuestsLoaded("wed_a", async () => GUESTS as unknown as OrganiserGuestRow[]);
+    await ensureHouseholdsLoaded("wed_a", async () => [] as OrganiserHouseholdRow[]);
+  }
+
+  /** Mount, open the confirm, and answer the re-mint POST with `answer`. */
+  async function remintWith(answer: Response) {
+    authFetchMock.mockResolvedValueOnce(json(GUESTS));
+    render(() => <RemintPanel weddingId="wed_a" />);
+    const remintBtn = await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /Re-mint all codes/i });
+      expect((btn as HTMLButtonElement).disabled).toBe(false);
+      return btn;
+    });
+    fireEvent.click(remintBtn);
+    authFetchMock.mockResolvedValueOnce(answer);
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Yes, re-mint/i })));
+  }
+
+  it("sends the cached rosters back to the server once the codes change", async () => {
+    await warmRosters();
+
+    await remintWith(json({ codeStyle: "simple", reminted: 2 }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    // Guests → Households would otherwise copy the old, dead codes.
+    expect(hasCachedGuests("wed_a")).toBe(false);
+    expect(hasCachedHouseholds("wed_a")).toBe(false);
+  });
+
+  it("keeps the cached rosters when the re-mint is refused", async () => {
+    await warmRosters();
+
+    await remintWith(json({ error: "Could not re-mint codes" }, 500));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(hasCachedGuests("wed_a")).toBe(true);
+    expect(hasCachedHouseholds("wed_a")).toBe(true);
   });
 
   it("shows the invite-message links it is given, once", () => {
