@@ -1,13 +1,13 @@
 /**
  * Fail-soft vendor claim-invite email.
  *
- * When an organiser seeds a directory listing for a vendor, cire best-effort
- * emails the vendor a link so they can claim their listing. The claim URL is
- * returned to the organiser separately (Task 7), so this email is a
- * nice-to-have — a broken or absent transport must NEVER fail the caller.
+ * When an organiser seeds a directory listing for a vendor, cire emails the
+ * vendor a link so they can claim their listing. The email is the only place
+ * the link goes — the organiser never sees it — but a broken or absent
+ * transport must still never fail the caller.
  *
  * Error channel is `never`: any `EmailError` or defect is caught, a warning
- * is logged, and the effect resolves to `void`.
+ * is logged, and the effect resolves to `false`.
  */
 
 import { EmailService } from "@shared/email";
@@ -25,12 +25,12 @@ export interface ClaimInviteEmailInput {
 /**
  * Best-effort email to a vendor with their listing claim link.
  *
- * Requires `EmailService` in the Effect context. Swallows all errors —
- * success type is `void`, error channel is `never`.
+ * Requires `EmailService` in the Effect context. Swallows all errors and
+ * resolves to whether the transport accepted the send.
  */
 export function sendClaimInviteEmail(
   input: ClaimInviteEmailInput,
-): Effect.Effect<void, never, EmailService> {
+): Effect.Effect<boolean, never, EmailService> {
   return Effect.gen(function* () {
     const emailSvc = yield* EmailService;
     yield* emailSvc.send({
@@ -38,10 +38,12 @@ export function sendClaimInviteEmail(
       to: input.to,
       data: { claimUrl: input.claimUrl, vendorName: input.vendorName },
     });
+    return true;
   }).pipe(
     Effect.catchCause(() =>
       Effect.logWarning("[vendor-email] claim-invite send failed — continuing without email").pipe(
         Effect.annotateLogs({ reason: "transport_error", template: "vendor-claim-invite" }),
+        Effect.as(false),
       ),
     ),
   );

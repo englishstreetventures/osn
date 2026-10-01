@@ -3,9 +3,9 @@
  *
  * Two scenarios:
  * 1. Happy path: stub transport records the send call; assert `to` and `claimUrl`
- *    appear in the call, and the effect succeeds.
+ *    appear in the call, and the effect succeeds with `true`.
  * 2. Fail-soft: stub transport rejects; assert the effect STILL succeeds
- *    (Exit.isSuccess) — a broken transport must never propagate to the caller.
+ *    with `false` — a broken transport must never propagate to the caller.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -58,7 +58,7 @@ describe("sendClaimInviteEmail", () => {
       }).pipe(Effect.provide(layer)),
     );
 
-    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(Exit.isSuccess(exit) && exit.value).toBe(true);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.to).toBe("vendor@example.com");
@@ -80,8 +80,9 @@ describe("sendClaimInviteEmail", () => {
       }).pipe(Effect.provide(failLayer)),
     );
 
-    // The error channel is `never` — a transport failure MUST NOT propagate.
-    expect(Exit.isSuccess(exit)).toBe(true);
+    // The error channel is `never` — a transport failure MUST NOT propagate;
+    // it reports `false` so the caller can say the invite did not go out.
+    expect(Exit.isSuccess(exit) && exit.value === false).toBe(true);
   });
 
   it("succeeds (fail-soft) when the transport throws a defect", async () => {
@@ -97,6 +98,6 @@ describe("sendClaimInviteEmail", () => {
       }).pipe(Effect.provide(defectLayer)),
     );
 
-    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(Exit.isSuccess(exit) && exit.value === false).toBe(true);
   });
 });

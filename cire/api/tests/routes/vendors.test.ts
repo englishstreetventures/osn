@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
+import type { LogEmailTransport } from "@shared/email";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -20,6 +21,9 @@ let auth: OsnTestAuth;
 beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
+
+/** The email transport of the most recent `buildApp`, for asserting on sends. */
+let lastEmail: LogEmailTransport;
 
 function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
   const db = createDb(":memory:");
@@ -84,7 +88,8 @@ function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
       .run();
   }
 
-  const { layer: logEmailLayer } = makeLogEmailLive();
+  lastEmail = makeLogEmailLive();
+  const logEmailLayer = lastEmail.layer;
   const directoryService = createDirectoryService({
     vendorPortalOrigin: "https://vendor.test",
   });
@@ -207,7 +212,7 @@ describe("vendor CRM routes", () => {
     expect(((await res.json()) as { error: string }).error).toBe("vendor_not_found");
   });
 
-  it("list-in-directory seeds a draft listing and returns claimUrl", async () => {
+  it("list-in-directory seeds a draft listing and emails the claim link to the vendor only", async () => {
     const app = buildApp();
     const created = await req(app, "POST", base, EDITOR, VENDOR);
     const { vendor } = (await created.json()) as { vendor: VendorDto };
@@ -223,12 +228,16 @@ describe("vendor CRM routes", () => {
       locationText: null,
     });
     expect(seedRes.status).toBe(200);
-    const result = (await seedRes.json()) as {
-      directoryVendorId: string;
-      claimUrl: string;
-    };
-    expect(result.directoryVendorId).toBeDefined();
-    expect(result.claimUrl).toMatch(/^https:\/\/vendor\.test\/claim\?token=/);
+    const result = (await seedRes.json()) as Record<string, unknown>;
+    // The organiser learns the listing id and that the invite went out —
+    // never the link, which would let them claim the vendor's listing.
+    expect(result).toEqual({ directoryVendorId: expect.any(String), invited: true });
+    expect(JSON.stringify(result)).not.toContain("token=");
+
+    const [sent] = lastEmail.recorded();
+    expect(sent?.to).toBe("contact@hillside.com");
+    expect(sent?.template).toBe("vendor-claim-invite");
+    expect(sent?.text).toMatch(/https:\/\/vendor\.test\/claim\?token=/);
 
     // The linked CRM vendor row should have directoryVendorId set now.
     const list = await req(app, "GET", base, OWNER);
