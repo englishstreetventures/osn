@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-07-22
+last-reviewed: 2026-10-01
 ---
 
 # Observability Overview
@@ -24,8 +24,10 @@ OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier: 
 > Cloud while they run as Workers (the app-level OTel code stays in place and
 > activates once an endpoint is wired + a workerd-compatible exporter lands).
 > The interim signal is **Cloudflare Workers Logs** (native `[observability]`
-> in each `wrangler.toml`, #151 cire-api / #153 osn-api — invocation records +
-> structured logs, ~7-day retention, viewable in the CF dashboard → Workers &
+> in each `wrangler.toml`, #151 cire-api / #153 osn-api — structured logs,
+> and invocation records on osn-api only; cire turns invocation records off
+> because they store the request URL, which carries the wedding slug.
+> ~7-day retention, viewable in the CF dashboard → Workers &
 > Pages → *worker* → Observability/Logs). Workers Logs cover the deployed-Worker
 > debugging story; Grafana Cloud remains the destination for the Bun-hosted dev
 > path and the future workerd OTLP export. See [[free-tier-limits]] (Monitoring)

@@ -248,6 +248,7 @@ no gate of its own until then. Light-touch by design.
 |---|---|---|---|---|---|
 | Trace span attributes (route, method, status, profile_id) | Debugging + perf monitoring | Art. 6(1)(f) | 14 d (Grafana free tier) | Grafana Labs (US — needs SCC + DPA) | [[shared/observability/overview]] |
 | Log entries (Effect.log*) — redacted | Debugging + audit | Art. 6(1)(f) | 50 GB rolling (~30 d typical) | Grafana Labs | [[shared/observability/overview]] |
+| Cloudflare Workers Logs — cire-api and cire-invites (application logs only; `invocation_logs = false`, so no request URL is stored) | Debugging deployed Workers | Art. 6(1)(f) | ~7 d | Cloudflare | [[shared/observability/logging]] |
 | Metric samples (low cardinality) | Dashboards | Art. 6(1)(f) | 30 d (Grafana free tier metrics retention) | Grafana Labs | [[shared/observability/overview]] |
 | Frontend Faro events | UX + error monitoring | Art. 6(1)(f) — must remain non-PII; otherwise consent required | 14 d | Grafana Labs | [[shared/observability/overview]] |
 
