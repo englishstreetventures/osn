@@ -205,7 +205,14 @@ owners, each with an `owner` seat. Two consequences:
   the household sees only that a host wrote. They are the organiser's data in
   an organiser's access request. Erasing the household deletes the rows; an
   OSN account deletion does not reach the ids, the same orphan as
-  `wedding_hosts` below.
+  `wedding_hosts` below. Removing a co-host's seat keeps both ids: they are
+  the record of who changed a guest's reply and who attested its consent
+  (Art. 5(2), 7(1)), held as long as the reply they describe and swept with
+  it. An erasure request from that organiser nulls them instead, in the same
+  pass that removes the seat:
+  `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
+  and the same for `dietary_attested_by_osn_profile_id`. The consent record
+  itself stays, as evidence an organiser attested.
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

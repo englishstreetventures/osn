@@ -801,6 +801,7 @@ describe("RsvpView", () => {
       const cleoRow = within(ceremony).getByText("Cleo Jones").closest("tr")!;
       expect(within(cleoRow).getByText("Attending")).toBeTruthy();
       expect(within(cleoRow).getByText("Host-entered")).toBeTruthy();
+      expect(within(cleoRow).queryByText("Host-updated")).toBeNull();
       expect(tally(ceremony, "Attending")).toBe("2");
       expect(tally(ceremony, "No reply")).toBe("0");
     });
@@ -836,6 +837,44 @@ describe("RsvpView", () => {
       expect(within(adaRow).queryByText("Host-entered")).toBeNull();
     });
     expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("badges a host's update from the loaded view, and only there", async () => {
+    const view = {
+      events: [
+        {
+          ...VIEW.events[0]!,
+          guests: VIEW.events[0]!.guests.map((guest) =>
+            guest.guestId === "g4" ? { ...guest, statusRecordedByHost: true } : guest,
+          ),
+        },
+      ],
+    };
+    authFetchMock.mockResolvedValueOnce(json(view));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    const rowFor = (name: string) => screen.getByText(name).closest("tr")!;
+    expect(within(rowFor("Dev Rao")).getByText("Host-updated")).toBeTruthy();
+    expect(within(rowFor("Ada Sharma")).queryByText("Host-updated")).toBeNull();
+  });
+
+  it.each([
+    ["an answer that is not JSON", () => new Response("ok", { status: 200 })],
+    ["a reply for a guest the page does not hold", () => json(saved("gone", "attending", "guest"))],
+  ])("reloads on %s", async (_what, answer) => {
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(answer())
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    fireEvent.change(await screen.findByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(authFetchMock.mock.calls[2]![0]).toContain("/rsvps");
   });
 
   it("reloads when the PUT's answer cannot be folded in", async () => {

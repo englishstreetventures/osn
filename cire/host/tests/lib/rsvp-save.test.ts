@@ -76,6 +76,35 @@ describe("applySavedReply", () => {
     expect(next.maybe).toBe(2);
   });
 
+  it("puts a first reply from a household that sorts after every reply last", () => {
+    const event = {
+      ...EVENT,
+      unresponded: [...EVENT.unresponded, household("z1", "Zed", "ZZZ")],
+    };
+    const next = applySavedReply(event, reply("z1", "attending"))!;
+    expect(next.guests.map((g) => g.guestId)).toEqual(["a1", "c1", "z1"]);
+  });
+
+  it("leaves the counts as they were when the status is saved unchanged", () => {
+    const next = applySavedReply(EVENT, reply("a1", "attending"))!;
+    expect(next).toMatchObject({
+      attending: 1,
+      declined: 0,
+      maybe: 1,
+      responded: 2,
+      noResponse: 2,
+    });
+  });
+
+  it("never takes a count below zero", () => {
+    const stale = { ...EVENT, attending: 0, noResponse: 0 };
+    expect(applySavedReply(stale, reply("a1", "declined"))).toMatchObject({
+      attending: 0,
+      declined: 1,
+    });
+    expect(applySavedReply(stale, reply("a2", "maybe"))).toMatchObject({ noResponse: 0 });
+  });
+
   it("answers null for a guest the page does not hold", () => {
     expect(applySavedReply(EVENT, reply("zz", "attending"))).toBeNull();
   });
@@ -84,6 +113,18 @@ describe("applySavedReply", () => {
     const before = JSON.stringify(EVENT);
     applySavedReply(EVENT, reply("a2", "attending"));
     expect(JSON.stringify(EVENT)).toBe(before);
+  });
+});
+
+describe("mergeRows and the host-write flag", () => {
+  it("reads an absent flag, and a row nobody answered, as no host write", () => {
+    const rows = mergeRows(EVENT);
+    expect(rows.map((r) => [r.guestId, r.statusRecordedByHost])).toEqual([
+      ["a1", false],
+      ["c1", false],
+      ["a2", false],
+      ["b1", false],
+    ]);
   });
 });
 

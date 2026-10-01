@@ -990,6 +990,31 @@ describe("rsvpService.submitRsvpIfNamed", () => {
     );
   });
 
+  it("stores no consent time and no attester when there is no consent", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+
+    const written = await run(
+      rsvpService.submitRsvpIfNamed(
+        { ...reply(samId, hindu), dietaryPresets: [], dietaryConsent: false },
+        "Sam",
+      ),
+    );
+
+    expect(written).toBe(true);
+    const raw = db.$client
+      .query(
+        "SELECT dietary_consent_at, dietary_consent_version, recorded_by_osn_profile_id, dietary_attested_by_osn_profile_id FROM rsvps WHERE guest_id = ?",
+      )
+      .get(samId);
+    expect(raw).toEqual({
+      dietary_consent_at: null,
+      dietary_consent_version: null,
+      recorded_by_osn_profile_id: ORGANISER,
+      dietary_attested_by_osn_profile_id: null,
+    });
+  });
+
   it("updates an existing reply while the name still matches", async () => {
     const samId = seedPlusOne(db, adaId, { firstName: "Sam", lastName: "Guest" });
     const hindu = eventBySlug("hindu");
