@@ -9,7 +9,7 @@ related:
   - "[[cire-consent]]"
   - "[[stripe-webhooks]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-28
+last-reviewed: 2026-10-01
 ---
 
 # Gift registry
@@ -423,7 +423,7 @@ The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the 
 
 **`lib/registry-store.ts`** is the vendors snapshot cache in the same shape: one `GET /registry` per wedding, an inflight map so two mounts share a request, and `invalidateRegistry` on any write. Writes mutate the cached snapshot rather than refetching, which is what makes the reorder and the thank-you toggle feel instant. "Load more gifts" appends a `GET /registry/gifts?offset=<rows held>` page (`GiftLogPage`) onto the same snapshot, so the gift log and the item list still come from one cache entry.
 
-**Reorder is drag and keyboard.** Each row has a grip to drag or to move with the arrow keys, and move-up and move-down buttons for screen readers, from `@shared/sortable` through `ReorderControls.tsx` (see [[drag-and-drop]]). A move is optimistic, then `PATCH .../items/reorder` with the full `orderedIds`; focus stays on the moved row's grip, the new position is announced, and a failed save withdraws the announcement before reloading. A move rewrites only the rows whose stored `sortOrder` changes: `<For>` keys by object identity, so rewriting all up-to-500 rows would tear down an open inline editor on a row that did not move.
+**Reorder is drag and keyboard.** Each row has a grip to drag or to move with the arrow keys, and move-up and move-down buttons for screen readers, from `@shared/sortable` through `ReorderControls.tsx` (see [[drag-and-drop]]). A move is optimistic, then `PATCH .../items/reorder` with the full `orderedIds`; focus stays on the moved row's grip, the new position is announced, and a failed save withdraws the announcement before reloading. Rows are keyed by id and an order-only change keeps the row (`sameButOrder`, see [[drag-and-drop]]), so a move after a delete's gap in the stored order moves up to 500 rows instead of rebuilding them, and an open inline editor keeps its caret.
 
 **Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds to the currency's own exponent; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A foreign-currency gift renders **as given** as the headline with the snapshotted primary equivalent underneath, and `contributionsPrimaryMinor` is labelled approximate on screen, because it is a sum of per-day rates and reading it as an exact balance is the mistake worth pre-empting.
 

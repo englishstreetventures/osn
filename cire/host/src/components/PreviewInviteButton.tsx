@@ -3,7 +3,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { createSignal } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { CIRE_WEB_URL } from "../lib/osn";
 
 /**
@@ -38,10 +38,9 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
     if (win) win.opener = null;
 
     try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/preview-code`),
-        { method: "POST" },
-      );
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/preview-code")), {
+        method: "POST",
+      });
       if (res.status === 401) {
         win?.close();
         redirectToLogin();

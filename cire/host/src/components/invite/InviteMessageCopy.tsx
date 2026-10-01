@@ -4,7 +4,7 @@ import { toast } from "@shared/toast";
 import { Select } from "@shared/ui/ui/select";
 import { createSignal, createUniqueId, For, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
 import type { OrganiserHouseholdRow } from "../../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../../lib/invite-message";
 import { markHouseholdShared } from "../../lib/mark-shared";
@@ -66,7 +66,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
 
   onMount(async () => {
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/households`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Could not load households (${res.status})`);
       const rows = (await res.json()) as OrganiserHouseholdRow[];

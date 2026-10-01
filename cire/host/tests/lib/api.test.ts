@@ -2,7 +2,13 @@
 import { AuthExpiredError } from "@shared/rp-auth";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../../src/lib/api";
+import {
+  allAuthFirst,
+  apiUrl,
+  isAuthExpired,
+  redirectToLogin,
+  weddingPath,
+} from "../../src/lib/api";
 
 /**
  * `isAuthExpired` decides between "bounce the organiser to sign-in" and "show
@@ -95,6 +101,29 @@ describe("redirectToLogin", () => {
 describe("apiUrl", () => {
   it("prefixes the configured cire API origin", () => {
     expect(apiUrl("/api/organiser/weddings")).toMatch(/\/api\/organiser\/weddings$/);
+  });
+});
+
+/**
+ * Every organiser API path that names a wedding goes through this. The id comes
+ * out of the URL hash, decoded, so it has to stay inside its own path segment
+ * whatever it holds.
+ */
+describe("weddingPath", () => {
+  it("builds the wedding's path and appends the rest as written", () => {
+    expect(weddingPath("wed_1")).toBe("/api/organiser/weddings/wed_1");
+    expect(weddingPath("wed_1", "/tasks/reorder")).toBe(
+      "/api/organiser/weddings/wed_1/tasks/reorder",
+    );
+  });
+
+  it("keeps a slash, query or fragment in the id inside its segment", () => {
+    expect(weddingPath("wed_1/../../admin?x=1#y", "/tasks")).toBe(
+      "/api/organiser/weddings/wed_1%2F..%2F..%2Fadmin%3Fx%3D1%23y/tasks",
+    );
+    // What the browser would actually request: still under the wedding route.
+    const url = new URL(weddingPath("wed_1/../../admin", "/tasks"), "https://api.example");
+    expect(url.pathname).toBe("/api/organiser/weddings/wed_1%2F..%2F..%2Fadmin/tasks");
   });
 });
 

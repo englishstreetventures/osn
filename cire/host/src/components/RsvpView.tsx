@@ -20,7 +20,7 @@ import {
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { fetchRsvpChanges, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
@@ -119,7 +119,7 @@ export default function RsvpView(props: RsvpViewProps) {
   /** Loads the RSVPs; true when the table has something real to show. */
   const load = async (): Promise<boolean> => {
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/rsvps`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps")));
       if (res.status === 401) {
         redirectToLogin();
         return false;
@@ -280,7 +280,10 @@ export default function RsvpView(props: RsvpViewProps) {
     try {
       const res = await authFetch(
         apiUrl(
-          `/api/organiser/weddings/${props.weddingId}/guests/${target.guestId}/rsvps/${target.eventId}`,
+          weddingPath(
+            props.weddingId,
+            `/guests/${encodeURIComponent(target.guestId)}/rsvps/${encodeURIComponent(target.eventId)}`,
+          ),
         ),
         {
           method: "PUT",

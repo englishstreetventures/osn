@@ -3,7 +3,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 /** localStorage key for "this organiser dismissed the getting-started checklist
  *  for this wedding". Per-wedding so dismissing one wedding's guide leaves the
@@ -109,7 +109,7 @@ export default function GettingStarted(props: {
   // snapshot it never got.
   const [snapshot] = createResource<Snapshot | null>(async () => {
     try {
-      const base = `/api/organiser/weddings/${props.weddingId}`;
+      const base = weddingPath(props.weddingId);
       const [eventsRes, guestsRes, inviteRes] = await Promise.all([
         authFetch(apiUrl(`${base}/events`)),
         authFetch(apiUrl(`${base}/guests`)),

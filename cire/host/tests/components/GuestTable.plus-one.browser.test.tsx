@@ -21,12 +21,16 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {} } }));
-vi.mock("../../src/lib/api", () => ({
+vi.mock("../../src/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
   isAuthExpired: () => false,
   redirectToLogin: () => {},
 }));
-vi.mock("../../src/lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }));
+vi.mock("../../src/lib/osn", () => ({
+  CIRE_API_URL: "https://api.test",
+  CIRE_WEB_URL: "https://guests.test",
+}));
 
 import GuestTable from "../../src/components/GuestTable";
 import { __resetEventsCache } from "../../src/lib/events-store";

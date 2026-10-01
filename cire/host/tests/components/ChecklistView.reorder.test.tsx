@@ -161,6 +161,43 @@ describe("checklist — reorder", () => {
     expect(screen.getByRole("checkbox", { name: "Book venue" })).toBe(otherBucket);
   });
 
+  it("moves rows past a gap in the stored order without rebuilding them", async () => {
+    // A delete leaves a gap (nothing renumbers on delete), so the next move
+    // stores a new order for every row past it. Those rows must keep their DOM.
+    setCachedTasks("wed_1", [
+      ...TASKS.filter((t) => t.timeframeBucket !== "6m"),
+      row({ id: "c", title: "Send save-the-dates", timeframeBucket: "6m", sortOrder: 0 }),
+      row({ id: "d", title: "Book the band", timeframeBucket: "6m", sortOrder: 2 }),
+      row({ id: "e", title: "Order the cake", timeframeBucket: "6m", sortOrder: 3 }),
+    ]);
+    authFetch.mockResolvedValue(new Response("{}", { status: 200 }));
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Order the cake");
+    const cake = screen.getByRole("checkbox", { name: "Order the cake" });
+    const dates = screen.getByRole("checkbox", { name: "Send save-the-dates" });
+
+    fireEvent.keyDown(grip("Send save-the-dates"), { key: "ArrowDown" });
+
+    expect(order("6m")).toEqual(["Book the band", "Send save-the-dates", "Order the cake"]);
+    expect(screen.getByRole("checkbox", { name: "Order the cake" })).toBe(cake);
+    expect(screen.getByRole("checkbox", { name: "Send save-the-dates" })).toBe(dates);
+  });
+
+  it("still rebuilds a row whose content changed", async () => {
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Order the cake");
+    const band = screen.getByRole("checkbox", { name: "Book the band" });
+    const cake = screen.getByRole("checkbox", { name: "Order the cake" });
+
+    setCachedTasks(
+      "wed_1",
+      TASKS.map((t) => (t.id === "e" ? { ...t, title: "Order the wedding cake" } : t)),
+    );
+
+    expect(screen.getByRole("checkbox", { name: "Book the band" })).toBe(band);
+    expect(screen.getByRole("checkbox", { name: "Order the wedding cake" })).not.toBe(cake);
+  });
+
   it("drops a task onto another row of its bucket and saves only that bucket", async () => {
     authFetch.mockResolvedValue(new Response("{}", { status: 200 }));
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);

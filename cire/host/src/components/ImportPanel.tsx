@@ -5,7 +5,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import type { JSX } from "solid-js";
 import { createSignal, Show, For, onMount } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
@@ -173,8 +173,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
   const copy = () => KIND[props.kind];
   // The spreadsheet upload posts through the canonical `changes/*` front door
   // (the CSV body shape `{eventsCsv, guestsCsv}`), same pipeline the editor uses.
-  const importUrl = (op: string) =>
-    apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
+  const importUrl = (op: string) => apiUrl(weddingPath(props.weddingId, `/changes/${op}`));
   const [file, setFile] = createSignal<File | null>(null);
   // A ref so "Remove" can clear the native input's own selection — otherwise the
   // filename stays in the control while our signal says nothing is chosen, and
@@ -338,7 +337,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
     setError(null);
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/export/${props.kind}.csv`),
+        apiUrl(weddingPath(props.weddingId, `/export/${props.kind}.csv`)),
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);

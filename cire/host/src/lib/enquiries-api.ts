@@ -1,10 +1,9 @@
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 import type { EnquiryListItem, EnquiryMessage } from "./enquiries-store";
 
 export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-const base = (weddingId: string) =>
-  `/api/organiser/weddings/${encodeURIComponent(weddingId)}/enquiries`;
+const base = (weddingId: string) => weddingPath(weddingId, "/enquiries");
 
 export class EnquiryApiError extends Error {
   constructor(
