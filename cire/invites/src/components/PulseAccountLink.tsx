@@ -91,7 +91,9 @@ function AccountPicture(props: { account: SignedInAccount }) {
 /** Picture, display name and `@handle`, side by side. */
 function AccountCard(props: { account: SignedInAccount }) {
   return (
-    <div class="flex items-center gap-3">
+    // `min-w-0 max-w-full`: a long name or handle truncates inside the box
+    // rather than pushing it past the panel on a phone.
+    <div class="flex max-w-full min-w-0 items-center gap-3">
       <AccountPicture account={props.account} />
       <span class="flex min-w-0 flex-col">
         <Show when={props.account.displayName}>
