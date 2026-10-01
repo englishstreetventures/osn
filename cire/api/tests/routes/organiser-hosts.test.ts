@@ -545,14 +545,14 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
       .from(hostRsvpNotices)
       .all()
       .map((r) => r.id)
-      .sort();
+      .toSorted();
   const seatIds = (db: Db) =>
     db
       .select({ id: weddingHosts.osnProfileId })
       .from(weddingHosts)
       .all()
       .map((r) => r.id)
-      .sort();
+      .toSorted();
 
   it("returns 401 without a token", async () => {
     const { app } = build();
@@ -579,7 +579,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ left: true });
     expect(seatIds(db)).toEqual(["usr_carol"]);
-    expect(noticeIds(db)).toEqual([OWNER, "usr_carol"].sort());
+    expect(noticeIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
     expect(await counterValue("cire.host.removed", { result: "ok", actor: "self" })).toBe(
       before + 1,
     );
@@ -610,7 +610,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "owner_cannot_leave" });
     expect(seatIds(db)).toEqual([COHOST]);
-    expect(noticeIds(db)).toEqual([COHOST, OWNER].sort());
+    expect(noticeIds(db)).toEqual([COHOST, OWNER].toSorted());
     expect(
       await counterValue("cire.host.removed", { result: "owner_refused", actor: "self" }),
     ).toBe(before + 1);
