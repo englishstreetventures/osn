@@ -204,6 +204,19 @@ export const RegistryLinkPreviewBody = Schema.Struct({
 export type RegistryLinkPreviewBody = Schema.Schema.Type<typeof RegistryLinkPreviewBody>;
 
 /**
+ * Thumbnail request — one candidate image the picker wants to show.
+ *
+ * In a body rather than a query string so the shop URL stays out of the request
+ * line, where request logs would keep it. Same `HttpsUrl` outer gate as the
+ * preview; `services/link-thumbnail.ts` runs the full guard on it regardless,
+ * since a client can post any URL here.
+ */
+export const RegistryLinkThumbBody = Schema.Struct({
+  url: HttpsUrl,
+});
+export type RegistryLinkThumbBody = Schema.Schema.Type<typeof RegistryLinkThumbBody>;
+
+/**
  * Save-from-URL request — the ONE candidate the organiser picked out of the
  * preview, whose bytes get copied into R2.
  *

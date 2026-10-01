@@ -124,6 +124,10 @@ export interface Env {
   // exists to protect the third party being fetched, not to stop a brute force.
   REGISTRY_PREVIEW_RATE_LIMITER?: WorkersRateLimitBinding;
   REGISTRY_IMAGE_RATE_LIMITER?: WorkersRateLimitBinding;
+  // The link picker's thumbnails: one outbound fetch and one Images transform
+  // per call, six per preview, so its own namespace sized at 60/min. Absent ⇒
+  // the per-isolate in-memory default, as for the two above.
+  REGISTRY_THUMB_RATE_LIMITER?: WorkersRateLimitBinding;
   // The guest registry write limiter — claiming and releasing a gift. Its own
   // namespace because guests are a different population from organisers: a
   // guest party working through a gift list must not spend the budget the
@@ -390,6 +394,9 @@ const handler: ExportedHandler<Env> = {
       const registryImageEdgeLimiter = env.REGISTRY_IMAGE_RATE_LIMITER
         ? createWorkersRateLimiter(env.REGISTRY_IMAGE_RATE_LIMITER)
         : undefined;
+      const registryThumbEdgeLimiter = env.REGISTRY_THUMB_RATE_LIMITER
+        ? createWorkersRateLimiter(env.REGISTRY_THUMB_RATE_LIMITER)
+        : undefined;
       // The guest claim/release writes. Own namespace, not the two above: those
       // budgets belong to the couple building the list, this one to every guest
       // of every wedding, and a guest party working through the list must not
@@ -450,6 +457,9 @@ const handler: ExportedHandler<Env> = {
         r2: env.SHEETS,
         assets: env.ASSETS,
         images: env.IMAGES,
+        // A deployed tier never serves a shop's bytes un-encoded: with no
+        // Images binding the thumbnail route answers 503 instead.
+        registryThumbRequireTransform: isDeployedTier(env),
         osnJwksUrl: env.OSN_JWKS_URL,
         osnIssuerUrl: env.OSN_ISSUER_URL,
         osnAudience: env.OSN_AUDIENCE,
@@ -501,6 +511,7 @@ const handler: ExportedHandler<Env> = {
       if (registryPreviewEdgeLimiter)
         appOptions.registryPreviewLimiter = registryPreviewEdgeLimiter;
       if (registryImageEdgeLimiter) appOptions.registryImageLimiter = registryImageEdgeLimiter;
+      if (registryThumbEdgeLimiter) appOptions.registryThumbLimiter = registryThumbEdgeLimiter;
       if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
       cached = {
         dbBinding: env.DB,

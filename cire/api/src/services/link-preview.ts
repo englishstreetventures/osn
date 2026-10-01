@@ -33,17 +33,19 @@
  *      outbound requests one preview makes has a ceiling of our own however
  *      many hosts a page names.
  *   5. The candidates we emit. Absolute-ised against the FINAL document URL,
- *      `https:` only, and each image host run through layer 2 as well. We do not
- *      fetch those URLs — the organiser's browser does — but a `javascript:` or
- *      `data:` src must never reach a picker that will put it in an `<img>`.
+ *      `https:` only, and each image host run through layer 2 as well. The picker
+ *      never loads them itself: it asks `link-thumbnail.ts` for each one, which
+ *      runs this guard again. A `javascript:` or `data:` src must still never
+ *      reach the picker.
  *
  * **Passing layer 2 does not make a host trusted, so no other layer may be
  * loosened because a host passed it.** Every hop and every emitted candidate is
  * checked again; the time budget, the byte cap and the route's rate limit bound
  * every request whatever the address check decided; the route hands back a
  * title, a site name and candidate image URLs, never the upstream status,
- * headers or body; and a refusal carries no reason. `registry-image.ts` calls
- * this guard rather than a copy of it, and any new outbound fetch to a host the
+ * headers or body; and a refusal carries no reason. `registry-image.ts` and
+ * `link-thumbnail.ts` call this guard rather than a copy of it, and any new
+ * outbound fetch to a host the
  * caller chooses does the same; a fetch whose hosts are a fixed allowlist, like
  * `pinterest-resolve.ts`, keeps its allowlist.
  *
@@ -644,8 +646,8 @@ export async function readCappedBytes(response: Response, maxBytes: number): Pro
 /**
  * Everything one guarded operation needs, resolved from the options once.
  *
- * Exported because `services/registry-image.ts` runs the SAME guard when the
- * organiser picks one of the candidates we emitted. That URL arrives in a
+ * Exported because `services/registry-image.ts` and `services/link-thumbnail.ts`
+ * run the SAME guard on a candidate we emitted. That URL arrives in a
  * request body, and a request body is client-controlled — nothing proves it is
  * one of ours — so it gets all five layers again rather than a lighter check.
  * One guard per operation: the host memo is a per-request cache, never a shared
@@ -766,8 +768,9 @@ export interface GuardedFetchArgs {
  * with manual, individually re-validated redirects, under one time budget.
  *
  * This is the ONLY place in `cire/api` that opens a socket to a host a user
- * named, and both callers — the HTML preview here and the image copy in
- * `services/registry-image.ts` — go through it. That is deliberate: two
+ * named, and every caller — the HTML preview here, the image copy in
+ * `services/registry-image.ts` and the picker's thumbnails in
+ * `services/link-thumbnail.ts` — goes through it. That is deliberate: two
  * hand-rolled hop loops would be two chances to forget `redirect: "manual"`,
  * and forgetting it once hands the platform's own redirect follower a straight
  * line into `http://169.254.169.254/`.

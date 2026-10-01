@@ -1543,3 +1543,17 @@ export const platformSales = sqliteTable("platform_sales", {
   currency: text("currency").notNull(),
   settledAt: integer("settled_at", { mode: "timestamp" }).notNull(),
 });
+
+// How many Images-binding transforms the registry link picker's thumbnails have
+// spent in one calendar month (UTC), across every wedding. One row per month.
+//
+// The Images quota is per account and the invite images guests load spend from
+// it too, so the picker stops at a fixed share of it
+// (`MONTHLY_THUMB_TRANSFORMS` in `cire/api/src/services/link-thumbnail.ts`)
+// rather than let one busy month — or one editor feeding it distinct URLs —
+// leave the invites with none. No wedding id and no profile id: the counter is
+// a total, so it holds no personal data and needs no erasure path.
+export const linkThumbTransforms = sqliteTable("link_thumb_transforms", {
+  period: text("period").primaryKey(), // YYYY-MM, UTC
+  used: integer("used").notNull().default(0),
+});

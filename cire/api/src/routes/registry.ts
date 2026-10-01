@@ -17,6 +17,7 @@ import {
   CreateRegistryItemBody,
   GiftKindSchema,
   RegistryLinkPreviewBody,
+  RegistryLinkThumbBody,
   RegistrySaveImageFromUrlBody,
   ReorderRegistryItemsBody,
   SetNoteHiddenBody,
@@ -35,6 +36,7 @@ import {
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { linkPreviewService } from "../services/link-preview";
 import type { LinkPreviewOptions } from "../services/link-preview";
+import { linkThumbnailService } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
@@ -560,6 +562,106 @@ export const createRegistryLinkPreviewRoutes = (
                       }),
                     ),
                   ),
+                ),
+                Effect.tapDefect(logDefect(weddingId)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        ),
+    );
+
+/** Options for {@link createRegistryLinkThumbRoutes}. */
+export interface RegistryLinkThumbDeps {
+  /** Per-organiser limiter, its own budget — a picker paints six at once. */
+  readonly limiter: RateLimiterBackend;
+  /** The Images binding. Absent locally and in unit tests. */
+  readonly images?: ImagesBindingLike;
+  /** True in a deployed tier: no binding ⇒ 503, never the shop's raw bytes. */
+  readonly requireTransform: boolean;
+  /** Test seam: injectable fetch + DNS resolver, shared with the preview. */
+  readonly linkPreviewOptions?: LinkPreviewOptions;
+}
+
+/**
+ * Gift registry — LINK-PICKER THUMBNAILS:
+ *
+ *   POST /registry/link-preview/image   (weddingEditor + registry entitlement + limiter)
+ *
+ * Takes `{ url }`, one candidate the preview offered, and answers a 320px
+ * re-encoded image (`services/link-thumbnail.ts`). The portal reads it through
+ * `authFetch` into an object URL, so the browser never loads a shop's host and
+ * the portal's CSP `img-src` admits no https origin but cire-api's.
+ *
+ * POST, not GET, for two reasons. The URL travels in the body, so it never
+ * reaches a request log — a registry link names something the couple is
+ * buying. And `originGuard` checks the `Origin` of every POST: organiser auth is
+ * a `SameSite=Lax` cookie, so a GET would let any same-site page's `<img>` spend
+ * an editor's budget and our outbound fetches on a URL of its choosing.
+ *
+ * Its own factory and its own limiter, same reason as the preview: an Elysia
+ * guard applies to every route in its group, and this budget is sized for six
+ * thumbnails per preview. Gate order: `osnAuth` (401) → `weddingEditor` (403)
+ * → `weddingEntitlement` (402) → limiter (429).
+ *
+ *   LinkThumbBlocked          → 400 `blocked_url` (no reason, as on the preview)
+ *   LinkThumbFetchFailed      → 502 `thumbnail_fetch_failed`
+ *   LinkThumbTooLarge         → 413 `image_too_large`
+ *   LinkThumbUnsupportedType  → 415 `unsupported_image_type`
+ *   LinkThumbTransformFailed  → 502 `thumbnail_failed`
+ *   LinkThumbUnavailable      → 503 `thumbnail_unavailable`
+ *   LinkThumbBudgetSpent      → 429 `thumbnail_budget_spent` (this month's
+ *                               share of the Images quota; see the service)
+ */
+export const createRegistryLinkThumbRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  deps: RegistryLinkThumbDeps,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db, "registry"))
+        .use(weddingEntitlement(db, "registry"))
+        .use(rateLimitMiddlewareByUser(deps.limiter))
+        .post(
+          "/registry/link-preview/image",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            const status = (code: number, error: string) =>
+              Effect.sync(() => {
+                set.status = code;
+                return { error };
+              });
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(RegistryLinkThumbBody)(raw);
+                return yield* linkThumbnailService.thumbnail({
+                  request,
+                  rawUrl: body.url,
+                  format: negotiateFormat(request.headers.get("accept")),
+                  images: deps.images,
+                  requireTransform: deps.requireTransform,
+                  options: deps.linkPreviewOptions,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
+                Effect.catchTag("LinkThumbBlocked", () => status(400, "blocked_url")),
+                Effect.catchTag("LinkThumbFetchFailed", () =>
+                  status(502, "thumbnail_fetch_failed"),
+                ),
+                Effect.catchTag("LinkThumbTooLarge", () => status(413, "image_too_large")),
+                Effect.catchTag("LinkThumbUnsupportedType", () =>
+                  status(415, "unsupported_image_type"),
+                ),
+                Effect.catchTag("LinkThumbTransformFailed", () => status(502, "thumbnail_failed")),
+                Effect.catchTag("LinkThumbUnavailable", () => status(503, "thumbnail_unavailable")),
+                Effect.catchTag("LinkThumbBudgetSpent", () =>
+                  status(429, "thumbnail_budget_spent"),
                 ),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),
