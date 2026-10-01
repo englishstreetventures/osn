@@ -185,6 +185,7 @@ export const createRegistryGuestImageRoutes = (
             // the same bytes — `serveTransformedImage` folds `visibility` into
             // the response header, not into the cache key.
             cacheSlot: `${params.slug}:registry:${params.name}`,
+            logSlot: "registry",
             variant,
             format,
             // Public, and the one part of the gift surface that still is —
