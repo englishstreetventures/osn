@@ -19,4 +19,4 @@ export { DIETARY_CONSENT_VERSION, ORGANISER_DIETARY_CONSENT_VERSION, rsvps } fro
 export type { SeedRsvp } from "./rsvps";
 export { tasks } from "./tasks";
 export type { SeedTask } from "./tasks";
-export { bootstrapWedding, DEV_OWNER_PROFILE_ID } from "./wedding";
+export { bootstrapWedding, DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "./wedding";

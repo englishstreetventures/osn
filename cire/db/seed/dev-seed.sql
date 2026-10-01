@@ -20,22 +20,22 @@
 -- Migration 0006 seeded `wed_bootstrap`, but migration 0015 deletes it (prod
 -- starts clean — every real OSN user creates their own weddings). So the local
 -- dev seed now owns its sample wedding row outright instead of relying on the
--- migration's seeded row. Owned by the fixed dev id `usr_dev_bootstrap_owner`
--- (DEV_OWNER_PROFILE_ID in cire/db/seed/data/wedding.ts) so a signed-in dev
--- account can own it; override the owner after seeding via
--- CIRE_DEV_OWNER_PROFILE_ID (see scripts/cire-db-seed.sh). The events/families
--- below are FK-scoped to it.
+-- migration's seeded row. Its owner is a seat in the seats block below,
+-- held by the fixed dev id `usr_dev_bootstrap_owner` (DEV_OWNER_PROFILE_ID in
+-- cire/db/seed/data/wedding.ts); repoint that seat at a real account after
+-- seeding via CIRE_DEV_OWNER_PROFILE_ID (see scripts/cire-db-seed.sh). The
+-- events/families below are FK-scoped to it.
 --
 -- The profile columns (date, guest estimate, currency, budget, RSVP deadline)
 -- are set rather than left NULL: an organiser fills them in early, and every
 -- planning surface reads as "not started" without them.
 INSERT OR IGNORE INTO weddings (
-  id, slug, display_name, owner_osn_profile_id, code_style,
+  id, slug, display_name, code_style,
   wedding_date, guest_count_estimate, currency, budget_total_minor,
   rsvp_deadline, rsvp_deadline_timezone,
   created_at, updated_at
 ) VALUES (
-  'wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_dev_bootstrap_owner', 'secure',
+  'wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'secure',
   '2026-11-25', 560, 'AUD', 10000000,
   '2026-10-25', 'Australia/Sydney',
   unixepoch(), unixepoch()
@@ -173,13 +173,14 @@ INSERT OR IGNORE INTO wedding_invite_customisations (
 );
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Co-hosts (3)
+-- Seats (4)
 -- ────────────────────────────────────────────────────────────────────────────
 
--- The OWNER is not in this table — ownership lives in
--- weddings.owner_osn_profile_id. These are the people the owner shared the
--- wedding with, all added BY the owner.
+-- The first seat is the OWNER — ownership is a seat with role 'owner'. The
+-- rest are the people the owner shared the wedding with, all added BY the
+-- owner.
 INSERT OR IGNORE INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES
+  ('whost_d1f0c4a2-0000-4000-8000-000000000000', 'wed_bootstrap', 'usr_dev_bootstrap_owner', 'usr_dev_bootstrap_owner', 'owner', unixepoch()),
   ('whost_d1f0c4a2-0000-4000-8000-000000000001', 'wed_bootstrap', 'usr_dev_cohost_partner', 'usr_dev_bootstrap_owner', 'editor', unixepoch()),
   ('whost_d1f0c4a2-0000-4000-8000-000000000002', 'wed_bootstrap', 'usr_dev_cohost_planner', 'usr_dev_bootstrap_owner', 'editor', unixepoch()),
   ('whost_d1f0c4a2-0000-4000-8000-000000000003', 'wed_bootstrap', 'usr_dev_cohost_viewer', 'usr_dev_bootstrap_owner', 'viewer', unixepoch());

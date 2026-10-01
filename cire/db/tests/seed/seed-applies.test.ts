@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 
-import { faqs } from "../../seed/data";
+import { DEV_OWNER_SEAT_ID, faqs, hosts } from "../../seed/data";
 
 // seed.test.ts proves dev-seed.sql is what the generator emits; this proves
 // that SQL runs. It builds a database from the migration chain, as the dev
@@ -41,5 +41,58 @@ describe("dev-seed.sql against the migrated schema", () => {
     for (const row of rows) {
       expect(Math.abs(row.created_at - Date.now() / 1000)).toBeLessThan(60);
     }
+  });
+});
+
+// `scripts/cire-db-seed.sh` repoints the sample wedding's owner seat at a real
+// account after seeding. Its SQL lives in a shell string, out of reach of the
+// type checker, so this runs that string — variables filled in as the script
+// fills them — against the seeded database.
+describe("the seed script's owner repoint", () => {
+  const script = readFileSync(
+    new URL("../../../../scripts/cire-db-seed.sh", import.meta.url),
+    "utf8",
+  );
+
+  function repointSql(profileId: string): string {
+    const seatId = script.match(/OWNER_SEAT_ID="([^"]+)"/)?.[1];
+    const command = script.match(/--command \\\n\s+"(DELETE FROM wedding_hosts[^"]+)"/)?.[1];
+    expect(seatId, "could not read OWNER_SEAT_ID from cire-db-seed.sh").toBeTruthy();
+    expect(command, "could not read the repoint SQL from cire-db-seed.sh").toBeTruthy();
+    return command!
+      .replaceAll("${CIRE_DEV_OWNER_PROFILE_ID}", profileId)
+      .replaceAll("${OWNER_SEAT_ID}", seatId!);
+  }
+
+  type Seat = { id: string; osn_profile_id: string; role: string };
+  const seatsOf = (db: Database) =>
+    db
+      .query<Seat, []>(
+        "SELECT id, osn_profile_id, role FROM wedding_hosts WHERE wedding_id = 'wed_bootstrap' ORDER BY id",
+      )
+      .all();
+
+  it("names the seed's own owner seat", () => {
+    const seatId = script.match(/OWNER_SEAT_ID="([^"]+)"/)?.[1];
+    expect(seatId).toBe(DEV_OWNER_SEAT_ID);
+  });
+
+  it("hands the owner seat to the given profile and leaves the wedding one owner", () => {
+    const db = seededDatabase();
+    db.exec(repointSql("usr_real_person"));
+    const owners = seatsOf(db).filter((s) => s.role === "owner");
+    expect(owners).toEqual([
+      { id: DEV_OWNER_SEAT_ID, osn_profile_id: "usr_real_person", role: "owner" },
+    ]);
+  });
+
+  it("drops any other seat the profile held first, so the unique seat index holds", () => {
+    const db = seededDatabase();
+    const cohost = hosts.find((h) => h.role === "editor")!;
+    db.exec(repointSql(cohost.osnProfileId));
+    const theirs = seatsOf(db).filter((s) => s.osn_profile_id === cohost.osnProfileId);
+    expect(theirs).toEqual([
+      { id: DEV_OWNER_SEAT_ID, osn_profile_id: cohost.osnProfileId, role: "owner" },
+    ]);
   });
 });

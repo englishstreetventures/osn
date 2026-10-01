@@ -15,19 +15,16 @@ import {
 // until Phase 5 threads the authenticated wedding through the API.
 export const BOOTSTRAP_WEDDING_ID = "wed_bootstrap";
 
-// Multi-tenant root. Owner is an OSN profile id (`usr_*`) — an opaque
-// string, deliberately NOT a foreign key: cire's D1 and osn's D1 are
-// separate databases. Ownership is verified at the API layer against a
-// signature-checked OSN access token. Single-owner today; a
-// wedding_owners join table (role: owner/editor/viewer) is the planned
-// multi-owner upgrade.
+// Multi-tenant root. A wedding holds no owner column: its owners are the
+// `wedding_hosts` rows with role `owner` (see that table below), so every
+// owner is equal and none is the "real" one. Ownership is verified at the API
+// layer against the caller's signature-checked OSN identity.
 export const weddings = sqliteTable(
   "weddings",
   {
     id: text("id").primaryKey(), // wed_<ulid>; bootstrap row is "wed_bootstrap"
     slug: text("slug").notNull().unique(),
     displayName: text("display_name").notNull(),
-    ownerOsnProfileId: text("owner_osn_profile_id").notNull(),
     // Claim-code tier driving family `public_id` generation (C1). `secure`
     // (default) = 10-char Crockford hash (~60-bit total code); `simple` =
     // 6-char hash (~40-bit). Read by the tiered generator in
@@ -82,7 +79,7 @@ export const weddings = sqliteTable(
     rsvpDeadlineTimezone: text("rsvp_deadline_timezone"),
     // ── Settings attribution (migration 0056) ──────────────────────────────
     // Which OSN profile last wrote the wedding profile. Opaque foreign-system
-    // id, like `owner_osn_profile_id` — no cross-DB FK.
+    // id, like `wedding_hosts.osn_profile_id` — no cross-DB FK.
     //
     // Exists because the profile stopped having a single writer: the RSVP
     // deadline is editable by an `editor` co-host (everything else on the
@@ -108,37 +105,38 @@ export const weddings = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    index("weddings_owner_idx").on(t.ownerOsnProfileId),
     // Added (migration 0053) for the public primary-wedding lookup
     // (`ORDER BY created_at DESC LIMIT 1`, no WHERE). That endpoint is GONE —
     // the guest bare domain now redirects to the marketing site rather than to
-    // whichever wedding was newest — so the only remaining ordered read is
-    // `listForMember`, which filters by owner first and sorts a handful of rows.
-    // Kept because dropping it costs a migration and buys nothing on a table
-    // this size; a fair candidate for removal next time this schema changes.
+    // whichever wedding was newest. No read orders by it any more: the wedding
+    // list orders by the caller's seat. Kept because dropping it costs a
+    // migration and buys nothing on a table this size.
     index("weddings_created_at_idx").on(t.createdAt),
   ],
 );
 
-// Co-hosts of a wedding. The creator stays the single `weddings.owner_osn_profile_id`
-// (it answers "who may manage hosts + do destructive things"); this join table
-// adds *additional* organisers who can reach the wedding's dashboard. The owner
-// is NOT rowed in here — owner-OR-host is resolved in the authz gate — so the
-// owner can't be removed as a "host" and "who is the owner" stays unambiguous.
+// Everyone who organises a wedding, owners included: one row per (wedding,
+// profile). A wedding's owners are its rows with role `owner`, and they are
+// equals — each holds every owner power, and none can be told apart as the
+// creator. The API keeps at least one owner on every wedding and at most
+// `MAX_OWNERS_PER_WEDDING` (`cire/api/src/services/hosts.ts`); both limits are
+// enforced inside the writing statement, since SQLite cannot express either as
+// a constraint.
 //
-// `osn_profile_id` is an OSN profile id (`usr_*`), like `weddings.owner_osn_profile_id`:
-// an opaque cross-database reference, deliberately NOT a foreign key (cire's D1
-// and osn's D1 are separate databases). It's resolved from a typed handle via a
+// `osn_profile_id` is an OSN profile id (`usr_*`): an opaque cross-database
+// reference, deliberately NOT a foreign key (cire's D1 and osn's D1 are
+// separate databases). It's resolved from a typed handle via a
 // server-to-server ARC call to osn-api's `/graph/internal/profile-by-handle`
 // (cire never sees the handle→id mapping otherwise). `added_by_osn_profile_id`
-// records which owner added the host (audit only). `role` splits co-hosts into
-// `editor` (full module writes — a partner or hired planner), `viewer`
-// (read-only across the dashboard) and `helper` (the day-of run sheet and
-// nothing else — not the guest list, not the budget, not the RSVPs). `host` is
-// LEGACY: migration 0031 rewrote every 'host' row to 'editor' and the app only
-// ever writes editor/viewer, but the value stays in the enum because the
-// column's DDL DEFAULT 'host' can't change without a table rebuild — readers
-// normalise a stray 'host' to 'editor'.
+// records who created the seat (audit only); a wedding's first owner seat names
+// its own holder. `role` is `owner` (manages the wedding itself: who helps,
+// claim codes, settings, billing, deletion), `editor` (full module writes — a
+// partner or hired planner), `viewer` (read-only across the dashboard) or
+// `helper` (the day-of run sheet and nothing else — not the guest list, not the
+// budget, not the RSVPs). `host` is LEGACY: migration 0031 rewrote every 'host'
+// row to 'editor' and the app never writes it, but the value stays in the enum
+// because the column's DDL DEFAULT 'host' can't change without a table rebuild
+// — readers normalise a stray 'host' to 'editor'.
 //
 // `run_sheet_scope` is a helper's own visibility setting, and applies to no
 // other role: `own` (the default) means they receive only the tasks assigned to
@@ -154,7 +152,7 @@ export const weddingHosts = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     osnProfileId: text("osn_profile_id").notNull(),
     addedByOsnProfileId: text("added_by_osn_profile_id").notNull(),
-    role: text("role", { enum: ["host", "editor", "viewer", "helper"] })
+    role: text("role", { enum: ["host", "owner", "editor", "viewer", "helper"] })
       .notNull()
       .default("host"),
     runSheetScope: text("run_sheet_scope", { enum: ["own", "full"] })
@@ -163,11 +161,11 @@ export const weddingHosts = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    // One host row per (wedding, profile) — adding the same person twice is a
-    // no-op conflict the service swallows, never a duplicate seat.
+    // One seat per (wedding, profile) — adding the same person twice is a
+    // conflict the service reports, never a duplicate seat or a second role.
     uniqueIndex("wedding_hosts_wedding_profile_uniq").on(t.weddingId, t.osnProfileId),
-    // Reverse lookup: "which weddings does this profile co-host?" — backs the
-    // portal's combined owned-OR-hosted wedding list.
+    // Reverse lookup: "which weddings does this profile organise?" — backs the
+    // portal's wedding list.
     index("wedding_hosts_profile_idx").on(t.osnProfileId),
     // List all hosts of a wedding (the management panel) in one b-tree scan.
     index("wedding_hosts_wedding_idx").on(t.weddingId),
@@ -1129,8 +1127,8 @@ export const sessions = sqliteTable(
 //
 // `osnProfileId` is the real `usr_*` id from the first-party-only
 // `osn_profile_id` claim — NOT the OIDC pairwise `sub`, because every
-// authorisation row cire holds (`weddings.owner_osn_profile_id`,
-// `wedding_hosts.osn_profile_id`) and all three ARC bridges key on profile ids.
+// authorisation row cire holds (`wedding_hosts.osn_profile_id`) and all three
+// ARC bridges key on profile ids.
 // `osnSub` keeps the pairwise subject for audit and connection-revocation
 // matching. Like the other OSN references it is an opaque cross-database id,
 // deliberately not a foreign key.
@@ -1167,7 +1165,7 @@ export const organiserSessions = sqliteTable(
 // `osn_account_id` is the OSN *account* principal (resolved server-to-server
 // over ARC from the access token's profile id — see
 // `[[wiki/cire/cire-auth]]`). Account-level (not profile-level) so any of a
-// user's OSN profiles can see the invitation. Like `weddings.owner_osn_profile_id`
+// user's OSN profiles can see the invitation. Like `wedding_hosts.osn_profile_id`
 // it is an opaque cross-database reference, deliberately NOT a foreign key:
 // cire's D1 and osn's D1 are separate databases. `osn_profile_id` records which
 // profile performed the link (audit only).

@@ -1,19 +1,24 @@
 import { Database } from "bun:sqlite";
 
 import * as schema from "@cire/db";
-import { DEV_OWNER_PROFILE_ID, events as eventsData, guests as guestsData } from "@cire/db/seed";
+import {
+  DEV_OWNER_PROFILE_ID,
+  DEV_OWNER_SEAT_ID,
+  events as eventsData,
+  guests as guestsData,
+} from "@cire/db/seed";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { Db } from "./index";
 
 // Re-exported for the seed path + tests. The single source of truth lives in
-// cire/db/seed/data/wedding.ts (DEV_OWNER_PROFILE_ID) — see seedBootstrapWedding
-// below. No real OSN profile exists in local dev or the test suite, so the
-// seeded wedding is owned by this fixed dev id; sign in as it (or repoint via
-// CIRE_DEV_OWNER_PROFILE_ID in the db:seed script) to see the sample wedding in
-// the portal. Deployed tiers never run this seed — a real signed-in OSN user
-// creates their own weddings via POST /api/organiser/weddings.
-export { DEV_OWNER_PROFILE_ID };
+// cire/db/seed/data/wedding.ts (DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID) — see
+// seedBootstrapWedding below. No real OSN profile exists in local dev or the
+// test suite, so the seeded wedding's owner seat is held by this fixed dev id;
+// sign in as it (or repoint the seat via CIRE_DEV_OWNER_PROFILE_ID) to see the
+// sample wedding in the portal. Deployed tiers never run this seed — a real
+// signed-in OSN user creates their own weddings via POST /api/organiser/weddings.
+export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
@@ -32,7 +37,6 @@ CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
-  owner_osn_profile_id TEXT NOT NULL,
   code_style TEXT NOT NULL DEFAULT 'secure',
   wedding_date TEXT,
   guest_count_estimate INTEGER,
@@ -47,7 +51,6 @@ CREATE TABLE IF NOT EXISTS weddings (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS weddings_owner_idx ON weddings(owner_osn_profile_id);
 CREATE INDEX IF NOT EXISTS weddings_created_at_idx ON weddings(created_at);
 
 CREATE TABLE IF NOT EXISTS wedding_hosts (
@@ -538,11 +541,12 @@ export function createDb(path: string = ":memory:") {
 export type TestDb = ReturnType<typeof createDb>;
 
 // Sample wedding for local dev + the test suite — every seeded family/event is
-// scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID); exported so
-// tests that build their own fixtures on a bare createDb() can satisfy the
-// wedding_id FK. This is the local/test path only — deployed D1 has no seeded
-// wedding (migration 0015 removed the orphaned bootstrap row); real OSN users
-// create their own weddings via POST /api/organiser/weddings.
+// scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID), through an
+// `owner` seat with the fixed id DEV_OWNER_SEAT_ID; exported so tests that build
+// their own fixtures on a bare createDb() can satisfy the wedding_id FK. This is
+// the local/test path only — deployed D1 has no seeded wedding (migration 0015
+// removed the orphaned bootstrap row); real OSN users create their own weddings
+// via POST /api/organiser/weddings.
 export function seedBootstrapWedding(db: Db): void {
   const now = new Date();
   db.insert(schema.weddings)
@@ -550,9 +554,18 @@ export function seedBootstrapWedding(db: Db): void {
       id: schema.BOOTSTRAP_WEDDING_ID,
       slug: "cire-wedding",
       displayName: "Cire Wedding",
-      ownerOsnProfileId: DEV_OWNER_PROFILE_ID,
       createdAt: now,
       updatedAt: now,
+    })
+    .run();
+  db.insert(schema.weddingHosts)
+    .values({
+      id: DEV_OWNER_SEAT_ID,
+      weddingId: schema.BOOTSTRAP_WEDDING_ID,
+      osnProfileId: DEV_OWNER_PROFILE_ID,
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
     })
     .run();
 }
