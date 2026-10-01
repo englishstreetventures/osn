@@ -462,7 +462,12 @@ describe("POST /api/rsvp and the member step", () => {
     await call(app, "POST", "/api/rsvp", cookie, reply(bo, eventId));
     await Effect.runPromise(
       rsvpService
-        .recordStatus({ guestId: bo, eventId, status: "declined" })
+        .recordStatus({
+          guestId: bo,
+          eventId,
+          status: "declined",
+          recordedByOsnProfileId: "usr_organiser",
+        })
         .pipe(Effect.provideService(DbService, db)),
     );
     expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();

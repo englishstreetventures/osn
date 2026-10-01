@@ -23,6 +23,9 @@ import { insertWedding } from "../test-helpers/wedding";
 let db: TestDb;
 let adaId: string;
 
+/** The organiser making every write in this file. */
+const ORGANISER = "usr_organiser";
+
 /** An event id by slug in the bootstrap wedding. */
 function eventBySlug(slug: string): string {
   const row = db.select({ id: events.id }).from(events).where(eq(events.slug, slug)).get();
@@ -96,6 +99,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     const result = await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -134,6 +138,7 @@ describe("organiserRsvpService.record", () => {
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -160,6 +165,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -199,6 +205,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -229,6 +236,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -253,6 +261,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId,
           eventId: mehendi,
@@ -279,6 +288,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID, // acting as an editor of the bootstrap wedding
           guestId: "guest_foreign", // but targeting the FOREIGN wedding's guest
           eventId: "evt_foreign",
@@ -304,6 +314,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId, // a real bootstrap guest
           eventId: "evt_foreign", // but a foreign wedding's event
@@ -349,6 +360,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: "guest_host",
           eventId: hindu,
@@ -409,6 +421,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     const result = await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -469,6 +482,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -505,6 +519,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -528,6 +543,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -556,6 +572,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -585,6 +602,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: samId,
           eventId: hindu,
@@ -620,6 +638,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -671,6 +690,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -695,6 +715,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -734,6 +755,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: samId,
           eventId: hindu,
@@ -757,6 +779,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId,
           eventId: hindu,
