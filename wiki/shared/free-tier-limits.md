@@ -237,9 +237,9 @@ the amount of data, and that number only grows. Before adding one, work out its
 cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
 out on every pull request — replaying it offline into an in-memory SQLite and
 failing when the estimate passes the budget in
-`scripts/d1-migration-cost-budgets.txt`. The chain is **140 schema writes**
-against a line at 150; priced at 27 rows each that is about 3,780 written and
-roughly 26 replays a day, but the price per schema write is only pinned to
+`scripts/d1-migration-cost-budgets.txt`. The chain is **146 schema writes**
+against a line at 150; priced at 27 rows each that is about 3,940 written and
+roughly 25 replays a day, but the price per schema write is only pinned to
 about 22–27, so read the row figure as indicative and the schema-write count as
 exact. Method, calibration and how to re-baseline: [[bundle-size-guards]], which
 also sets out why the "89% / 11%" split above cannot be read as a share of one

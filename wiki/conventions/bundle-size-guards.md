@@ -371,7 +371,7 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **140** | **150** | 3,780 → 4,050 rows | ~26 now, ~24 at the line |
+| `cire/db/migrations` | **146** | **150** | 3,942 → 4,050 rows | ~25 now, ~24 at the line |
 
 The left two columns are exact; the right two move with the constant. The
 pre-squash chain, for scale: 269 schema writes, about 7,265 rows, roughly 13
@@ -379,7 +379,7 @@ replays a day. Point the guard at `cire/db/migrations-archive` and it goes red,
 which is the fastest way to see it fail.
 *Measured 2026-10-01 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
-The line sits at 150 because the chain has regrown to 140 schema writes since the squash. The next breach is the cue to squash it into a fresh baseline, not to raise the line again.
+The line sits at 150 because the chain has regrown to 146 schema writes since the squash. The next breach is the cue to squash it into a fresh baseline, not to raise the line again.
 
 **Note the arithmetic on the pre-squash chain does not reproduce 8,007.** At 27
 it prices at 7,265 and the seed floor is 2,063, which sums past the reported
