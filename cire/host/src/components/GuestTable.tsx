@@ -174,13 +174,15 @@ function householdMatches(family: FamilyGroup, tokens: string[], lowerQuery: str
 interface GuestTableProps {
   weddingId: string;
   /** True when the signed-in organiser OWNS this wedding. Claim codes are the
-   *  guest credential, so cutting one off (deactivate/reactivate) and marking
-   *  one sent are owner-only — the API gates them with weddingOwner(); this
-   *  hides the buttons and skips the mark. */
+   *  guest credential, so cutting one off (deactivate/reactivate) is
+   *  owner-only, and so are the CSV downloads — the API gates them with
+   *  weddingOwner(); this hides those buttons. */
   canManage: boolean;
-  /** Owner or editor? Who may bring a plus-one is an editor write (the API
-   *  gates it with weddingEditor()); anyone else sees each guest's switch
-   *  read-only and no household controls. Absent reads as read-only. */
+  /** Owner or editor? Who may bring a plus-one, and marking a household's code
+   *  sent when its message is copied, are editor writes (the API gates them
+   *  with weddingEditor()); anyone else sees each guest's switch read-only, no
+   *  household controls, and copies without marking. Absent reads as
+   *  read-only. */
   canEdit?: boolean;
   /** Display name of the wedding — used in the copied invite message. */
   weddingName: string;
@@ -362,10 +364,11 @@ export default function GuestTable(props: GuestTableProps) {
 
   /** Best-effort: tell the API the family's code was just shared. Never blocks
    *  or surfaces an error to the organiser — the copy already succeeded. The
-   *  API records it for the owner only, so a co-host's copy marks nothing: no
-   *  request that can only be refused, and no "Sent" the server never saw. */
+   *  API records it for an owner or an editor, so a viewer's copy marks
+   *  nothing: no request that can only be refused, and no "Sent" the server
+   *  never saw. */
   function markShared(family: FamilyGroup) {
-    if (!props.canManage) return;
+    if (!canEdit()) return;
     // The flip stays if the POST fails: a missed mark only under-counts the
     // remint warning.
     setSharedNow((prev) => new Set(prev).add(family.publicId));
@@ -438,7 +441,7 @@ export default function GuestTable(props: GuestTableProps) {
    * the guest roster (`guests.csv`). Both are built (and formula-sanitised)
    * server-side; the response Blob is handed to the shared download helper.
    * authFetch attaches the OSN access token — the endpoints are gated by
-   * `weddingMember()` so the owner OR a co-host can export.
+   * `weddingOwner()`, so only an owner is offered the buttons.
    */
   async function exportCsv(kind: "rsvps" | "guests") {
     if (exporting()) return;
@@ -651,9 +654,13 @@ export default function GuestTable(props: GuestTableProps) {
         <SectionIntro
           eyebrow="Guest list"
           title="Households, invites & RSVPs"
-          description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
+          description={
+            props.canManage
+              ? "Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
+              : "Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code."
+          }
           actions={
-            <Show when={!loading() && !error() && hasGuests()}>
+            <Show when={props.canManage && !loading() && !error() && hasGuests()}>
               <Button
                 variant="outline"
                 size="sm"

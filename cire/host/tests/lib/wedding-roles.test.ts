@@ -168,17 +168,14 @@ describe("assignableRolesFor", () => {
     expect(assignableRolesFor("owner")).toEqual(["owner", "editor", "viewer", "helper"]);
   });
 
-  it("caps an editor at their own role — never owner", () => {
-    expect(assignableRolesFor("editor")).toEqual(["editor", "viewer", "helper"]);
-  });
-
-  it("lets a viewer and a helper grant nothing", () => {
+  it("lets an editor, a viewer and a helper grant nothing", () => {
+    expect(assignableRolesFor("editor")).toEqual([]);
     expect(assignableRolesFor("viewer")).toEqual([]);
     expect(assignableRolesFor("helper")).toEqual([]);
   });
 
-  it("lets only the roles offered management grant owner", () => {
-    const granting = ROLES.filter((role) => assignableRolesFor(role).includes("owner"));
+  it("lets only the roles offered management grant anything", () => {
+    const granting = ROLES.filter((role) => assignableRolesFor(role).length > 0);
     const managing = ROLES.filter((role) => surfacesFor(role).canManage);
     expect(granting).toEqual(managing);
   });

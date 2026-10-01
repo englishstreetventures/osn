@@ -523,7 +523,11 @@ export default function ModuleShell(props: ModuleShellProps) {
               {/* ── Events: List (read) + Edit ───────────────────────────────── */}
               <Show when={module() === "events"}>
                 <Show when={active() === "list"}>
-                  <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+                  <EventTable
+                    weddingId={props.weddingId}
+                    weddingSlug={props.weddingSlug}
+                    canManage={props.canManage}
+                  />
                 </Show>
                 {/* Edit = the on-page editor OR an events CSV import, behind one
               choice. A pure write surface, editor-gated (the API also gates
@@ -532,6 +536,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <EditWorkspace
                     weddingId={props.weddingId}
                     kind="events"
+                    canManage={props.canManage}
                     editor={() => (
                       <Suspense fallback={<PanelLoading />}>
                         <EventsEditor weddingId={props.weddingId} />
@@ -605,6 +610,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       weddingSlug={props.weddingSlug}
                       view="gifts"
                       canEdit={props.canEdit}
+                      canManage={props.canManage}
                     />
                   </Show>
                   <Show when={active() === "settings"}>
@@ -637,6 +643,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <EditWorkspace
                     weddingId={props.weddingId}
                     kind="guests"
+                    canManage={props.canManage}
                     editor={() => (
                       <Suspense fallback={<PanelLoading />}>
                         <GuestsEditor weddingId={props.weddingId} />
@@ -669,7 +676,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                         weddingId={props.weddingId}
                         weddingSlug={props.weddingSlug}
                         weddingName={props.weddingName}
-                        canManage={props.canManage}
+                        canEdit={props.canEdit}
                         entitlements={props.entitlements}
                         initialSection={builderSection()}
                         inviteMessageLinks={inviteMessageLinks("message")}
@@ -697,10 +704,9 @@ export default function ModuleShell(props: ModuleShellProps) {
                   />
                 </Show>
                 <Show when={active() === "hosts"}>
-                  {/* The role itself, not the flags: the panel needs both of
-                  the API's gates here (adding a co-host is `weddingEditor()`,
-                  changing or removing one `weddingOwner()`) and what the
-                  caller may grant, which only the role says. Every seat may
+                  {/* The role itself, not the flags: the panel needs what the
+                  caller may grant, which only the role says. Adding, changing
+                  and removing a seat are all `weddingOwner()`. Every seat may
                   leave; the API refuses the last owner. */}
                   <HostsPanel
                     weddingId={props.weddingId}

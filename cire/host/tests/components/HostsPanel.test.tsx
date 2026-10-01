@@ -227,18 +227,16 @@ describe("HostsPanel", () => {
     });
   });
 
-  it("says why a promotion past the owner ceiling was refused (409 owner_cap_reached)", async () => {
-    authFetchMock.mockResolvedValueOnce(
-      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
-    );
-    authFetchMock.mockResolvedValueOnce(json({ error: "owner_cap_reached" }, 409));
+  it("says why an add was refused when the wedding is full (409 host_cap_reached)", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    authFetchMock.mockResolvedValueOnce(json({ error: "host_cap_reached" }, 409));
     render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
-    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
-    fireEvent.change(roleSelect("@bob"), { target: { value: "owner" } });
-    fireEvent.click(screen.getByRole("button", { name: /Yes, make them owner/i }));
+    typeHandle("bob");
+    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/at most four owners/i)),
+      expect(screen.getByText(/as many hosts as it can hold, owners included/i)).toBeTruthy(),
     );
   });
 
@@ -257,19 +255,14 @@ describe("HostsPanel", () => {
     expect(screen.getByText("@ben")).toBeTruthy();
   });
 
-  it("explains the owner role to an owner adding someone, and not to an editor", async () => {
+  it("explains every role, the owner's included, to an owner adding someone", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    const { unmount } = render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
     const forOwner = screen.getByRole("group", { name: /What a co-host can do/i });
-    expect(within(forOwner).getByText("Owner")).toBeTruthy();
-    unmount();
-
-    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
-    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
-    const forEditor = screen.getByRole("group", { name: /What a co-host can do/i });
-    expect(within(forEditor).queryByText("Owner")).toBeNull();
+    for (const label of ["Owner", "Editor", "Viewer", "Helper"]) {
+      expect(within(forOwner).getByText(label)).toBeTruthy();
+    }
   });
 
   it("adds a host by handle and appends it to the list", async () => {
@@ -442,40 +435,33 @@ describe("HostsPanel", () => {
     expect(within(screen.getByRole("listitem")).getByText("Helper")).toBeTruthy();
   });
 
-  it("gives an EDITOR the add form but not the role + remove controls", async () => {
-    // The additive/subtractive split, mirroring the API's two gates: an editor
-    // can bring someone else on board (`weddingEditor()` on POST /hosts) but
-    // cannot demote or evict anyone (`weddingOwner()` on PUT/DELETE). Offering
-    // either of those controls here would just produce a 403.
+  it("gives an EDITOR neither the add form nor the role + remove controls", async () => {
+    // Host management is owner-only, as every one of its routes is
+    // `weddingOwner()`: offering any of these controls to an editor would only
+    // produce a 403.
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
     );
     render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
-    expect(screen.getByRole("button", { name: /Add host/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add host/i })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /Role for @bob/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Remove/i })).toBeNull();
     // The role badge still shows — the read stays, only the write is withheld.
-    // Scoped to the list, since the explainers above also say "Editor".
     expect(within(screen.getByRole("listitem")).getByText("Editor")).toBeTruthy();
+    expect(screen.getByText(/an owner's call/i)).toBeTruthy();
   });
 
-  it("lets an editor actually submit an add (the form is wired, not decorative)", async () => {
+  it("says only an owner can add when the API refuses the add (403)", async () => {
+    // The caller stopped being an owner after the panel loaded.
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    authFetchMock.mockResolvedValueOnce(
-      json(
-        { host: { osnProfileId: "usr_carol", handle: "carol", role: "editor", createdAt: 2 } },
-        201,
-      ),
-    );
-    render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
+    authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("carol");
     fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
-    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
-    const [, add] = authFetchMock.mock.calls;
-    expect((add?.[1] as RequestInit | undefined)?.method).toBe("POST");
+    await waitFor(() => expect(screen.getByText(/Only an owner can add someone/i)).toBeTruthy());
   });
 
   it("shows a not-found message when the handle resolves to nobody (404)", async () => {
@@ -679,16 +665,17 @@ describe("HostsPanel", () => {
       expect(onLeft).not.toHaveBeenCalled();
     });
 
-    it("keeps the wedding and says why on a failure", async () => {
+    it("keeps the wedding and tells the last owner what would let them go", async () => {
       authFetchMock.mockResolvedValueOnce(hostsBody());
       authFetchMock.mockResolvedValueOnce(json({ error: "last_owner" }, 409));
       const onLeft = vi.fn();
-      render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" canLeave onLeft={onLeft} />);
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" canLeave onLeft={onLeft} />);
       await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
       fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
       fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
       await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
-      expect(String(toastError.mock.calls[0]![0])).toMatch(/own this wedding/i);
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/only owner/i);
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/delete the wedding/i);
       expect(onLeft).not.toHaveBeenCalled();
     });
   });

@@ -99,7 +99,7 @@ const WEDDING = {
   weddingId: "wed_1",
   weddingSlug: "anita-ben",
   weddingName: "Anita & Ben",
-  canManage: true,
+  canEdit: true,
   entitlements: [],
 };
 

@@ -71,10 +71,8 @@ const ownersFirst = (rows: readonly HostRow[]): HostRow[] =>
 /** What a refused seat change says, by the API's error string. */
 const SEAT_REFUSALS = {
   last_owner: "A wedding always keeps at least one owner. Make someone else an owner first.",
-  owner_cap_reached: "A wedding can have at most four owners.",
-  host_cap_reached: "This wedding has as many co-hosts as it can hold.",
+  host_cap_reached: "This wedding has as many hosts as it can hold, owners included.",
   already_host: "That person is already a host.",
-  owner_role_forbidden: "Only an owner can make someone an owner.",
 } as const;
 
 type SeatRefusal = keyof typeof SEAT_REFUSALS;
@@ -112,10 +110,9 @@ const optionId = (i: number) => `host-handle-option-${i}`;
 interface HostsPanelProps {
   weddingId: string;
   /** The signed-in organiser's role on this wedding. `surfacesFor()` turns it
-   *  into the two things this panel offers: adding someone (an owner or an
-   *  editor — the API's `weddingEditor()` gate on `POST /hosts`) and changing
-   *  or removing a seat (owners only — `weddingOwner()`). Not named `role`: on
-   *  a JSX element that reads as an ARIA role. */
+   *  into what this panel offers: adding someone, and changing or removing a
+   *  seat, are an owner's alone (`weddingOwner()` on every one of those
+   *  routes). Not named `role`: on a JSX element that reads as an ARIA role. */
   callerRole: WeddingRole;
   /** True for every seat holder (`weddingSeat()` on `DELETE /hosts/me`). An
    *  owner may leave too while another owner remains; the API refuses the last
@@ -129,23 +126,19 @@ interface HostsPanelProps {
 
 /**
  * Hosts section of a wedding's dashboard. Lists everyone seated on the wedding,
- * owners first; an owner or an editor can add another organiser by OSN handle,
- * owners alone can change a role or remove someone, and anyone seated here can
- * leave.
+ * owners first; owners alone add someone by OSN handle, change a role or remove
+ * a seat, and anyone seated here can leave.
  *
- * The split is additive-versus-subtractive, as the API's two gates are: an
- * editor can grow the team (their ceiling is `editor` — `assignableRolesFor()`),
- * but only an owner can shrink or demote it, so every addition stays
- * reversible. Owners are equals: any owner can make another, demote or remove
- * one, or step down from their own seat — and the API refuses whichever change
- * would leave the wedding with no owner. Offering a control here that the API
- * would 403 is the failure this mirroring avoids.
+ * Owners are equals: any owner can make another, demote or remove one, or step
+ * down from their own seat — and the API refuses whichever change would leave
+ * the wedding with no owner. Everyone else sees the list and nothing to change
+ * in it. Offering a control here that the API would 403 is the failure this
+ * mirroring avoids.
  */
 export default function HostsPanel(props: HostsPanelProps) {
   const { authFetch, activeProfileId } = useAuth();
   const surfaces = () => surfacesFor(props.callerRole);
   const canManage = () => surfaces().canManage;
-  const canAdd = () => surfaces().canEdit;
   /** The roles this caller may put on a seat — the dropdown and the explainers. */
   const grantable = () => assignableRolesFor(props.callerRole);
   const isMe = (host: HostRow) => host.osnProfileId === activeProfileId();
@@ -390,9 +383,14 @@ export default function HostsPanel(props: HostsPanelProps) {
         setAddError(`No OSN account found for @${value}.`);
         return;
       }
-      if (res.status === 409 || res.status === 403) {
+      if (res.status === 409) {
         haptic("reject");
         setAddError((await refusalIn(res)) ?? "That person is already a host.");
+        return;
+      }
+      if (res.status === 403) {
+        haptic("reject");
+        setAddError("Only an owner can add someone to this wedding.");
         return;
       }
       if (res.status === 503) {
@@ -532,13 +530,11 @@ export default function HostsPanel(props: HostsPanelProps) {
         description={
           canManage()
             ? "Invite a partner or planner to help. Pick someone from your OSN connections, or add them by handle — everyone joins as a viewer, and an owner sets what they can do from their row. A wedding can have more than one owner, all equal: any of you can change a role or remove someone."
-            : canAdd()
-              ? "Invite a partner or planner to help — pick someone from your OSN connections, or add them by handle. They join as a viewer; changing a role or removing someone is an owner's call."
-              : "These people help run this wedding. Ask an owner for editor access to add someone."
+            : "These people help run this wedding. Adding someone, changing a role or removing a seat is an owner's call."
         }
       />
 
-      <Show when={canAdd()}>
+      <Show when={canManage()}>
         <form class="flex flex-col gap-3" onSubmit={add}>
           {/* What each role carries, ahead of the box that names the person.
               Before the handle rather than after it because it is what the
@@ -726,9 +722,9 @@ export default function HostsPanel(props: HostsPanelProps) {
                       {ROLE_COPY[host.role].label}
                     </span>
                     {/* Who seated them. Shown only to owners, and only when the
-                        seat names someone other than its holder — an editor can
-                        create seats, so a seat no owner created is the thing
-                        worth surfacing. Absent on older API payloads. */}
+                        seat names someone other than its holder — owners are
+                        equals, so which of them seated someone is worth
+                        surfacing. Absent on older API payloads. */}
                     <Show
                       when={
                         canManage() &&
@@ -789,7 +785,7 @@ export default function HostsPanel(props: HostsPanelProps) {
           <EmptyState
             title="No co-hosts yet"
             description={
-              canAdd()
+              canManage()
                 ? "Add one above to share this wedding."
                 : "Only the owners manage this wedding for now."
             }

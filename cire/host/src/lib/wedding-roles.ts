@@ -72,12 +72,9 @@ export const LEAST_PRIVILEGE_ROLE: WeddingRole = (Object.keys(ROLE_RANK) as Wedd
 
 /**
  * The roles someone holding `role` may give a seat — on someone they add, and
- * through a role change. Mirrors `assignableRolesFor()` in
- * `cire/api/src/middleware/wedding-role.ts`, which the API enforces.
- *
- * Only an owner may grant `owner`: an owner can remove every other seat, so an
- * editor who could make one could make themselves unremovable. An editor's
- * ceiling is their own role. Exhaustive over {@link WeddingRole} with no
+ * through a role change. Mirrors the API, where every route that writes a role
+ * is `weddingOwner()`: an owner grants every role, `owner` included, and no
+ * one else grants anything. Exhaustive over {@link WeddingRole} with no
  * `default`; the tail grants nothing.
  */
 export function assignableRolesFor(role: WeddingRole): readonly AssignableRole[] {
@@ -85,7 +82,6 @@ export function assignableRolesFor(role: WeddingRole): readonly AssignableRole[]
     case "owner":
       return ASSIGNABLE_ROLES;
     case "editor":
-      return ASSIGNABLE_ROLES.filter((option) => ROLE_RANK[option] <= ROLE_RANK.editor);
     case "viewer":
     case "helper":
       return [];
@@ -130,10 +126,11 @@ export function normaliseWeddingRole(role: string): WeddingRole {
 export interface RoleSurfaces {
   /** The wedding dashboard and everything it reads — `weddingMember()`. */
   canOpenDashboard: boolean;
-  /** The module write surfaces, and seating another co-host — `weddingEditor()`. */
+  /** The module write surfaces — `weddingEditor()`. */
   canEdit: boolean;
-  /** Claim codes, the wedding's own settings, billing, and changing or removing
-   *  a seat, an owner's included — `weddingOwner()`. Every owner has it. */
+  /** Claim codes, the wedding's own settings, billing, the CSV downloads, and
+   *  adding, changing or removing a seat, an owner's included —
+   *  `weddingOwner()`. Every owner has it. */
   canManage: boolean;
 }
 
@@ -192,12 +189,12 @@ export const ROLE_COPY = {
   owner: {
     label: "Owner",
     summary:
-      "Runs the wedding, as an equal of any other owner: who helps, claim codes, settings and billing, and deleting it.",
+      "Runs the wedding, as an equal of any other owner: who helps, claim codes, settings, billing, downloads, and deleting it.",
     badgeTitle: "You own this wedding and manage who helps with it",
   },
   editor: {
     label: "Editor",
-    summary: "Can change guests, events and the invite, and bring in more co-hosts.",
+    summary: "Can change guests, events and the invite.",
     badgeTitle: "You can view and edit this wedding",
   },
   viewer: {
@@ -219,8 +216,7 @@ export const ROLE_COPY = {
  *
  * `owner` hands over the wedding itself — billing, the payout account, and the
  * power to remove every other seat, the granter's own included — and `editor`
- * every module write plus the right to seat more co-hosts. Both are worth a
- * second look.
+ * every module write. Both are worth a second look.
  */
 const CONFIRM_ON_GRANT = {
   owner: true,

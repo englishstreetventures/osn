@@ -80,15 +80,15 @@ vi.mock("../../src/components/RsvpView", () => ({
 }));
 // Counts mounts, so a test can tell a move that passed through the builder on
 // its way somewhere else from one that never touched it. Surfaces the wedding
-// name and `canManage` too: the builder's copy action writes the name into the
-// message and marks a household sent only for the owner, and passing
-// `canEdit` where `canManage` belongs would type-check.
+// name and `canEdit` too: the builder's copy action writes the name into the
+// message and marks a household sent only for an owner or editor, and passing
+// `canManage` where `canEdit` belongs would type-check.
 let builderMounts = 0;
 vi.mock("../../src/components/InviteBuilder", () => ({
   default: (p: {
     weddingId: string;
     weddingName: string;
-    canManage: boolean;
+    canEdit: boolean;
     initialSection?: string;
     inviteMessageLinks?: JSX.Element;
   }) => {
@@ -98,7 +98,7 @@ vi.mock("../../src/components/InviteBuilder", () => ({
         data-testid="invite-design"
         data-section={p.initialSection ?? ""}
         data-wedding-name={p.weddingName}
-        data-can-manage={String(p.canManage)}
+        data-can-edit={String(p.canEdit)}
       >
         {p.weddingId}
         {p.inviteMessageLinks}
@@ -315,17 +315,17 @@ describe("ModuleShell", () => {
     expect(screen.queryByTestId("guests")).toBeNull();
   });
 
-  it("hands the builder the wedding's name and the owner's right to mark households sent", async () => {
+  it("hands the builder the wedding's name and an owner's right to mark households sent", async () => {
     renderShell({ canManage: true, canEdit: true, module: "invite", sub: "design" });
     const builder = await screen.findByTestId("invite-design");
     expect(builder.getAttribute("data-wedding-name")).toBe("R & V");
-    expect(builder.getAttribute("data-can-manage")).toBe("true");
+    expect(builder.getAttribute("data-can-edit")).toBe("true");
   });
 
-  it("tells the builder a co-host editor may not mark households sent", async () => {
+  it("tells the builder a co-host editor may mark households sent too", async () => {
     renderShell({ canManage: false, canEdit: true, module: "invite", sub: "design" });
     const builder = await screen.findByTestId("invite-design");
-    expect(builder.getAttribute("data-can-manage")).toBe("false");
+    expect(builder.getAttribute("data-can-edit")).toBe("true");
   });
 
   it("gives an owner the Invite Codes sub", () => {
