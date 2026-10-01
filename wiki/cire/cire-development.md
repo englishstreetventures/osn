@@ -75,7 +75,7 @@ Elysia plugins in `cire/api/src/middleware/`, all scoped `derive` + `onBeforeHan
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
 | `osn-auth.ts` | `osnAuth` — organiser JWT, via the shared Elysia adapter |
-| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, removing or demoting any seat, delete |
+| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, removing or demoting any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, adding a co-host |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
 | `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
@@ -86,6 +86,32 @@ Pick the gate from the roles matrix in [[cire-auth]], not by guessing from the
 route name. Never add a role check inside a route handler: the roles live in
 `wedding-role.ts` so that adding one to the column is a compile error at every
 place that decides, and a check written in a handler is invisible to that.
+
+### Soft-deleted weddings
+
+A wedding with `weddings.deleted_at` set must be unreachable from every guest,
+vendor and co-host path. The four gates get this for free from
+`hostsService.authorize()`. Anything else that starts from a slug, a claim
+code, a guest session, a wedding id, or a row that belongs to a wedding — a
+public route, a vendor route, a cron, a mail, a service fan-out like
+`onVendorClaimed` — must carry the predicate from
+`cire/api/src/db/live-wedding.ts` in the statement it already runs:
+`weddingIsLive` when the query reads `weddings`, `weddingIdIsLive(column)` when
+it holds only an id (it renders the column through `outerColumn()`, so the
+correlated `EXISTS` binds to the outer row). Answer a deleted wedding exactly as
+an unknown one — never say it was deleted.
+
+`tests/routes/soft-deleted-wedding.test.ts` walks every mounted route: a new
+route outside `/api/organiser/weddings/:weddingId` fails it until it is listed
+as reaching a wedding (and then must refuse a deleted one, with a live control)
+or as not wedding-scoped, with a reason. It cannot see crons, webhooks or
+service code; those need their own test against a deleted wedding. Stripe's
+webhooks deliberately settle into a deleted wedding — see [[cire-auth]].
+
+Mount new routes that need the widened app — the lifecycle and upgrade routes —
+past the `AnyElysia` widening in `app.ts`: the organiser chain is at
+TypeScript's instantiation-depth limit, and one more `.use()` there fails
+`check` with TS2589.
 
 ## Tests
 

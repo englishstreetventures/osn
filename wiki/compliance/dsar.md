@@ -131,7 +131,13 @@ owners, each with an `owner` seat. Two consequences:
   `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
   the wedding to the others; the last owner's seat cannot be removed through
-  the API, so erasing a sole owner means erasing the wedding.
+  the API, so erasing a sole owner means erasing the wedding. An owner can now
+  do that themselves: `DELETE /api/organiser/weddings/:weddingId` soft-deletes
+  the wedding at once (hidden from every guest, vendor and co-host), any owner
+  can restore it for 7 days, and the daily purge then hard-deletes it with
+  every child row and its R2 objects — 7 to 8 days after the delete, later if
+  the purge's daily cap or a payment still settling defers it
+  ([[cire-auth#Soft-deleted weddings]], [[retention]]).
   This needs an ARC bridge to `@cire/api` that mirrors the
   pulse/zap pattern — **not built yet** (cire/api has no
   `internal/account-deleted` or export endpoint, and does not carry

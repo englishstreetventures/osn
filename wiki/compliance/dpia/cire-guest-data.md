@@ -239,8 +239,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   **1-year guest-data sweep now exists** (`retentionService.sweepExpiredGuestData`,
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
   and `imports` rows are deleted for any wedding whose final event is >365 days
-  past. The residual C-H1 gap is the R2-object follow-up (uploaded sheets carry
-  guest PII; not yet reaped).
+  past, and the sheets their `imports` rows name are reaped from R2 in the same
+  sweep. A wedding its owners delete is purged whole 7–8 days later (later if
+  the daily purge cap or a payment still settling defers it): every row by
+  cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 
 ## 3. Risks to data subjects
 
@@ -248,7 +250,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 |---|---|---|---|
 | Special-category data collected without a valid Art. 9(2)(a) consent affordance | **Low (residual)** | High | **RESOLVED — C-H2 (cire dietary), PR #123.** The RSVP form now shows an explicit, unticked opt-in checkbox once dietary text is entered, the API rejects (422) any non-empty dietary without consent, and a server-stamped consent record (`rsvps.dietary_consent_at` / `dietary_consent_version`) evidences the Art. 9(2)(a) condition. Collection is now lawful. |
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
-| Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | No purge / R2 lifecycle yet (C-H1). Storage-limitation breach over time. |
+| Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | Mitigated: the 1-year guest-data sweep (rows and their sheets) and the purge of a deleted wedding (every row, both R2 buckets). Residuals: a failed sheets reap has no reconciler, browser copies of public images can live a year, and the couple's Stripe Express account and Zap enquiry chats outlive the purge. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
 | A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under the household's attestation, in its own box and wording, pinned by its own version, and the organiser's route refuses it; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |
@@ -287,9 +289,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   where a plus-one is named is refused unless the organiser also asks for the
   plus-one to be removed, so a plus-one's data is never deleted — or kept past
   its permission — without an explicit choice.
-- **C-H1.** Implement the wedding-lifecycle purge, the expired-`cire_session`
-  sweeper, and an R2 lifecycle rule that also fires on import revert. See
-  [[retention]].
+- **C-H1.** The wedding-lifecycle purge (an owner's delete, purged 7–8 days
+  later) and the expired-`cire_session` sweeper exist; an R2 lifecycle rule
+  that also fires on import revert does not. See [[retention]].
 - **C-M1.** Resolve the cross-DB DSAR/deletion path (ARC bridge) or re-affirm
   orphan-tolerance with a privacy-notice disclosure when `DELETE /account`
   lands. See [[dsar]].

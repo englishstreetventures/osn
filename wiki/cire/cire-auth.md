@@ -178,7 +178,8 @@ Every organiser of a wedding — its owners included — holds exactly one **sea
 | **Remove** any seat or change its role — another owner's, or the caller's own (stepping down)     | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | The budget cap (`PUT /budget/total`)                                                              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Billing (`POST /upgrade/session`) and the registry's payout account (`POST /registry/stripe/session`) | ✅ | ❌     | ❌     | ❌        | `weddingOwner()`                |
-| Delete the wedding (no route yet)                                                                 | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
+| Delete the wedding (`DELETE /api/organiser/weddings/:weddingId`, soft, typed slug)              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
+| Restore a deleted wedding inside its 7 days (`POST …/:weddingId/restore`)                         | ✅    | ❌     | ❌     | ❌        | `weddingOwnerIncludingDeleted()` |
 
 Every ✅ in the Owner column belongs to **every** owner of the wedding; see [Equal owners](#equal-owners).
 
@@ -199,9 +200,43 @@ A wedding can have more than one owner, and they are **equals**: there is no "re
 
 Each guard sits **inside the statement that writes**, as a `WHERE` that counts the seats it competes with, because D1 offers no transaction across two requests: two owners removing each other at the same moment leave one of them, never neither. A refused change writes nothing, and a read of the seat rides in the same batch so the refusal names the reason the write saw. A removal deletes the seat first and the person's RSVP read marker (`host_rsvp_notices`) only once the seat is gone, so a refused removal keeps both. The count a people limit reads is `nonOwnerSeatCount()` (`cire/api/src/services/hosts.ts`), which leaves owners out.
 
-**Deleting the wedding** takes one owner's confirmation, not every owner's: any owner holds every owner power, and a second confirmation would let one partner hold the wedding hostage from the other. No delete route exists yet; the matrix row above is the gate it will mount behind.
+**Deleting the wedding** takes one owner's confirmation, not every owner's: any owner holds every owner power, and a second confirmation would let one partner hold the wedding hostage from the other. The confirmation is the wedding's slug, typed exactly, and the delete is soft: any owner — not only the one who deleted it — can restore it for 7 days. See [Soft-deleted weddings](#soft-deleted-weddings).
 
 **Mail meant for "the owner" goes to every owner**: the daily RSVP digest (every owner and editor, [[cire-rsvp-changes]]) and the retention sweep's parting gift summary, which is sent once per distinct address so two owners sharing an inbox get it once, each send isolated so one bounce costs no other owner their copy.
+
+### Soft-deleted weddings
+
+`DELETE /api/organiser/weddings/:weddingId` (body `{ "confirmSlug": "<slug>" }`) sets `weddings.deleted_at` and `deleted_by_osn_profile_id` and changes nothing else: no row, no R2 object, no session. Everything is guarded inside that one `UPDATE`, as the owner guards above are:
+
+| Refusal | When |
+| --- | --- |
+| **400** `confirmation_mismatch` | the typed slug is not exactly the wedding's (no trimming, no case-folding) |
+| **409** `purchase_in_flight` | an upgrade checkout can still be paid: `pending` with a Checkout session under 24 hours old (Stripe closes the card-only session then), or session-less under a minute |
+| **409** `gift_in_flight` | a gift checkout under 7 days old is still `pending` (a bank debit settles days after checkout) |
+| **409** `change_in_progress` | a guest-list or schedule change holds the wedding's change claim |
+| **403** `forbidden` | the caller is no longer an owner when the statement runs |
+| **404** `wedding_not_found` | unknown, or already deleted |
+
+`POST …/restore` clears both columns while `deleted_at` is under 7 days old (**409** `not_deleted` for a live wedding, **409** `restore_window_passed` after the window, **404** once purged). Both routes share one per-user limiter of 5 a minute. A restore puts back everything, because nothing was taken: guests' sessions and claim codes work again unchanged.
+
+**Where a deleted wedding disappears.** `cire/api/src/db/live-wedding.ts` spells the predicate once (`weddingIsLive`, `weddingIdIsLive`), and every read that can reach a wedding outside an owner's restore carries it:
+
+| Path | Chokepoint | What a deleted wedding gets |
+| --- | --- | --- |
+| Every organiser route under `/weddings/:weddingId` | `hostsService.authorize()`, behind all four gates | **404** `wedding_not_found` |
+| Every cookie-gated guest route | `sessionService.validate` joins the wedding | **401**, cookie kept |
+| `POST /api/claim` | `claimService.lookup` | **401** `Invalid credentials`, as a wrong code; no first-open stamp |
+| `GET /api/invite/:slug`, its images, event images | the slug reads in `invite.ts` / `event-image.ts` | **404**, as an unknown slug |
+| Every registry guest route | `resolveVisibleRegistry` | **404** `registry_not_found` |
+| Vendor enquiry list, thread, reply, quote; a vendor claiming a listing | the enquiry reads, `onVendorClaimed` | left out / **404**; a buffered enquiry is not sent to Zap |
+| RSVP digest, gift-summary mail, change claims | their own reads | skipped |
+
+Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle into a deleted wedding by design, so a gift or an upgrade paid during the window is there after a restore. Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].
+
+**The purge.** The daily cron hard-deletes a wedding once `deleted_at` is past the 7 days — so 7 to 8 days after the delete, later if the per-run cap of 3 or a money hold defers it — with every child row by FK cascade and the sheet and image objects those rows name. It holds a wedding back while a purchase or gift is `pending` and under 14 days old, while any gift is `disputed`, and while a change is mid-apply. `platform_sales` has no foreign key and survives. See [[retention]].
+
+> [!warning]
+> Rolling the cire-api Worker back past the release that added soft delete keeps the `deleted_at` column but drops every read that honours it: every soft-deleted wedding becomes visible to its guests, co-hosts and vendors again, and nothing purges it. Before such a rollback, restore or purge every row with `deleted_at IS NOT NULL`, or do not roll back. The same line is in [[production-deploy]].
 
 ### The run-sheet scope
 

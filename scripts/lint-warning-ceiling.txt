@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-987   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — a rewritten comment in cire/api/src/services/hosts.ts drops one no-tracker-ref-in-comment warning. No rule was disabled and nothing was suppressed.
+983   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — comments rewritten for the wedding soft delete (cire/api/src/services/retention.ts among them) drop four warnings. No rule was disabled and nothing was suppressed.
