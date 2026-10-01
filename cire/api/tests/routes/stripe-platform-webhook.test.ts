@@ -69,13 +69,17 @@ function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
 }
 type App = ReturnType<typeof buildApp>["app"];
 
-/** A pending purchase, as `startPurchase` would have left one. */
+/**
+ * A pending purchase, as `startPurchase` would have left one. A tier purchase
+ * records the Price it opened at; a legacy per-module product predates that.
+ */
 function seedPurchase(
   db: ReturnType<typeof createDb>,
   product: (typeof weddingUpgradePurchases.$inferInsert)["entitlement"] = "crimson",
   id = "upg_1",
 ) {
   const now = new Date();
+  const tierProduct = product === "gold" || product === "crimson";
   db.insert(weddingUpgradePurchases)
     .values({
       id,
@@ -84,6 +88,9 @@ function seedPurchase(
       fromTier: "ivory",
       status: "pending",
       checkoutSessionId: "cs_1",
+      priceId: tierProduct ? "price_c" : null,
+      priceAmountMinor: tierProduct ? 4900 : null,
+      priceCurrency: tierProduct ? "AUD" : null,
       createdByOsnProfileId: "usr_dev_bootstrap_owner",
       createdAt: now,
       updatedAt: now,
@@ -239,6 +246,24 @@ describe("what must never grant", () => {
     });
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
     expect(tierOf(db)).toEqual(IVORY);
+  });
+
+  /**
+   * The purchase id rides in `client_reference_id`, which any payment on this
+   * Stripe account can carry. A payment of another amount is acknowledged —
+   * a retry cannot change what was paid — and grants nothing.
+   */
+  it("answers 200 and grants nothing when the amount paid is not the Price's", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    const event = completed();
+    (event.data.object as Record<string, unknown>).amount_total = 100;
+
+    const res = await deliver(app, event);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "mismatch" });
+    expect(tierOf(db)).toEqual(IVORY);
+    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
   });
 
   it("grants nothing on an unsigned delivery", async () => {

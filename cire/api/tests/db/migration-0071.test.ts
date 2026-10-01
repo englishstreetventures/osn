@@ -152,6 +152,25 @@ describe("migration 0071", () => {
     db.close();
   });
 
+  it("records no Price on any purchase written before it", () => {
+    // A row with no recorded Price is settled only by the session it already
+    // holds, so every pre-tier row must read NULL here rather than a default.
+    const db = beforeMigration();
+    apply(db, MIG_0071);
+    expect(
+      db
+        .query(
+          "SELECT id, price_id, price_amount_minor, price_currency FROM wedding_upgrade_purchases ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      { id: "upg_done", price_id: null, price_amount_minor: null, price_currency: null },
+      { id: "upg_r", price_id: null, price_amount_minor: null, price_currency: null },
+      { id: "upg_v", price_id: null, price_amount_minor: null, price_currency: null },
+    ]);
+    db.close();
+  });
+
   it("allows one pending purchase per wedding, whatever it buys", () => {
     const db = beforeMigration();
     apply(db, MIG_0071);

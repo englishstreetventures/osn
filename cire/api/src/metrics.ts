@@ -382,7 +382,8 @@ export type UpgradeTier = PaidTier | "unmapped";
  *  `processing` means deliveries are lagging, not that organisers are confused.
  *  `unconfigured` is a tier with no Stripe Price in this deployment for the
  *  tier the wedding is on now. `already_held` is a wedding already on that tier
- *  or above it. */
+ *  or above it. `error` is Stripe refusing to read the Price or to open the
+ *  session. */
 export type UpgradeCheckoutResult =
   | "ok"
   | "reused"
@@ -404,7 +405,10 @@ type UpgradeCheckoutStartedAttrs = {
  *  sessions are card-only; a non-zero count means that restriction slipped.
  *  `defect` is a paid purchase whose product maps to no tier: the delivery is
  *  answered 500 so Stripe retries it, and every count is a customer who paid
- *  and holds nothing until someone looks. */
+ *  and holds nothing until someone looks. `mismatch` is a payment whose amount
+ *  or currency is not the Price the purchase opened at: acknowledged, nothing
+ *  granted, and every count is money a person has to refund or apply by
+ *  hand. */
 export type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
@@ -412,7 +416,8 @@ export type UpgradeSettleOutcome =
   | "failed"
   | "expired"
   | "unknown"
-  | "defect";
+  | "defect"
+  | "mismatch";
 type UpgradePurchaseSettledAttrs = {
   tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;

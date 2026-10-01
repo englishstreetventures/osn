@@ -1509,7 +1509,12 @@ export const weddingUpgradePurchases = sqliteTable(
     // a Crimson bought outright from one bought as an upgrade from Gold. NULL on
     // every row written before 0071.
     fromTier: text("from_tier", { enum: ["ivory", "gold"] }),
-    status: text("status", { enum: ["pending", "succeeded", "failed", "expired"] })
+    // `mismatch` is a payment whose amount or currency is not what this
+    // purchase sold: the money arrived and nothing was granted, so a person
+    // has to refund it or apply it by hand.
+    status: text("status", {
+      enum: ["pending", "succeeded", "failed", "expired", "mismatch"],
+    })
       .notNull()
       .default("pending"),
     // UNIQUE, and NULL until Stripe returns a session. The idempotency anchor
@@ -1517,6 +1522,13 @@ export const weddingUpgradePurchases = sqliteTable(
     // a 2xx, so a duplicate delivery is the ordinary case, not the edge.
     checkoutSessionId: text("checkout_session_id").unique(),
     paymentIntentId: text("payment_intent_id"),
+    // The Stripe Price the purchase opened at, and what that Price charges,
+    // read from Stripe when the row is written. Settle grants only for a
+    // payment of exactly this amount and currency. NULL on every row written
+    // before 0071, which settle accepts only from the session it already holds.
+    priceId: text("price_id"),
+    priceAmountMinor: integer("price_amount_minor"),
+    priceCurrency: text("price_currency"),
     // What Stripe ACTUALLY charged, recorded at settle — never what was asked
     // for. Null while pending.
     amountMinor: integer("amount_minor"),

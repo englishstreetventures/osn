@@ -16,10 +16,16 @@
 -- settles, because settle accepts an expired row.
 --
 -- `wedding_upgrade_purchases.from_tier` records the tier a purchase started
--- from; NULL on every row before this migration.
+-- from, and `price_id`, `price_amount_minor` and `price_currency` the Stripe
+-- Price it opened at and what that Price charges; settle grants only for a
+-- payment of that amount. All four are NULL on every row before this
+-- migration.
 
 DROP INDEX `wedding_upgrade_purchases_one_pending_uniq`;--> statement-breakpoint
 ALTER TABLE `wedding_upgrade_purchases` ADD `from_tier` text;--> statement-breakpoint
+ALTER TABLE `wedding_upgrade_purchases` ADD `price_id` text;--> statement-breakpoint
+ALTER TABLE `wedding_upgrade_purchases` ADD `price_amount_minor` integer;--> statement-breakpoint
+ALTER TABLE `wedding_upgrade_purchases` ADD `price_currency` text;--> statement-breakpoint
 UPDATE `wedding_upgrade_purchases` SET `status` = 'expired', `updated_at` = unixepoch() WHERE `status` = 'pending';--> statement-breakpoint
 CREATE UNIQUE INDEX `wedding_upgrade_purchases_one_pending_uniq` ON `wedding_upgrade_purchases` (`wedding_id`) WHERE status = 'pending';--> statement-breakpoint
 ALTER TABLE `weddings` ADD `tier` text DEFAULT 'ivory' NOT NULL;--> statement-breakpoint

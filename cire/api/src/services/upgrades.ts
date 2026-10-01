@@ -150,7 +150,7 @@ export interface SettleInput {
 }
 
 /** What a settle attempt concluded. Mirrors the metric's bounded outcome set. */
-export type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown";
+export type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch";
 
 export interface UpgradeServiceDeps {
   stripe: StripeClient;
@@ -245,6 +245,32 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         .run(),
     );
 
+  /**
+   * Mark a purchase whose own session was paid but not granted, and record
+   * what arrived. Moves only a row still open (`pending` or `expired`) and
+   * still holding this session, so a replay changes nothing.
+   */
+  const recordMismatch = (db: Db, purchaseId: string, input: SettleInput) =>
+    dbQuery(() =>
+      db
+        .update(weddingUpgradePurchases)
+        .set({
+          status: "mismatch",
+          paymentIntentId: input.paymentIntentId,
+          amountMinor: input.paidAmountMinor,
+          currency: input.paidCurrency?.toUpperCase() ?? null,
+          updatedAt: new Date(now()),
+        })
+        .where(
+          and(
+            eq(weddingUpgradePurchases.id, purchaseId),
+            inArray(weddingUpgradePurchases.status, ["pending", "expired"]),
+            eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+          ),
+        )
+        .run(),
+    );
+
   return {
     /**
      * Start (or resume) a purchase.
@@ -269,8 +295,15 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           return yield* Effect.fail(new UpgradeConflict({ reason: "already_held" }));
         }
 
-        const priceId = deps.catalogue.priceIdFor(input.tier, from);
-        if (priceId === null) {
+        // The Price this press would charge, with its amount: the purchase
+        // records both, and settle grants only for a payment of exactly that.
+        // Read before anything is written or sent to Stripe, so a refusal
+        // leaves nothing behind.
+        const quote = yield* deps.catalogue.quote(input.tier, from).pipe(
+          Effect.tapError(() => Effect.sync(() => started("error"))),
+          Effect.mapError((e) => new UpgradeProviderError({ reason: String(e) })),
+        );
+        if (quote === null) {
           started("unconfigured");
           return yield* Effect.fail(new UpgradeUnavailable({ tier: input.tier }));
         }
@@ -369,6 +402,9 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                   weddingId: input.weddingId,
                   entitlement: input.tier,
                   fromTier,
+                  priceId: quote.priceId,
+                  priceAmountMinor: quote.amountMinor,
+                  priceCurrency: quote.currency,
                   status: "pending",
                   createdByOsnProfileId: input.actorProfileId,
                   createdAt,
@@ -390,7 +426,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         //    so the next press is not made to wait out the staleness window.
         const session = yield* deps.stripe
           .createPlatformCheckoutSession({
-            priceId,
+            priceId: quote.priceId,
             successUrl: input.successUrlFor(purchaseId),
             cancelUrl: input.cancelUrl,
             clientReferenceId: purchaseId,
@@ -398,7 +434,11 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             idempotencyKey: `cire-upgrade-${purchaseId}`,
           })
           .pipe(
-            Effect.tapError(() => closePending(db, purchaseId, { sessionId: null }, "failed")),
+            Effect.tapError(() =>
+              closePending(db, purchaseId, { sessionId: null }, "failed").pipe(
+                Effect.tap(() => Effect.sync(() => started("error"))),
+              ),
+            ),
             Effect.mapError((e) => new UpgradeProviderError({ reason: String(e) })),
           );
 
@@ -451,6 +491,14 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
      * the delivery is answered 500 so Stripe keeps retrying it while someone
      * looks, because a 2xx would end the only record that money arrived for
      * nothing.
+     *
+     * A grant is bound to the payment the purchase sold. The purchase id comes
+     * from `client_reference_id`, which any payment on this Stripe account can
+     * carry, so the amount and currency paid must be the Price the row
+     * recorded when it opened; anything else is a `mismatch` — logged, counted,
+     * nothing granted, and acknowledged, since a retry cannot change what was
+     * paid. A row's own session that paid the wrong amount marks the row
+     * `mismatch` with what arrived, so the money is findable.
      */
     settlePurchase(input: SettleInput): Effect.Effect<SettleOutcome, never, DbService> {
       return Effect.gen(function* () {
@@ -463,6 +511,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               product: weddingUpgradePurchases.entitlement,
               status: weddingUpgradePurchases.status,
               sessionId: weddingUpgradePurchases.checkoutSessionId,
+              priceAmountMinor: weddingUpgradePurchases.priceAmountMinor,
+              priceCurrency: weddingUpgradePurchases.priceCurrency,
             })
             .from(weddingUpgradePurchases)
             .where(eq(weddingUpgradePurchases.id, input.purchaseId))
@@ -478,14 +528,29 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           return "unknown";
         }
 
-        // A NULL session id is ADOPTION, not a mismatch: the row is
-        // session-less for the window between minting the session and storing
-        // its id, and the session is payable throughout. Rejecting it would
-        // lock out a customer who paid.
         if (row.sessionId !== null && row.sessionId !== input.checkoutSessionId) {
           yield* Effect.logError("upgrade settle session mismatch", {
             purchaseId: input.purchaseId,
             heldSessionId: row.sessionId,
+          });
+          return "unknown";
+        }
+
+        // A NULL session id is ADOPTION: the row is session-less for the
+        // window between minting its session and storing the id, and the
+        // session is payable throughout, so rejecting it would lock out a
+        // customer who paid. That window exists only while the row is
+        // `pending`, and only a row that recorded its Price can hold the
+        // payment to an amount — anything else adopts nothing.
+        const adopting = row.sessionId === null;
+        if (
+          adopting &&
+          (row.status !== "pending" || row.priceAmountMinor === null || row.priceCurrency === null)
+        ) {
+          yield* Effect.logError("upgrade settle refused adoption", {
+            purchaseId: row.id,
+            status: row.status,
+            checkoutSessionId: input.checkoutSessionId,
           });
           return "unknown";
         }
@@ -507,6 +572,31 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             product: row.product,
           });
           return yield* Effect.die(new Error("upgrade purchase names no tier"));
+        }
+
+        // A row written before purchases recorded their Price has no amount to
+        // hold the payment to; it is settled only by the session it already
+        // holds, which the adoption rule above guarantees.
+        const paidCurrency = input.paidCurrency?.toUpperCase() ?? null;
+        if (
+          row.priceAmountMinor !== null &&
+          row.priceCurrency !== null &&
+          (input.paidAmountMinor !== row.priceAmountMinor || paidCurrency !== row.priceCurrency)
+        ) {
+          metricUpgradePurchaseSettled(tier, "mismatch");
+          yield* Effect.logError("upgrade settle amount mismatch", {
+            purchaseId: row.id,
+            checkoutSessionId: input.checkoutSessionId,
+            priceAmountMinor: row.priceAmountMinor,
+            priceCurrency: row.priceCurrency,
+            paidAmountMinor: input.paidAmountMinor,
+            paidCurrency,
+          });
+          // Only the row's own session marks the row. A payment naming a
+          // session-less row is not that row's session, and the attempt that
+          // owns the row is left to finish.
+          if (!adopting) yield* recordMismatch(db, row.id, input);
+          return "mismatch";
         }
 
         // ONE ROUND TRIP for all three writes. D1 runs a batch atomically and

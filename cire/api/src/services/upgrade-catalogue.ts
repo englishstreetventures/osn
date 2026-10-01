@@ -62,6 +62,18 @@ export interface CatalogueEntry {
 }
 
 /**
+ * The Price a purchase opens at, and what it charges. A purchase records all
+ * three, and settle grants only for a payment of exactly this amount and
+ * currency. A Stripe Price's amount cannot change once the Price exists, so a
+ * cached read of it is as good as a fresh one.
+ */
+export interface Quote {
+  priceId: string;
+  amountMinor: number;
+  currency: string;
+}
+
+/**
  * How long a Price is trusted before it is read from Stripe again.
  *
  * The catalogue is read on every visit to a locked module, and a price changes
@@ -128,6 +140,24 @@ export function createUpgradeCatalogue(deps: {
   return {
     sellable,
     priceIdFor,
+
+    /**
+     * The Price that moves a wedding on `from` to `tier`, read through the same
+     * cache as the catalogue, or `null` when this deployment does not sell that
+     * move. A Price Stripe refuses fails, rather than quoting nothing: there is
+     * then no amount to hold a payment to.
+     */
+    quote(tier: PaidTier, from: Tier): Effect.Effect<Quote | null, StripeError> {
+      const priceId = priceIdFor(tier, from);
+      if (priceId === null) return Effect.succeed(null);
+      return priceFor(priceId).pipe(
+        Effect.map((price) => ({
+          priceId,
+          amountMinor: price.unitAmountMinor,
+          currency: price.currency,
+        })),
+      );
+    },
 
     /**
      * Every upgrade a wedding on `from` can buy, priced.

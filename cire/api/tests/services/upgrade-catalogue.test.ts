@@ -191,3 +191,35 @@ describe("createUpgradeCatalogue", () => {
     expect(reads).toEqual(["price_g", "price_g"]);
   });
 });
+
+describe("quote", () => {
+  it("names the Price for the move and what it charges, through the same cache", async () => {
+    const { stripe, reads } = stubStripe(ALL_AMOUNTS);
+    const catalogue = createUpgradeCatalogue({ stripe, prices: ALL_PRICES });
+
+    expect(await Effect.runPromise(catalogue.quote("crimson", "gold"))).toEqual({
+      priceId: "price_cg",
+      amountMinor: 5000,
+      currency: "AUD",
+    });
+    await Effect.runPromise(catalogue.list("gold"));
+    expect(reads).toEqual(["price_cg"]);
+  });
+
+  it("is null for a move this deployment does not sell", async () => {
+    const { stripe, reads } = stubStripe(ALL_AMOUNTS);
+    const catalogue = createUpgradeCatalogue({ stripe, prices: { gold: "price_g" } });
+
+    expect(await Effect.runPromise(catalogue.quote("crimson", "ivory"))).toBeNull();
+    expect(await Effect.runPromise(catalogue.quote("gold", "gold"))).toBeNull();
+    expect(reads).toEqual([]);
+  });
+
+  it("fails when Stripe will not read the Price, rather than quoting nothing", async () => {
+    const { stripe } = stubStripe({});
+    const catalogue = createUpgradeCatalogue({ stripe, prices: ALL_PRICES });
+
+    const exit = await Effect.runPromiseExit(catalogue.quote("gold", "ivory"));
+    expect(exit._tag).toBe("Failure");
+  });
+});

@@ -73,14 +73,19 @@ function seedPurchase(
     status?: string;
     sessionId?: string | null;
     createdMs?: number;
+    /** The Price the purchase opened at. Absent on a row written before
+     *  purchases recorded one. */
+    price?: { id: string; amountMinor: number; currency: string };
   },
 ) {
   const at = secondsAt(row.createdMs ?? BASE_MS);
   db.$client
     .query(
       `INSERT INTO wedding_upgrade_purchases
-         (id, wedding_id, entitlement, from_tier, status, checkout_session_id, created_by_osn_profile_id, created_at, updated_at)
-       VALUES (?, 'wed_test', ?, ?, ?, ?, 'usr_owner', ?, ?)`,
+         (id, wedding_id, entitlement, from_tier, status, checkout_session_id,
+          price_id, price_amount_minor, price_currency,
+          created_by_osn_profile_id, created_at, updated_at)
+       VALUES (?, 'wed_test', ?, ?, ?, ?, ?, ?, ?, 'usr_owner', ?, ?)`,
     )
     .run(
       row.id,
@@ -88,10 +93,16 @@ function seedPurchase(
       row.fromTier === undefined ? "ivory" : row.fromTier,
       row.status ?? "pending",
       row.sessionId ?? null,
+      row.price?.id ?? null,
+      row.price?.amountMinor ?? null,
+      row.price?.currency ?? null,
       at,
       at,
     );
 }
+
+/** The Price every stubbed tier is read back at, as `startPurchase` records it. */
+const GOLD_PRICE = { id: "price_g", amountMinor: 4900, currency: "AUD" };
 
 /** Rows as the database actually holds them, for assertions about state. */
 const purchases = (db: Db) =>
@@ -101,6 +112,12 @@ const purchases = (db: Db) =>
     checkout_session_id: string | null;
     entitlement: string;
     from_tier: string | null;
+    price_id: string | null;
+    price_amount_minor: number | null;
+    price_currency: string | null;
+    amount_minor: number | null;
+    currency: string | null;
+    payment_intent_id: string | null;
   }[];
 
 const sales = (db: Db) =>
@@ -130,6 +147,8 @@ interface StripeStub {
   probe: PlatformSessionState | "error";
   failCreate: boolean;
   failExpire: boolean;
+  /** Stripe refuses to read any Price. */
+  failPrice: boolean;
   /** Runs while Stripe is "thinking", to drive a concurrent-write race. */
   onCreate?: () => void;
   /** Runs while Stripe expires a session, to drive a concurrent-write race. */
@@ -145,11 +164,15 @@ function stubStripe(): StripeStub {
     probe: { status: "expired" },
     failCreate: false,
     failExpire: false,
+    failPrice: false,
     client: undefined as unknown as StripeClient,
   };
   let minted = 0;
   stub.client = {
-    retrievePrice: () => Effect.succeed({ unitAmountMinor: 4900, currency: "AUD" }),
+    retrievePrice: () =>
+      stub.failPrice
+        ? Effect.fail(new StripeError({ reason: "unreachable" }))
+        : Effect.succeed({ unitAmountMinor: 4900, currency: "AUD" }),
     createPlatformCheckoutSession(input: {
       clientReferenceId: string;
       successUrl: string;
@@ -334,6 +357,36 @@ describe("startPurchase", () => {
     expect(purchases(db)).toMatchObject([
       { status: "pending", checkout_session_id: "cs_1", entitlement: "gold", from_tier: "ivory" },
     ]);
+  });
+
+  it("records the Price it opened at, and what that Price charges", async () => {
+    const db = createDb();
+    seedWedding(db);
+    const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+    await run(db, svc.startPurchase(START));
+    expect(purchases(db)).toMatchObject([
+      { price_id: "price_g", price_amount_minor: 4900, price_currency: "AUD" },
+    ]);
+  });
+
+  it("opens nothing when Stripe will not read the Price", async () => {
+    // Without the Price's amount there is nothing to check the payment
+    // against, so no row and no payment page.
+    const db = createDb();
+    seedWedding(db);
+    const stripe = stubStripe();
+    stripe.failPrice = true;
+    const svc = makeService(stripe.client, { t: BASE_MS });
+
+    const exit = await runExit(db, svc.startPurchase(START));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = Cause.findErrorOption(exit.cause);
+      expect(error._tag === "Some" && error.value._tag).toBe("UpgradeProviderError");
+    }
+    expect(purchases(db)).toEqual([]);
+    expect(stripe.created).toEqual([]);
   });
 
   it("charges a Gold wedding the upgrade-from-Gold Price for Crimson", async () => {
@@ -797,7 +850,7 @@ describe("settlePurchase", () => {
     const db = createDb();
     seedWedding(db);
     const svc = makeService(stubStripe().client, { t: BASE_MS });
-    seedPurchase(db, { id: "upg_orphan", product: "crimson" });
+    seedPurchase(db, { id: "upg_orphan", product: "crimson", price: GOLD_PRICE });
 
     expect(await run(db, svc.settlePurchase({ purchaseId: "upg_orphan", ...SETTLE }))).toBe(
       "granted",
@@ -920,6 +973,122 @@ describe("settlePurchase", () => {
     expect(tierRow(db).tier).toBe("ivory");
     expect(purchases(db)[0]?.status).toBe("pending");
     expect(sales(db)).toEqual([]);
+  });
+
+  /**
+   * A settle grants only for the payment the purchase sold. The purchase id
+   * arrives in `client_reference_id`, which any payment on this Stripe account
+   * can carry, so the amount and currency paid are checked against the Price
+   * the purchase recorded when it opened.
+   */
+  describe("against the Price the purchase opened at", () => {
+    it("grants nothing when the amount paid is not the Price's, and records what arrived", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+      const name = CIRE_METRICS.upgradePurchaseSettled;
+      const before = await counterValue(name, { tier: "gold", outcome: "mismatch" });
+
+      expect(
+        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidAmountMinor: 100 })),
+      ).toBe("mismatch");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      // The row's own session paid it, so the row says money arrived and was
+      // not applied, rather than staying a live attempt.
+      expect(purchases(db)[0]).toMatchObject({
+        status: "mismatch",
+        amount_minor: 100,
+        currency: "AUD",
+        payment_intent_id: "pi_1",
+      });
+      expect(await counterValue(name, { tier: "gold", outcome: "mismatch" })).toBe(before + 1);
+
+      // A redelivery concludes the same, and still grants nothing.
+      expect(
+        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidAmountMinor: 100 })),
+      ).toBe("mismatch");
+      expect(tierRow(db).tier).toBe("ivory");
+    });
+
+    it("grants nothing when the currency paid is not the Price's", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+
+      expect(
+        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidCurrency: "usd" })),
+      ).toBe("mismatch");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+    });
+
+    it("leaves a session-less row alone when a payment of another amount names it", async () => {
+      // A session-less row is a live attempt whose own session is about to be
+      // stored. A payment that does not match it is not that session, so the
+      // attempt is left to finish.
+      const db = createDb();
+      seedWedding(db);
+      seedPurchase(db, { id: "upg_live", product: "gold", price: GOLD_PRICE });
+      const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+      expect(
+        await run(
+          db,
+          svc.settlePurchase({ purchaseId: "upg_live", ...SETTLE, paidAmountMinor: 100 }),
+        ),
+      ).toBe("mismatch");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(purchases(db)[0]).toMatchObject({ status: "pending", checkout_session_id: null });
+    });
+
+    it("refuses to adopt a session onto a row that is no longer pending", async () => {
+      const db = createDb();
+      seedWedding(db);
+      for (const status of ["failed", "expired"]) {
+        seedPurchase(db, { id: `upg_${status}`, product: "gold", status, price: GOLD_PRICE });
+      }
+      const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+      for (const status of ["failed", "expired"]) {
+        expect(
+          await run(db, svc.settlePurchase({ purchaseId: `upg_${status}`, ...SETTLE })),
+          status,
+        ).toBe("unknown");
+      }
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(purchases(db).map((r) => r.checkout_session_id)).toEqual([null, null]);
+    });
+
+    it("refuses to adopt a session onto a row that recorded no Price", async () => {
+      const db = createDb();
+      seedWedding(db);
+      seedPurchase(db, { id: "upg_bare", product: "gold" });
+      const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId: "upg_bare", ...SETTLE }))).toBe(
+        "unknown",
+      );
+      expect(tierRow(db).tier).toBe("ivory");
+    });
+
+    it("still settles a row that recorded no Price by the session it already holds", async () => {
+      // Rows written before purchases recorded a Price are bound to their own
+      // session, which only Stripe could have minted for this purchase.
+      const db = createDb();
+      seedWedding(db);
+      seedPurchase(db, { id: "upg_old", product: "gold", status: "expired", sessionId: "cs_1" });
+      const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+      expect(
+        await run(
+          db,
+          svc.settlePurchase({ purchaseId: "upg_old", ...SETTLE, paidAmountMinor: 1234 }),
+        ),
+      ).toBe("granted");
+      expect(tierRow(db).tier).toBe("gold");
+    });
   });
 
   it("counts each settle by the tier it bought", async () => {
