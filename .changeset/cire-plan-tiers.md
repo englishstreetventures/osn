@@ -11,7 +11,7 @@ RSVPs and import, up to 100 guests. **Gold** adds the budget, the checklist and
 the gift registry, up to 500. **Crimson** adds vendors (the CRM, the directory
 and enquiries) and every premium invite design, up to 1,000.
 
-- **Schema (migration 0071).** `weddings.tier` (default `ivory`) with
+- **Schema (migration 0073).** `weddings.tier` (default `ivory`) with
   `tier_source` and `tier_granted_by`, and on `wedding_upgrade_purchases`
   `from_tier` plus the Price a purchase opened at (`price_id`,
   `price_amount_minor`, `price_currency`).
@@ -31,7 +31,7 @@ and enquiries) and every premium invite design, up to 1,000.
 - **Selling tiers.** The catalogue offers only tiers above the wedding's own;
   `POST …/upgrade/session` takes `{ tier, module? }`, decoded whole at the
   boundary (anything else is 404 `not_purchasable`). A pending purchase for a
-  different product, or a legacy per-module page 0071 expired only in D1, is
+  different product, or a legacy per-module page 0073 expired only in D1, is
   expired at Stripe before a new page opens. Settle maps the stored product to
   a tier (legacy keys included), only ever raises it, and answers 500 on a paid
   purchase that names no tier so Stripe retries. It grants only for a payment
@@ -61,6 +61,6 @@ Ivory wedding and blank its Overview. Run the pre-flight queries in
 session they show still pending.
 
 **Follow-up.** englishstventures/osn#1315 deletes the legacy entitlement rows
-(migration 0072), narrows the enums, and drops the list's legacy keys, the
+(in a later migration), narrows the enums, and drops the list's legacy keys, the
 capacity 402's `entitlement` field and the portal's fallback, once this release
 is live.

@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
-import { makeLogEmailLive } from "@shared/email";
+import { EmailError, EmailService, makeLogEmailLive, type LogEmailTransport } from "@shared/email";
+import { Effect, Layer } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -22,7 +23,13 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
+/** The email transport of the most recent `buildApp`, for asserting on sends. */
+let lastEmail: LogEmailTransport;
+
+function buildApp({
+  tier = "crimson",
+  emailLayer,
+}: { tier?: Tier; emailLayer?: Layer.Layer<EmailService> } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -63,7 +70,8 @@ function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
   setTier(db, BOOTSTRAP_WEDDING_ID, tier);
   setTier(db, "wed_other", "crimson");
 
-  const { layer: logEmailLayer } = makeLogEmailLive();
+  lastEmail = makeLogEmailLive();
+  const logEmailLayer = lastEmail.layer;
   const directoryService = createDirectoryService({
     vendorPortalOrigin: "https://vendor.test",
   });
@@ -71,7 +79,7 @@ function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
   return createApp(db, {
     osnTestKey: auth.key,
     directoryService,
-    emailLayer: logEmailLayer,
+    emailLayer: emailLayer ?? logEmailLayer,
   });
 }
 type App = ReturnType<typeof buildApp>;
@@ -186,7 +194,7 @@ describe("vendor CRM routes", () => {
     expect(((await res.json()) as { error: string }).error).toBe("vendor_not_found");
   });
 
-  it("list-in-directory seeds a draft listing and returns claimUrl", async () => {
+  it("list-in-directory seeds a draft listing and emails the claim link to the vendor only", async () => {
     const app = buildApp();
     const created = await req(app, "POST", base, EDITOR, VENDOR);
     const { vendor } = (await created.json()) as { vendor: VendorDto };
@@ -202,18 +210,47 @@ describe("vendor CRM routes", () => {
       locationText: null,
     });
     expect(seedRes.status).toBe(200);
-    const result = (await seedRes.json()) as {
-      directoryVendorId: string;
-      claimUrl: string;
-    };
-    expect(result.directoryVendorId).toBeDefined();
-    expect(result.claimUrl).toMatch(/^https:\/\/vendor\.test\/claim\?token=/);
+    const result = (await seedRes.json()) as { directoryVendorId: string; invited: boolean };
+    // The organiser learns the listing id and that the invite went out —
+    // never the link, which would let them claim the vendor's listing.
+    expect(result).toEqual({ directoryVendorId: expect.any(String), invited: true });
+    expect(JSON.stringify(result)).not.toContain("token=");
+
+    const [sent] = lastEmail.recorded();
+    expect(sent?.to).toBe("contact@hillside.com");
+    expect(sent?.template).toBe("vendor-claim-invite");
+    expect(sent?.text).toMatch(/https:\/\/vendor\.test\/claim\?token=/);
 
     // The linked CRM vendor row should have directoryVendorId set now.
     const list = await req(app, "GET", base, OWNER);
     const { vendors } = (await list.json()) as { vendors: VendorDto[] };
     const linked = vendors.find((v) => v.id === vendor.id);
     expect(linked?.directoryVendorId).toBe(result.directoryVendorId);
+  });
+
+  it("list-in-directory answers invited:false, and still no link, when the email fails", async () => {
+    const failing = Layer.succeed(EmailService, {
+      send: () =>
+        Effect.fail(new EmailError({ reason: "api_unreachable", cause: new Error("down") })),
+    });
+    const app = buildApp({ emailLayer: failing });
+    const created = await req(app, "POST", base, EDITOR, VENDOR);
+    const { vendor } = (await created.json()) as { vendor: VendorDto };
+
+    const seedRes = await req(app, "POST", `${base}/${vendor.id}/list-in-directory`, EDITOR, {
+      name: "Hillside Flowers",
+      email: "contact@hillside.com",
+      categories: ["florals"],
+      description: null,
+      phone: null,
+      website: null,
+      instagram: null,
+      locationText: null,
+    });
+    expect(seedRes.status).toBe(200);
+    const result = (await seedRes.json()) as { directoryVendorId: string; invited: boolean };
+    expect(result).toEqual({ directoryVendorId: expect.any(String), invited: false });
+    expect(JSON.stringify(result)).not.toContain("token=");
   });
 
   it("list-in-directory with unknown vendor id → 404 vendor_not_found", async () => {

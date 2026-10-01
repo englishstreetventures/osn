@@ -43,7 +43,7 @@ export function tierAtLeast(held: Tier, min: Tier): boolean {
 
 /**
  * The tier a wedding list from an API that predates tiers implies, read from
- * the legacy entitlement keys it still sends — the same mapping migration 0071
+ * the legacy entitlement keys it still sends — the same mapping migration 0073
  * applied to the stored rows: `vendors` or `capacity_1000` is Crimson,
  * `registry` or `capacity_500` is Gold, anything else Ivory.
  */

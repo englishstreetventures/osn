@@ -70,10 +70,11 @@ export default function ProfileMenu(props: {
       return null;
     }
   };
-  // An avatar that will not load — a dead link, or a response that is not an
-  // image — shows the initial instead of an empty circle. (The portal's CSP
-  // admits any https image, so it never blocks one that gets this far.) Keyed
-  // on the URL, so a new one gets its own try.
+  // An avatar that will not load — a dead link, a response that is not an
+  // image, or a host the portal's CSP `img-src` does not list (it lists none
+  // but cire-api until englishstventures/osn#1207 adds the avatar host) — shows
+  // the initial instead of an empty circle. Keyed on the URL, so a new one gets
+  // its own try.
   const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);
   const avatarUrl = () => {
     const url = httpsAvatarUrl();

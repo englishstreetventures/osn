@@ -972,7 +972,7 @@ API does not: it has no lock on Checklist or Budget, so an Ivory wedding's
 Overview requests `/tasks`, gets the new 402, and blanks the whole snapshot.
 Host first means that pairing never serves.
 
-**Pre-flight for the tier release (migration 0071).** Read-only; a human runs
+**Pre-flight for the tier release (migration 0073).** Read-only; a human runs
 them against `cire-db`:
 
 ```bash
@@ -985,11 +985,11 @@ bunx wrangler d1 execute cire-db --env production --remote --command \
 
 | Query | Expect | Why it matters |
 |---|---|---|
-| Purchases by product and status | No `pending` rows | 0071 expires every pending per-module purchase. One paid in the meantime still settles — settle accepts an expired row and maps `vendors` to Crimson, `registry` to Gold — but a pending row means a checkout was live, which no deployment should have while its Prices are unset |
-| Entitlements by key | The counts 0071 will lift | `vendors` or `capacity_1000` rows become Crimson weddings, then `registry` or `capacity_500` rows Gold ones |
+| Purchases by product and status | No `pending` rows | 0073 expires every pending per-module purchase. One paid in the meantime still settles — settle accepts an expired row and maps `vendors` to Crimson, `registry` to Gold — but a pending row means a checkout was live, which no deployment should have while its Prices are unset |
+| Entitlements by key | The counts 0073 will lift | `vendors` or `capacity_1000` rows become Crimson weddings, then `registry` or `capacity_500` rows Gold ones |
 
 **If the first query shows any `pending` row, close its Stripe session before
-approving `deploy-cire-api`.** 0071 marks the row `expired` in D1, which does
+approving `deploy-cire-api`.** 0073 marks the row `expired` in D1, which does
 not close the session at Stripe: it stays payable for a day after it opened,
 and a payment there settles into the tier that replaced its product. The new
 Worker closes such a page at Stripe before it opens a tier checkout for that

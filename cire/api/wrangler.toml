@@ -44,6 +44,13 @@ crons = ["0 4 * * *"]
 enabled = true
 head_sampling_rate = 1
 
+# Invocation records are OFF: each one stores the request URL, and the public
+# image and invite routes carry the wedding slug (the couple's names) in the path.
+# Application logs stay on and never name the slug. Every named env redeclares
+# this, since none inherit it.
+[observability.logs]
+invocation_logs = false
+
 [vars]
 # Deployment tier — local | dev | staging | production. Read two ways: through
 # `process.env` by `@shared/observability`'s `loadConfig` (log format + level),
@@ -185,6 +192,16 @@ name = "REGISTRY_IMAGE_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1004"
 simple = { limit = 10, period = 60 }
+
+# The link picker's thumbnails. Its own namespace: each call is one outbound
+# fetch plus one Images transform, and one preview offers up to six candidates,
+# so 60/60 is six thumbnails for each preview the 10/60 above allows.
+# 60/60 mirrors `defaultRegistryThumbLimiter` in src/app.ts.
+[[unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1006"
+simple = { limit = 60, period = 60 }
 
 # The guest registry write limiter — claiming and releasing a gift. Its own
 # namespace because it belongs to a different population: the two above are the
@@ -343,6 +360,12 @@ namespace_id = "1104"
 simple = { limit = 10, period = 60 }
 
 [[env.dev.unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1106"
+simple = { limit = 60, period = 60 }
+
+[[env.dev.unsafe.bindings]]
 name = "REGISTRY_GUEST_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1105"
@@ -374,6 +397,9 @@ binding = "IMAGES"
 [env.dev.observability]
 enabled = true
 head_sampling_rate = 1
+
+[env.dev.observability.logs]
+invocation_logs = false
 
 # ═══ production tier ═════════════════════════════════════════════════════════
 # Deployed only after the manual approval on the `production` GitHub Environment.
@@ -476,6 +502,12 @@ namespace_id = "1004"
 simple = { limit = 10, period = 60 }
 
 [[env.production.unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1006"
+simple = { limit = 60, period = 60 }
+
+[[env.production.unsafe.bindings]]
 name = "REGISTRY_GUEST_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1005"
@@ -514,6 +546,9 @@ binding = "IMAGES"
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+[env.production.observability.logs]
+invocation_logs = false
 
 # ── OpenTelemetry export ─────────────────────────────────────────────────────
 # Read by `@shared/observability` `loadConfig` (the

@@ -19,6 +19,7 @@ import {
   NEW_SEAT_ROLE,
   ROLE_COPY,
 } from "../lib/wedding-roles";
+import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 
 /** The wedding's owner — never a row in `wedding_hosts` (the API always rows
@@ -91,12 +92,19 @@ interface HostsPanelProps {
    *  it is deliberately open wider than removal so the owner isn't the single
    *  person who has to bring everyone on board. */
   canAdd: boolean;
+  /** True for anyone but the owner. Every seat may leave (`weddingSeat()` on
+   *  `DELETE /hosts/me`); the owner has no seat and the API refuses them. */
+  canLeave?: boolean;
+  /** Called once the caller has left the wedding, after the confirmation
+   *  toast. The parent drops the wedding from the organiser's list, which
+   *  unmounts this panel and releases the wedding's cached rows. */
+  onLeft?: () => void;
 }
 
 /**
  * Hosts section of a wedding's dashboard. Lists the wedding's co-hosts; the
- * owner or an editor can add another organiser by OSN handle, and the owner
- * alone can change a role or remove someone.
+ * owner or an editor can add another organiser by OSN handle, the owner alone
+ * can change a role or remove someone else, and any co-host here can leave.
  *
  * The two flags are separate because the API's two gates are separate, and the
  * split is additive-versus-subtractive: an editor can grow the team (their
@@ -762,6 +770,10 @@ export default function HostsPanel(props: HostsPanelProps) {
             </For>
           </ul>
         </Show>
+      </Show>
+
+      <Show when={props.canLeave}>
+        <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
       </Show>
 
       {/* Kept mounted across the close so the exit animates; `shownPromotion`

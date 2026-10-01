@@ -270,7 +270,7 @@ paid, and each is logged at error or warning and counted:
 
 A `mismatch` row is money that arrived and bought nothing: someone refunds it,
 or applies it by hand with `grant-tier.ts`. A row with no recorded Price — one
-written before 0071 — has no amount to be held to and settles by its own
+written before 0073 — has no amount to be held to and settles by its own
 session as before. None of this touches a paying customer's replay: after a
 grant the wedding ranks at or above `from_tier`, the crash-repair path still
 raises a row that already reads `succeeded`, and only an operator writes

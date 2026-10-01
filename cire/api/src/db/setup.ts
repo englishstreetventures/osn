@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS directory_vendors_owner_idx ON directory_vendors(owner_org_id);
+CREATE UNIQUE INDEX IF NOT EXISTS directory_vendors_owner_uniq ON directory_vendors(owner_org_id);
 CREATE INDEX IF NOT EXISTS directory_vendors_listed_name_idx ON directory_vendors(listed, name, id);
 CREATE TABLE IF NOT EXISTS directory_vendor_categories (
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
@@ -525,6 +525,10 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   amount_minor INTEGER NOT NULL,
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS link_thumb_transforms (
+  period TEXT PRIMARY KEY NOT NULL,
+  used INTEGER DEFAULT 0 NOT NULL
 );
 `;
 

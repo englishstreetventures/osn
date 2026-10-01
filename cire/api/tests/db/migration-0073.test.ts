@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Data proof for migration 0071, which moves every wedding onto a plan tier.
+// Data proof for migration 0073, which moves every wedding onto a plan tier.
 //
 // The backfill reads each wedding's legacy `wedding_entitlements` rows: `vendors`
 // or `capacity_1000` lift it to Crimson, `registry` or `capacity_500` to Gold,
@@ -13,7 +13,7 @@ import { join } from "node:path";
 // expire sits between dropping the old index and creating the new one.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 
-const MIG_0071 = "0071_wedding_tiers.sql";
+const MIG_0073 = "0073_wedding_tiers.sql";
 
 const numberOf = (file: string): number => Number(file.slice(0, 4));
 
@@ -29,7 +29,7 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
-// Each wedding's legacy entitlement rows, and the tier 0071 must give it.
+// Each wedding's legacy entitlement rows, and the tier 0073 must give it.
 const FIXTURES: Record<string, { keys: string[]; tier: "ivory" | "gold" | "crimson" }> = {
   wed_none: { keys: [], tier: "ivory" },
   wed_templates: { keys: ["premium_templates"], tier: "ivory" },
@@ -47,11 +47,11 @@ const FIXTURES: Record<string, { keys: string[]; tier: "ivory" | "gold" | "crims
 
 const PURCHASE_STAMP = 1_790_000_000;
 
-/** The database as 0071 finds it: every earlier migration, then the fixtures. */
+/** The database as 0073 finds it: every earlier migration, then the fixtures. */
 function beforeMigration(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 71)) apply(db, file);
+  for (const file of chain(1, 73)) apply(db, file);
   for (const [weddingId, { keys }] of Object.entries(FIXTURES)) {
     db.query(
       "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +
@@ -102,17 +102,17 @@ function purchases(db: Database): PurchaseRow[] {
     .all() as PurchaseRow[];
 }
 
-describe("migration 0071", () => {
+describe("migration 0073", () => {
   it("runs on a wedding holding two pending per-module purchases", () => {
-    expect(chain(71, 72)).toEqual([MIG_0071]);
+    expect(chain(73, 74)).toEqual([MIG_0073]);
     const db = beforeMigration();
-    expect(() => apply(db, MIG_0071)).not.toThrow();
+    expect(() => apply(db, MIG_0073)).not.toThrow();
     db.close();
   });
 
   it("lifts each wedding to the tier its legacy rows paid for", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     for (const [weddingId, { keys, tier }] of Object.entries(FIXTURES)) {
       const lifted = tier !== "ivory";
       expect(tierOf(db, weddingId), `${weddingId} (${keys.join(",")})`).toEqual({
@@ -129,7 +129,7 @@ describe("migration 0071", () => {
     const count = () =>
       (db.query("SELECT count(*) AS n FROM wedding_entitlements").get() as { n: number }).n;
     const before = count();
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     expect(count()).toBe(before);
     expect(before).toBe(Object.values(FIXTURES).reduce((n, f) => n + f.keys.length, 0));
     db.close();
@@ -138,7 +138,7 @@ describe("migration 0071", () => {
   it("expires every pending purchase, stamps it, and leaves a settled one alone", () => {
     const db = beforeMigration();
     const startedAt = Math.floor(Date.now() / 1000);
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     const rows = purchases(db);
     expect(rows.map(({ id, status, from_tier }) => ({ id, status, from_tier }))).toEqual([
       { id: "upg_done", status: "succeeded", from_tier: null },
@@ -156,7 +156,7 @@ describe("migration 0071", () => {
     // A row with no recorded Price is settled only by the session it already
     // holds, so every pre-tier row must read NULL here rather than a default.
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     expect(
       db
         .query(
@@ -173,7 +173,7 @@ describe("migration 0071", () => {
 
   it("allows one pending purchase per wedding, whatever it buys", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     const insert = db.query(
       "INSERT INTO wedding_upgrade_purchases" +
         " (id, wedding_id, entitlement, status, from_tier, created_by_osn_profile_id, created_at, updated_at)" +
@@ -190,7 +190,7 @@ describe("migration 0071", () => {
 
   it("starts a wedding created after it on Ivory", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0073);
     db.query(
       "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +
         " VALUES ('wed_new', 'wed_new', 'New', 'usr_owner', 0, 0)",

@@ -52,7 +52,11 @@ import {
   headRevision,
 } from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
-import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
+import {
+  ClaimInvalid,
+  createDirectoryService,
+  OrgAlreadyHasListing,
+} from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
@@ -86,7 +90,7 @@ import { createUpgradeService } from "../../src/services/upgrades";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
-const MIGRATION_0071 = "0071_wedding_tiers.sql";
+const MIGRATION_0073 = "0073_wedding_tiers.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -1094,6 +1098,20 @@ describe("cire/api over real D1 (Miniflare)", () => {
         }),
       );
 
+      // A second live token for the same listing, as a couple's enquiry mints.
+      const second = await run(
+        directory.issueClaimForListing({
+          id: directoryVendorId,
+          ownerOrgId: null,
+          email: "claim@example.com",
+          name: "Claim Florals",
+          phone: null,
+          claimedByProfileId: null,
+          leadForwardEmail: null,
+        }),
+      );
+      expect(second).not.toBeNull();
+
       const listing = await run(directory.consumeClaim(claimToken, "org_claim", "usr_claim"));
       expect(listing.id).toBe(directoryVendorId);
       expect(listing.ownerOrgId).toBe("org_claim");
@@ -1105,11 +1123,22 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(directoryVendors)
         .where(eq(directoryVendors.id, directoryVendorId));
       expect(row?.claimedByProfileId).toBe("usr_claim");
-      const [claim] = await db
+      // The bind's batch burned the listing's other token too.
+      const claims = await db
         .select()
         .from(vendorClaims)
         .where(eq(vendorClaims.directoryVendorId, directoryVendorId));
-      expect(claim?.consumedAt).not.toBeNull();
+      expect(claims).toHaveLength(2);
+      expect(claims.every((c) => c.consumedAt !== null)).toBe(true);
+      const late = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(second!.claimToken, "org_late", "usr_late")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(late) &&
+          Option.getOrUndefined(Cause.findErrorOption(late.cause)) instanceof ClaimInvalid,
+      ).toBe(true);
 
       const reuse = await Effect.runPromiseExit(
         directory
@@ -1120,6 +1149,56 @@ describe("cire/api over real D1 (Miniflare)", () => {
         Exit.isFailure(reuse) &&
           Option.getOrUndefined(Cause.findErrorOption(reuse.cause)) instanceof ClaimInvalid,
       ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "consumeClaim refuses an org that already owns a listing, and the owner index is unique",
+    async () => {
+      const now = new Date();
+      const directory = createDirectoryService();
+      const base = { listed: "live", createdAt: now, updatedAt: now };
+      await db.insert(directoryVendors).values([
+        { id: "dv_owned", ownerOrgId: "org_owner", name: "Owned", ...base },
+        { id: "dv_open", ownerOrgId: null, name: "Open", ...base },
+      ]);
+      const claim = await run(
+        directory.issueClaimForListing({
+          id: "dv_open",
+          ownerOrgId: null,
+          email: "open@example.com",
+          name: "Open",
+          phone: null,
+          claimedByProfileId: null,
+          leadForwardEmail: null,
+        }),
+      );
+
+      const refused = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(claim!.claimToken, "org_owner", "usr_owner")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(refused) &&
+          Option.getOrUndefined(Cause.findErrorOption(refused.cause)) instanceof
+            OrgAlreadyHasListing,
+      ).toBe(true);
+      const [open] = await db
+        .select()
+        .from(vendorClaims)
+        .where(eq(vendorClaims.directoryVendorId, "dv_open"));
+      expect(open?.consumedAt).toBeNull();
+
+      // The unique owner index, on D1's own SQLite: a second owned row fails.
+      // ddl-lockstep.test.ts checks that migration 0072 builds the same index.
+      await expect(
+        db
+          .insert(directoryVendors)
+          .values({ id: "dv_dup", ownerOrgId: "org_owner", name: "Dup", ...base })
+          .run(),
+      ).rejects.toThrow();
     },
     MF_TIMEOUT_MS,
   );
@@ -2120,13 +2199,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
   it(
-    "runs migration 0071's data statements on D1's own SQLite",
+    "runs migration 0073's data statements on D1's own SQLite",
     async () => {
       // The schema comes from the test DDL, which already has the tier columns
       // and the narrowed index, so only the migration's UPDATEs are replayed:
       // what is proven is that D1 accepts them (`unixepoch()` included) and
       // that they lift each wedding to the tier its legacy rows paid for.
-      const updates = migrationStatements(MIGRATION_0071).filter((stmt) =>
+      const updates = migrationStatements(MIGRATION_0073).filter((stmt) =>
         stmt.startsWith("UPDATE"),
       );
       expect(updates).toHaveLength(3);

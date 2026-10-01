@@ -158,6 +158,10 @@ export const CIRE_METRICS = {
   // the two apart (only one of them spends our network on a user's URL) and
   // `result` says how it ended. Neither is per-wedding.
   registryImageSave: "cire.registry.image.save",
+  // The picker's thumbnails — one candidate fetched through the link-preview
+  // guard and re-encoded. `result` is how it ended; `cache_hit` means neither
+  // the outbound fetch nor the Images binding ran.
+  registryLinkThumb: "cire.registry.link_thumb",
   // A D1 query prepared on the raw binding because no session was on the async
   // context, so it went to the primary and skipped read replication. Gives no
   // wrong answer, so nothing else notices it. Should read zero on a deployed
@@ -244,8 +248,17 @@ export type HostAddResult =
   | "disabled"
   | "error";
 
-/** Outcome of removing a co-host. */
-export type HostRemoveResult = "ok" | "error";
+/** Outcome of removing a co-host. `owner_refused` is the owner calling the
+ *  self-leave route: an owner is never rowed in as a co-host, so has no seat
+ *  to leave. */
+export type HostRemoveResult = "ok" | "owner_refused" | "error";
+
+/**
+ * Which route removed the seat — not the caller's role. `owner` is the owner
+ * removing someone (`DELETE /hosts/:osnProfileId`); `self` is the self-leave
+ * route (`DELETE /hosts/me`), including the owner's refused attempt at it.
+ */
+export type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a co-host's role (editor ↔ viewer). */
 export type HostRoleChangeResult = "ok" | "not_found" | "error";
@@ -323,8 +336,9 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  `guest` (written through the invite — a guest's own reply, or one the
  *  household typed for their plus-one) vs `organiser` (phone/paper RSVP
  *  recorded on the guest's behalf). An organiser's write usually stamps
- *  `consent_source='organiser_attested'`; a status-only one for a plus-one
- *  keeps the household's `inviter_attested` and still counts as `organiser`. */
+ *  `consent_source='organiser_attested'`; a status-only one over a reply holding
+ *  dietary data keeps that reply's source (`guest` or `inviter_attested`) and
+ *  still counts as `organiser`. */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
@@ -452,6 +466,22 @@ export type RegistryImageSaveResult =
   | "too_large"
   | "error";
 type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryImageSaveResult };
+/** How one picker thumbnail ended. `original` is the local path with no Images
+ *  binding, where the sniffed bytes are served as they arrived; `unavailable` is
+ *  a deployed tier refusing to do that; `transform_failed` includes a spent
+ *  Images quota; `budget_spent` is the picker's own monthly share running out. A refusal is its own value, as on the preview counter. */
+export type RegistryLinkThumbResult =
+  | "ok"
+  | "cache_hit"
+  | "original"
+  | "blocked"
+  | "fetch_failed"
+  | "unsupported_type"
+  | "too_large"
+  | "transform_failed"
+  | "unavailable"
+  | "budget_spent";
+type RegistryLinkThumbAttrs = { result: RegistryLinkThumbResult };
 /** The Worker entry point a session-routed D1 client was built for. */
 export type D1SessionEntry = "fetch" | "scheduled";
 type D1SessionMissingAttrs = { entry: D1SessionEntry };
@@ -497,7 +527,7 @@ type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult };
-type HostRemovedAttrs = { result: HostRemoveResult };
+type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
@@ -640,6 +670,12 @@ const registryImageSave = createCounter<RegistryImageSaveAttrs>({
   name: CIRE_METRICS.registryImageSave,
   description: "Registry item image saves, by source + outcome",
   unit: "{save}",
+});
+
+const registryLinkThumb = createCounter<RegistryLinkThumbAttrs>({
+  name: CIRE_METRICS.registryLinkThumb,
+  description: "Registry link-picker thumbnails, by outcome",
+  unit: "{thumbnail}",
 });
 
 const d1SessionMissing = createCounter<D1SessionMissingAttrs>({
@@ -848,7 +884,7 @@ const hostAdded = createCounter<HostAddedAttrs>({
 
 const hostRemoved = createCounter<HostRemovedAttrs>({
   name: CIRE_METRICS.hostRemoved,
-  description: "Co-host removals, by outcome",
+  description: "Co-host removals, by outcome and by route (owner removal or self-leave)",
   unit: "{host}",
 });
 
@@ -995,6 +1031,9 @@ export const metricRegistryImageSave = (
   result: RegistryImageSaveResult,
 ): void => registryImageSave.inc({ source, result });
 
+export const metricRegistryLinkThumb = (result: RegistryLinkThumbResult): void =>
+  registryLinkThumb.inc({ result });
+
 export const metricD1SessionMissing = (entry: D1SessionEntry): void =>
   d1SessionMissing.inc({ entry });
 
@@ -1113,7 +1152,8 @@ export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefus
 
 export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
 
-export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+export const metricHostRemoved = (result: HostRemoveResult, actor: HostRemoveActor): void =>
+  hostRemoved.inc({ result, actor });
 
 export const metricHostRoleChanged = (result: HostRoleChangeResult): void =>
   hostRoleChanged.inc({ result });

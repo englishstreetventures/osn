@@ -995,7 +995,7 @@ describe("settlePurchase", () => {
 
   /**
    * A session can be paid in the moment before it is expired — by this code
-   * replacing it, or by migration 0071 expiring every legacy pending row. The
+   * replacing it, or by migration 0073 expiring every legacy pending row. The
    * money is as real as any other, so the row flips and the tier is granted.
    */
   it("settles a paid session whose row was already expired", async () => {

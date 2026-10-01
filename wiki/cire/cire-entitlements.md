@@ -51,7 +51,7 @@ configured per deployment — see [[cire-upgrades]].
 
 ## Database
 
-### `weddings` — the tier itself (migration 0071)
+### `weddings` — the tier itself (migration 0073)
 
 | Column | Type | Notes |
 |---|---|---|
@@ -73,7 +73,7 @@ purchase priced as an upgrade from a tier adds one condition: its grant matches
 only while the wedding still holds that tier, so a from-Gold Crimson paid after
 the wedding was lowered to Ivory raises nothing ([[cire-upgrades]]).
 
-Migration 0071 lifted every wedding whose legacy entitlement rows had already
+Migration 0073 lifted every wedding whose legacy entitlement rows had already
 paid for more: `vendors` or `capacity_1000` to Crimson, then `registry` or
 `capacity_500` to Gold, each with `tier_source = 'migration'`.
 
@@ -95,7 +95,7 @@ is comp-only: nothing sells it today, and every design is free while the
 premium designs are dormant ([[cire-invite-designs]]).
 
 The other keys in the enum (`vendors`, `registry`, `capacity_500`,
-`capacity_1000`, `ai`) are what 0071 read to set each wedding's tier. Their rows
+`capacity_1000`, `ai`) are what 0073 read to set each wedding's tier. Their rows
 are still in the table and nothing reads them. englishstventures/osn#1315
 deletes them and narrows the enum once the tier release is deployed.
 
@@ -141,7 +141,7 @@ already validated it) degrades to the 402 rather than throwing.
 |---|---|---|---|
 | Gold | `routes/budget.ts` | 3 | Every `/budget/*` route, reads included ([[cire-budget]]) |
 | Gold | `routes/tasks.ts` | 2 | Every `/tasks/*` route, reads included ([[cire-checklist-tasks]]) |
-| Gold | `routes/registry.ts` | 5 | The organiser registry ([[cire-registry]]) |
+| Gold | `routes/registry.ts` | 6 | The organiser registry, its link preview and the preview's thumbnails ([[cire-registry]]) |
 | Gold | `routes/registry-stripe.ts` | 1 | Connect onboarding for gift payouts |
 | Crimson | `routes/vendors.ts` | 2 | The vendor CRM ([[cire-vendors]]) |
 | Crimson | `routes/vendor-directory.ts` | 2 | Directory browse and add |
@@ -242,7 +242,7 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
 
 - **`tierOf(summary)`** (`cire/host/src/lib/tiers.ts`) reads the list's `tier`.
   With no `tier` at all the list came from an API that predates tiers, and the
-  legacy keys stand in for it with the same mapping 0071 used
+  legacy keys stand in for it with the same mapping 0073 used
   (`legacyTierFromEntitlements`), so a portal deployed ahead of its API locks
   nothing the couple paid for. The fallback goes with englishstventures/osn#1315.
 - **`ModuleShell`** coerces a locked module to Overview: a deep link or a stale
@@ -300,7 +300,7 @@ without `--lower`, prints one statement and refunds nothing.
 |---|---|---|---|
 | Self-serve purchase | `purchase` | `stripe:<purchase id>` | The wedding's **owner**, from the portal — [[cire-upgrades]] |
 | Comp, or a refund lowering it | `comp` | `script:<operator>` | An operator, with `grant-tier.ts` |
-| The tier migration | `migration` | NULL | Migration 0071, from legacy entitlement rows |
+| The tier migration | `migration` | NULL | Migration 0073, from legacy entitlement rows |
 
 The tier is one value per wedding, so it cannot hold purchase history: the money
 side lives in `wedding_upgrade_purchases` and `platform_sales`

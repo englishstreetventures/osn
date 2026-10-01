@@ -29,6 +29,12 @@ const claimInvalid = (set: { status?: number | string }) =>
     return { error: "claim_invalid" };
   });
 
+const orgHasListing = (set: { status?: number | string }) =>
+  Effect.sync(() => {
+    set.status = 409;
+    return { error: "org_has_listing" };
+  });
+
 const internal = (set: { status?: number | string }) =>
   Effect.sync(() => {
     set.status = 500;
@@ -146,6 +152,7 @@ export function createVendorPortalRoutes(
               Effect.provideService(DbService, db),
               Effect.catchTag("SchemaError", () => badRequest(set)),
               Effect.catchTag("ClaimInvalid", () => claimInvalid(set)),
+              Effect.catchTag("OrgAlreadyHasListing", () => orgHasListing(set)),
               Effect.catchDefect(() => internal(set)),
             ),
           );

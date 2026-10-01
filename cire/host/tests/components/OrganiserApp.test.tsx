@@ -48,6 +48,7 @@ const toastError = vi.fn();
 const toastInfo = vi.fn();
 vi.mock("@shared/toast", () => ({
   Toaster: () => null,
+  // The upgrade return and the helper screen's leave control toast their outcome.
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
     error: (...args: unknown[]) => toastError(...args),
@@ -114,6 +115,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+      onLeftWedding?: () => void;
     }) => {
       const { authFetch } = useAuth();
       shellMounts += 1;
@@ -145,6 +147,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           >
             rename
           </button>
+          <button onClick={() => props.onLeftWedding?.()}>leave</button>
         </div>
       );
     },
@@ -294,6 +297,27 @@ describe("OrganiserApp Dashboard", () => {
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();
+  });
+
+  it("lets a helper leave from the run-sheet screen, which drops the wedding", async () => {
+    // A helper never reaches the co-host panel, so the run-sheet screen is the
+    // only place their leave control can live.
+    authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(JSON.stringify({ left: true }));
+      return listResponse([{ id: "wed_h", slug: "h", displayName: "Helped", role: "helper" }]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("0"));
+    expect(screen.queryByText(/Helper access/i)).toBeNull();
+    const del = authFetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+    expect(String(del?.[0])).toBe("https://api.test/api/organiser/weddings/wed_h/hosts/me");
   });
 
   it("treats a role it has never heard of as the narrowest one, not as an editor", async () => {
@@ -730,6 +754,30 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     setCachedVendors("wed_a", [vendorRow("wed_a")]);
     expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("drops a wedding the organiser leaves from the list, the route and the caches", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        { id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "editor" },
+        { id: "wed_b", slug: "b", displayName: "Bea & Cal", role: "viewer" },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+
+    fireEvent.click(screen.getByText("leave"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(window.location.hash).not.toContain("wed_a");
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    // Leaving is local: the list is not asked again.
+    expect(listCalls()).toBe(1);
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

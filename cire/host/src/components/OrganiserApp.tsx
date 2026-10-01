@@ -45,6 +45,7 @@ import { invalidateCatalogue } from "../lib/upgrade-store";
 import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
+import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
@@ -156,6 +157,8 @@ function WeddingDashboard(props: {
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
+  /** The organiser gave up their seat on this wedding. */
+  onLeft: () => void;
 }) {
   // One decision, taken once, for every surface below. The API enforces all of
   // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
@@ -163,7 +166,10 @@ function WeddingDashboard(props: {
   const surfaces = () => surfacesFor(props.wedding.role);
 
   return (
-    <Show when={surfaces().canOpenDashboard} fallback={<RunSheetSeat />}>
+    <Show
+      when={surfaces().canOpenDashboard}
+      fallback={<RunSheetSeat weddingId={props.weddingId} onLeft={props.onLeft} />}
+    >
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
           weddingId={props.weddingId}
@@ -176,6 +182,7 @@ function WeddingDashboard(props: {
           onModule={props.onModule}
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
+          onLeftWedding={props.onLeft}
           tier={tierOf(props.wedding)}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
@@ -214,13 +221,17 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
  *  wedding is still listed for them — that is how they reach it at all — so
  *  this says what the seat covers rather than leaving them on a dashboard whose
  *  every panel errors. */
-function RunSheetSeat() {
+function RunSheetSeat(props: { weddingId: string; onLeft: () => void }) {
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
-      <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
-      <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
-        {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
-      </p>
+    <div class="flex flex-col gap-6">
+      <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
+        <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
+        <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
+          {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
+        </p>
+      </div>
+      {/* A helper never reaches the co-host panel, so their way out lives here. */}
+      <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
     </div>
   );
 }
@@ -540,6 +551,13 @@ function Dashboard() {
     setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, ...patch } : w)));
   }
 
+  /** The organiser left a wedding. Dropping it from the list is all it takes:
+   *  the route falls back to the list (the effect above), the dashboard
+   *  unmounts, and its cache scope releases the wedding's rows. */
+  function handleLeftWedding(weddingId: string) {
+    setWeddings((prev) => (prev ?? []).filter((w) => w.id !== weddingId));
+  }
+
   /**
    * Back from Stripe.
    *
@@ -727,6 +745,7 @@ function Dashboard() {
                             onModule={selectModule}
                             onSub={selectSub}
                             onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                            onLeft={() => handleLeftWedding(weddingId)}
                           />
                         );
                       }}
