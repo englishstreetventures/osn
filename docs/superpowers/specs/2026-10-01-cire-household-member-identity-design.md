@@ -1,6 +1,6 @@
 # Household member identity in cire — design
 
-Date: 2026-10-01 · Status: draft, awaiting owner approval
+Date: 2026-10-01 · Status: approved by the owner 2026-10-01
 
 ## Goal
 
@@ -15,6 +15,11 @@ This design adds a "Who are you?" step after the claim, makes the musubi link an
 3. **Replies record who sent them.** Every reply stores which household member submitted it.
 4. **Returning guests see their account.** When the chosen member is linked and the browser is signed in to that musubi account, the box shows the musubi username and profile picture with "Not you?".
 5. **Linking lets the guest choose the musubi account.** The sign-in leg never re-grants silently; musubi shows a screen where the guest confirms or changes the account.
+6. **Flag first, then every multi-member household.** The member step ships behind `cire.account-linking`. Once attribution has run a few weeks, it reaches every household of two or more members, with or without musubi linking.
+7. **"Not you?" ends both sign-ins.** The guest box and the host portal share one cire musubi sign-in on a browser, so "Not you?" ends the organiser's portal sign-in too. The organiser signs in again with a passkey.
+8. **No new dietary step.** When one member enters dietary needs for another, cire asks nothing more. It records who ticked the consent box, and the DPIA says a household member relays that consent. Revisit if an organiser or guest asks.
+9. **The household sees who answered.** The invite shows "Answered by {first name}" under each reply.
+10. **Organisers see replies sent through a linked account.** A small mark beside "Answered by" in the portal, with no handle or account detail.
 
 ## Non-goals
 
@@ -102,6 +107,7 @@ Every link from the guest box sends `select_account`. Organiser sign-in is uncha
 | Route | Change |
 |---|---|
 | `POST /api/claim`, `GET /api/claim/session` | Payload gains `member: { guestId } \| null` and `members: { guestId, firstName, linked }[]` (non-plus-one only). `accountLink` gains `account?: { displayName, handle, avatarUrl, matchesMember }` — present only when signed in **and** the member is unlinked or the account matches the link. Never an account id. |
+| Claim and restore `rsvps[]` | Each reply gains `submittedBy: { guestId, firstName } \| null`, for "Answered by" on the invite. |
 | `POST /api/claim/member` | New. `sessionAuth`. Body `{ guestId }`. 204, or 403 `not_household_member` / 403 `plus_one_seat`. Shares the restore's limiter and `originGuard`. |
 | `DELETE /api/claim/member` | New. `sessionAuth`. Always 204, idempotent. |
 | `POST /api/rsvp` | Stamps `submitted_by_guest_id` from the session and `submitted_via_link` from the match check. 409 `member_required` when the household has two or more members and none is chosen. Body unchanged. |
@@ -130,7 +136,7 @@ New personal data and new disclosures:
 
 - **Who sent each reply** (`rsvps.submitted_by_guest_id`, `rsvp_changes.actor_guest_id`, `sessions.member_guest_id`). A household member's name tied to an action. Basis Art. 6(1)(f), wedding administration, as for `rsvps.status`. Seen by the household and the wedding's organisers (every co-host role, as RSVP rows are today). Kept as long as the row it sits on: sessions 30 days, `rsvp_changes` 90 days, `rsvps` until the 1-year guest-data sweep.
 - **musubi picture, display name and handle shown on the invite.** Public musubi profile fields, already held in `organiser_sessions`. Shown only to the browser that holds both the household cookie and that musubi sign-in, and never for a linked member unless the sign-in matches. Not stored anew. The picture loads from musubi's own avatar host; the guest site's CSP `img-src` must allow it.
-- **Art. 9 dietary.** A household member often answers for others, and the consent tick is asked once per submission. Today the record says "a guest consented"; after this change it also says which member ticked the box for whom. That makes visible a gap that already exists: one adult relaying another adult's health or religious data. No change to the consent gate in this design (see open question 3). The submitter column holds an id, never dietary content.
+- **Art. 9 dietary.** A household member often answers for others, and the consent tick is asked once per submission. Today the record says "a guest consented"; after this change it also says which member ticked the box for whom. That makes visible a gap that already exists: one adult relaying another adult's health or religious data. No change to the consent gate (decision 8); the DPIA records that a household member relays consent. The submitter column holds an id, never dietary content.
 - **Erasure.** Deleting a member nulls their attribution on others' rows (`SET NULL`); the household and wedding cascades are unchanged.
 
 Wiki updates in the build pull request:
@@ -155,7 +161,7 @@ Per `wiki/shared/observability/overview.md`:
 - **DB tier (`tests/db/`)**: migration applies; `SET NULL` on member delete for `sessions` and `rsvps`; household cascade still clears everything.
 - **API**: member choose — own member, other household's guest (403), plus-one (403), no session (401); clear is idempotent; RSVP stamps submitter, refuses with no member in a two-person household, auto-chooses for one; link uses the session member, refuses with none; restore payload for all four rows of the return-visit table; `accountLink.account` absent on a mismatch; start leg passes `select_account` and drops `none` and `login`.
 - **osn / musubi**: `/authorize` with `select_account`, one profile, existing consent shows the screen; "Use another account" switches account and clears any held answer.
-- **Guest site (component)**: "Who are you?" renders for multi-member households only; submit disabled until chosen; link box shows picture and handle; "Not you?" calls both routes and returns to the picker.
+- **Guest site (component)**: "Who are you?" renders for multi-member households only; "Answered by" shows under each reply; submit disabled until chosen; link box shows picture and handle; "Not you?" calls both routes and returns to the picker.
 - **Browser tier**: shared-browser path end to end — organiser signed in to the portal, guest claims on the same browser, box shows the organiser's handle, "Not you?" signs it out, re-link reaches musubi's account screen.
 - **Portal**: RSVP table shows "Answered by {name}", with a mark when sent via a linked account.
 
@@ -163,15 +169,8 @@ Per `wiki/shared/observability/overview.md`:
 
 Behind `cire.account-linking` (default off). With the flag off, nothing changes: no member step, no new payload fields, `POST /api/rsvp` does not require a member. The migration ships unflagged since every column is nullable.
 
-1. Migration, API routes and payload, guest-site member step and link box. One pull request.
+1. Migration, API routes and payload, guest-site member step, "Answered by" and link box, wiki and compliance pages. One pull request.
 2. musubi authorize screen: always show the account on `select_account`, "Use another account". One pull request in `osn/` and `musubi/`, with a changeset.
 3. Organiser portal "Answered by". One pull request.
 4. Turn the flag on for one test wedding, then widely.
-
-## Open questions for the owner
-
-1. **Should the "Who are you?" step reach every household, or only those with musubi linking switched on?** Recommended: behind the flag at first, then every household of two or more once attribution has run a few weeks, since knowing who replied helps organisers with or without musubi.
-2. **Should "Not you?" also end an organiser's host-portal sign-in on that browser?** It shares one cire sign-in, so ending one ends both. Recommended: yes. A guest box that leaves an organiser's account usable is the risk this design closes; the organiser signs in again with a passkey.
-3. **When one member enters dietary needs for another, should cire ask anything more?** Recommended: no new step now; record who ticked the consent box and say in the DPIA that a household member relays it. Revisit if an organiser or guest asks.
-4. **Should household members see who answered for each person on the invite?** Recommended: yes, "Answered by Priya" under each reply. The household already sees every member's reply, and it helps a family spot a mistake.
-5. **Should organisers see whether a reply came through a linked musubi account?** Recommended: yes, as a small mark beside "Answered by", with no handle or account detail.
+5. After a few weeks of attribution, take the member step and "Answered by" out from behind the flag for every household of two or more. The musubi link box stays behind it. One pull request.
