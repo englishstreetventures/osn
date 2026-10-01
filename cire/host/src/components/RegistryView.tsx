@@ -21,7 +21,13 @@ import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import { haptic } from "../lib/haptics";
-import { formatMinor, formatMinorPair, minorToInput, parseMinor } from "../lib/money";
+import {
+  belowSmallestUnitError,
+  formatMinor,
+  formatMinorPair,
+  minorToInput,
+  parseMinor,
+} from "../lib/money";
 import {
   ensureRegistryLoaded,
   type GiftLogEntry,
@@ -239,7 +245,7 @@ export default function RegistryView(props: RegistryViewProps) {
     const priceMinor = priceRaw === "" ? null : parseMinor(priceRaw, currency());
     if (priceRaw !== "" && priceMinor === null) {
       haptic("reject");
-      setError("Price must be a positive amount.");
+      setError(belowSmallestUnitError(priceRaw, currency()) ?? "Price must be a positive amount.");
       return;
     }
     const quantityWanted = Number(newQuantity());
@@ -312,7 +318,7 @@ export default function RegistryView(props: RegistryViewProps) {
     const priceMinor = priceRaw === "" ? null : parseMinor(priceRaw, currency());
     if (priceRaw !== "" && priceMinor === null) {
       haptic("reject");
-      setError("Price must be a positive amount.");
+      setError(belowSmallestUnitError(priceRaw, currency()) ?? "Price must be a positive amount.");
       return;
     }
     const quantityWanted = Number(editQuantity());
