@@ -17,6 +17,7 @@ import {
 } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { reloadOnRestore } from "../lib/bfcache";
 import { createCommandShortcut } from "../lib/command-shortcut";
 import {
   type DashboardRoute,
@@ -742,6 +743,9 @@ export default function OrganiserApp() {
   // first paint; this takes over from it, so a host who follows their system
   // theme sees the portal change with it rather than at the next reload.
   onMount(() => onCleanup(initTheme()));
+  // Back after sign-out must not bring the signed-in page back from the
+  // back/forward cache; see `lib/bfcache.ts`.
+  onMount(() => onCleanup(reloadOnRestore()));
 
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>

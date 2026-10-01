@@ -286,15 +286,55 @@ export function imageCacheControl(
 }
 
 /**
+ * `Vary` on every image response, the 304 included.
+ *
+ * The app-level CORS plugin echoes a per-request `Access-Control-Allow-Origin`,
+ * so a cached `no-cors` entry served back to a `cors`-mode consumer fails the
+ * CORS check without a network hit. `Origin` in Vary makes the browser cache
+ * CORS-mode and no-cors-mode responses separately — the mode-mixing that broke
+ * the crop editor. `Accept` because the format is negotiated from it.
+ */
+const IMAGE_VARY = "Accept, Origin";
+
+/**
+ * The validator a `revocable` image carries, or `undefined` for every other.
+ *
+ * Built from exactly what the cache key is built from — the server-derived
+ * content version, the variant and the negotiated format — because the bytes
+ * under one key never change: a new picture is a new key. Weak, not strong: a
+ * failed transform falls back to the original bytes under the same tag, which
+ * are the same image, not the same bytes.
+ *
+ * Only `revocable` images carry one. They are the ones a browser asks about
+ * again after an hour; an `immutable` image is never revalidated, so a tag on
+ * it would be bytes on every response for nothing.
+ */
+export function imageEtag(
+  lifetime: ImageClientLifetime,
+  version: string | undefined,
+  variant: ImageVariant,
+  format: OutputFormat,
+): string | undefined {
+  if (lifetime !== "revocable" || !version) return undefined;
+  return `W/"${version}-${variant}-${format.replace("image/", "")}"`;
+}
+
+/**
+ * Whether an `If-None-Match` header names `etag`, compared weakly: `W/"x"` and
+ * `"x"` are the same tag, and the header may list several. A `*` does not
+ * count — no browser sends one on a GET, and answering in full is the safe side.
+ */
+export function ifNoneMatchHits(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  const opaque = (tag: string) => tag.trim().replace(/^W\//, "");
+  const wanted = opaque(etag);
+  return header.split(",").some((tag) => opaque(tag) === wanted);
+}
+
+/**
  * Response headers for both the transformed and the streamed-original serve
  * paths. The cache-hit path re-stamps `Cache-Control` through the same
  * {@link imageCacheControl}, so the two paths cannot disagree.
- *
- * `Vary: Accept, Origin`: the app-level CORS plugin echoes a per-request
- * `Access-Control-Allow-Origin`, so a cached `no-cors` entry served back to a
- * `cors`-mode consumer fails the CORS check without a network hit. `Origin` in
- * Vary makes the browser cache CORS-mode and no-cors-mode responses
- * separately — the mode-mixing that broke the crop editor.
  */
 export function imageResponseHeaders(
   contentType: string,
@@ -312,7 +352,7 @@ export function imageResponseHeaders(
     // `serveTransformedImage`); that lookup happens AFTER the auth check, so an
     // unauthenticated request never reaches it.
     "Cache-Control": imageCacheControl(visibility, lifetime),
-    Vary: "Accept, Origin",
+    Vary: IMAGE_VARY,
   };
 }
 
@@ -358,10 +398,14 @@ function withCacheControl(response: Response, value: string): Response {
  * load. The Worker is this response's origin and ran the route's gate for it just
  * now, so it answers with no `Age` and a `Date` of now.
  */
-function freshForClient(hit: Response, cacheControl: string): Response {
+function freshForClient(hit: Response, cacheControl: string, etag: string | undefined): Response {
   const response = withCacheControl(hit, cacheControl);
   response.headers.delete("Age");
   response.headers.set("Date", new Date().toUTCString());
+  // Set, not trusted from the store: an entry stored before tags existed has
+  // none, and the slot's lifetime decides whether the client gets one.
+  if (etag) response.headers.set("ETag", etag);
+  else response.headers.delete("ETag");
   return response;
 }
 
@@ -385,6 +429,12 @@ function freshForClient(hit: Response, cacheControl: string): Response {
  * `visibility` and `lifetime` shape only the client's `Cache-Control`, never the
  * cache key or the stored copy — see {@link imageCacheControl} and
  * {@link STORABLE_CACHE_CONTROL}.
+ *
+ * A `revocable` image carries a weak `ETag` ({@link imageEtag}), and a request
+ * whose `If-None-Match` names it gets a `304` before any cache lookup, R2 read
+ * or transform. That is safe only because every caller runs its gate first: a
+ * 304 after the gate says the same as a 200 after the gate, and a closed gate
+ * still answers 404 without reaching this function.
  *
  * Returns a `Response`. Requires `AssetsR2Service` for the R2 read. Fails with
  * `AssetR2Error` when the key is missing from R2 (caller maps to 404).
@@ -418,6 +468,18 @@ export function serveTransformedImage(args: {
     lifetime = "immutable",
   } = args;
   return Effect.gen(function* () {
+    const cacheControl = imageCacheControl(visibility, lifetime);
+    const etag = imageEtag(lifetime, version, variant, format);
+    // The browser already holds these bytes: its hour ran out, so it asked
+    // again, and the gate has just said it may keep them for another.
+    if (etag && ifNoneMatchHits(request.headers.get("If-None-Match"), etag)) {
+      metricImageTransform("not_modified", variant, format);
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: etag, "Cache-Control": cacheControl, Vary: IMAGE_VARY },
+      });
+    }
+
     // Cache API short-circuit. The Images binding bills per call with no
     // per-unique dedupe, so a hit serves the transformed bytes WITHOUT touching
     // the binding. `caches` is undefined in unit tests / non-Workers runtimes.
@@ -440,7 +502,7 @@ export function serveTransformedImage(args: {
         // re-stamp the slot's own visibility and lifetime on the way out, or a
         // private image would tell the browser it was shareable, and a revocable
         // one that it could keep for a year, purely because it had been cached once.
-        return freshForClient(hit, imageCacheControl(visibility, lifetime));
+        return freshForClient(hit, cacheControl, etag);
       }
     }
 
@@ -486,6 +548,9 @@ export function serveTransformedImage(args: {
         headers: imageResponseHeaders(streamed.contentType, visibility, lifetime),
       });
     }
+    // On both paths, and so on the stored copy too — harmless there: the store
+    // is only ever asked with the synthetic key, which carries no conditional.
+    if (etag) response.headers.set("ETag", etag);
 
     if (cache && cacheKey) {
       // Store a copy the cache will actually accept (P-W2) — see

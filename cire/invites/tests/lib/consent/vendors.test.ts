@@ -12,7 +12,7 @@ import {
   vendorById,
   vendorsInCategory,
 } from "../../../src/lib/consent/vendors";
-import { CSP_DIRECTIVES, CSP_REPORT_ENDPOINT } from "../../../src/lib/security-headers";
+import { API_ORIGIN, CSP_DIRECTIVES, CSP_REPORT_ENDPOINT } from "../../../src/lib/security-headers";
 
 /**
  * The `vendor` id on every `<ConsentGate>` under `src/`, read from the source
@@ -61,15 +61,9 @@ describe("vendor registry ↔ CSP consistency", () => {
     // disclosure. Adding to this list is the one place that has to be justified
     // in writing.
     const FIRST_PARTY = new Set<string>([
-      "https://api.cireweddings.com", // cire-api: invite JSON + image bytes
-      "http://localhost:8787", // the same API in local dev
-      // The same API again, behind the portless devloop, where it answers on
-      // `api.cire.localhost` — branch-prefixed per worktree, so the exact host
-      // cannot be written down. `.localhost` is reserved and resolves only to
-      // loopback, so this wildcard cannot name anyone else's server and no
-      // third party can be reached through it: nothing to disclose.
-      // See `wiki/conventions/devloop-urls.md`.
-      "https://*.localhost",
+      // cire-api: invite JSON + image bytes. The build names its own tier's
+      // API here — production, dev, or the local one — never a third party.
+      API_ORIGIN,
       CSP_REPORT_ENDPOINT, // the violation collector on that same first-party API
     ]);
 

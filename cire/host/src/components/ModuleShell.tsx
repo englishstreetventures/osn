@@ -656,6 +656,8 @@ export default function ModuleShell(props: ModuleShellProps) {
                       <InviteBuilder
                         weddingId={props.weddingId}
                         weddingSlug={props.weddingSlug}
+                        weddingName={props.weddingName}
+                        canManage={props.canManage}
                         entitlements={props.entitlements}
                         initialSection={builderSection()}
                         inviteMessageLinks={inviteMessageLinks("message")}

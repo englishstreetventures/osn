@@ -11,7 +11,9 @@
 //
 // The draft also holds the change head it was loaded at (`baseRevision`): the
 // save sends it, and the API refuses a draft once the head has moved, because a
-// row committed since the load would otherwise read as a removal.
+// row committed since the load would otherwise read as a removal. `rebase`
+// recovers from that refusal: it re-seeds from rows loaded at the new head and
+// replays the organiser's unsaved edits on top (`replayDraft`).
 //
 // In-session UNDO + "discard draft" are pure client state: every mutation pushes
 // the prior snapshot onto an undo stack, so undo/discard are local — no server
@@ -293,6 +295,259 @@ export function toDesiredState(draft: DraftState): DesiredStateWire {
   return { events, families };
 }
 
+// ── Replay: keep unsaved edits across a reload ────────────────────────────────
+
+/** The event fields an organiser edits, compared one by one on replay.
+ *  `sortOrder` is not one: removing or reordering renumbers every event, so
+ *  order is replayed from the sequence of ids instead. */
+const EVENT_FIELDS = [
+  "name",
+  "startAt",
+  "endAt",
+  "timezone",
+  "address",
+  "dressCodeDescription",
+  "dressCodePalette",
+  "pinterestUrl",
+  "mapsUrl",
+] as const;
+
+const GUEST_FIELDS = ["firstName", "lastName", "nickname"] as const;
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const quoted = (name: string) => `“${name.trim() || "Untitled"}”`;
+
+/** What {@link replayDraft} made of the organiser's edits. */
+export interface ReplayResult {
+  /** The fresh rows with the organiser's edits applied on top. */
+  readonly draft: DraftState;
+  /** One sentence per edit that could not be kept, or that needs a second look. */
+  readonly notes: string[];
+}
+
+/**
+ * Replay the organiser's unsaved edits onto rows loaded after someone else's
+ * change landed, so a stale draft can be saved without redoing the work.
+ *
+ * The edits are the difference between `baseline` (the rows the draft was
+ * loaded from) and `current` (the draft as it stands); both share draft keys,
+ * and existing rows are matched to `fresh` by server id:
+ *  - a field the organiser changed takes their value, even where the other
+ *    change set it too; a field they left alone takes the fresh value;
+ *  - a row they removed is removed; a row they added is added, and stays new;
+ *  - attendance is replayed as ticks and unticks against the baseline, so a
+ *    co-host's own ticks on the same guest survive;
+ *  - event order is replayed only when the organiser reordered, as the order
+ *    of the events both lists hold; events added elsewhere go last.
+ *
+ * `notes` names each edit that no longer applies (its row was deleted
+ * elsewhere), each new row whose name was also added elsewhere (it may be a
+ * duplicate — including the organiser's own save, if that landed without the
+ * editor hearing back), and each household the organiser removed that has
+ * since gained guests, which go with it.
+ */
+export function replayDraft(
+  baseline: DraftState,
+  current: DraftState,
+  fresh: DraftState,
+): ReplayResult {
+  const notes: string[] = [];
+  const out: DraftState = structuredClone(fresh);
+
+  // ── Events ──
+  const baseEventById = new Map(baseline.events.filter((e) => e.id).map((e) => [e.id!, e]));
+  const curEventById = new Map(current.events.filter((e) => e.id).map((e) => [e.id!, e]));
+  const freshEventNames = new Set(out.events.map((e) => normaliseName(e.name)));
+  const baseEventNames = new Set(baseline.events.map((e) => normaliseName(e.name)));
+
+  /** Current-draft event key → key of the same event in the result. */
+  const eventKeyMap = new Map<string, string>();
+  const keptEvents: DraftEvent[] = [];
+  for (const evt of out.events) {
+    const base = evt.id ? baseEventById.get(evt.id) : undefined;
+    const cur = evt.id ? curEventById.get(evt.id) : undefined;
+    if (base && !cur) continue; // removed by the organiser
+    if (base && cur) {
+      for (const field of EVENT_FIELDS) {
+        if (!same(cur[field], base[field])) {
+          Object.assign(evt, { [field]: structuredClone(cur[field]) });
+        }
+      }
+      eventKeyMap.set(cur.key, evt.key);
+    }
+    keptEvents.push(evt);
+  }
+  const freshEventIds = new Set(out.events.map((e) => e.id));
+  for (const cur of current.events) {
+    if (!cur.id || freshEventIds.has(cur.id)) continue;
+    const base = baseEventById.get(cur.id);
+    if (base && EVENT_FIELDS.some((f) => !same(cur[f], base[f]))) {
+      notes.push(`${quoted(cur.name)} was deleted elsewhere, so your changes to it were not kept.`);
+    }
+  }
+  const addedEvents = current.events.filter((e) => !e.id).map((e) => structuredClone(e));
+  for (const evt of addedEvents) {
+    eventKeyMap.set(evt.key, evt.key);
+    const norm = normaliseName(evt.name);
+    if (norm && freshEventNames.has(norm) && !baseEventNames.has(norm)) {
+      notes.push(
+        `An event called ${quoted(evt.name)} was also added elsewhere — check for a duplicate.`,
+      );
+    }
+  }
+
+  // Reordered = the ids both lists still hold appear in a different order.
+  const baseOrder = baseline.events.filter((e) => e.id && curEventById.has(e.id)).map((e) => e.id);
+  const curOrder = current.events.filter((e) => e.id && baseEventById.has(e.id)).map((e) => e.id);
+  let ordered: DraftEvent[];
+  if (!same(baseOrder, curOrder)) {
+    const position = new Map(current.events.map((e, i) => [e.key, i]));
+    const resultToCurrent = new Map([...eventKeyMap].map(([c, r]) => [r, c]));
+    const placed = [...keptEvents, ...addedEvents].filter((e) => resultToCurrent.has(e.key));
+    placed.sort(
+      (a, b) =>
+        position.get(resultToCurrent.get(a.key)!)! - position.get(resultToCurrent.get(b.key)!)!,
+    );
+    ordered = [...placed, ...keptEvents.filter((e) => !resultToCurrent.has(e.key))];
+  } else {
+    ordered = [...keptEvents, ...addedEvents];
+  }
+  ordered.forEach((e, i) => {
+    e.sortOrder = i;
+  });
+  out.events = ordered;
+  const resultEventKeys = new Set(ordered.map((e) => e.key));
+  const eventNameByCurrentKey = new Map(current.events.map((e) => [e.key, e.name]));
+
+  /** Map the organiser's attendance keys onto the result, noting any lost. */
+  const mapKeys = (keys: readonly string[], guestName: string): string[] => {
+    const mapped: string[] = [];
+    for (const k of keys) {
+      const r = eventKeyMap.get(k);
+      if (r && resultEventKeys.has(r)) mapped.push(r);
+      else {
+        notes.push(
+          `${quoted(guestName)} was invited to ${quoted(eventNameByCurrentKey.get(k) ?? "")}, which was deleted elsewhere.`,
+        );
+      }
+    }
+    return mapped;
+  };
+
+  // ── Households and guests ──
+  const baseFamById = new Map(baseline.families.filter((f) => f.id).map((f) => [f.id!, f]));
+  const curFamById = new Map(current.families.filter((f) => f.id).map((f) => [f.id!, f]));
+  const freshFamilyNames = new Set(out.families.map((f) => normaliseName(f.familyName)));
+  const baseFamilyNames = new Set(baseline.families.map((f) => normaliseName(f.familyName)));
+
+  const keptFamilies: DraftFamily[] = [];
+  for (const fam of out.families) {
+    const base = fam.id ? baseFamById.get(fam.id) : undefined;
+    const cur = fam.id ? curFamById.get(fam.id) : undefined;
+    if (base && !cur) {
+      const baseGuestIds = new Set(base.guests.map((g) => g.id));
+      if (fam.guests.some((g) => !baseGuestIds.has(g.id))) {
+        notes.push(
+          `${quoted(base.familyName)} gained guests elsewhere; you removed the household, and they go with it when you save.`,
+        );
+      }
+      continue;
+    }
+    if (base && cur) replayFamily(fam, base, cur);
+    keptFamilies.push(fam);
+  }
+  const freshFamilyIds = new Set(out.families.map((f) => f.id));
+  for (const cur of current.families) {
+    if (!cur.id || freshFamilyIds.has(cur.id)) continue;
+    const base = baseFamById.get(cur.id);
+    if (base && withoutKeys(cur) !== withoutKeys(base)) {
+      notes.push(
+        `${quoted(cur.familyName)} was removed elsewhere, so your changes to it were not kept.`,
+      );
+    }
+  }
+  const addedFamilies = current.families
+    .filter((f) => !f.id)
+    .map((f) => {
+      const copy = structuredClone(f);
+      const norm = normaliseName(copy.familyName);
+      if (norm && freshFamilyNames.has(norm) && !baseFamilyNames.has(norm)) {
+        notes.push(
+          `A household called ${quoted(copy.familyName)} was also added elsewhere — check for a duplicate.`,
+        );
+      }
+      for (const g of copy.guests) g.eventKeys = mapKeys(g.eventKeys, g.firstName);
+      return copy;
+    });
+  out.families = [...keptFamilies, ...addedFamilies];
+
+  // A tick the fresh rows still hold on an event the organiser removed.
+  for (const fam of out.families) {
+    for (const g of fam.guests) g.eventKeys = g.eventKeys.filter((k) => resultEventKeys.has(k));
+  }
+  return { draft: out, notes };
+
+  function replayFamily(fam: DraftFamily, base: DraftFamily, cur: DraftFamily) {
+    if (cur.familyName !== base.familyName) fam.familyName = cur.familyName;
+    const baseGuestById = new Map(base.guests.filter((g) => g.id).map((g) => [g.id!, g]));
+    const curGuestById = new Map(cur.guests.filter((g) => g.id).map((g) => [g.id!, g]));
+    const freshFirstNames = new Set(fam.guests.map((g) => normaliseName(g.firstName)));
+    const baseFirstNames = new Set(base.guests.map((g) => normaliseName(g.firstName)));
+
+    const kept: DraftGuest[] = [];
+    for (const g of fam.guests) {
+      const bg = g.id ? baseGuestById.get(g.id) : undefined;
+      const cg = g.id ? curGuestById.get(g.id) : undefined;
+      if (bg && !cg) continue; // removed by the organiser
+      if (bg && cg) {
+        for (const field of GUEST_FIELDS) {
+          if (cg[field] !== bg[field]) Object.assign(g, { [field]: cg[field] });
+        }
+        const baseKeys = new Set(bg.eventKeys);
+        const curKeys = new Set(cg.eventKeys);
+        const ticked = cg.eventKeys.filter((k) => !baseKeys.has(k));
+        const unticked = bg.eventKeys.filter((k) => !curKeys.has(k));
+        if (ticked.length > 0 || unticked.length > 0) {
+          const drop = new Set(unticked.map((k) => eventKeyMap.get(k)));
+          // A Set keeps insertion order: the fresh ticks first, then the new ones.
+          const keys = new Set(g.eventKeys.filter((k) => !drop.has(k)));
+          for (const k of mapKeys(ticked, cg.firstName)) keys.add(k);
+          g.eventKeys = [...keys];
+        }
+      }
+      kept.push(g);
+    }
+    const freshGuestIds = new Set(fam.guests.map((g) => g.id));
+    for (const cg of cur.guests) {
+      if (!cg.id || freshGuestIds.has(cg.id)) continue;
+      const bg = baseGuestById.get(cg.id);
+      if (bg && withoutKeys(cg) !== withoutKeys(bg)) {
+        notes.push(
+          `${quoted(cg.firstName)} was removed elsewhere, so your changes to them were not kept.`,
+        );
+      }
+    }
+    for (const cg of cur.guests.filter((g) => !g.id)) {
+      const copy = structuredClone(cg);
+      const norm = normaliseName(copy.firstName);
+      if (norm && freshFirstNames.has(norm) && !baseFirstNames.has(norm)) {
+        notes.push(
+          `${quoted(copy.firstName)} was also added to ${quoted(fam.familyName)} elsewhere — check for a duplicate.`,
+        );
+      }
+      copy.eventKeys = mapKeys(copy.eventKeys, copy.firstName);
+      kept.push(copy);
+    }
+    fam.guests = kept;
+  }
+}
+
+/** A row serialised without its client keys, for "did the organiser change
+ *  it" checks. */
+function withoutKeys(value: DraftFamily | DraftGuest): string {
+  return JSON.stringify(value, (k, v: unknown) => (k === "key" ? undefined : v));
+}
+
 // ── Client-side validation (mirrors guest-event-validation.ts) ────────────────
 
 export interface FieldError {
@@ -468,6 +723,17 @@ export interface GuestEventDraft {
     households: OrganiserHouseholdRow[],
     baseRevision: string,
   ) => void;
+  /** Re-seed from rows loaded after someone else's change, keeping the
+   *  organiser's unsaved edits on top ({@link replayDraft}). The fresh rows
+   *  become the baseline and `baseRevision` the new head, so the draft stays
+   *  dirty and its next save is not refused as stale. Returns the notes on
+   *  edits that could not be kept or need a second look. */
+  rebase: (
+    events: EventRow[],
+    guests: OrganiserGuestRow[],
+    households: OrganiserHouseholdRow[],
+    baseRevision: string,
+  ) => string[];
   /** The change head the draft was loaded at (`null` before a load / after a
    *  reset). The save sends it so a draft older than the head is refused. */
   readonly baseRevision: () => string | null;
@@ -562,6 +828,25 @@ export function createGuestEventDraft(): GuestEventDraft {
     setUndoStack([]);
     setBaseRevision(revision);
     setLoaded(true);
+  }
+
+  function rebase(
+    events: EventRow[],
+    guests: OrganiserGuestRow[],
+    households: OrganiserHouseholdRow[],
+    revision: string,
+  ): string[] {
+    const fresh = buildDraft(events, guests, households);
+    // `replayDraft` copies what it takes from the live draft and from `fresh`,
+    // so neither needs a copy of its own here.
+    const { draft: replayed, notes } = replayDraft(baselineDraft(), unwrap(draft), fresh);
+    setDraft(reconcile(replayed, { key: "key" }));
+    setBaseline(fingerprint(fresh));
+    setBaselineDraft(fresh);
+    setUndoStack([]);
+    setBaseRevision(revision);
+    setLoaded(true);
+    return notes;
   }
 
   function reset() {
@@ -781,6 +1066,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     warnings,
     canUndo,
     load,
+    rebase,
     baseRevision,
     reset,
     addEvent,

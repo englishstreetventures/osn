@@ -8,6 +8,7 @@ import {
   weddings,
 } from "@cire/db";
 import { parsePresets } from "@cire/dietary";
+import { isSafeCssColor } from "@cire/theme";
 import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
@@ -22,10 +23,10 @@ import type {
   DressSwatch,
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
-import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { accountLinkService } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
+import { isDietaryConsentCurrent } from "./rsvp";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -87,8 +88,12 @@ export function decodePalette(raw: string | null): DecodedPalette {
   const out: DressSwatch[] = [];
   for (const item of parsed) {
     // Copied field by field, never pushed whole: an extra key in the stored
-    // JSON must not ride out to the guest.
-    if (isDressSwatch(item)) out.push({ name: item.name, color: item.color });
+    // JSON must not ride out to the guest. A colour off the allow-list is
+    // dropped here too, so a row stored before the write paths checked it
+    // reaches no renderer, export or editor draft.
+    if (isDressSwatch(item) && isSafeCssColor(item.color)) {
+      out.push({ name: item.name, color: item.color });
+    }
   }
   return { palette: out, malformed: false };
 }
@@ -323,6 +328,7 @@ function buildInvite(
               dietary: rsvps.dietary,
               dietaryPresets: rsvps.dietaryPresets,
               dietaryConsentVersion: rsvps.dietaryConsentVersion,
+              consentSource: rsvps.consentSource,
             })
             .from(rsvps)
             .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -425,14 +431,19 @@ function buildInvite(
       members: withPlusOnesAfterInviters(Array.from(memberMap.values())),
       events: eventList,
       // The stored key list becomes an array at the boundary, and the stored
-      // consent VERSION collapses to "is this the copy we show now?" — the sheet
-      // re-lights its picker from the first and decides whether its consent box
-      // may open ticked from the second. Consent given against superseded
-      // wording is not consent to the current wording.
-      rsvps: rsvpRows.map(({ dietaryConsentVersion, ...row }) => ({
+      // consent record collapses to "may this person's box open ticked?" — the
+      // sheet re-lights its picker from the first and seeds its consent boxes
+      // from the second. Consent given against superseded wording, or recorded
+      // by someone other than the box's own writer, does not count. Whether a
+      // row is a plus-one's comes from the members read above.
+      rsvps: rsvpRows.map(({ dietaryConsentVersion, consentSource, ...row }) => ({
         ...row,
         dietaryPresets: parsePresets(row.dietaryPresets),
-        dietaryConsentCurrent: dietaryConsentVersion === DIETARY_CONSENT_VERSION,
+        dietaryConsentCurrent: isDietaryConsentCurrent({
+          version: dietaryConsentVersion,
+          source: consentSource,
+          isPlusOne: (memberMap.get(row.guestId)?.plusOneOf ?? null) !== null,
+        }),
       })),
       // Resolved server-side so the banner the guest reads and the 403 the
       // write path returns are computed by the same function — the client

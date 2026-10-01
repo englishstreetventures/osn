@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { families, guests, weddings } from "@cire/db";
+import { and, eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
@@ -10,6 +10,7 @@ import {
   entitlementPresent,
   entitlementService,
   CapacityExceeded,
+  roomForOneMoreGuest,
 } from "../../src/services/entitlements";
 import type { EntitlementKey } from "../../src/services/entitlements";
 
@@ -62,6 +63,27 @@ describe("entitlementPresent", () => {
     expect(present(paid, "vendors")).toBe(1);
     expect(present(unpaid, "vendors")).toBe(0);
     expect(present(paid, "registry")).toBe(0);
+  });
+
+  it("correlates to the outer row when given a column instead of an id", async () => {
+    const db = createDb();
+    seedWedding(db, "wed_unpaid");
+    const paid = seedWedding(db, "wed_paid");
+    await run(
+      db,
+      entitlementService.grant(paid, "registry", { source: "comp", grantedBy: "usr_owner" }),
+    );
+    // One table, so Drizzle writes a column placed directly in a selected `sql`
+    // field bare. The outer reference must still name `weddings`, or inside the
+    // subquery it could bind to the inner table's own column of that name.
+    const query = db
+      .select({ id: weddings.id, v: entitlementPresent(weddings.id, "registry") })
+      .from(weddings);
+    expect(query.toSQL().sql).toContain(`= "weddings"."id"`);
+    expect(query.all().toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "wed_paid", v: 1 },
+      { id: "wed_unpaid", v: 0 },
+    ]);
   });
 });
 
@@ -197,5 +219,83 @@ describe("assertGuestCapacity", () => {
       );
       expect(Exit.isFailure(exit)).toBe(true);
     });
+  });
+});
+
+describe("roomForOneMoreGuest", () => {
+  // The cap a write checks inside its own statement. It must agree with
+  // `deriveCap` and `countGuests` at every ceiling, or a naming could pass (or
+  // fail) the cap the read before it applied.
+  function seedGuests(db: ReturnType<typeof createDb>, w: string, count: number, kind = "guest") {
+    const now = new Date();
+    const familyId = `fam_${kind}_${count}`;
+    db.insert(families)
+      .values({
+        id: familyId,
+        weddingId: w,
+        publicId: familyId.toUpperCase(),
+        familyName: "Filler",
+        kind: kind as "guest" | "host",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (let i = 0; i < count; i++) {
+      db.insert(guests)
+        .values({
+          id: `${familyId}_${i}`,
+          familyId,
+          firstName: `G${i}`,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+  }
+
+  /** 1 when the condition holds, 0 when not — read in a WHERE, where it is used. */
+  const room = (db: ReturnType<typeof createDb>, w: string) =>
+    db
+      .select({ id: weddings.id })
+      .from(weddings)
+      .where(and(eq(weddings.id, w), roomForOneMoreGuest(w)))
+      .get() === undefined
+      ? 0
+      : 1;
+
+  it("has room below the base cap and none at it", () => {
+    const db = createDb();
+    const w = seedWedding(db);
+    seedGuests(db, w, 99);
+    expect(room(db, w)).toBe(1);
+    seedGuests(db, w, 1);
+    expect(room(db, w)).toBe(0);
+  });
+
+  it("does not count the host-preview household", () => {
+    const db = createDb();
+    const w = seedWedding(db);
+    seedGuests(db, w, 99);
+    seedGuests(db, w, 5, "host");
+    expect(room(db, w)).toBe(1);
+  });
+
+  it("lifts the ceiling to 500 with capacity_500, and to 1000 with capacity_1000", async () => {
+    const db = createDb();
+    const w = seedWedding(db);
+    seedGuests(db, w, 500);
+    expect(room(db, w)).toBe(0);
+    await run(db, entitlementService.grant(w, "capacity_500", { source: "comp", grantedBy: "x" }));
+    expect(room(db, w)).toBe(0);
+    await run(db, entitlementService.grant(w, "capacity_1000", { source: "comp", grantedBy: "x" }));
+    expect(room(db, w)).toBe(1);
+  });
+
+  it("stops at 500 with capacity_500 alone", async () => {
+    const db = createDb();
+    const w = seedWedding(db);
+    seedGuests(db, w, 499);
+    await run(db, entitlementService.grant(w, "capacity_500", { source: "comp", grantedBy: "x" }));
+    expect(room(db, w)).toBe(1);
   });
 });

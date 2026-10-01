@@ -4,14 +4,20 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  API_ORIGIN,
   applySecurityHeaders,
   buildCsp,
   CSP_DIRECTIVES,
-  CSP_REPORT_ENDPOINT,
+  cspDirectives,
   cspHeaderName,
+  cspReportEndpoint,
+  PRODUCTION_API_ORIGIN,
   reportingEndpointsHeader,
   securityHeaders,
 } from "../../src/lib/security-headers";
+import { retargetHeaders } from "../../src/lib/tier-headers";
+
+const DEV_API_ORIGIN = "https://api.dev.cireweddings.com";
 
 describe("buildCsp", () => {
   const csp = buildCsp();
@@ -52,8 +58,27 @@ describe("buildCsp", () => {
   });
 
   it("allowlists the first-party cire-api origin for JSON + image bytes", () => {
-    expect(csp).toMatch(/img-src[^;]*https:\/\/api\.cireweddings\.com/);
-    expect(csp).toMatch(/connect-src[^;]*https:\/\/api\.cireweddings\.com/);
+    const production = buildCsp(cspDirectives(PRODUCTION_API_ORIGIN));
+    expect(production).toMatch(/img-src[^;]*https:\/\/api\.cireweddings\.com/);
+    expect(production).toMatch(/connect-src[^;]*https:\/\/api\.cireweddings\.com/);
+  });
+
+  it("names the tier's own API in place of production's, and reports to it", () => {
+    const dev = buildCsp(cspDirectives(DEV_API_ORIGIN));
+    expect(dev).not.toContain(PRODUCTION_API_ORIGIN);
+    expect(dev).toMatch(/img-src[^;]*https:\/\/api\.dev\.cireweddings\.com/);
+    expect(dev).toMatch(/connect-src[^;]*https:\/\/api\.dev\.cireweddings\.com/);
+    expect(dev).toContain(`report-uri ${DEV_API_ORIGIN}/api/csp-report`);
+    expect(securityHeaders(DEV_API_ORIGIN)["Reporting-Endpoints"]).toBe(
+      `csp-endpoint="${DEV_API_ORIGIN}/api/csp-report"`,
+    );
+  });
+
+  it("names this build's API and no loopback beyond it", () => {
+    // Each build names its own API, so the production policy carries no local
+    // origin for the devloop's sake.
+    expect(buildCsp(cspDirectives(PRODUCTION_API_ORIGIN))).not.toMatch(/localhost/);
+    expect(CSP_DIRECTIVES["connect-src"]).toContain(API_ORIGIN);
   });
 
   it("does NOT allowlist the OSN issuer — sign-in is a top-level redirect", () => {
@@ -90,8 +115,10 @@ describe("buildCsp", () => {
 
   it("wires the first-party CSP report collector via report-uri + report-to", () => {
     // Legacy report-uri (a URL) targeting the first-party cire-api collector.
-    expect(csp).toContain(`report-uri ${CSP_REPORT_ENDPOINT}`);
-    expect(CSP_REPORT_ENDPOINT).toBe("https://api.cireweddings.com/api/csp-report");
+    expect(csp).toContain(`report-uri ${cspReportEndpoint()}`);
+    expect(cspReportEndpoint(PRODUCTION_API_ORIGIN)).toBe(
+      "https://api.cireweddings.com/api/csp-report",
+    );
     // Modern Reporting API report-to (a group name resolved by Reporting-Endpoints).
     expect(csp).toContain("report-to csp-endpoint");
   });
@@ -135,7 +162,7 @@ describe("securityHeaders", () => {
   });
 
   it("emits Reporting-Endpoints resolving the report-to group to the collector", () => {
-    expect(headers["Reporting-Endpoints"]).toBe(
+    expect(securityHeaders(PRODUCTION_API_ORIGIN)["Reporting-Endpoints"]).toBe(
       'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
     );
     expect(headers["Reporting-Endpoints"]).toBe(reportingEndpointsHeader());
@@ -148,9 +175,7 @@ describe("applySecurityHeaders", () => {
     applySecurityHeaders(h);
     expect(h.get(cspHeaderName())).toContain("frame-ancestors 'none'");
     expect(h.get(cspHeaderName())).toContain("report-to csp-endpoint");
-    expect(h.get("Reporting-Endpoints")).toBe(
-      'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
-    );
+    expect(h.get("Reporting-Endpoints")).toBe(reportingEndpointsHeader());
     expect(h.get("X-Content-Type-Options")).toBe("nosniff");
     expect(h.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(h.get("X-Frame-Options")).toBe("DENY");
@@ -189,16 +214,31 @@ function headerRules(source: string): { path: string; name: string; value: strin
 }
 
 describe("public/_headers", () => {
-  const rules = headerRules(
-    readFileSync(join(import.meta.dirname, "../../public/_headers"), "utf8"),
-  );
+  const source = readFileSync(join(import.meta.dirname, "../../public/_headers"), "utf8");
+  const rules = headerRules(source);
 
-  it("sends exactly the SSR security headers on the static-asset responses, except X-Robots-Tag", () => {
-    const all = rules.filter((rule) => rule.path === "/*");
-    const mirrored = Object.fromEntries(
-      Object.entries(securityHeaders()).filter(([name]) => name !== "X-Robots-Tag"),
+  /** What the static-asset layer sends on every path, as a header map. */
+  const allPaths = (fileRules: ReturnType<typeof headerRules>) =>
+    Object.fromEntries(
+      fileRules.filter((rule) => rule.path === "/*").map((rule) => [rule.name, rule.value]),
     );
-    expect(Object.fromEntries(all.map((rule) => [rule.name, rule.value]))).toEqual(mirrored);
+
+  /** The SSR headers the file mirrors: all of them bar X-Robots-Tag. */
+  const mirrored = (apiOrigin: string) =>
+    Object.fromEntries(
+      Object.entries(securityHeaders(apiOrigin)).filter(([name]) => name !== "X-Robots-Tag"),
+    );
+
+  it("is the production SSR policy, except X-Robots-Tag", () => {
+    expect(allPaths(rules)).toEqual(mirrored(PRODUCTION_API_ORIGIN));
+  });
+
+  it("matches the middleware on every tier once the build points it at that tier's API", () => {
+    // `lib/tier-headers.ts` rewrites the built copy; the middleware derives the
+    // same origin from the same env. Checked for dev and for this test build.
+    for (const origin of [DEV_API_ORIGIN, API_ORIGIN]) {
+      expect(allPaths(headerRules(retargetHeaders(source, origin)))).toEqual(mirrored(origin));
+    }
   });
 
   it("never sends X-Robots-Tag, so the legal pages stay indexable", () => {

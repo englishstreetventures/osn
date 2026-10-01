@@ -305,6 +305,18 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ weddingSlug: "fold-wedding" });
   });
+
+  it("carries the wedding's slug through the editor gate's fold", async () => {
+    const db = buildDb({ grantVendors: true });
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ osnProfileId: COHOST }))
+      .group("/w/:weddingId", (g) =>
+        g.use(weddingEditor(db, "vendors")).get("/slug", ({ weddingSlug }) => ({ weddingSlug })),
+      );
+    const res = await appRequest(app, `/w/${WEDDING_ID}/slug`);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ weddingSlug: "fold-wedding" });
+  });
 });
 
 describe("the owner gate folds the entitlement check too", () => {

@@ -28,6 +28,7 @@ import {
 } from "../../src/services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
+import { recordStatements } from "../test-helpers";
 import { seedPlusOne } from "../test-helpers/plus-one";
 
 const EVENTS_V1 = [
@@ -562,6 +563,7 @@ async function applyChange(
           removeManual: decoded.removeManual,
           scope: decoded.scope,
           matchByName: decoded.matchByName,
+          createSource: decoded.createSource,
         },
       );
       yield* storeUpload(
@@ -901,6 +903,19 @@ describe("revertImport — a guests-scoped change restores the guest half only",
     expect(invitesOf(db, ada.id)).toEqual(["Mehndi", "Reception", "Wedding Ceremony"].toSorted());
   });
 
+  it("reads the wedding's events once", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", WITHOUT_SAMPLETON, 2_000);
+
+    const recorded = recordStatements(db);
+    await revert(layer, "c1");
+
+    const eventReads = recorded.filter((r) => /^select\b.*\bfrom "events"/is.test(r.sql));
+    expect(eventReads).toHaveLength(1);
+    expect(familyNamed(db, "Sampleton")).toBeDefined();
+  });
+
   it("does not run the upload guards over the events sheet it is not restoring", async () => {
     const { db, r2, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
@@ -1182,14 +1197,54 @@ describe("revertImport — scoped edge cases", () => {
     expect(db.select().from(imports).where(eq(imports.id, "c1")).all()[0]!.status).toBe("applied");
   });
 
-  it("an events revert still reads its events through the upload parser, and fails cleanly on a value it refuses", async () => {
+  it("an events revert restores a zone the upload parser refuses, with the instant it had", async () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
-    // A value the events editor can store but the parser refuses. The events
-    // half is what this revert restores, so it cannot skip the value; it has
-    // to fail without writing (englishstventures/osn#1220).
+    // A value the events editor can store but an upload may not carry
+    // (englishstventures/osn#1220).
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
+    const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
+    db.update(events)
+      .set({ startAt: "2026-09-19T09:00:00+10:00" })
+      .where(eq(events.name, "Mehndi"))
+      .run();
+
+    await revert(layer, "c1");
+
+    const after = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
+    expect(after.timezone).toBe("UTC+10");
+    expect(after.startAt).toBe(before.startAt);
+    expect(after.endAt).toBe(before.endAt);
+    expect(db.select().from(events).all()).toHaveLength(3);
+  });
+
+  it("a both-halves revert restores a cell longer than the upload cap", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    const long = "Dress to impress. ".repeat(700).trim();
+    expect(long.length).toBeGreaterThan(10_000);
+    db.update(events).set({ dressCodeDescription: long }).where(eq(events.name, "Mehndi")).run();
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1, guestsCsv: GUESTS_V1 }, 2_000);
+
+    await revert(layer, "c1");
+
+    expect(
+      db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!.dressCodeDescription,
+    ).toBe(long);
+    expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("an events revert of an old wall-clock snapshot still refuses a zone that does not resolve", async () => {
+    const { db, r2, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
+    const [row] = db.select().from(imports).where(eq(imports.id, "c1")).all();
+    // A before-image written before snapshots kept the stored offset.
+    await r2.put(
+      row!.beforeEventsR2Key!,
+      "Event Name,Start,Timezone,End\r\nMehndi,2026-09-18T16:00,UTC+10,2026-09-18T22:00",
+    );
 
     const error = await Effect.runPromise(
       Effect.flip(revertImport("c1", BOOTSTRAP_WEDDING_ID)).pipe(Effect.provide(layer)),
@@ -1246,5 +1301,139 @@ describe("revertImport — reads only the sheets a scope needs", () => {
 
     expect(db.select().from(events).all()).toHaveLength(2);
     expect(db.select().from(imports).where(eq(imports.id, "c1")).all()[0]!.status).toBe("reverted");
+  });
+});
+
+describe("revertImport — values that start = + - @ come back as stored", () => {
+  it("restores an event address, a household name and a nickname starting with -", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    db.update(events).set({ address: "-12 Smith Street" }).where(eq(events.name, "Mehndi")).run();
+    db.update(families)
+      .set({ familyName: "-Sampleton" })
+      .where(eq(families.familyName, "Sampleton"))
+      .run();
+    db.update(guests).set({ nickname: "-Bo-" }).where(eq(guests.firstName, "Bo")).run();
+
+    // Something else changes: the schedule and guest list go back to V1.
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1, guestsCsv: GUESTS_V1 }, 2_000);
+    db.update(events).set({ address: "Elsewhere" }).where(eq(events.name, "Mehndi")).run();
+
+    await revert(layer, "c1");
+
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!.address).toBe(
+      "-12 Smith Street",
+    );
+    expect(familyNamed(db, "-Sampleton")).toBeDefined();
+    expect(guestNamed(db, "Bo")!.nickname).toBe("-Bo-");
+  });
+});
+
+describe("revertImport — provenance", () => {
+  function sourcesOf(db: TestDb) {
+    return {
+      families: Object.fromEntries(
+        db
+          .select({ name: families.familyName, source: families.source })
+          .from(families)
+          .all()
+          .map((f) => [f.name, f.source]),
+      ),
+      guests: Object.fromEntries(
+        db
+          .select({ name: guests.firstName, source: guests.source })
+          .from(guests)
+          .all()
+          .map((g) => [g.name, g.source]),
+      ),
+    };
+  }
+
+  /** An editor save of the guest half that adds household "Handmade" (Cy). */
+  async function editorAdd(layer: Layer.Layer<DbService | R2Service>, changeId: string) {
+    const draft = await Effect.runPromise(
+      Effect.gen(function* () {
+        const ev = yield* parseEventsCsv(
+          yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "snapshot"),
+          { snapshot: true },
+        );
+        const fam = yield* parseGuestsCsv(
+          yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot"),
+          ev,
+          { snapshot: true },
+        );
+        return { events: ev, families: fam };
+      }).pipe(Effect.provide(layer)),
+    );
+    await applyChange(
+      layer,
+      changeId,
+      {
+        desiredState: {
+          events: draft.events,
+          families: [
+            ...draft.families,
+            {
+              familyName: "Handmade",
+              // A client cannot choose provenance: the key is dropped.
+              source: "import",
+              guests: [
+                {
+                  firstName: "Cy",
+                  lastName: "Handmade",
+                  nickname: null,
+                  eventNames: ["Mehndi"],
+                  source: "import",
+                },
+              ],
+            },
+          ],
+        },
+        scope: "guests",
+        removeManual: true,
+        baseRevision: "0",
+      },
+      2_000,
+    );
+  }
+
+  it("stamps a household and guest the editor adds as manual, and a sheet re-import keeps them", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await editorAdd(layer, "c1");
+    expect(sourcesOf(db).families["Handmade"]).toBe("manual");
+    expect(sourcesOf(db).guests["Cy"]).toBe("manual");
+    expect(sourcesOf(db).families["Testfamily"]).toBe("import");
+
+    // A two-sheet upload that does not list Handmade, without the toggle.
+    await applyChange(layer, "c2", SEED, 3_000);
+    expect(familyNamed(db, "Handmade")).toBeDefined();
+    expect(guestNamed(db, "Cy")).toBeDefined();
+  });
+
+  it("reverting the editor save that added a household removes it", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await editorAdd(layer, "c1");
+
+    await revert(layer, "c1");
+
+    expect(familyNamed(db, "Handmade")).toBeUndefined();
+    expect(guestNamed(db, "Cy")).toBeUndefined();
+  });
+
+  it("a revert re-creates a removed row with the provenance it had", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await editorAdd(layer, "c1");
+    // The toggle removes the manual household.
+    await applyChange(layer, "c2", { ...SEED, removeManual: true }, 3_000);
+    expect(familyNamed(db, "Handmade")).toBeUndefined();
+
+    await revert(layer, "c2");
+
+    expect(sourcesOf(db).families["Handmade"]).toBe("manual");
+    expect(sourcesOf(db).guests["Cy"]).toBe("manual");
+    expect(sourcesOf(db).families["Sampleton"]).toBe("import");
   });
 });

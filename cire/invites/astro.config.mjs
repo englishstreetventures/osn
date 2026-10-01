@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
 import { stubMotionForSsr } from "./src/lib/stub-motion-for-ssr.ts";
+import tierHeaders from "./src/lib/tier-headers.ts";
 
 /**
  * Minify the SSR build. The plain config form —
@@ -128,7 +129,9 @@ export default defineConfig({
   // from the SSR module graph, since there is no longer a driver
   // to load at all.
   session: false,
-  integrations: [solidJs(), minifySsrBuild()],
+  // Points the CSP in `dist/client/_headers` at this build's cire-api (and its
+  // CSP report collector) — see `src/lib/tier-headers.ts`.
+  integrations: [solidJs(), minifySsrBuild(), tierHeaders()],
   vite: {
     plugins: [tailwindcss(), stubMotionForSsr()],
   },
