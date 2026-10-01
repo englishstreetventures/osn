@@ -337,4 +337,37 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
     expect(replaced.status).toBe(200);
     expect(stored()).toEqual({ status: "declined", presets: "", source: "organiser_attested" });
   });
+
+  it("treats an empty free-text field alone as a dietary edit", async () => {
+    const { db, app } = buildApp();
+    const samId = seedPlusOne(db, guestByName(db, "Ada"), { firstName: "Sam" });
+    const hindu = eventBySlug(db, "hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietaryPresets: "halal",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: PLUS_ONE_DIETARY_ATTESTATION.version,
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+
+    const res = await put(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${samId}/rsvps/${hindu}`,
+      OWNER,
+      { status: "maybe", dietary: "" },
+    );
+    expect(res.status).toBe(200);
+    const row = db
+      .select({ presets: rsvps.dietaryPresets, source: rsvps.consentSource })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, samId))
+      .get();
+    expect(row).toEqual({ presets: "", source: "organiser_attested" });
+  });
 });
