@@ -3,13 +3,14 @@ export interface DesignMeta {
   readonly id: string;
   /** Display name shown in the organiser selector. */
   readonly name: string;
-  /** `premium` requires the wedding's `premium_templates` entitlement. */
+  /** `premium` requires a wedding on Crimson, or one holding the one-off
+   *  `premium_templates` entitlement. */
   readonly tier: "free" | "premium";
 }
 
 /**
  * The invite design catalog — single source of truth for design ids, names and
- * entitlement tiers. `@cire/api` validates writes against it, the organiser
+ * whether each is free or premium. `@cire/api` validates writes against it, the organiser
  * renders the selector from it, and `@cire/invites` keys its design registry off
  * the derived `DesignId` union (a catalog entry without a matching component
  * pack is a type error there). Catalog: `classic` and `gala`, both free; the

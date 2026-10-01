@@ -14,6 +14,7 @@
  * exhaustive against it) — a new reason added there wants a case added here, and
  * falls back to the raw reason text until it gets one.
  */
+import { isPaidTier, TIER_LABEL } from "./tiers";
 
 /** The `sheet` discriminator the API stamps on a parse error. */
 export type SheetKind = "events" | "guests";
@@ -32,9 +33,13 @@ export interface ImportErrorBody {
   row?: number | null;
   column?: number | string | null;
   sheet?: SheetKind | null;
-  /** Capacity (402) detail. */
+  /** Capacity (402) detail: the wedding's guest ceiling and the count the
+   *  change would reach. */
   limit?: number;
   current?: number;
+  /** Capacity (402) detail: the lowest tier whose ceiling holds the change, or
+   *  `null` when no tier's does. Unvalidated, like the rest of the body. */
+  tier?: string | null;
 }
 
 const SHEET_LABEL = {
@@ -71,6 +76,25 @@ function locate(body: ImportErrorBody): string | null {
 function at(body: ImportErrorBody, detail: string): string {
   const where = locate(body);
   return where ? `${where} — ${detail}` : detail;
+}
+
+/**
+ * The guest-cap 402. Names the tier that would hold the import when the API
+ * said which one, and says plainly when none would — "upgrade" is no advice
+ * past the largest plan's ceiling.
+ */
+function capacityDetail(body: ImportErrorBody): string {
+  if (typeof body.limit !== "number") {
+    return "This import would take you past your plan's guest limit.";
+  }
+  const past = `This import would take you past your plan's limit of ${body.limit} guests.`;
+  if (isPaidTier(body.tier)) {
+    return `${past} Remove some guests from the sheet, or upgrade to ${TIER_LABEL[body.tier]}.`;
+  }
+  if (body.tier === null) {
+    return `${past} No plan holds that many, so remove some guests from the sheet.`;
+  }
+  return `${past} Remove some guests from the sheet, or upgrade your plan.`;
 }
 
 /**
@@ -169,9 +193,7 @@ export function formatImportError(status: number, body: ImportErrorBody): string
       );
 
     case "payment_required":
-      return typeof body.limit === "number"
-        ? `This import would take you past your plan's limit of ${body.limit} guests. Remove some guests from the sheet, or upgrade your plan.`
-        : "This import would take you past your plan's guest limit.";
+      return capacityDetail(body);
   }
 
   // Non-parse failures that still deserve a plain-English line.

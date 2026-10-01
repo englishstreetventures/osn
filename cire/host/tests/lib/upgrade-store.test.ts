@@ -2,7 +2,8 @@
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { CatalogueEntry } from "../../src/lib/upgrade-api";
+import type { PaidTier, Tier } from "../../src/lib/tiers";
+import type { Catalogue } from "../../src/lib/upgrade-api";
 import {
   __resetUpgradeStore,
   catalogueAccessor,
@@ -21,13 +22,10 @@ import {
  * for a value a view tracks.
  */
 
-const entry = (entitlement: string, held = false): CatalogueEntry => ({
-  entitlement,
-  title: entitlement,
-  blurb: "…",
-  amountMinor: 2900,
-  currency: "AUD",
-  held,
+// A catalogue for a wedding on `from`, offering `tier`.
+const offer = (tier: PaidTier, from: Tier = "ivory"): Catalogue => ({
+  tier: from,
+  upgrades: [{ tier, fromTier: from, title: tier, blurb: "…", amountMinor: 2900, currency: "AUD" }],
 });
 
 afterEach(() => __resetUpgradeStore());
@@ -36,12 +34,12 @@ describe("catalogueAccessor", () => {
   it("starts null and returns what was set", () => {
     const acc = catalogueAccessor("wed_1");
     expect(acc()).toBeNull();
-    setCatalogue("wed_1", [entry("registry")]);
-    expect(acc()).toEqual([entry("registry")]);
+    setCatalogue("wed_1", offer("gold"));
+    expect(acc()).toEqual(offer("gold"));
   });
 
   it("keeps weddings apart", () => {
-    setCatalogue("wed_1", [entry("registry")]);
+    setCatalogue("wed_1", offer("gold"));
     expect(catalogueAccessor("wed_2")()).toBeNull();
   });
 
@@ -52,7 +50,7 @@ describe("catalogueAccessor", () => {
    */
   it("notifies a tracked read that began on a cold cache", () => {
     let runs = 0;
-    let seen: CatalogueEntry[] | null = null;
+    let seen: Catalogue | null = null;
     const dispose = createRoot((d) => {
       const acc = catalogueAccessor("wed_cold");
       // A computation created before any entry exists.
@@ -66,8 +64,8 @@ describe("catalogueAccessor", () => {
     // Re-read through the same accessor after a write: the signal is the same
     // one the cold read took, so the value is visible rather than stranded on a
     // discarded entry.
-    setCatalogue("wed_cold", [entry("vendors")]);
-    expect(catalogueAccessor("wed_cold")()).toEqual([entry("vendors")]);
+    setCatalogue("wed_cold", offer("crimson", "gold"));
+    expect(catalogueAccessor("wed_cold")()).toEqual(offer("crimson", "gold"));
     expect(runs).toBe(1);
     expect(seen).toBeNull();
     dispose();
@@ -77,7 +75,7 @@ describe("catalogueAccessor", () => {
 describe("hasCachedCatalogue", () => {
   it("is false before anything is cached and true after", () => {
     expect(hasCachedCatalogue("wed_1")).toBe(false);
-    setCatalogue("wed_1", [entry("registry")]);
+    setCatalogue("wed_1", offer("gold"));
     expect(hasCachedCatalogue("wed_1")).toBe(true);
   });
 
@@ -95,7 +93,7 @@ describe("hasCachedCatalogue", () => {
 
 describe("invalidateCatalogue", () => {
   it("drops prices so a settled purchase cannot keep being offered", () => {
-    setCatalogue("wed_1", [entry("registry")]);
+    setCatalogue("wed_1", offer("gold"));
     invalidateCatalogue("wed_1");
     expect(catalogueAccessor("wed_1")()).toBeNull();
     expect(hasCachedCatalogue("wed_1")).toBe(false);
@@ -106,9 +104,9 @@ describe("invalidateCatalogue", () => {
   });
 
   it("leaves other weddings alone", () => {
-    setCatalogue("wed_1", [entry("registry")]);
-    setCatalogue("wed_2", [entry("vendors")]);
+    setCatalogue("wed_1", offer("gold"));
+    setCatalogue("wed_2", offer("crimson", "gold"));
     invalidateCatalogue("wed_1");
-    expect(catalogueAccessor("wed_2")()).toEqual([entry("vendors")]);
+    expect(catalogueAccessor("wed_2")()).toEqual(offer("crimson", "gold"));
   });
 });

@@ -22,7 +22,6 @@ import {
   isInviteImageSlot,
   type InviteImageSlot,
 } from "../schemas/invite";
-import { entitlementService } from "../services/entitlements";
 import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
 import { AssetsR2Service, detectImageType, MAX_IMAGE_BYTES } from "../services/invite-assets";
@@ -35,6 +34,7 @@ import {
 } from "../services/invite-image-transform";
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { sessionService } from "../services/session";
+import { tierService } from "../services/tiers";
 
 // Sentinel parse hook: stop Elysia consuming the body so handlers parse it by
 // hand (JSON for text, raw bytes for images) — matches the import route.
@@ -425,12 +425,12 @@ export const createInviteOrganiserRoutes = (
         )
         // Which design pack the invite renders as. The id must be in the
         // catalog (unknown → 422, so a newer organiser build can't half-save)
-        // and a premium tier requires the wedding's `premium_templates`
-        // entitlement (403 otherwise — the client greys locked cards out, but
-        // the server is the gate).
+        // and a premium design requires Crimson or the wedding's one-off
+        // `premium_templates` entitlement (403 otherwise — the client greys
+        // locked cards out, but the server is the gate).
         .put(
           "/invite/design",
-          async ({ request, weddingId, weddingSlug, set }) => {
+          async ({ request, weddingId, weddingSlug, weddingTier, set }) => {
             if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
@@ -445,7 +445,10 @@ export const createInviteOrganiserRoutes = (
                   return { error: "Unknown design" };
                 }
                 if (design.tier === "premium") {
-                  const entitled = yield* entitlementService.has(weddingId, "premium_templates");
+                  // Crimson includes every premium design; a wedding below it
+                  // needs the one-off `premium_templates` entitlement. The tier
+                  // is the one `weddingEditor` read with the caller's role.
+                  const entitled = yield* tierService.hasPremiumTemplates(weddingId, weddingTier);
                   if (!entitled) {
                     set.status = 403;
                     return { error: "premium_design" };

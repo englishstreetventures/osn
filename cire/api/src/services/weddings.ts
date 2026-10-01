@@ -7,6 +7,8 @@ import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
 import type { HostRole } from "./hosts";
+import { capForTier, normaliseTier } from "./tiers";
+import type { Tier } from "./tiers";
 
 export type WeddingSummary = {
   id: string;
@@ -18,11 +20,12 @@ export type WeddingSummary = {
    *  enforcement, so a portal that does not recognise a role may mislabel it
    *  but can never widen what it reaches. */
   role: "owner" | HostRole;
-  /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
-   *  Merged in by the route from `entitlementService.setsForWeddings` — the
-   *  service itself stays free of entitlement logic. */
+  /** The wedding's plan tier — what the portal locks modules by. */
+  tier: Tier;
+  /** Entitlement keys for a portal build that locks by key rather than by
+   *  `tier`. Merged in by the route — see `legacyEntitlementKeys`. */
   entitlements: string[];
-  /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
+  /** The guest ceiling the tier gives the wedding. */
   guestCap: number;
 };
 
@@ -80,6 +83,7 @@ export const weddingsService = {
             id: weddings.id,
             slug: weddings.slug,
             displayName: weddings.displayName,
+            tier: weddings.tier,
           })
           .from(weddings)
           .where(eq(weddings.ownerOsnProfileId, osnProfileId))
@@ -96,6 +100,7 @@ export const weddingsService = {
             id: weddings.id,
             slug: weddings.slug,
             displayName: weddings.displayName,
+            tier: weddings.tier,
             role: weddingHosts.role,
           })
           .from(weddingHosts)
@@ -107,23 +112,27 @@ export const weddingsService = {
       );
       const summaries: WeddingSummary[] = [];
       for (const w of owned) {
+        const tier = normaliseTier(w.tier);
         summaries.push({
           id: w.id,
           slug: w.slug,
           displayName: w.displayName,
           role: "owner",
+          tier,
           entitlements: [],
-          guestCap: 100,
+          guestCap: capForTier(tier),
         });
       }
       for (const w of hosted) {
+        const tier = normaliseTier(w.tier);
         summaries.push({
           id: w.id,
           slug: w.slug,
           displayName: w.displayName,
           role: normaliseHostRole(w.role),
+          tier,
           entitlements: [],
-          guestCap: 100,
+          guestCap: capForTier(tier),
         });
       }
       return summaries;
@@ -186,8 +195,10 @@ export const weddingsService = {
               slug,
               displayName: trimmed,
               role: "owner" as const,
+              // Every wedding starts on the free tier: the column's DEFAULT.
+              tier: "ivory" as const,
               entitlements: [] as string[],
-              guestCap: 100,
+              guestCap: capForTier("ivory"),
             },
           })),
           Effect.catch((cause) =>

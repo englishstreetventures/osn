@@ -154,7 +154,8 @@ const isOpened = (family: FamilyGroup) => family.firstOpenedAt !== null;
 // `reactivatedNow` below), so the row mutes + relabels immediately on toggle.
 
 /** Debounce window (ms) before a typed search prefix re-filters the roster —
- *  a plan can hold up to 1000 guests (see `deriveCap` in cire-api), and
+ *  a wedding on Crimson can hold up to 1000 guests (`TIER_GUEST_CAP` in
+ *  cire-api's `services/tiers.ts`), and
  *  without this every keystroke re-tokenises + re-scans the whole roster
  *  synchronously on the main thread. */
 const SEARCH_DEBOUNCE_MS = 200;

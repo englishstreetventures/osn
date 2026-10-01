@@ -29,15 +29,20 @@
 -- The profile columns (date, guest estimate, currency, budget, RSVP deadline)
 -- are set rather than left NULL: an organiser fills them in early, and every
 -- planning surface reads as "not started" without them.
+--
+-- The tier is `crimson`, comped: on Ivory every paid module
+-- sits locked, and a dev tier has no payment provider to buy one with.
 INSERT OR IGNORE INTO weddings (
   id, slug, display_name, owner_osn_profile_id, code_style,
   wedding_date, guest_count_estimate, currency, budget_total_minor,
   rsvp_deadline, rsvp_deadline_timezone,
+  tier, tier_source, tier_granted_by,
   created_at, updated_at
 ) VALUES (
   'wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_dev_bootstrap_owner', 'secure',
   '2026-11-25', 560, 'AUD', 10000000,
   '2026-10-25', 'Australia/Sydney',
+  'crimson', 'comp', 'dev-seed',
   unixepoch(), unixepoch()
 );
 
@@ -185,17 +190,14 @@ INSERT OR IGNORE INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_os
   ('whost_d1f0c4a2-0000-4000-8000-000000000003', 'wed_bootstrap', 'usr_dev_cohost_viewer', 'usr_dev_bootstrap_owner', 'viewer', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Entitlements (5)
+-- Entitlements (1)
 -- ────────────────────────────────────────────────────────────────────────────
 
--- All `comp`: no payment provider is wired up on a dev tier, and without
--- these the premium surfaces (vendors, AI, the 1000-guest cap) never render.
+-- All `comp`: no payment provider is wired up on a dev tier. The tier above
+-- already includes premium templates; the row is here so a tester who lowers
+-- the tier by hand still has one to find.
 INSERT OR IGNORE INTO wedding_entitlements (wedding_id, entitlement, source, granted_at, granted_by, provider_ref) VALUES
-  ('wed_bootstrap', 'ai', 'comp', unixepoch(), 'dev-seed', NULL),
-  ('wed_bootstrap', 'capacity_1000', 'comp', unixepoch(), 'dev-seed', NULL),
-  ('wed_bootstrap', 'premium_templates', 'comp', unixepoch(), 'dev-seed', NULL),
-  ('wed_bootstrap', 'registry', 'comp', unixepoch(), 'dev-seed', NULL),
-  ('wed_bootstrap', 'vendors', 'comp', unixepoch(), 'dev-seed', NULL);
+  ('wed_bootstrap', 'premium_templates', 'comp', unixepoch(), 'dev-seed', NULL);
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Budget lines (14) — estimates, quotes, actuals
@@ -432,8 +434,8 @@ INSERT OR IGNORE INTO wedding_faqs (
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- `published` is the SECOND gate on the guest registry: the guest read needs
--- both this flag AND the wedding's `registry` entitlement (comped above), so a
--- dev tier with the entitlement and no row still 404s the guest page.
+-- both this flag AND a wedding on Gold or above (the comped tier above), so a
+-- wedding on a paid tier with no row still 404s the guest page.
 --
 -- Cash gifts stay off. They need a Stripe Connect account per wedding, and a
 -- registry is fully usable as an honour-system list without one.

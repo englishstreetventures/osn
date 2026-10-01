@@ -14,7 +14,7 @@ import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -63,6 +63,10 @@ function setupDb() {
       updatedAt: now,
     })
     .run();
+  // Budget is a Gold module; every wedding here is on it unless a test says
+  // otherwise.
+  setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+  setTier(db, "wed_other", "gold");
   return db;
 }
 
@@ -228,6 +232,78 @@ describe("budget routes", () => {
 
     const snap = await req(app, "GET", base, OWNER);
     expect(((await snap.json()) as { budgetTotalMinor: number }).budgetTotalMinor).toBe(4500000);
+  });
+});
+
+describe("budget is a Gold module", () => {
+  function onTier(tier: "ivory" | "gold" | "crimson") {
+    const db = setupDb();
+    setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+    return { db, app: createApp(db, { osnTestKey: auth.key }) };
+  }
+  const paymentRequired = { error: "payment_required", tier: "gold" };
+
+  it("answers 402 to every route on an Ivory wedding, reads included", async () => {
+    const { app } = onTier("ivory");
+    const calls: [string, string, string, unknown?][] = [
+      ["GET", base, VIEWER],
+      ["GET", base, OWNER],
+      ["POST", `${base}/items`, EDITOR, ITEM],
+      ["PATCH", `${base}/items/reorder`, EDITOR, { order: [] }],
+      ["PATCH", `${base}/items/bud_x`, EDITOR, { name: "x" }],
+      ["DELETE", `${base}/items/bud_x`, EDITOR],
+      ["POST", `${base}/items/bud_x/payments`, EDITOR, { label: "x", amountMinor: 1 }],
+      ["PATCH", `${base}/items/bud_x/payments/pay_x`, EDITOR, { paid: true }],
+      ["DELETE", `${base}/items/bud_x/payments/pay_x`, EDITOR],
+      ["PUT", `${base}/total`, OWNER, { budgetTotalMinor: 100 }],
+    ];
+    for (const [method, path, caller, body] of calls) {
+      const res = await req(app, method, path, caller, body);
+      expect(res.status, `${method} ${path}`).toBe(402);
+      expect(await jsonBody(res)).toEqual(paymentRequired);
+    }
+  });
+
+  it("opens on Gold and on Crimson", async () => {
+    for (const tier of ["gold", "crimson"] as const) {
+      expect((await req(onTier(tier).app, "GET", base, VIEWER)).status, tier).toBe(200);
+    }
+  });
+
+  it("answers the role refusal first: 401, then 403, before 402", async () => {
+    const { app } = onTier("ivory");
+    expect((await req(app, "GET", base, undefined)).status).toBe(401);
+    expect((await req(app, "GET", base, STRANGER)).status).toBe(403);
+    const viewerWrite = await req(app, "POST", `${base}/items`, VIEWER, ITEM);
+    expect(viewerWrite.status).toBe(403);
+    expect(((await viewerWrite.json()) as { error: string }).error).toBe("read_only_role");
+    expect((await req(app, "PUT", `${base}/total`, EDITOR, { budgetTotalMinor: 1 })).status).toBe(
+      403,
+    );
+  });
+
+  it("keeps a wedding's lines while it is locked, and shows them again on Gold", async () => {
+    const { db, app } = onTier("gold");
+    expect((await req(app, "POST", `${base}/items`, EDITOR, ITEM)).status).toBe(200);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
+    expect((await req(app, "GET", base, OWNER)).status).toBe(402);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const snap = await req(app, "GET", base, OWNER);
+    expect(((await snap.json()) as { items: unknown[] }).items).toHaveLength(1);
+  });
+
+  it("leaves the wedding's budget total writable through Settings on Ivory", async () => {
+    const { app } = onTier("ivory");
+    const res = await req(
+      app,
+      "PUT",
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/settings`,
+      OWNER,
+      {
+        budgetTotalMinor: 4500000,
+      },
+    );
+    expect(res.status).toBe(200);
   });
 });
 

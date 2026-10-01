@@ -371,10 +371,54 @@ describe("retrievePlatformCheckoutSession", () => {
   });
 
   it("treats an unrecognised status as expired, never as complete", async () => {
-    // The caller checks `has()` before it ever probes, so a wrong `expired`
-    // costs a second session for an entitlement the wedding does not hold. A
+    // The caller checks the wedding's tier before it ever probes, so a wrong
+    // `expired` costs a second session for a tier the wedding does not hold. A
     // wrong `complete` would park a paying customer forever.
     expect(await read({ id: "cs_u1", status: "something_new" })).toEqual({ status: "expired" });
+  });
+});
+
+describe("expirePlatformCheckoutSession", () => {
+  it("asks Stripe to expire the session, as the platform, idempotently", async () => {
+    const { impl, calls } = stubFetch(() => json({ id: "cs_u1", status: "expired" }));
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
+
+    await Effect.runPromise(client.expirePlatformCheckoutSession("cs_u1"));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://stripe.test/v1/checkout/sessions/cs_u1/expire");
+    expect(calls[0]?.init.method).toBe("POST");
+    const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("stripe-account")).toBeNull();
+    expect(headers.get("idempotency-key")).toBe("cire-upgrade-expire-cs_u1");
+  });
+
+  /**
+   * Stripe refuses to expire a session that completed first. That refusal must
+   * reach the caller as a failure — it is the one signal that the page being
+   * replaced may have been paid.
+   */
+  it("fails when Stripe refuses, and when the session did not come back expired", async () => {
+    const refused = stubFetch(() =>
+      json({ error: { code: "checkout_session_not_open", message: "..." } }, 400),
+    );
+    const notExpired = stubFetch(() => json({ id: "cs_u1", status: "complete" }));
+    for (const { impl } of [refused, notExpired]) {
+      const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+      const exit = await Effect.runPromiseExit(client.expirePlatformCheckoutSession("cs_u1"));
+      expect(exit._tag).toBe("Failure");
+    }
+  });
+
+  it("encodes the session id into the path", async () => {
+    const { impl, calls } = stubFetch(() => json({ status: "expired" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    await Effect.runPromise(client.expirePlatformCheckoutSession("cs/../x"));
+    expect(calls[0]?.url).toContain("/v1/checkout/sessions/cs%2F..%2Fx/expire");
   });
 });
 

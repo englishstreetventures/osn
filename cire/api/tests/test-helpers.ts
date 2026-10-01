@@ -1,7 +1,10 @@
+import { weddings } from "@cire/db";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import type { Db } from "../src/db";
 import type { TestDb } from "../src/db/setup";
+import type { Tier } from "../src/services/tiers";
 
 /** Default `cf-connecting-ip` injected for tests — simulates the Cloudflare edge
  *  so the fail-closed rate limiter (C4) resolves a real IP instead of denying. */
@@ -153,4 +156,15 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
     },
   });
   return recorded;
+}
+
+/**
+ * Put a wedding on a plan tier, outright — up or down, and with no attribution.
+ * A test seeds a tier the way an operator would set it, so the module it is
+ * about is reachable; the grant path's own rules are tested where they live.
+ * Every wedding starts on `ivory`, where budget, checklist, registry and
+ * vendors all answer 402.
+ */
+export function setTier(db: Db, weddingId: string, tier: Tier): void {
+  void db.update(weddings).set({ tier }).where(eq(weddings.id, weddingId)).run();
 }

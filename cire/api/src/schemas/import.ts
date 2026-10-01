@@ -270,9 +270,8 @@ export const ImportPlan = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   /**
    * The wedding's guest-capacity ceiling, when `diffAgainstDb`'s preview
-   * warning already derived it from the entitlement set — lets
-   * `applyImport` enforce the cap without re-scanning the same rows in the
-   * SAME request. Absent whenever the preview never needed the real cap
+   * warning already read it from the wedding's tier — lets `applyImport`
+   * enforce the cap without reading the same row again in the SAME request. Absent whenever the preview never needed the real cap
    * (the base-cap pre-check proved the import couldn't breach it, or `guestCreates`
    * was empty); `applyImport` MUST keep enforcing the cap itself in that case,
    * never treat absence as "no cap".

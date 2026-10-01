@@ -182,7 +182,7 @@ export interface CreatePlatformCheckoutSessionInput {
  * answers. A `complete` session whose webhook has not landed yet means the
  * money has very likely moved, so the answer is "wait", not "pay again" —
  * treating it as dead mints a second payment page and charges twice for one
- * entitlement. Only `expired` is safe to replace.
+ * tier. Only `expired` is safe to replace.
  */
 export type PlatformSessionState =
   | { status: "open"; id: string; url: string }
@@ -223,6 +223,13 @@ export interface StripeClient {
   retrievePlatformCheckoutSession(
     sessionId: string,
   ): Effect.Effect<PlatformSessionState, StripeError>;
+  /**
+   * Close an open platform session so it can no longer be paid. Succeeds only
+   * when Stripe answers with the session expired; a session that completed
+   * first is refused by Stripe and arrives as a `StripeError`, which the caller
+   * must read as "it may have been paid", never as "it is gone".
+   */
+  expirePlatformCheckoutSession(sessionId: string): Effect.Effect<void, StripeError>;
   /** The configured price of an upgrade, read from Stripe rather than stored. */
   retrievePrice(priceId: string): Effect.Effect<StripePrice, StripeError>;
 }
@@ -503,7 +510,7 @@ export function createStripeClient(config: StripeConfig): StripeClient {
           line_items: { 0: { quantity: 1, price: input.priceId } },
           // Card only. A delayed debit (BECS here, SEPA in Europe) completes
           // the session in seconds and settles days later, which would mean a
-          // `completed` event whose money has not moved — an entitlement this
+          // `completed` event whose money has not moved — a tier this
           // product would have to grant provisionally and claw back. Nothing
           // about an upgrade needs that, so the option is closed rather than
           // handled. The settle path still refuses an unpaid session.
@@ -538,10 +545,29 @@ export function createStripeClient(config: StripeConfig): StripeClient {
           // Anything Stripe does not call `open` or `complete` is over and
           // replaceable. Defaulting the UNKNOWN case to `expired` rather than
           // `complete` is deliberate and is the safe direction only because the
-          // caller checks `has()` first: the cost of a wrong `expired` is a
-          // second session for an entitlement the wedding does not hold, while
-          // a wrong `complete` would park a paying customer forever.
+          // caller checks the wedding's tier first: the cost of a wrong
+          // `expired` is a second session for a tier the wedding does not hold,
+          // while a wrong `complete` would park a paying customer forever.
           return session?.status === "complete" ? { status: "complete" } : { status: "expired" };
+        }),
+      );
+    },
+
+    expirePlatformCheckoutSession(sessionId) {
+      return request(
+        "POST",
+        `/v1/checkout/sessions/${encodeURIComponent(sessionId)}/expire`,
+        {},
+        // Expiring is idempotent at Stripe, and keying it means a retried call
+        // reads back the first answer rather than a refusal for a session the
+        // first call already closed.
+        `cire-upgrade-expire-${sessionId}`,
+      ).pipe(
+        Effect.flatMap((payload) => {
+          const session = payload as { status?: unknown };
+          return session?.status === "expired"
+            ? Effect.void
+            : Effect.fail(new StripeError({ reason: "unexpected expire payload" }));
         }),
       );
     },
@@ -640,7 +666,7 @@ function toHex(buffer: ArrayBuffer): string {
  *    exit;
  *  - the timestamp is inside the tolerance window. A valid signature is valid
  *    forever, so without this a captured delivery can be replayed at any point
- *    in the future — against a handler that grants entitlements or records
+ *    in the future — against a handler that grants tiers or records
  *    money, which is exactly the handler this exists for.
  */
 export function verifyStripeWebhook(input: {

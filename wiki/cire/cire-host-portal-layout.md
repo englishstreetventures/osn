@@ -5,7 +5,8 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-25
+  - "[[cire-entitlements]]"
+last-reviewed: 2026-10-01
 ---
 # Host Portal Layout System
 
@@ -142,6 +143,15 @@ component was previously reading a container it did not live in.
   rail, and the rail is `sticky top-6 self-start` from the same threshold. Without
   `self-start` the flex row stretches it to the panel's height and there is
   nothing left to slide against. Widening to `w-56` at `@5xl/shell`.
+  A row for a module the wedding's tier does not include stays on both the rail
+  and the sheet, faded to `text-text-faint` and inert: it navigates nowhere, and
+  a three-second pointer dwell, the same delay on keyboard focus, or a click
+  (the only path on touch) opens a popover naming the tier that includes it —
+  "Included with Gold", in `gold-ink` because it is small text that has to be
+  read — with an **Upgrade to Gold** button. The row's accessible name carries
+  the same words, so the lock is heard while tabbing. The popover portals out
+  on both surfaces, because the sheet's nav scrolls and would clip it. See
+  [[cire-entitlements]] and [[cire-upgrades]].
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is

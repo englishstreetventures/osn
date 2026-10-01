@@ -20,6 +20,7 @@ import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { createRsvpChangesResource } from "../lib/rsvp-changes";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
+import type { Tier } from "../lib/tiers";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
 import ModuleIcon from "./ModuleIcon";
@@ -27,10 +28,14 @@ import RsvpChangesCard from "./RsvpChangesCard";
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
  *  up across events, a Checklist card showing the live open-task count, and a
- *  Budget card showing real spend-vs-cap and the next upcoming payment. Both
- *  Checklist and Budget are live sidebar modules with live Overview cards.
+ *  Budget card showing real spend-vs-cap and the next upcoming payment.
  *  When the wedding is brand new — no events, no guests — it shows the
  *  Getting-started checklist as its empty-state instead of empty stat cards.
+ *
+ *  The Checklist, Budget and Vendors cards follow the wedding's tier: a module
+ *  the tier does not include gets no card and no read. The API answers 402 to
+ *  those reads, and a refused tasks read would otherwise take the whole
+ *  snapshot down with it.
  *
  *  Data is read from the SHARED weddingId-keyed caches (events + guests stores)
  *  so opening Overview costs nothing extra once another module has loaded, and a
@@ -137,10 +142,11 @@ const cardLinkClass = cardClass({ interactive: true });
 
 export default function Overview(props: {
   weddingId: string;
-  /** Entitlement keys active on this wedding. A card for a locked module is not
-   *  rendered at all: the shell coerces a locked module back to Overview, so a
-   *  card linking to one would be a click that visibly does nothing. */
-  entitlements: readonly string[];
+  /** The wedding's plan tier. A card for a module it does not include is not
+   *  rendered at all, and that module's data is not read: the shell coerces a
+   *  locked module back to Overview, so a card linking to one would be a click
+   *  that visibly does nothing. */
+  tier: Tier;
   /** Jump to another module (+ optional sub) — wired to the shell's navigation
    *  so an Overview card can send the organiser to the right place. */
   onNavigate: (
@@ -150,7 +156,9 @@ export default function Overview(props: {
 }) {
   const { authFetch } = useAuth();
 
-  const vendorsLocked = () => isModuleLocked("vendors", props.entitlements);
+  const checklistLocked = () => isModuleLocked("checklist", props.tier);
+  const budgetLocked = () => isModuleLocked("budget", props.tier);
+  const vendorsLocked = () => isModuleLocked("vendors", props.tier);
 
   // Started now, beside the reads below rather than after them: the card that
   // shows it mounts only once `data` has settled, and the feed needs none of
@@ -185,25 +193,35 @@ export default function Overview(props: {
           if (!res.ok) throw new Error("guests");
           return (await res.json()) as OrganiserGuestRow[];
         }),
-        ensureTasksLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
-          if (res.status === 401) {
-            redirectToLogin();
-            return [];
-          }
-          if (!res.ok) throw new Error(`tasks ${res.status}`);
-          return ((await res.json()) as { tasks: TaskRow[] }).tasks;
-        }),
-        ensureBudgetLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
-          if (res.status === 401) {
-            redirectToLogin();
-            return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-          }
-          // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
-          if (!res.ok) return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-          return (await res.json()) as BudgetSnapshot;
-        }),
+        // Tasks and budget — not fetched at all while their module is locked:
+        // the API refuses both reads below Gold, and nothing on this page that
+        // reads them is shown. A refused tasks read would otherwise reject
+        // this whole batch and blank the guest and event counts with it.
+        checklistLocked()
+          ? Promise.resolve()
+          : ensureTasksLoaded(props.weddingId, async () => {
+              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
+              if (res.status === 401) {
+                redirectToLogin();
+                return [];
+              }
+              if (!res.ok) throw new Error(`tasks ${res.status}`);
+              return ((await res.json()) as { tasks: TaskRow[] }).tasks;
+            }),
+        budgetLocked()
+          ? Promise.resolve()
+          : ensureBudgetLoaded(props.weddingId, async () => {
+              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
+              if (res.status === 401) {
+                redirectToLogin();
+                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+              }
+              // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
+              if (!res.ok) {
+                return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+              }
+              return (await res.json()) as BudgetSnapshot;
+            }),
         // Vendors — not fetched at all while the module is locked: the only
         // thing that reads the count is a card this wedding does not get.
         //
@@ -333,11 +351,13 @@ export default function Overview(props: {
     return iso ? daysUntil(iso, nowMs()) : null;
   });
 
+  // A locked module contributes no rows: each row navigates to its module, and
+  // the shell would send a locked one straight back here.
   const agenda = createMemo(() =>
     buildAgenda({
       events: (data()?.events ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
-      payments: peekCachedBudget(props.weddingId)?.payments ?? [],
-      tasks: peekCachedTasks(props.weddingId) ?? [],
+      payments: budgetLocked() ? [] : (peekCachedBudget(props.weddingId)?.payments ?? []),
+      tasks: checklistLocked() ? [] : (peekCachedTasks(props.weddingId) ?? []),
       now: nowMs(),
       currency: budgetCurrency(),
       horizonDays: 90,
@@ -614,36 +634,39 @@ export default function Overview(props: {
                 </CardCtaButton>
               </Card>
 
-              {/* ── Checklist snapshot (Phase 1 — live open-task count) ─────── */}
-              <button
-                type="button"
-                onClick={() => props.onNavigate("checklist")}
-                class={cardLinkClass}
-              >
-                <CardEyebrow>Checklist</CardEyebrow>
-                <Show
-                  when={taskCounts(props.weddingId)}
-                  fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
+              {/* ── Checklist snapshot (live open-task count) ─────────────── */}
+              {/* Absent while the module is locked, like Vendors below. */}
+              <Show when={!checklistLocked()}>
+                <button
+                  type="button"
+                  onClick={() => props.onNavigate("checklist")}
+                  class={cardLinkClass}
                 >
-                  {(tc) => (
-                    <Show
-                      when={tc().open > 0}
-                      fallback={
-                        <p class="text-text-muted text-ui-sm">No tasks yet — add your first.</p>
-                      }
-                    >
-                      <p class="text-text text-ui-base">
-                        <span class="text-gold text-ui-lg font-semibold">{tc().open}</span> open{" "}
-                        {tc().open === 1 ? "task" : "tasks"}
-                      </p>
-                      <p class="text-text-muted text-ui-sm">
-                        {tc().done} of {tc().total} done
-                      </p>
-                      <Meter value={tc().done} max={tc().total} label="Checklist completion" />
-                    </Show>
-                  )}
-                </Show>
-              </button>
+                  <CardEyebrow>Checklist</CardEyebrow>
+                  <Show
+                    when={taskCounts(props.weddingId)}
+                    fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
+                  >
+                    {(tc) => (
+                      <Show
+                        when={tc().open > 0}
+                        fallback={
+                          <p class="text-text-muted text-ui-sm">No tasks yet — add your first.</p>
+                        }
+                      >
+                        <p class="text-text text-ui-base">
+                          <span class="text-gold text-ui-lg font-semibold">{tc().open}</span> open{" "}
+                          {tc().open === 1 ? "task" : "tasks"}
+                        </p>
+                        <p class="text-text-muted text-ui-sm">
+                          {tc().done} of {tc().total} done
+                        </p>
+                        <Meter value={tc().done} max={tc().total} label="Checklist completion" />
+                      </Show>
+                    )}
+                  </Show>
+                </button>
+              </Show>
 
               {/* ── Vendors snapshot (live count) ─────────────────────────── */}
               {/* Absent while the module is locked. The shell sends a locked
@@ -676,74 +699,77 @@ export default function Overview(props: {
                 </button>
               </Show>
 
-              {/* ── Budget snapshot (Phase 1 — live spend + upcoming payments) ── */}
-              <button
-                type="button"
-                onClick={() => props.onNavigate("budget")}
-                class={cardLinkClass}
-              >
-                <CardEyebrow>Budget</CardEyebrow>
-                <Show
-                  when={spentSoFarMemo() !== null}
-                  fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}
+              {/* ── Budget snapshot (live spend + upcoming payments) ───────── */}
+              {/* Absent while the module is locked, like Vendors above. */}
+              <Show when={!budgetLocked()}>
+                <button
+                  type="button"
+                  onClick={() => props.onNavigate("budget")}
+                  class={cardLinkClass}
                 >
+                  <CardEyebrow>Budget</CardEyebrow>
                   <Show
-                    when={
-                      (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                        data()?.profile?.budgetTotalMinor) != null
-                    }
-                    fallback={
-                      <p class="text-text-muted text-ui-sm">
-                        {(spentSoFarMemo() ?? 0) > 0
-                          ? `${formatMinor(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
-                          : "No budget yet — add your first item."}
-                      </p>
-                    }
+                    when={spentSoFarMemo() !== null}
+                    fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}
                   >
-                    <p class="text-text text-ui-base">
-                      <span class="text-gold text-ui-lg font-semibold">
-                        {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
-                      </span>{" "}
-                      <span class="text-text-muted">
-                        of{" "}
-                        {formatMinor(
-                          (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                            data()?.profile?.budgetTotalMinor)!,
-                          budgetCurrency(),
-                        )}
-                      </span>
-                    </p>
-                    {(() => {
-                      const cap =
-                        peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
-                        data()?.profile?.budgetTotalMinor;
-                      const spent = spentSoFarMemo() ?? 0;
-                      return (
-                        <Show when={cap != null}>
-                          <Meter
-                            value={spent}
-                            max={cap!}
-                            tone={spent > cap! ? "over" : "accent"}
-                            label="Budget spend"
-                          />
-                          <Show when={spent > cap!}>
-                            <p class="text-error text-ui-xs">Over budget</p>
+                    <Show
+                      when={
+                        (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                          data()?.profile?.budgetTotalMinor) != null
+                      }
+                      fallback={
+                        <p class="text-text-muted text-ui-sm">
+                          {(spentSoFarMemo() ?? 0) > 0
+                            ? `${formatMinor(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
+                            : "No budget yet — add your first item."}
+                        </p>
+                      }
+                    >
+                      <p class="text-text text-ui-base">
+                        <span class="text-gold text-ui-lg font-semibold">
+                          {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
+                        </span>{" "}
+                        <span class="text-text-muted">
+                          of{" "}
+                          {formatMinor(
+                            (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                              data()?.profile?.budgetTotalMinor)!,
+                            budgetCurrency(),
+                          )}
+                        </span>
+                      </p>
+                      {(() => {
+                        const cap =
+                          peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                          data()?.profile?.budgetTotalMinor;
+                        const spent = spentSoFarMemo() ?? 0;
+                        return (
+                          <Show when={cap != null}>
+                            <Meter
+                              value={spent}
+                              max={cap!}
+                              tone={spent > cap! ? "over" : "accent"}
+                              label="Budget spend"
+                            />
+                            <Show when={spent > cap!}>
+                              <p class="text-error text-ui-xs">Over budget</p>
+                            </Show>
                           </Show>
+                        );
+                      })()}
+                    </Show>
+                    <Show when={upcomingPaymentsMemo().length > 0}>
+                      <p class="text-text-muted text-ui-sm">
+                        Next: {upcomingPaymentsMemo()[0]!.label}
+                        <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
+                          {" "}
+                          · due {upcomingPaymentsMemo()[0]!.dueAt}
                         </Show>
-                      );
-                    })()}
+                      </p>
+                    </Show>
                   </Show>
-                  <Show when={upcomingPaymentsMemo().length > 0}>
-                    <p class="text-text-muted text-ui-sm">
-                      Next: {upcomingPaymentsMemo()[0]!.label}
-                      <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
-                        {" "}
-                        · due {upcomingPaymentsMemo()[0]!.dueAt}
-                      </Show>
-                    </p>
-                  </Show>
-                </Show>
-              </button>
+                </button>
+              </Show>
             </div>
           </div>
         </Show>

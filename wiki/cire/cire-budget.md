@@ -9,6 +9,7 @@ related:
   - "[[cire-rsvp-deadline]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
+  - "[[cire-entitlements]]"
 last-reviewed: 2026-10-01
 ---
 # Budget
@@ -65,6 +66,16 @@ All four consumers read the same enum key strings — no duplication, no drift.
 ## Route Surface
 
 `POST/GET/PUT/DELETE /api/organiser/weddings/:weddingId/budget` family (three write gates):
+
+**Gold only, reads included.** Every route below sits behind
+`weddingTier(db, "gold")`, after its role gate: a wedding below Gold gets
+`402 { "error": "payment_required", "tier": "gold" }`, and its rows stay where
+they are until it is back on Gold (an export for that case is
+englishstventures/osn#1316). The one budget figure outside the gate is the
+total written through `PUT …/settings` (`budgetTotalMinor`): onboarding writes
+it, and it is a single number rather than the module. In the portal the Budget
+row is locked below Gold, and Overview neither reads `/budget` nor shows the
+Budget card — see [[cire-entitlements]].
 
 ### Member read (any role)
 - `GET /api/organiser/weddings/:weddingId/budget` — fetch full snapshot: all items + payments, category rollups (sum per category + total), budgetTotalMinor cap, the wedding's `events` (`{ id, name }` by `sort_order`, for the per-head picker) and `rsvpsClosed`. Each item carries `unitPriceMinor`, `eventIds` and `headcount` (see [[#Per-head lines]])

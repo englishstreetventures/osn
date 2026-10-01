@@ -7,6 +7,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import { CreateTaskBody, ReorderTasksBody, UpdateTaskBody } from "../schemas/tasks";
 import { tasksService } from "../services/tasks";
@@ -24,29 +25,36 @@ const manualParse = { parse: () => ({}) };
  * cross-contaminates with the write gate (weddingEditor). This mirrors the
  * createOrganiserHostsReadRoutes / createOrganiserHostsWriteRoutes sibling
  * pattern already in app.ts.
+ *
+ * The checklist is a Gold module: this read and every write sit behind
+ * `weddingTier(db, "gold")`, so a wedding below Gold gets 402
+ * `payment_required` and its tasks stay where they are.
  */
 export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/tasks", async ({ weddingId, set }) => {
-        if (!weddingId) {
-          set.status = 500;
-          return { error: "Internal error" };
-        }
-        return runCire(
-          tasksService.list(weddingId).pipe(
-            Effect.map((list) => ({ tasks: list })),
-            Effect.provideService(DbService, db),
-            Effect.catchDefect(() =>
-              Effect.sync(() => {
-                set.status = 500;
-                return { error: "Internal error" };
-              }),
+      group
+        .use(weddingMember(db))
+        .use(weddingTier(db, "gold"))
+        .get("/tasks", async ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            tasksService.list(weddingId).pipe(
+              Effect.map((list) => ({ tasks: list })),
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
             ),
-          ),
-        );
-      }),
+          );
+        }),
     );
 
 /**
@@ -57,7 +65,8 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *   PATCH  /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
  *   DELETE /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
  *
- * A viewer gets 403 `read_only_role`. The service re-scopes every write by
+ * A viewer gets 403 `read_only_role`; a wedding below Gold gets 402
+ * `payment_required`. The service re-scopes every write by
  * wedding_id, so a cross-tenant task id 404s (`TaskNotInWedding`).
  *
  * NOTE: `/tasks/reorder` is registered BEFORE `/tasks/:taskId` so the literal
@@ -69,6 +78,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
         .post(
           "/tasks",
           async ({ weddingId, request, set }) => {

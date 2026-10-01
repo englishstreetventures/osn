@@ -9,7 +9,7 @@
  *  - **Every picture is fetched, not linked.** Invite images are served by a
  *    PUBLIC route (`/api/invite/:slug/image/:slot`), so `ImageField` can put the
  *    URL straight in an `<img src>`. A registry image is served behind the
- *    organiser session, the role gate and the entitlement, and answered
+ *    organiser session, the role gate and the Gold tier gate, and answered
  *    `private`; it is read with `authFetch` (which sends the session cookie)
  *    into an object URL, revoked when it is replaced or the field goes away.
  *  - **The link path offers a choice.** A shop page has a dozen images and only
@@ -242,7 +242,7 @@ export default function RegistryImageField(props: {
           ? "That link can't be opened from here. Check the address, or upload a photo instead."
           : "A link must be a full https:// address.";
       case 402:
-        return "The gift registry isn't part of this wedding's plan yet.";
+        return "The gift registry comes with Gold, and this wedding isn't on it yet.";
       case 403:
         return "You have read-only access to this wedding.";
       case 413:

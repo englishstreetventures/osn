@@ -24,7 +24,6 @@ import {
 } from "../services/changes";
 import type { ChangeConflict } from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
-import { CapacityExceeded } from "../services/entitlements";
 import { applyImport, diffAgainstDb } from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
@@ -36,6 +35,7 @@ import type {
   SheetKind,
   SpreadsheetParseError,
 } from "../services/spreadsheet";
+import { CapacityExceeded } from "../services/tiers";
 
 const ONE_MB = 1 * 1024 * 1024;
 
@@ -146,12 +146,19 @@ function catchParseErrors(set: { status?: number | string }) {
 // of Elysia's parser error.
 const manualParse = { parse: () => ({}) };
 
-/** The 402 a change answers when it would take the wedding past its guest cap. */
+/**
+ * The 402 a change answers when it would take the wedding past its tier's guest
+ * cap. `tier` is the lowest tier whose cap would hold the change, or `null`
+ * when even the top tier's would not. `entitlement: "capacity"` stays for a
+ * portal build that reads it rather than `tier`.
+ */
 function paymentRequired(set: { status?: number | string }, e: CapacityExceeded) {
   set.status = 402;
   return {
     error: "payment_required",
+    // Removed by englishstventures/osn#1315.
     entitlement: "capacity",
+    tier: e.requiredTier,
     limit: e.limit,
     current: e.current,
   } as const;

@@ -561,10 +561,10 @@ export interface AppOptions {
   /** Country for a newly created connected account (`AU` unless overridden). */
   stripeAccountCountry?: string;
   /**
-   * Stripe Price ids for the self-serve upgrades, one per purchasable
-   * entitlement. A key absent here is not for sale in this deployment: it never
-   * appears in the catalogue and the checkout route 404s for it. No money
-   * amount is held in this repository — the price is read back from Stripe.
+   * Stripe Price ids for the self-serve tier upgrades. A tier with no Price
+   * here is not for sale in this deployment: it never appears in the catalogue
+   * and the checkout route 404s for it. No money amount is held in this
+   * repository — the price is read back from Stripe.
    */
   upgradePrices?: UpgradePriceConfig;
   /** Override the upgrade purchase limiter (useful for testing). */
@@ -867,10 +867,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // over the reads. Same no-Turnstile argument as RSVP above — the cookie
       // came from a Turnstile-gated `/api/claim`.
       //
-      // Every route here is invisible without the `registry` entitlement, which
-      // NO wedding holds: they answer 404 `registry_not_found`, not 402, because
-      // no caller — anonymous, or holding a cookie for some other wedding —
-      // may learn which weddings have bought which features.
+      // Every route here is invisible for a wedding below Gold: they answer
+      // 404 `registry_not_found`, not 402, because no caller — anonymous, or
+      // holding a cookie for some other wedding — may learn which weddings
+      // have bought which tier.
       .use(createRegistryGuestImageRoutes(db, { assets, images }))
       .use(createRegistryGuestListRoutes(db))
       .use(createRegistryGuestMineRoutes(db))
@@ -941,13 +941,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createTaskWriteRoutes(db, osnAuthOptions))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
-      // Gift registry. Same read/write gate split as the modules above, plus an
-      // entitlement gate: a wedding without the `registry` key gets 402
-      // `payment_required` from every route here, and the portal fades that
-      // module's nav row and offers the upgrade rather than opening it. Mounting
-      // it unconditionally is deliberate — the lock is the entitlement, not the
-      // absence of a route, so turning the feature on for one wedding is a single
-      // row and needs no deploy.
+      // Gift registry. Same read/write gate split as the modules above, and the
+      // same Gold tier gate: a wedding below Gold gets 402 `payment_required`
+      // from every route here, and the portal fades that module's nav row and
+      // offers the upgrade rather than opening it. Mounting it unconditionally
+      // is deliberate — the lock is the tier, not the absence of a route, so
+      // moving one wedding to Gold opens it with no deploy.
       .use(createRegistryReadRoutes(db, osnAuthOptions))
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at

@@ -7,6 +7,7 @@ import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import type { Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
 export interface WeddingSummary {
   id: string;
@@ -16,10 +17,16 @@ export interface WeddingSummary {
    *  is `surfacesFor()` in `lib/wedding-roles` — the only place the portal
    *  decides anything from this field. */
   role: WeddingRole;
-  /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
-   *  Populated by the `/api/organiser/weddings` list endpoint. */
+  /** The wedding's plan tier, from the `/api/organiser/weddings` list. Never
+   *  read directly: `tierOf()` in `lib/tiers` narrows it, and stands in for it
+   *  from `entitlements` when the API sent none. */
+  // Optional until englishstventures/osn#1315 lands: an API that predates tiers omits it.
+  tier?: Tier;
+  /** Entitlement keys on this wedding, from the same list: the legacy keys its
+   *  tier implies, plus `premium_templates` where that is held. The invite
+   *  builder reads `premium_templates` from them. */
   entitlements: string[];
-  /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
+  /** The tier's guest ceiling. Defaults to 100. */
   guestCap: number;
 }
 

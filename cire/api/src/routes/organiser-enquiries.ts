@@ -12,8 +12,8 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
-import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import type { createDirectoryService, DirectoryVendorRow } from "../services/directory";
 import type { createEnquiryService, EnquiryRow } from "../services/enquiries";
@@ -97,12 +97,12 @@ const loadEnquiryInWedding = (
  *    (owner or editor; a viewer co-host gets 403 `read_only_role`) behind a
  *    per-user limiter (spam control §96).
  *
- * Both groups then require the wedding to hold `vendors`, like the vendor CRM
- * and directory routes beside them: a wedding without it gets 402
- * `payment_required`. The order is auth (401) → role (403) → entitlement (402)
- * → limiter (429), so an unentitled wedding never sends a vendor email, opens a
- * chat or spends the limiter's budget. The role gates take the same key, which
- * folds the entitlement check into the query they already run.
+ * Both groups then require the wedding to be on Crimson, like the vendor CRM
+ * and directory routes beside them: a wedding below it gets 402
+ * `payment_required`. The order is auth (401) → role (403) → tier (402) →
+ * limiter (429), so a wedding below Crimson never sends a vendor email, opens a
+ * chat or spends the limiter's budget. The role gates read the tier in the
+ * query they already run, so the tier gate costs none of its own.
  *
  * Every handler that takes an `:id` re-loads the enquiry scoped to the gated
  * `weddingId` and answers 404 on a mismatch (cross-tenant hidden). Service
@@ -122,8 +122,8 @@ export const createOrganiserEnquiriesRoutes = (
       // Reads — owner OR any co-host (weddingMember).
       .group("/weddings/:weddingId", (group) =>
         group
-          .use(weddingMember(db, "vendors"))
-          .use(weddingEntitlement(db, "vendors"))
+          .use(weddingMember(db))
+          .use(weddingTier(db, "crimson"))
           .get("/enquiries", ({ weddingId, set }) => {
             if (!weddingId) return internalSync(set);
             return runCire(
@@ -165,8 +165,8 @@ export const createOrganiserEnquiriesRoutes = (
       // limiter never gates the reads above.
       .group("/weddings/:weddingId", (group) =>
         group
-          .use(weddingEditor(db, "vendors"))
-          .use(weddingEntitlement(db, "vendors"))
+          .use(weddingEditor(db))
+          .use(weddingTier(db, "crimson"))
           .use(rateLimitMiddlewareByUser(limiter))
           .post(
             "/enquiries",

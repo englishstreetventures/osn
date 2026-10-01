@@ -232,6 +232,44 @@ describe("formatImportError — non-parse failures", () => {
     expect(msg).toContain("120");
   });
 
+  it("names the tier that would hold the import", () => {
+    const msg = formatImportError(402, {
+      error: "payment_required",
+      limit: 100,
+      current: 240,
+      tier: "gold",
+    });
+    expect(msg).toContain("100");
+    expect(msg).toMatch(/upgrade to Gold/);
+  });
+
+  it("does not suggest an upgrade when no tier would hold the import", () => {
+    const msg = formatImportError(402, {
+      error: "payment_required",
+      limit: 1000,
+      current: 1200,
+      tier: null,
+    });
+    expect(msg).toContain("1000");
+    expect(msg).toMatch(/no plan holds that many/i);
+    expect(msg).not.toMatch(/upgrade/i);
+  });
+
+  it("falls back to a plain upgrade line for a tier it cannot name", () => {
+    // An API that predates tiers sends no `tier`; a future one might send a
+    // tier this build has never heard of. Neither is named.
+    for (const tier of [undefined, "platinum"]) {
+      const msg = formatImportError(402, {
+        error: "payment_required",
+        limit: 100,
+        current: 140,
+        tier,
+      });
+      expect(msg).toMatch(/upgrade your plan/);
+      expect(msg).not.toContain("platinum");
+    }
+  });
+
   it("falls back to the API error string, then the status", () => {
     expect(formatImportError(500, { error: "Storage error" })).toBe("Storage error");
     expect(formatImportError(503, {})).toBe("Request failed (503)");

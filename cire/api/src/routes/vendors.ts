@@ -8,8 +8,8 @@ import { sendClaimInviteEmail } from "../lib/vendor-email";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
-import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
   CreateVendorBody,
@@ -65,8 +65,8 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db, "vendors"))
-        .use(weddingEntitlement(db, "vendors"))
+        .use(weddingMember(db))
+        .use(weddingTier(db, "crimson"))
         .get("/vendors", async ({ weddingId, set }) => {
           if (!weddingId) return internalSync(set);
           return runCire(
@@ -112,8 +112,8 @@ export const createVendorWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db, "vendors"))
-        .use(weddingEntitlement(db, "vendors"))
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "crimson"))
         .post(
           "/vendors",
           async ({ weddingId, request, set }) => {

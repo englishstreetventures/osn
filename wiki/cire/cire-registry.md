@@ -19,7 +19,7 @@ last-reviewed: 2026-10-01
 Phase 4 module. The couple curate a gift list; guest **households** claim from it so nobody buys the same thing twice; the couple work from a gift log afterwards to write thank-yous. Card contributions ride Stripe Connect — and everything below is still usable as an honour-system list with no Stripe account at all.
 
 > [!note]
-> **It is gated, not unreachable.** Every organiser route in this page except `gifts.csv` answers `402 payment_required` until the wedding holds the `registry` entitlement, and the guest routes answer the same `404` an unpublished list gives. On a deployment that holds a Stripe key a host can buy it themselves — see [[cire-upgrades]] — and an operator can comp it anywhere with `grant-entitlement.ts`. See [[cire-entitlements]] for the gate itself.
+> **It is gated, not unreachable.** Every organiser route in this page except `gifts.csv` answers `402 payment_required` until the wedding is on the **Gold** tier or above, and the guest routes answer the same `404` an unpublished list gives. On a deployment that holds a Stripe key a host can buy Gold themselves — see [[cire-upgrades]] — and an operator can move a wedding to it anywhere with `grant-tier.ts`. See [[cire-entitlements]] for the tiers and the gate itself.
 
 ---
 
@@ -41,7 +41,7 @@ One row per wedding, keyed by `wedding_id` (PK + FK cascade). **An absent row re
 
 | Column                                                                                               | Notes                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `published`                                                                                          | Guest visibility. The guest read requires this **and** the entitlement — two independent gates, so an entitlement lapsing can't silently republish a registry the couple turned off, and vice versa |
+| `published`                                                                                          | Guest visibility. The guest read requires this **and** the Gold tier — two independent gates, so a tier lowered and raised again can't silently republish a registry the couple turned off, and vice versa |
 | `headline`, `message`                                                                                | The couple's copy above the list ("no boxed gifts please"). NULL ⇒ nothing renders                                                                                                                  |
 | `cash_gifts_enabled`                                                                                 | Off by default and independently of `published`                                                                                                                                                     |
 | `shipping_address`, `shipping_visible_from`                                                          | Shown to claimed guests only; the date is the "don't ship until we're back" pattern                                                                                                                 |
@@ -73,7 +73,7 @@ Two covering indexes carry the hot reads. `(item_id, status, family_id, quantity
 
 ### `registry_contributions`
 
-One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**, and that uniqueness is the webhook idempotency anchor — the same role `provider_ref` plays for entitlement grants. A replayed `checkout.session.completed` conflicts there instead of writing a second gift.
+One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**, and that uniqueness is the webhook idempotency anchor — the same role `checkout_session_id` plays for upgrade purchases ([[cire-upgrades]]). A replayed `checkout.session.completed` conflicts there instead of writing a second gift.
 
 `item_id` is `ON DELETE SET NULL`, not cascade: removing a listing must never erase the record of money someone actually sent.
 
@@ -106,8 +106,8 @@ Rendering goes through `formatMinorPair` in `cire/host/src/lib/money.ts`. That m
 
 | Route                            | Gate                         | What it does                                                                                                                   |
 | -------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `POST …/registry/stripe/session` | `weddingOwner` + entitlement | Creates the connected account (Express, `card_payments` + `transfers`) if there isn't one, then mints a hosted onboarding link |
-| `POST …/registry/stripe/refresh` | `weddingOwner` + entitlement | One live `GET /v1/accounts/:id`, and caches what it says                                                                       |
+| `POST …/registry/stripe/session` | `weddingOwner` + Gold        | Creates the connected account (Express, `card_payments` + `transfers`) if there isn't one, then mints a hosted onboarding link |
+| `POST …/registry/stripe/refresh` | `weddingOwner` + Gold        | One live `GET /v1/accounts/:id`, and caches what it says                                                                       |
 | `POST /api/stripe/webhook`       | Stripe signature             | `account.updated` → caches the capability booleans; `account.application.deauthorized` → clears the account; the seven gift events below |
 
 Creating that endpoint in the Stripe dashboard — its scope, the nine events, the local forwarder and how to verify a tier — is [[stripe-webhooks]].
@@ -210,7 +210,7 @@ Zero rows returned means one of two things; only that failure path pays for a se
 
 ## API
 
-All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, gated `osnAuth()` → role gate → **`weddingEntitlement(db, "registry")`** → rate limiter. Ordering matters: a stranger gets 403 from the role gate _before_ the entitlement gate runs, so a 402 never leaks which weddings exist or which features they hold.
+All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, gated `osnAuth()` → role gate → **`weddingTier(db, "gold")`** → rate limiter. Ordering matters: a stranger gets 403 from the role gate _before_ the tier gate runs, so a 402 never leaks which weddings exist or which tier they are on.
 
 | Route                                                                                              | Gate                                                                                                                           |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -235,7 +235,7 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | `POST \| DELETE /registry/items/:itemId/claim`          | per-IP limiter, then `sessionAuth` |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
-**Every gated route checks the family against the WEDDING**, and they must not drift: the list, `/mine` and contribute fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`; contribute also passes its `itemId`, answered as `itemBelongs` rather than as a refusal), claim reads the family inside its own write, and release runs the shared `familyInWedding` read on its failure path. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
+**Every gated route checks the family against the WEDDING**, and they must not drift: the list, `/mine` and contribute fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`; contribute also passes its `itemId`, answered as `itemBelongs` rather than as a refusal), claim reads the family inside its own write, and release runs the shared `familyInWedding` read on its failure path. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, below-Gold or unpublished registry gives:
 
 | Route                                          | A household of another wedding gets                                                    |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -249,7 +249,7 @@ The order in `registryService.claim` is the security property, not a detail. Che
 
 The image route stays **unauthenticated on purpose**. A name is `registry-<uuid>`, minted per save and reachable only from the list the session gates, so the bytes are not enumerable without that read — while authenticating them would put a session lookup on every image request on the page, the one place on the guest surface where requests arrive in dozens. If the couple's pictures ever become sensitive on their own, that route moves and `visibility: "public"` moves with it.
 
-So an image URL is a **bearer credential while its gift is on a published list**: a household that loses its invite can still fetch every image it saw, and so can anyone it passed a URL to. What the couple keep is withdrawal, of the whole list or of one gift. The route's gate (`registryGuestService.visibleImageKey`) checks the entitlement, the publish flag **and that an item of this wedding still names the image**, so unpublishing, losing the entitlement, deleting the gift or saving a new picture over it all close the URL. Each copy of the bytes has a lifetime chosen so that reaches it:
+So an image URL is a **bearer credential while its gift is on a published list**: a household that loses its invite can still fetch every image it saw, and so can anyone it passed a URL to. What the couple keep is withdrawal, of the whole list or of one gift. The route's gate (`registryGuestService.visibleImageKey`) checks the tier, the publish flag **and that an item of this wedding still names the image**, so unpublishing, the wedding dropping below Gold, deleting the gift or saving a new picture over it all close the URL. Each copy of the bytes has a lifetime chosen so that reaches it:
 
 | Copy                                    | Lifetime                               | After a withdrawal                                                         |
 | --------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------- |
@@ -258,7 +258,7 @@ So an image URL is a **bearer credential while its gift is on a published list**
 
 The route passes `lifetime: "revocable"` to `serveTransformedImage` for this. Every other cire image route keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
 
-**The gate is one D1 statement.** The slug read, the `registry` entitlement (`entitlementPresent`, the same fold the organiser role gates use), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check (list and `/mine`) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
+**The gate is one D1 statement.** The slug read, the wedding's tier (a column of the same `weddings` row, checked against Gold in JavaScript), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check (list and `/mine`) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
 
 **A revalidation after the hour costs the gate and nothing else.** A `revocable` image carries a weak `ETag` built from what its cache key is built from — the server-derived version, the variant and the format — because the bytes under one key never change. When the browser's hour runs out it asks again with `If-None-Match`, and once the gate has passed `serveTransformedImage` answers `304` with the same `Cache-Control` and `Vary`, before any Worker-cache lookup, R2 read or transform. The check sits inside `serveTransformedImage`, which the route calls only after the gate, so a withdrawn gift still answers `404`, not `304`. Immutable images carry no tag: they are never revalidated.
 
@@ -282,7 +282,7 @@ A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. Th
 
 ### Taking the log away (`gifts.csv`)
 
-`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingMember` → per-user limiter, not the registry entitlement: a couple whose entitlement lapsed must still be able to take their own record out.
+`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingMember` → per-user limiter, not the Gold tier gate: a couple whose wedding is no longer on Gold must still be able to take their own record out.
 
 The export exists because the two things above are in tension. The portal reads the log **a page at a time** and the retention sweep **deletes the detail after a year**, leaving only the aggregate summary. Between those, the couple have no way to hold the whole thing. A download is that way.
 
@@ -339,14 +339,14 @@ Implemented in `cire/api/src/services/link-preview.ts`. All must pass, and the f
 
 ### Rate limit
 
-Its own per-organiser limiter, **10 requests a minute**, keyed on `osnProfileId` — not the limiter the registry writes use. One authenticated request costs a full page fetch to a host the caller named, so it is an amplifier, and an Elysia guard applies to every route in its group. That is why it is a third route factory (`createRegistryLinkPreviewRoutes`) rather than another handler on the write group; same split, same reason, as `routes/organiser-enquiries.ts`. Gate order is the write routes' order with the limiter appended: `osnAuth` (401) → `weddingEditor` (403) → `weddingEntitlement` (402) → limiter (429). The limiter is **last** so a wedding without the entitlement is turned away before it can spend anyone's budget.
+Its own per-organiser limiter, **10 requests a minute**, keyed on `osnProfileId` — not the limiter the registry writes use. One authenticated request costs a full page fetch to a host the caller named, so it is an amplifier, and an Elysia guard applies to every route in its group. That is why it is a third route factory (`createRegistryLinkPreviewRoutes`) rather than another handler on the write group; same split, same reason, as `routes/organiser-enquiries.ts`. Gate order is the write routes' order with the limiter appended: `osnAuth` (401) → `weddingEditor` (403) → `weddingTier` (402) → limiter (429). The limiter is **last** so a wedding below Gold is turned away before it can spend anyone's budget.
 
 **What the limiter bounds.** The 512 KB cap and the lookup budget bound one preview; the limiter bounds how many there are. Together, one organiser profile (the key is `osnProfileId`, not the wedding) can make the Worker read at most 10 × 512 KB of other people's pages a minute and send at most 10 × 28 outbound requests of the preview's own. The same invocation can add a few requests from outside the preview — a JWKS fetch on the bearer-auth path, the trace export once `OTEL_EXPORTER_OTLP_ENDPOINT` is set — so a preview stays under Workers Free's 50 external subrequests per invocation ([[free-tier-limits]]). Three things loosen that figure:
 
 - **The native binding counts per Cloudflare location**, not globally ([[rate-limiting]]). The deployed Worker uses `REGISTRY_PREVIEW_RATE_LIMITER` (`simple = { limit = 10, period = 60 }` in `cire/api/wrangler.toml`); the in-memory default is for local runs and counts per isolate.
 - **The image copy is a second budget.** `POST /registry/image/from-url` has its own 10-a-minute limiter, and each call there reads up to the image byte cap.
 - **The thumbnails are a third.** `POST /registry/link-preview/image` has its own 60-a-minute limiter, six for each preview the 10-a-minute budget allows, and each call reads up to the image byte cap and runs one Images transform. See [Thumbnails](#thumbnails).
-- **The per-minute limiter is the only bound on how many previews a profile makes.** The route sits behind an editor seat on a wedding that holds the paid `registry` entitlement, so every caller is a known account. Opening link preview to any cheaper surface needs a per-profile daily budget first, and so does preview traffic in the subrequest count or `cire.registry.link_preview` that runs out of line with hand use. The native binding cannot hold a daily budget — its `period` is 10 or 60 seconds — so it needs a store that counts across isolates.
+- **The per-minute limiter is the only bound on how many previews a profile makes.** The route sits behind an editor seat on a wedding on the paid Gold tier or above, so every caller is a known account. Opening link preview to any cheaper surface needs a per-profile daily budget first, and so does preview traffic in the subrequest count or `cire.registry.link_preview` that runs out of line with hand use. The native binding cannot hold a daily budget — its `period` is 10 or 60 seconds — so it needs a store that counts across isolates.
 
 ### Parsing
 
@@ -383,7 +383,7 @@ Tagged classes, mapped by the route. None is a 500 — every failure here is the
 
 **It is a POST, for two reasons.** The shop URL travels in the body, so it never reaches a request log: a Workers invocation record, a trace or a proxy log keeps the request URL, and a registry link names something the couple is buying. (cire-api turns invocation logs off for the same reason.) And `originGuard` checks the `Origin` of every POST. Organiser auth is the `SameSite=Lax` session cookie, so a GET would let an `<img>` on any same-site page spend an editor's budget, and our outbound fetches, on a URL of its choosing.
 
-Gates are the preview's: `osnAuth` (401) → `weddingEditor` (403) → `weddingEntitlement` (402) → its own limiter (429), in its own factory (`createRegistryLinkThumbRoutes`) because an Elysia guard applies to every route in its group. The limiter is **60 a minute** per `osnProfileId` (`REGISTRY_THUMB_RATE_LIMITER`, `simple = { limit = 60, period = 60 }` in `cire/api/wrangler.toml`; `defaultRegistryThumbLimiter` in `src/app.ts` for local runs).
+Gates are the preview's: `osnAuth` (401) → `weddingEditor` (403) → `weddingTier(db, "gold")` (402) → its own limiter (429), in its own factory (`createRegistryLinkThumbRoutes`) because an Elysia guard applies to every route in its group. The limiter is **60 a minute** per `osnProfileId` (`REGISTRY_THUMB_RATE_LIMITER`, `simple = { limit = 60, period = 60 }` in `cire/api/wrangler.toml`; `defaultRegistryThumbLimiter` in `src/app.ts` for local runs).
 
 `services/link-thumbnail.ts` treats the URL as fully untrusted, whether or not the preview emitted it:
 
@@ -425,7 +425,7 @@ That is a deliberate refusal, and the reasons are ordered by how badly each one 
 - **It leaks the guest.** Every guest loading the list would make a request to the shop carrying their IP and our referrer — a third-party disclosure nobody consented to, and a vendor entry we would owe the [[cire-consent]] registry.
 - **We vetted the host for its IP range and nothing else.** That is enough to refuse an SSRF target; it is not a claim that the host is trustworthy for the lifetime of the page.
 
-Two endpoints, both on the write group's gates (`osnAuth` 401 → `weddingEditor` 403 → `weddingEntitlement` 402) with their own 10-a-minute per-organiser limiter appended (`defaultRegistryImageLimiter` — a save costs an outbound fetch and an R2 write):
+Two endpoints, both on the write group's gates (`osnAuth` 401 → `weddingEditor` 403 → `weddingTier` 402) with their own 10-a-minute per-organiser limiter appended (`defaultRegistryImageLimiter` — a save costs an outbound fetch and an R2 write):
 
 | Route                              | Body            | Answers                                           |
 | ---------------------------------- | --------------- | ------------------------------------------------- |
@@ -455,9 +455,9 @@ Errors: `blocked_url` 400 (same opaque code, same no-reason rule as preview), `i
 
 The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the rail by `lib/module-nav.ts`, into the route grammar by `lib/dashboard-route.ts` (`MODULE_SUBS.registry = ["list", "gifts", "settings"]`) and into the shell by `components/ModuleShell.tsx`. Three sub-tabs, two components: `list` and `gifts` mount the **same** `RegistryView` with a `view` prop — one fetch, one cache, two renders — and `settings` is `RegistrySettingsView`, a second chunk reading the same cached snapshot.
 
-**Locked means no page.** A wedding without the `registry` entitlement never renders this module: `ModuleShell` coerces a locked module to Overview, so a deep link or a stale hash naming Registry lands on a real view rather than on an empty panel. The rail and sheet keep the Registry row, faded and inert, and it offers the upgrade — a three-second pointer dwell, the same delay on keyboard focus, or a click, which is what a touch user gets. The command palette and the Overview cards leave a locked module out entirely, because a row that navigates nowhere is worse than no row. See [[cire-entitlements]].
+**Locked means no page.** A wedding below Gold never renders this module: `ModuleShell` coerces a locked module to Overview, so a deep link or a stale hash naming Registry lands on a real view rather than on an empty panel. The rail and sheet keep the Registry row, faded and inert, and it names Gold and offers the upgrade — a three-second pointer dwell, the same delay on keyboard focus, or a click, which is what a touch user gets. The command palette and the Overview cards leave a locked module out entirely, because a row that navigates nowhere is worse than no row. See [[cire-entitlements]].
 
-**No Overview card.** The obvious "gifts received" tile would fire a guaranteed-402 request on the most-loaded page in the portal, for every wedding, forever, to render nothing. It lands with the entitlement, not before.
+**No Overview card.** A "gifts received" tile would follow the Checklist and Budget cards: rendered, and its read made, only on a wedding whose tier includes the registry. Below Gold that read is a guaranteed 402 on the most-loaded page in the portal ([[cire-entitlements]] §The portal).
 
 **`lib/registry-store.ts`** is the vendors snapshot cache in the same shape: one `GET /registry` per wedding, an inflight map so two mounts share a request, and `invalidateRegistry` on any write. Writes mutate the cached snapshot rather than refetching, which is what makes the reorder and the thank-you toggle feel instant. "Load more gifts" appends a `GET /registry/gifts?offset=<rows held>` page (`GiftLogPage`) onto the same snapshot, so the gift log and the item list still come from one cache entry.
 
@@ -575,7 +575,7 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 
 **A failed re-read leaves what is on screen.** Only an answer replaces what is rendered: `ok` swaps the list, `401` locks it, `404` closes it, and a transport failure changes nothing. Blanking on a blip would blank the page under someone reading it.
 
-**States that look alike and are not.** An unpublished or unentitled registry 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
+**States that look alike and are not.** An unpublished registry, or one on a wedding below Gold, 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
 
 **Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — a bare `??` chain would let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
 

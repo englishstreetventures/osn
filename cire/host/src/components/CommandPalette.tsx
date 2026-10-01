@@ -12,6 +12,7 @@ import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
 import { setThemePreference, theme } from "../lib/theme";
+import { tierOf } from "../lib/tiers";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleIcon from "./ModuleIcon";
@@ -89,7 +90,7 @@ export default function CommandPalette(props: {
         // back to Overview. The upgrade is offered on the nav row, which stays
         // visible, rather than here — a palette row that lands somewhere else
         // is worse than no row.
-        if (isModuleLocked(mod.id, wedding.entitlements ?? [])) continue;
+        if (isModuleLocked(mod.id, tierOf(wedding))) continue;
         list.push({
           id: `module:${mod.id}`,
           group: "Go to",

@@ -28,7 +28,7 @@
  * organiser half re-checks, in wedding scope, that the guest or household
  * belongs to `weddingId` and is not the host-preview family.
  */
-import { families, guestEvents, guests, rsvps, weddingEntitlements, weddings } from "@cire/db";
+import { families, guestEvents, guests, rsvps, weddings } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { and, eq, exists, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
@@ -42,9 +42,9 @@ import { DbService, commitBatchResults, commitGroupedBatchesReturning, dbQuery }
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet } from "../metrics";
 import type { ConfirmedPlusOne } from "../schemas/plus-one";
-import type { CapacityExceeded } from "./entitlements";
-import { CAPACITY_ENTITLEMENT_KEYS, entitlementService, roomForOneMoreGuest } from "./entitlements";
 import { buildRecordStatement, type PlusOneChangeKind } from "./rsvp-changes";
+import type { CapacityExceeded } from "./tiers";
+import { capForTier, normaliseTier, roomForOneMoreGuest, tierService } from "./tiers";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -270,7 +270,7 @@ function cleanName(name: PlusOneName): PlusOneName {
  * `familyId`: the household, its wedding's deadline, the inviter (only when
  * they are IN that household — the path's guest id is trusted no further), the
  * inviter's current plus-one with their invitations (one row per invitation),
- * and whether the wedding holds either capacity entitlement. Every join is by
+ * and the wedding's tier, which sets its guest cap. Every join is by
  * primary key or a unique index, so folding them costs nothing, and a
  * guest-facing write pays one round trip for its context instead of four.
  */
@@ -279,8 +279,6 @@ function readGuestContext(familyId: string, inviterGuestId: string, options: { d
     const db = yield* DbService;
     const inviter = alias(guests, "inviter");
     const plusOneRow = alias(guests, "plus_one");
-    const holds = (key: (typeof CAPACITY_ENTITLEMENT_KEYS)[number]) =>
-      sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${families.weddingId} AND ${weddingEntitlements.entitlement} = ${key})`;
     const rows = yield* dbQuery(() =>
       db
         .select({
@@ -303,8 +301,7 @@ function readGuestContext(familyId: string, inviterGuestId: string, options: { d
           plusOneHasDietary: options.dietary
             ? sql<number>`EXISTS (SELECT 1 FROM ${rsvps} WHERE ${rsvps.guestId} = ${plusOneRow.id} AND (${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL))`
             : sql<number>`0`,
-          capacity500: holds("capacity_500"),
-          capacity1000: holds("capacity_1000"),
+          tier: weddings.tier,
         })
         .from(families)
         .innerJoin(weddings, eq(weddings.id, families.weddingId))
@@ -342,10 +339,6 @@ function readGuestContext(familyId: string, inviterGuestId: string, options: { d
             plusOneOf: inviterGuestId,
             eventIds: rows.flatMap((r) => (r.plusOneEventId === null ? [] : [r.plusOneEventId])),
           };
-    const capKeys = [
-      ...(household.capacity500 ? ["capacity_500"] : []),
-      ...(household.capacity1000 ? ["capacity_1000"] : []),
-    ];
     return {
       weddingId: household.weddingId,
       plusOneHasDietary: Boolean(household.plusOneHasDietary),
@@ -354,7 +347,7 @@ function readGuestContext(familyId: string, inviterGuestId: string, options: { d
         plusOneAllowed: household.inviterAllowed === true,
       },
       plusOne,
-      cap: entitlementService.deriveCap(capKeys),
+      cap: capForTier(normaliseTier(household.tier)),
     };
   });
 }
@@ -588,7 +581,7 @@ function refusedInsideTheWrite(
       yield* Effect.sync(() => metricPlusOneBlocked("not_allowed"));
       return yield* Effect.fail(new PlusOneNotAllowed());
     }
-    yield* entitlementService
+    yield* tierService
       .assertGuestCapacity(now.weddingId, 1, now.cap)
       .pipe(Effect.tapError(() => Effect.sync(() => metricPlusOneBlocked("capacity"))));
     // Every rule holds again: the place or the permission came back between

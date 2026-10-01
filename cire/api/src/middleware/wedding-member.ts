@@ -4,8 +4,8 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { runCire } from "../observability";
-import type { EntitlementKey } from "../services/entitlements";
 import { hostsService } from "../services/hosts";
+import type { Tier } from "../services/tiers";
 import { readOsnProfileId } from "./upstream-context";
 import { decideCapability } from "./wedding-role";
 import type { WeddingRole } from "./wedding-role";
@@ -15,22 +15,13 @@ interface GateError {
   body: { error: string };
 }
 
-/**
- * The result of folding an entitlement presence check into THIS gate's own
- * authorize() query (P-W1) — carries the key it answers so a downstream
- * `weddingEntitlement(db, key)` can tell a fold for its OWN key apart from a
- * fold for a different one and fall back to its own query rather than trust a
- * mismatched answer.
- */
-export type WeddingEntitlementFold = { key: EntitlementKey; entitled: boolean };
-
 const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
   weddingIsOwner: false,
   weddingRole: undefined as WeddingRole | undefined,
   weddingOwnerOsnProfileId: undefined as string | undefined,
   weddingSlug: undefined as string | undefined,
-  weddingEntitlementFold: undefined as WeddingEntitlementFold | undefined,
+  weddingTier: undefined as Tier | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
@@ -39,7 +30,7 @@ const pass = (
   role: WeddingRole,
   ownerOsnProfileId: string,
   slug: string,
-  entitlementFold: WeddingEntitlementFold | undefined,
+  tier: Tier,
 ) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
@@ -51,7 +42,9 @@ const pass = (
   // Read in the same query that found the owner. The CSV exports name their
   // download after it, so they need not read the wedding row a second time.
   weddingSlug: slug as string | undefined,
-  weddingEntitlementFold: entitlementFold,
+  // Read in the same query too, for a `weddingTier(db, min)` mounted after
+  // this gate.
+  weddingTier: tier as Tier | undefined,
   weddingGateError: undefined as GateError | undefined,
 });
 
@@ -74,15 +67,11 @@ const pass = (
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
  * gate failure; osnAuth's 401 wins).
  *
- * `entitlementKey`, when given, folds a presence check for that entitlement
- * into this gate's own authorize() query (P-W1) and exposes the answer as
- * `weddingEntitlementFold` for a downstream `weddingEntitlement(db, key)` to
- * pick up — same total query count as today, not a new one. Routes that never
- * mount an entitlement gate must NOT pass this: an unconditional fold here
- * would add the entitlement check's cost to every route, gated or not, which
- * is the regression this parameter exists to avoid, not introduce.
+ * Also derives `weddingTier`, read from the wedding row this gate already
+ * selects, so a `weddingTier(db, min)` mounted directly after it costs no
+ * query of its own.
  */
-export function weddingMember(db: Db, entitlementKey?: EntitlementKey) {
+export function weddingMember(db: Db) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
@@ -93,9 +82,7 @@ export function weddingMember(db: Db, entitlementKey?: EntitlementKey) {
       if (!osnProfileId) return fail(401, "unauthorised");
 
       const result = await runCire(
-        hostsService
-          .authorize(weddingId, osnProfileId, entitlementKey)
-          .pipe(Effect.provideService(DbService, db)),
+        hostsService.authorize(weddingId, osnProfileId).pipe(Effect.provideService(DbService, db)),
       );
 
       if (!result) return fail(404, "wedding_not_found");
@@ -107,9 +94,7 @@ export function weddingMember(db: Db, entitlementKey?: EntitlementKey) {
         result.role,
         result.ownerOsnProfileId,
         result.weddingSlug,
-        entitlementKey && result.entitled !== undefined
-          ? { key: entitlementKey, entitled: result.entitled }
-          : undefined,
+        result.weddingTier,
       );
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {

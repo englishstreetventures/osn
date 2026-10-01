@@ -23,7 +23,7 @@ import type {
   ImageTransformHandle,
   OutputFormat,
 } from "../../src/services/invite-image-transform";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import type { RecordedStatement } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -2389,8 +2389,26 @@ describe("PUT /invite/design (organiser)", () => {
     expect(res.status).toBe(422);
   });
 
-  it("403 for a premium design without the entitlement", async () => {
-    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+  it("403 for a premium design without the entitlement, on Gold as on Ivory", async () => {
+    const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
+    for (const tier of ["ivory", "gold"] as const) {
+      setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+      const res = await appRequest(app, `${orgBase}/design`, {
+        ...putDesign({ designId: "test-premium" }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders(BOOTSTRAP_OWNER)),
+        },
+      });
+      expect(res.status, tier).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("premium_design");
+    }
+  });
+
+  it("saves a premium design on Crimson, which includes them, with no entitlement row", async () => {
+    const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
     const res = await appRequest(app, `${orgBase}/design`, {
       ...putDesign({ designId: "test-premium" }),
       headers: {
@@ -2398,12 +2416,52 @@ describe("PUT /invite/design (organiser)", () => {
         ...(await authHeaders(BOOTSTRAP_OWNER)),
       },
     });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("premium_design");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { designId: string }).designId).toBe("test-premium");
   });
 
-  it("saves a premium design when the wedding holds premium_templates", async () => {
+  it("answers a Crimson wedding's premium save from the tier the role gate read", async () => {
+    // The editor gate already read the wedding's tier with the caller's role,
+    // so on Crimson nothing is left to look up: no entitlement probe, and no
+    // second read of the wedding row.
+    const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const headers = {
+      "Content-Type": "application/json",
+      ...(await authHeaders(BOOTSTRAP_OWNER)),
+    };
+    const statements = recordStatements(db);
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "test-premium" }),
+      headers,
+    });
+    expect(res.status).toBe(200);
+    expect(statements.filter((s) => s.sql.includes("wedding_entitlements"))).toEqual([]);
+    const tierReads = statements.filter((s) =>
+      /select[^;]*"tier"[^;]*from "weddings"/i.test(s.sql),
+    );
+    expect(tierReads).toHaveLength(1);
+  });
+
+  it("probes only the entitlement row below Crimson, not the wedding row again", async () => {
+    const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const headers = {
+      "Content-Type": "application/json",
+      ...(await authHeaders(BOOTSTRAP_OWNER)),
+    };
+    const statements = recordStatements(db);
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "test-premium" }),
+      headers,
+    });
+    expect(res.status).toBe(403);
+    const probes = statements.filter((s) => s.sql.includes("wedding_entitlements"));
+    expect(probes).toHaveLength(1);
+    expect(probes[0]?.sql).not.toContain('from "weddings"');
+  });
+
+  it("saves a premium design below Crimson when the wedding holds premium_templates", async () => {
     const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
     // Grant the entitlement directly — columns match `weddingEntitlements`.
     db.insert(weddingEntitlements)

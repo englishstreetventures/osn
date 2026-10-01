@@ -4,7 +4,7 @@
 // never the fragment: the portal is hash-routed, so the hash is the route, and
 // nothing in this product asks Stripe to preserve a fragment.
 //
-// NOTHING HERE GRANTS ANYTHING. A purchase becomes an entitlement when the
+// NOTHING HERE GRANTS ANYTHING. A purchase raises the wedding's tier when the
 // signature-verified webhook says so; this only asks what happened. A
 // hand-typed `?upgrade=` therefore buys nobody anything — at worst it polls a
 // purchase that is not theirs and is told 404.

@@ -141,7 +141,7 @@ describe("Overview", () => {
       events: [],
       guests: [],
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("getting-started")).toBeTruthy());
     // No stat cards for an empty wedding — the checklist IS the home.
     expect(screen.queryByText(/attending across/i)).toBeNull();
@@ -163,7 +163,7 @@ describe("Overview", () => {
       events: EVENTS,
       guests: GUESTS,
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
 
     // Countdown: ~30 days out (allow ±1 for the local-midnight rounding boundary).
     await waitFor(() => expect(screen.getByText(/days to go/i)).toBeTruthy());
@@ -228,7 +228,7 @@ describe("Overview", () => {
       if (url.endsWith("/settings")) settingsRequested = true;
       return routed(url);
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     expect(await screen.findByText("RSVP changes since your last visit")).toBeTruthy();
     expect(feedStartedBeforePageLoaded).toBe(true);
     // The rest of the page is there too.
@@ -242,7 +242,7 @@ describe("Overview", () => {
       events: EVENTS,
       guests: GUESTS,
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
     expect(screen.queryByText("RSVP changes since your last visit")).toBeNull();
   });
@@ -254,7 +254,7 @@ describe("Overview", () => {
       events: EVENTS,
       guests: GUESTS,
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
     expect(screen.getByText(/Set your wedding date/i)).toBeTruthy();
   });
@@ -267,7 +267,7 @@ describe("Overview", () => {
       guests: GUESTS,
       tasks: [],
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     // Both Checklist and Budget cards are live (no "Soon" badge, no "Coming soon" text).
     await waitFor(() => expect(screen.getByText("Checklist")).toBeTruthy());
     expect(screen.getByText("Budget")).toBeTruthy();
@@ -300,7 +300,7 @@ describe("Overview", () => {
         { id: "v3", weddingId: "wed_1", name: "DJ", category: "music", status: "researching" },
       ],
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
     // The vendors cache starts cold (nothing seeded before render), so this
     // can only pass if `vendorCountValue` actually subscribes to the load —
     // the #620 bug left it permanently stuck on the "Loading your vendors…"
@@ -326,7 +326,7 @@ describe("Overview", () => {
         { id: "v1", weddingId: "wed_1", name: "Florist", category: "florals", status: "booked" },
       ],
     });
-    render(() => <Overview weddingId="wed_1" entitlements={[]} onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" tier="gold" onNavigate={vi.fn()} />);
     // Wait for the rest of Overview, so the absence below is a real absence
     // rather than a snapshot taken before the resource settled.
     await screen.findByText(/Guests/i);
@@ -334,6 +334,70 @@ describe("Overview", () => {
     // A card the wedding cannot open is not worth a round trip. The shell would
     // coerce the module back to Overview anyway, so the count has no reader.
     expect(authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/vendors"))).toBe(false);
+  });
+
+  /**
+   * An Ivory wedding: the API answers 402 to `/tasks` and `/budget`. A refused
+   * tasks read used to reject the whole snapshot, which blanked the guest and
+   * event counts and dropped the page onto the getting-started empty state.
+   * The routes here answer 402 exactly as the API does, so a regression that
+   * fetched them would show up as the counts going missing, not only as the
+   * request below.
+   */
+  it("keeps an Ivory wedding's counts, and reads neither tasks nor budget", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/settings")) {
+        return Promise.resolve(
+          json({ wedding: { weddingDate: null, currency: "AUD", budgetTotalMinor: null } }),
+        );
+      }
+      if (url.endsWith("/rsvps")) return Promise.resolve(json({ events: RSVPS }));
+      if (url.endsWith("/events")) return Promise.resolve(json(EVENTS));
+      if (url.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+      if (url.endsWith("/tasks") || url.endsWith("/budget") || url.endsWith("/vendors")) {
+        return Promise.resolve(json({ error: "payment_required", tier: "gold" }, 402));
+      }
+      return Promise.resolve(json({}, 404));
+    });
+    render(() => <Overview weddingId="wed_1" tier="ivory" onNavigate={vi.fn()} />);
+
+    // The populated page, not the empty state: households and events counted.
+    await waitFor(() => expect(screen.getByText(/attending across 2 events/i)).toBeTruthy());
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    const counts = screen.getByText("Households").closest("dl")!;
+    expect(counts.textContent).toMatch(/Households\s*2/);
+    expect(counts.textContent).toMatch(/Events\s*1/);
+
+    // No card for a module the tier does not include.
+    expect(screen.queryByText("Checklist")).toBeNull();
+    expect(screen.queryByText("Budget")).toBeNull();
+    expect(screen.queryByText("Vendors")).toBeNull();
+
+    // And no read of one: each would be a guaranteed 402.
+    const requested = authFetchMock.mock.calls.map(([url]) => String(url));
+    for (const path of ["/tasks", "/budget", "/vendors"]) {
+      expect(
+        requested.some((url) => url.endsWith(path)),
+        `${path} requested`,
+      ).toBe(false);
+    }
+  });
+
+  it("shows the Checklist and Budget cards on Gold and reads both", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+      tasks: [],
+    });
+    render(() => <Overview weddingId="wed_1" tier="gold" onNavigate={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/No tasks yet/i)).toBeTruthy());
+    expect(screen.getByText("Budget")).toBeTruthy();
+    const requested = authFetchMock.mock.calls.map(([url]) => String(url));
+    expect(requested.some((url) => url.endsWith("/tasks"))).toBe(true);
+    expect(requested.some((url) => url.endsWith("/budget"))).toBe(true);
   });
 
   it("renders the RSVP progress bar and per-event attending breakdown", async () => {
@@ -373,7 +437,7 @@ describe("Overview", () => {
       return json({}, 404);
     });
     setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
 
     // Per-event line for the Ceremony shows its attending count.
     const ceremony = await screen.findByText("Ceremony");

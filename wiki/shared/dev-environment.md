@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-01
 ---
 
 # Dev environment (cire + OSN identity)
@@ -301,8 +301,11 @@ The rebuild also shares the deploy's `deploy-dev-cire-api` concurrency group, so
 a rebuild and a deploy never touch `cire-db-dev` at once.
 
 The seeded wedding matches a real live one in shape and size — 5 events, 199
-households, 494 guests, 1131 invitations, 168 replies, 3 co-hosts, all 4
-entitlements comped, and the invite customisation row. Four households and six
+households, 494 guests, 1131 invitations, 168 replies, 3 co-hosts, the
+Crimson plan tier comped (`tier_source = 'comp'`, so every module opens) plus
+a comped `premium_templates` row, and the invite customisation row. To see
+the portal as an Ivory or Gold wedding sees it, lower the tier with
+`grant-tier.ts --lower` ([[cire-entitlements]]). Four households and six
 guests are hand-written (`seed/data/`) and are the ones every claim-code and RSVP
 test uses; the rest are generated from a seeded PRNG in `seed/data/households.ts`
 so a list, a search and a dashboard count all have enough rows to be honest. **No

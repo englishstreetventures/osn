@@ -8,6 +8,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
   CreateBudgetItemBody,
@@ -73,20 +74,29 @@ function internalSync(set: { status?: number | string }) {
  *
  * Split from the write factory so the read gate (weddingMember) never
  * cross-contaminates the write gates. Mirrors createTaskReadRoutes.
+ *
+ * Budget is a Gold module: every route here and in the write factory sits
+ * behind `weddingTier(db, "gold")`, reads included, so a wedding below Gold
+ * gets 402 `payment_required` and its data stays where it is. The wedding's
+ * total is the one budget figure outside the gate — `PUT /settings` still
+ * writes `budget_total_minor`, because onboarding asks for it on every tier.
  */
 export const createBudgetReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/budget", async ({ weddingId, set }) => {
-        if (!weddingId) return internalSync(set);
-        return runCire(
-          budgetService.get(weddingId).pipe(
-            Effect.provideService(DbService, db),
-            Effect.catchDefect(() => internal(set)),
-          ),
-        );
-      }),
+      group
+        .use(weddingMember(db))
+        .use(weddingTier(db, "gold"))
+        .get("/budget", async ({ weddingId, set }) => {
+          if (!weddingId) return internalSync(set);
+          return runCire(
+            budgetService.get(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => internal(set)),
+            ),
+          );
+        }),
     );
 
 /**
@@ -100,6 +110,9 @@ export const createBudgetReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
  *   PATCH  /budget/items/:itemId/payments/:paymentId       (weddingEditor)
  *   DELETE /budget/items/:itemId/payments/:paymentId       (weddingEditor)
  *   PUT    /budget/total                                   (weddingOwner)
+ *
+ * Gold only, like the read: a wedding below it gets 402 `payment_required`
+ * after the role gate's 403.
  *
  * A per-head line naming an event outside the wedding is a 400 `unknown_event`.
  * A viewer gets 403 `read_only_role` on the editor writes; an editor gets 403 on
@@ -121,6 +134,7 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
         .post(
           "/budget/items",
           async ({ weddingId, request, set }) => {
@@ -268,34 +282,37 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
         }),
     )
     // Owner-only cap set — delegates to the settings service (single writer
-    // of weddings.budget_total_minor).
+    // of weddings.budget_total_minor). Gold, like the rest of the module.
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingOwner(db)).put(
-        "/budget/total",
-        async ({ weddingId, osnProfileId, request, set }) => {
-          if (!weddingId || !osnProfileId) return internalSync(set);
-          const raw: unknown = await request.json().catch(() => null);
-          return runCire(
-            Effect.gen(function* () {
-              const body = yield* Schema.decodeUnknownEffect(SetBudgetTotalBody)(raw);
-              const settings = yield* weddingSettingsService.update(
-                weddingId,
-                { budgetTotalMinor: body.budgetTotalMinor },
-                osnProfileId,
-              );
-              return { budgetTotalMinor: settings.budgetTotalMinor };
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchTag("SchemaError", () => badRequest(set)),
-              Effect.catchTag("WeddingNotFound", () => weddingNotFound(set)),
-              Effect.catchTag("SettingsWriteError", () => internal(set)),
-              // Unreachable: this patch never names the deadline. Handled so
-              // the union stays total rather than falling to the defect arm.
-              Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
-              Effect.catchDefect(() => internal(set)),
-            ),
-          );
-        },
-        manualParse,
-      ),
+      group
+        .use(weddingOwner(db))
+        .use(weddingTier(db, "gold"))
+        .put(
+          "/budget/total",
+          async ({ weddingId, osnProfileId, request, set }) => {
+            if (!weddingId || !osnProfileId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(SetBudgetTotalBody)(raw);
+                const settings = yield* weddingSettingsService.update(
+                  weddingId,
+                  { budgetTotalMinor: body.budgetTotalMinor },
+                  osnProfileId,
+                );
+                return { budgetTotalMinor: settings.budgetTotalMinor };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
+                Effect.catchTag("WeddingNotFound", () => weddingNotFound(set)),
+                Effect.catchTag("SettingsWriteError", () => internal(set)),
+                // Unreachable: this patch never names the deadline. Handled so
+                // the union stays total rather than falling to the defect arm.
+                Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        ),
     );

@@ -4,7 +4,7 @@ import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -18,7 +18,13 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp() {
+function buildApp(tier: "ivory" | "gold" | "crimson" = "gold") {
+  return createApp(buildDb(tier), { osnTestKey: auth.key });
+}
+
+/** The checklist is a Gold module, so every wedding here is on it unless a test
+ *  says otherwise. */
+function buildDb(tier: "ivory" | "gold" | "crimson") {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -52,7 +58,9 @@ function buildApp() {
       updatedAt: now,
     })
     .run();
-  return createApp(db, { osnTestKey: auth.key });
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+  setTier(db, "wed_other", "gold");
+  return db;
 }
 type App = ReturnType<typeof buildApp>;
 
@@ -125,5 +133,52 @@ describe("tasks routes", () => {
     const otherBase = `/api/organiser/weddings/wed_other/tasks/${task.id}`;
     const res = await req(app, "PATCH", otherBase, "usr_bob", { status: "done" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("the checklist is a Gold module", () => {
+  const paymentRequired = { error: "payment_required", tier: "gold" };
+
+  it("answers 402 to every route on an Ivory wedding, the read included", async () => {
+    const app = buildApp("ivory");
+    const calls: [string, string, string, unknown?][] = [
+      ["GET", base, VIEWER],
+      ["GET", base, OWNER],
+      ["POST", base, EDITOR, CREATE],
+      ["PATCH", `${base}/reorder`, EDITOR, { order: [] }],
+      ["PATCH", `${base}/tsk_x`, EDITOR, { title: "x" }],
+      ["DELETE", `${base}/tsk_x`, OWNER],
+    ];
+    for (const [method, path, caller, body] of calls) {
+      const res = await req(app, method, path, caller, body);
+      expect(res.status, `${method} ${path}`).toBe(402);
+      expect(await jsonBody(res)).toEqual(paymentRequired);
+    }
+  });
+
+  it("opens on Gold and on Crimson", async () => {
+    for (const tier of ["gold", "crimson"] as const) {
+      expect((await req(buildApp(tier), "GET", base, VIEWER)).status, tier).toBe(200);
+    }
+  });
+
+  it("answers the role refusal first: 401, then 403, before 402", async () => {
+    const app = buildApp("ivory");
+    expect((await req(app, "GET", base, undefined)).status).toBe(401);
+    expect((await req(app, "GET", base, STRANGER)).status).toBe(403);
+    const viewerWrite = await req(app, "POST", base, VIEWER, CREATE);
+    expect(viewerWrite.status).toBe(403);
+    expect(((await viewerWrite.json()) as { error: string }).error).toBe("read_only_role");
+  });
+
+  it("keeps a wedding's tasks while it is locked, and shows them again on Gold", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(200);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
+    expect((await req(app, "GET", base, OWNER)).status).toBe(402);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const res = await req(app, "GET", base, OWNER);
+    expect(((await res.json()) as { tasks: unknown[] }).tasks.length).toBeGreaterThan(0);
   });
 });

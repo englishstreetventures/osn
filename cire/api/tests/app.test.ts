@@ -81,6 +81,7 @@ const unreachedStripe: StripeClient = {
   retrieveCheckoutSession: unreached,
   createPlatformCheckoutSession: unreached,
   retrievePlatformCheckoutSession: unreached,
+  expirePlatformCheckoutSession: unreached,
   retrievePrice: unreached,
 };
 
