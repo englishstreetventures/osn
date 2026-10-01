@@ -174,6 +174,8 @@ interface ModuleShellProps {
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+  /** An owner deleted the wedding from Settings (restorable until the ISO date). */
+  onWeddingDeleted?: (restoreUntil: string) => void;
   /** Entitlement keys active on this wedding (from the API list response).
    *  A module whose key is absent is locked: its nav row fades and offers the
    *  upgrade, and the module itself never renders — the shell coerces it to
@@ -685,6 +687,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     canManage={props.canManage}
                     canEditRsvpDeadline={props.canEdit}
                     onWeddingUpdated={props.onWeddingUpdated}
+                    onWeddingDeleted={props.onWeddingDeleted}
                   />
                 </Show>
                 <Show when={active() === "hosts"}>

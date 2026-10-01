@@ -43,7 +43,10 @@ vi.mock("@shared/rp-auth/solid", async () => {
   };
 });
 
-vi.mock("@shared/toast", () => ({ Toaster: () => null }));
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../test-support/mocks");
+  return { ...toastMock(), Toaster: () => null };
+});
 
 vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
@@ -55,11 +58,13 @@ vi.mock("../../src/lib/api", async () => {
 vi.mock("../../src/components/WeddingList", () => ({
   default: (props: {
     weddings: { id: string; displayName: string }[];
+    deleted?: { id: string }[];
     onSelect: (w: unknown) => void;
     onCreated: (w: unknown) => void;
   }) => (
     <div data-testid="wedding-list">
       <span data-testid="count">{props.weddings.length}</span>
+      <span data-testid="deleted-count">{(props.deleted ?? []).length}</span>
       <button onClick={() => props.onSelect(props.weddings[0])}>select-first</button>
       <button
         onClick={() =>
@@ -102,6 +107,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+      onWeddingDeleted?: (restoreUntil: string) => void;
     }) => {
       const { authFetch } = useAuth();
       shellMounts += 1;
@@ -132,6 +138,9 @@ vi.mock("../../src/components/ModuleShell", async () => {
           >
             rename
           </button>
+          <button onClick={() => props.onWeddingDeleted?.("2026-10-08T12:00:00.000Z")}>
+            delete-wedding
+          </button>
         </div>
       );
     },
@@ -156,7 +165,7 @@ import {
   type VendorRow,
 } from "../../src/lib/vendors-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
-import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+import { redirectSpy, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
 
 function listResponse(
   weddings: {
@@ -686,6 +695,78 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(listCalls()).toBe(2));
     expect(shell().getAttribute("data-mount")).toBe(mount);
     expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("moves a wedding its owner deleted from the dashboard to the restorable list", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockImplementation(async (url: string) =>
+      url === LIST_URL
+        ? listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }])
+        : new Response("{}", { status: 200 }),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+    fireEvent.click(screen.getByText("delete-wedding"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(screen.getByTestId("count").textContent).toBe("0");
+    expect(screen.getByTestId("deleted-count").textContent).toBe("1");
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringMatching(/restore it .* until/));
+  });
+
+  it("rechecks on a wedding_not_found 404, and drops a wedding another owner deleted", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let deleted = false;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url === LIST_URL) {
+        return deleted
+          ? new Response(
+              JSON.stringify({
+                weddings: [],
+                deleted: [
+                  {
+                    id: "wed_a",
+                    slug: "a",
+                    displayName: "Alice & Bob",
+                    deletedAt: "2026-10-01T12:00:00.000Z",
+                    restoreUntil: "2026-10-08T12:00:00.000Z",
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            )
+          : listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]);
+      }
+      return new Response(JSON.stringify({ error: "wedding_not_found" }), { status: 404 });
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    deleted = true;
+    fireEvent.click(screen.getByText("read-vendors"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(listCalls()).toBe(2);
+    expect(screen.getByTestId("deleted-count").textContent).toBe("1");
+  });
+
+  it("does not recheck on a 404 for a row inside the wedding", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockImplementation(async (url: string) =>
+      url === LIST_URL
+        ? listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }])
+        : new Response(JSON.stringify({ error: "vendor_not_found" }), { status: 404 }),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+    fireEvent.click(screen.getByText("read-vendors"));
+    await waitFor(() => expect(authFetchMock.mock.calls.length).toBe(2));
+    expect(listCalls()).toBe(1);
   });
 
   it("does not recheck on a response that is not a refusal", async () => {

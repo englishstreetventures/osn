@@ -42,8 +42,9 @@ import {
 } from "../lib/upgrade-return";
 import { invalidateCatalogue } from "../lib/upgrade-store";
 import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
+import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
-import type { WeddingSummary } from "./CreateWeddingForm";
+import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
@@ -155,6 +156,8 @@ function WeddingDashboard(props: {
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
+  /** An owner deleted the wedding from Settings; restorable until the ISO date. */
+  onWeddingDeleted: (restoreUntil: string) => void;
 }) {
   // One decision, taken once, for every surface below. The API enforces all of
   // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
@@ -176,6 +179,7 @@ function WeddingDashboard(props: {
           onModule={props.onModule}
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
+          onWeddingDeleted={props.onWeddingDeleted}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
         />
@@ -235,6 +239,9 @@ function Dashboard() {
   // Locally-tracked weddings so a freshly-created one shows up without a
   // refetch. Seeded from the initial load.
   const [weddings, writeWeddings] = createSignal<WeddingSummary[] | null>(null);
+  // The owner's soft-deleted weddings they can still restore. Never mixed into
+  // `weddings`, so nothing that opens a wedding can reach one.
+  const [deletedWeddings, setDeletedWeddings] = createSignal<DeletedWeddingSummary[]>([]);
 
   // Every local write to the list bumps `listVersion`, so a recheck that was
   // already in flight cannot overwrite it with an older answer (see
@@ -288,6 +295,7 @@ function Dashboard() {
     const version = listVersion;
     const done = (async () => {
       let answer: WeddingSummary[] | null = null;
+      let deletedAnswer: DeletedWeddingSummary[] = [];
       try {
         const res = await authFetch(apiUrl("/api/organiser/weddings"));
         // A failed check changes nothing: an empty or partial answer read as
@@ -295,6 +303,7 @@ function Dashboard() {
         if (res.ok) {
           const body = (await res.json()) as { weddings?: unknown };
           if (Array.isArray(body.weddings)) answer = body.weddings as WeddingSummary[];
+          deletedAnswer = deletedWeddingsOf(body);
         }
       } catch (err) {
         if (isAuthExpired(err)) redirectToLogin();
@@ -305,6 +314,9 @@ function Dashboard() {
       lastRecheckedAt = Date.now();
       if (answer === null) return;
       if (version === listVersion) {
+        if (JSON.stringify(deletedAnswer) !== JSON.stringify(untrack(deletedWeddings))) {
+          setDeletedWeddings(deletedAnswer);
+        }
         const next = answer.map(withKnownRole);
         // An unchanged answer is not written: a fresh array would wake every
         // reader of the list for nothing.
@@ -498,6 +510,7 @@ function Dashboard() {
       const body = (await res.json()) as { weddings: WeddingSummary[] };
       const loadedWeddings = body.weddings.map(withKnownRole);
       setWeddings(loadedWeddings);
+      setDeletedWeddings(deletedWeddingsOf(body));
       return { kind: "ready", weddings: loadedWeddings };
     } catch (err) {
       if (isAuthExpired(err)) {
@@ -537,6 +550,51 @@ function Dashboard() {
    *  the local list so the header, list, and invite-message copy stay current. */
   function handleWeddingUpdated(weddingId: string, patch: { displayName: string; slug: string }) {
     setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, ...patch } : w)));
+  }
+
+  /** An owner deleted the open wedding: it leaves the list for the restorable
+   *  ones, and the dashboard closes — its cache scope unmounts with it. */
+  function handleWeddingDeleted(weddingId: string, restoreUntil: string) {
+    const gone = untrack(weddings)?.find((w) => w.id === weddingId);
+    setWeddings((prev) => (prev ?? []).filter((w) => w.id !== weddingId));
+    if (gone) {
+      setDeletedWeddings((prev) => [
+        ...prev.filter((w) => w.id !== weddingId),
+        {
+          id: gone.id,
+          slug: gone.slug,
+          displayName: gone.displayName,
+          deletedAt: new Date().toISOString(),
+          restoreUntil,
+        },
+      ]);
+    }
+    setRoute(LIST_ROUTE, "replace");
+    toast.success(
+      `Wedding deleted. You can restore it from this list until ${restoreUntilLabel(restoreUntil)}.`,
+    );
+  }
+
+  /** A restore went through: ask the API for both lists again, then open it. */
+  async function handleWeddingRestored(weddingId: string) {
+    try {
+      const res = await authFetch(apiUrl("/api/organiser/weddings"));
+      if (!res.ok) return;
+      const body = (await res.json()) as { weddings: WeddingSummary[] };
+      const next = body.weddings.map(withKnownRole);
+      setWeddings(next);
+      setDeletedWeddings(deletedWeddingsOf(body));
+      const restored = next.find((w) => w.id === weddingId);
+      toast.success("Wedding restored.");
+      if (restored) selectWedding(restored);
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+    }
+  }
+
+  /** A deleted wedding that can no longer be restored leaves the list. */
+  function handleRestoreExpired(weddingId: string) {
+    setDeletedWeddings((prev) => prev.filter((w) => w.id !== weddingId));
   }
 
   /**
@@ -590,7 +648,10 @@ function Dashboard() {
             const res = await authFetch(apiUrl("/api/organiser/weddings"));
             if (res.ok) {
               const body = (await res.json()) as { weddings: WeddingSummary[] };
-              if (!cancelled) setWeddings(body.weddings.map(withKnownRole));
+              if (!cancelled) {
+                setWeddings(body.weddings.map(withKnownRole));
+                setDeletedWeddings(deletedWeddingsOf(body));
+              }
             }
           } catch {
             // The purchase landed even if this refresh did not; a reload shows
@@ -691,8 +752,11 @@ function Dashboard() {
                   fallback={
                     <WeddingList
                       weddings={list()}
+                      deleted={deletedWeddings()}
                       onSelect={(w) => selectWedding(w)}
                       onCreated={handleCreated}
+                      onRestored={(id) => void handleWeddingRestored(id)}
+                      onRestoreExpired={handleRestoreExpired}
                     />
                   }
                 >
@@ -720,6 +784,9 @@ function Dashboard() {
                             onModule={selectModule}
                             onSub={selectSub}
                             onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                            onWeddingDeleted={(restoreUntil) =>
+                              handleWeddingDeleted(weddingId, restoreUntil)
+                            }
                           />
                         );
                       }}

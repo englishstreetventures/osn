@@ -23,6 +23,17 @@ export interface WeddingSummary {
   guestCap: number;
 }
 
+/** A wedding an owner deleted and can still restore. The list endpoint sends
+ *  these to owners only, and never among the weddings that can be opened. */
+export interface DeletedWeddingSummary {
+  id: string;
+  slug: string;
+  displayName: string;
+  /** ISO timestamps. */
+  deletedAt: string;
+  restoreUntil: string;
+}
+
 /** Claim-code style, mirroring the API's `weddings.code_style` enum. */
 export type CodeStyle = "simple" | "secure";
 
