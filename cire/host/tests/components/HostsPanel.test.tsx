@@ -458,6 +458,35 @@ describe("HostsPanel", () => {
       expect(onLeft).not.toHaveBeenCalled();
     });
 
+    it("shows a plain error on a 500 and keeps the wedding", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockResolvedValueOnce(json({ error: "Could not leave this wedding" }, 500));
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/try again/i);
+      expect(onLeft).not.toHaveBeenCalled();
+    });
+
+    it("sends a signed-out organiser to sign in", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+      expect(onLeft).not.toHaveBeenCalled();
+    });
+
     it("keeps the wedding and says why on a failure", async () => {
       authFetchMock.mockResolvedValueOnce(hostsBody());
       authFetchMock.mockResolvedValueOnce(json({ error: "owner_cannot_leave" }, 409));

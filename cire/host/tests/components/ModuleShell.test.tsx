@@ -120,7 +120,13 @@ vi.mock("../../src/components/HostsPanel", () => ({
   // `props.canManage` — switching the whole capability off for editors — left
   // all 663 organiser tests green. `canLeave` is surfaced for the same reason:
   // it is derived here, and nothing downstream can see a wrong derivation.
-  default: (p: { weddingId: string; canManage: boolean; canAdd: boolean; canLeave?: boolean }) => (
+  default: (p: {
+    weddingId: string;
+    canManage: boolean;
+    canAdd: boolean;
+    canLeave?: boolean;
+    onLeft?: () => void;
+  }) => (
     <div
       data-testid="hosts"
       data-can-manage={String(p.canManage)}
@@ -128,6 +134,7 @@ vi.mock("../../src/components/HostsPanel", () => ({
       data-can-leave={String(p.canLeave)}
     >
       {p.weddingId}
+      <button onClick={() => p.onLeft?.()}>hosts-left</button>
     </div>
   ),
 }));
@@ -185,6 +192,7 @@ function renderShell(opts: {
   /** Stand in for a declined unsaved-changes prompt: every module switch is
    *  refused and the route stays where it is. */
   refuseModule?: boolean;
+  onLeftWedding?: () => void;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -219,6 +227,7 @@ function renderShell(opts: {
       onSub={onSub}
       entitlements={opts.entitlements ?? []}
       guestCap={opts.guestCap ?? 100}
+      onLeftWedding={opts.onLeftWedding}
     />
   ));
   return { ...utils, onModule, onSub, setModule, setSub };
@@ -375,6 +384,19 @@ describe("ModuleShell", () => {
       expect(panel.getAttribute("data-can-add")).toBe("false");
       expect(panel.getAttribute("data-can-manage")).toBe("false");
       expect(panel.getAttribute("data-can-leave")).toBe("true");
+    });
+
+    it("hands the panel's leave up to the dashboard", () => {
+      const onLeftWedding = vi.fn();
+      renderShell({
+        canManage: false,
+        canEdit: true,
+        module: "settings",
+        sub: "hosts",
+        onLeftWedding,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "hosts-left" }));
+      expect(onLeftWedding).toHaveBeenCalledTimes(1);
     });
 
     it("gives the owner both", () => {
