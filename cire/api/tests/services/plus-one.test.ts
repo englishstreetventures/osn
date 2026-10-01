@@ -297,6 +297,39 @@ describe("plusOneService.save — a household rename", () => {
     });
   });
 
+  it("clears an organiser's attester with the consent record it named", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: eventsData.hindu.id,
+        status: "attending",
+        dietary: "No sesame",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: "organiser-plus-one-2026-10-01",
+        consentSource: "organiser_attested",
+        recordedByOsnProfileId: "usr_cohost",
+        dietaryAttestedByOsnProfileId: "usr_cohost",
+        createdAt: new Date(),
+      })
+      .run();
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+
+    const row = db
+      .select({
+        attestedBy: rsvps.dietaryAttestedByOsnProfileId,
+        recordedBy: rsvps.recordedByOsnProfileId,
+      })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, samId))
+      .get();
+    // The status the co-host set is still theirs; the attestation is gone.
+    expect(row).toEqual({ attestedBy: null, recordedBy: "usr_cohost" });
+  });
+
   it("clears nothing, and says so, when the name does not change", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });

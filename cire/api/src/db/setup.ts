@@ -147,7 +147,9 @@ CREATE TABLE IF NOT EXISTS rsvps (
   consent_source TEXT NOT NULL DEFAULT 'guest',
   created_at INTEGER NOT NULL,
   submitted_by_guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
-  submitted_via_link INTEGER NOT NULL DEFAULT 0
+  submitted_via_link INTEGER NOT NULL DEFAULT 0,
+  recorded_by_osn_profile_id TEXT,
+  dietary_attested_by_osn_profile_id TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);
 CREATE INDEX IF NOT EXISTS rsvps_event_id_idx ON rsvps(event_id);

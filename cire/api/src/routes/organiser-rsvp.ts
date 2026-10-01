@@ -27,7 +27,9 @@ const manualParse = { parse: () => ({}) };
  * `rsvps` table the guest invite writes to (upsert on `(guest_id, event_id)`;
  * last-writer-wins, so it VISIBLY OVERWRITES a prior guest reply). The row is
  * stamped `consent_source='organiser_attested'` so it stays distinguishable
- * from a self-submitted answer, except on a status-only save (below).
+ * from a self-submitted answer, except on a status-only save (below). Every
+ * save records the caller's OSN profile id as the row's latest writer, and as
+ * the attester of any dietary consent it stores.
  *
  * Gated `weddingEditor()` (owner OR editor may write; a viewer gets 403
  * `read_only_role`; a guest session has no OSN token → osnAuth 401). The
@@ -58,10 +60,11 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
     .group("/weddings/:weddingId", (group) =>
       group.use(weddingEditor(db)).put(
         "/guests/:guestId/rsvps/:eventId",
-        async ({ weddingId, params, request, set }) => {
-          // weddingEditor() always derives this; the guard keeps a future
-          // remount without the plugin from compiling into an unscoped write.
-          if (!weddingId) {
+        async ({ weddingId, osnProfileId, params, request, set }) => {
+          // weddingEditor() always derives the wedding, and refuses a request
+          // without a profile; the guard keeps a future remount without either
+          // plugin from compiling into an unscoped or unattributed write.
+          if (!weddingId || !osnProfileId) {
             set.status = 500;
             return { error: "Internal error" };
           }
@@ -111,6 +114,7 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
 
               const rsvp = yield* organiserRsvpService.record({
                 weddingId,
+                actorOsnProfileId: osnProfileId,
                 guestId: params.guestId,
                 eventId: params.eventId,
                 status: body.status,

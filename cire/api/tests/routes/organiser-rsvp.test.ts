@@ -135,13 +135,14 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     expect(data.rsvp.status).toBe("attending");
 
     const row = db
-      .select({ source: rsvps.consentSource })
+      .select({ source: rsvps.consentSource, recordedBy: rsvps.recordedByOsnProfileId })
       .from(rsvps)
       .where(
         and(eq(rsvps.guestId, guestByName(db, "Ada")), eq(rsvps.eventId, eventBySlug(db, "hindu"))),
       )
       .get();
-    expect(row?.source).toBe("organiser_attested");
+    // The writer is the token's profile, never anything in the body.
+    expect(row).toEqual({ source: "organiser_attested", recordedBy: EDITOR });
   });
 
   it("returns 200 for the owner", async () => {
@@ -514,5 +515,11 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
       version: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
       source: "organiser_attested",
     });
+    const attestedBy = db
+      .select({ by: rsvps.dietaryAttestedByOsnProfileId })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, samId))
+      .get();
+    expect(attestedBy?.by).toBe(OWNER);
   });
 });

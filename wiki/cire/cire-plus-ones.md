@@ -11,7 +11,7 @@ related:
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Plus-ones
 
@@ -73,7 +73,7 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 | `PUT /api/plus-one/:guestId` | `{ firstName, lastName? }` | `{ plusOne: { guestId, firstName, lastName, plusOneOf, eventIds }, created, dietaryCleared }` |
 | `DELETE /api/plus-one/:guestId` | — | `{ removed }` (idempotent) |
 
-`PUT` names the plus-one, or renames the one already named. **A rename that changes the name clears the plus-one's dietary answers and consent record** (`dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version`) in the same D1 batch as the name — on every such rename, not only when the read before it saw answers, since a reply can land in between — and answers `dietaryCleared: true` when there were answers to clear; each reply's status stays. The household may be naming a different person — or a second device, still showing no plus-one, "adds" one over whoever is there — and the answers and the household's attestation were about the person before. The organiser's name correction is a spelling fix and clears nothing. Refusals, in the order they are checked:
+`PUT` names the plus-one, or renames the one already named. **A rename that changes the name clears the plus-one's dietary answers and consent record** (`dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version`, and an organiser's attester `dietary_attested_by_osn_profile_id`) in the same D1 batch as the name — on every such rename, not only when the read before it saw answers, since a reply can land in between — and answers `dietaryCleared: true` when there were answers to clear; each reply's status stays. The household may be naming a different person — or a second device, still showing no plus-one, "adds" one over whoever is there — and the answers and the household's attestation were about the person before. The organiser's name correction is a spelling fix and clears nothing. Refusals, in the order they are checked:
 
 | Status | `error` | When |
 |---|---|---|
@@ -138,7 +138,7 @@ The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with three additions:
 
 - **The marker.** Under the plus-one's name, on its own line, "Plus-one of <inviter's full name>" — the words the Households tab uses. It wraps rather than widening the fixed Guest column. When the API names no inviter (an older API, or none found) it reads "Plus-one of another guest".
-- **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's own reply carries no badge.
+- **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's or household's reply whose status a host changed since also carries a gold **Host-updated** (the view's `statusRecordedByHost`). A guest's own reply carries no badge.
 - **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
 
 Recording a reply for a plus-one offers the same dietary picker and free text as for any guest, prefilled with the stored answer. Left as they are, the form says the stored requirements stay. Once the organiser edits them, an unticked box appears with the organiser's plus-one wording ("I confirm the plus-one consented…"), and the save carries that wording's version and the plus-one's full name.
@@ -151,9 +151,9 @@ The portal sends a save that leaves the dietary fields alone as `{ status }`. **
 | The household's, with neither | Status changed; `consent_source = 'organiser_attested'` |
 | None | A new row, `organiser_attested`, no dietary data |
 
-So the row keeps the household's attestation, and the household's box on the invite still opens ticked for it. On such a row `consent_source` names the dietary data's basis, not who wrote the status: the badge stays **Household-entered** (its tooltip says a host may have changed the status), and the CSV's **Recorded By** says **Household**. Nothing records that an organiser changed it; organiser writes are not in the change log ([[cire-rsvp-changes]]). The DPIA accepts that — see the inviter-attested variant in [[dpia/cire-guest-data]].
+So the row keeps the household's attestation, and the household's box on the invite still opens ticked for it. On such a row `consent_source` names the dietary data's basis, not who wrote the status: the badge stays **Household-entered** beside a **Host-updated**, and the CSV's **Recorded By** says **Household**. `rsvps.recorded_by_osn_profile_id` records which organiser changed it (every organiser save sets it; a household's write clears it), though organiser writes stay out of the change log ([[cire-rsvp-changes]]). An organiser's own dietary answer also names its attester, in `dietary_attested_by_osn_profile_id`, which a status-only save keeps. See [[dpia/cire-guest-data]].
 
-A body naming either dietary field is a dietary edit and replaces the whole reply, stamped `organiser_attested` with the organiser's plus-one version when it carries dietary data. An empty one clears the household's answer. The household's box on the invite then opens unticked over the organiser's answer, so a household re-submitting must tick its own attestation for it or clear it.
+A body naming either dietary field is a dietary edit and replaces the whole reply, stamped `organiser_attested` with the organiser's plus-one version when it carries dietary data. On a plus-one the attested name is tested inside the write itself (`rsvpService.submitRsvpIfNamed`, one `INSERT … SELECT … WHERE EXISTS … ON CONFLICT` statement), so a household rename committed after the portal loaded refuses the save with `409 plus_one_changed` rather than storing the answer under the new name. An empty one clears the household's answer. The household's box on the invite then opens unticked over the organiser's answer, so a household re-submitting must tick its own attestation for it or clear it.
 
 The host and the API deploy separately. A portal that sends `{ status }` for a guest, or the plus-one version, to an API without this behaviour gets the old upsert or a refusal, so the API goes to production first.
 

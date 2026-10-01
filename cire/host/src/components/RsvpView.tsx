@@ -39,6 +39,7 @@ import {
   type RsvpStatus,
   statusCounts,
 } from "../lib/rsvp-filter";
+import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import SectionIntro from "./SectionIntro";
 interface RsvpViewProps {
   weddingId: string;
@@ -356,12 +357,18 @@ export default function RsvpView(props: RsvpViewProps) {
         setSaving(false);
         return;
       }
-      // Recorded. The reload that follows patches only the row that changed,
-      // but that patch still takes a moment to land — the buzz is what tells
+      // Recorded. The PUT answers with the stored row, which patches that one
+      // row and its event's tallies in place; only a page out of step with
+      // the API (the guest in neither list) reloads. The buzz is what tells
       // the host the save landed, not the redraw.
       haptic("commit");
       closeEditor();
-      await load();
+      const body = (await res.json().catch(() => null)) as { rsvp?: unknown } | null;
+      const at = state.events.findIndex((event) => event.id === target.eventId);
+      const event = at >= 0 ? state.events[at] : undefined;
+      const next = event && isSavedReply(body?.rsvp) ? applySavedReply(event, body.rsvp) : null;
+      if (next) setState("events", at, reconcile(next, { key: "guestId" }));
+      else await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
@@ -561,6 +568,20 @@ export default function RsvpView(props: RsvpViewProps) {
                                       title="Recorded by a host (phone/paper RSVP)"
                                     >
                                       Host-entered
+                                    </span>
+                                  </Show>
+                                  <Show
+                                    when={
+                                      row.statusRecordedByHost &&
+                                      row.consentSource !== "organiser_attested"
+                                    }
+                                  >
+                                    {" "}
+                                    <span
+                                      class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
+                                      title="A host last set this status. The dietary requirements are still the ones the guest or their household gave."
+                                    >
+                                      Host-updated
                                     </span>
                                   </Show>
                                   <Show when={row.consentSource === "inviter_attested"}>
