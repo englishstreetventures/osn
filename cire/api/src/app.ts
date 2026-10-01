@@ -24,6 +24,7 @@ import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget
 import {
   createClaimRoutes,
   createClaimSessionRoutes,
+  createClaimMemberRoutes,
   createClaimSignoutRoutes,
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
@@ -604,6 +605,15 @@ export interface AppOptions {
   flags?: FeatureFlags;
 }
 
+/** `[origin]` of a URL, or `[]` when it does not parse. */
+function originOf(url: string): string[] {
+  try {
+    return [new URL(url).origin];
+  } catch {
+    return [];
+  }
+}
+
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
@@ -733,7 +743,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // What decides whether a household is offered account linking. The claim and
   // restore responses report it, and a link can only complete with a resolver.
-  const accountLinking: AccountLinking = { flags, canLink: resolveOsnAccountId !== undefined };
+  const accountLinking: AccountLinking = {
+    flags,
+    canLink: resolveOsnAccountId !== undefined,
+    resolveAccountId: resolveOsnAccountId,
+    // musubi serves profile pictures from its own identity host, the OIDC
+    // issuer; no other avatar host is shown on the guest site.
+    avatarOrigins: originOf(osnIssuerUrl),
+  };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
   const app =
@@ -864,10 +881,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
         }),
       )
       .use(createClaimSignoutRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
+      // "Who are you?": choose or clear the household member this session
+      // says it is. The restore's page-load-sized limiter; after the origin
+      // guard, like every route here.
+      .use(createClaimMemberRoutes(db, { limiter: claimSessionLimiter, accountLinking }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
-      .use(createRsvpRoutes(db, { limiter: rsvpLimiter }))
+      .use(createRsvpRoutes(db, { limiter: rsvpLimiter, accountLinking }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
       .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
@@ -1054,7 +1075,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.
-      .use(createAccountLinkRoutes(db, accountLinkLimiter))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, resolveOsnAccountId))
       .use(
         createAccountLinkPostRoute(
           db,

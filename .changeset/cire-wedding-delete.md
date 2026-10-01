@@ -7,7 +7,7 @@
 An owner can delete a wedding, and any owner can restore it for 7 days.
 
 `DELETE /api/organiser/weddings/:weddingId` with `{ "confirmSlug": "<slug>" }`
-soft-deletes the wedding: migration `0076_wedding_soft_delete` adds
+soft-deletes the wedding: migration `0077_wedding_soft_delete` adds
 `weddings.deleted_at` and `deleted_by_osn_profile_id`, and from that moment the
 wedding is answered as unknown on every guest, vendor and co-host path — its
 invite, images, claim codes, guest sessions (refused, not revoked), registry,
@@ -26,7 +26,7 @@ logged and counted.
 The daily cron purges a deleted wedding once its 7 days have passed — every
 row by cascade and the sheet and image objects those rows name — at most three
 a run, holding back any wedding with money still settling or a gift in
-dispute. Migration `0077_child_key_indexes` indexes the four child columns
+dispute. Migration `0078_child_key_indexes` indexes the four child columns
 that cascade searches (`registry_claims.family_id`,
 `registry_contributions.family_id`, `vendor_enquiries.vendor_id`,
 `guest_account_links.wedding_id`), so a purge or a retention sweep reads

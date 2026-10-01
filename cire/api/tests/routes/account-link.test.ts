@@ -12,6 +12,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
 import { hostCodeService } from "../../src/services/host-code";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -84,26 +85,48 @@ async function claimCookie(app: ReturnType<typeof createApp>, publicId: string):
   return `cire_session=${token}`;
 }
 
-function postLink(
+/** "Who are you?": choose the household member this session says it is. */
+function chooseMember(
   app: ReturnType<typeof createApp>,
-  opts: { cookie?: string; bearer?: string; guestId?: string },
+  cookie: string | undefined,
+  guestId: string,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "cf-connecting-ip": TEST_CF_IP,
     Origin: TEST_ORIGIN,
   };
-  if (opts.cookie) headers["Cookie"] = opts.cookie;
-  if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
+  if (cookie) headers["Cookie"] = cookie;
   return Promise.resolve(
     app.fetch(
-      new Request("http://localhost/api/account/link", {
+      new Request("http://localhost/api/claim/member", {
         method: "POST",
         headers,
-        body: JSON.stringify({ guestId: opts.guestId }),
+        body: JSON.stringify({ guestId }),
       }),
     ),
   );
+}
+
+/**
+ * Link the session's member. With `guestId`, that member is chosen first, the
+ * way the guest site does it; a refused choice is returned as it stands.
+ */
+async function postLink(
+  app: ReturnType<typeof createApp>,
+  opts: { cookie?: string; bearer?: string; guestId?: string },
+): Promise<Response> {
+  if (opts.guestId !== undefined) {
+    const chosen = await chooseMember(app, opts.cookie, opts.guestId);
+    if (chosen.status !== 200) return chosen;
+  }
+  const headers: Record<string, string> = {
+    "cf-connecting-ip": TEST_CF_IP,
+    Origin: TEST_ORIGIN,
+  };
+  if (opts.cookie) headers["Cookie"] = opts.cookie;
+  if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
+  return app.fetch(new Request("http://localhost/api/account/link", { method: "POST", headers }));
 }
 
 /**
@@ -164,8 +187,10 @@ describe("POST /api/account/link", () => {
       );
     expect((await restore(cookie)).status).toBe(401);
 
-    // The rotated cookie still works.
-    expect((await restore(`cire_session=${newToken}`)).status).toBe(200);
+    // The rotated cookie still works, and still names the member.
+    const restored = await restore(`cire_session=${newToken}`);
+    expect(restored.status).toBe(200);
+    expect(((await jsonBody(restored)) as { member: unknown }).member).toEqual({ guestId });
   });
 
   it("returns 401 without an OSN token (guest cookie alone is not enough)", async () => {
@@ -197,17 +222,56 @@ describe("POST /api/account/link", () => {
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
     const res = await postLink(app, { cookie, bearer, guestId: samId });
+    // Refused at the choice: a plus-one can never be the session's member.
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "plus_one_seat" });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 
-  it("returns 400 for a missing guestId", async () => {
-    const { app } = buildApp();
+  it("returns 409 member_required when the session has chosen no member", async () => {
+    const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
     const res = await postLink(app, { cookie, bearer });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "member_required" });
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
+  });
+
+  it("links the session's member and ignores any guestId in the body", async () => {
+    const { db, app } = buildApp();
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bo = guestIdByName(db, "Bo");
+    expect((await chooseMember(app, cookie, bo)).status).toBe(200);
+    const res = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: cookie,
+          Authorization: `Bearer ${await auth.sign("usr_alice")}`,
+          "cf-connecting-ip": TEST_CF_IP,
+          Origin: TEST_ORIGIN,
+        },
+        body: JSON.stringify({ guestId: guestIdByName(db, "Cleo") }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(
+      db
+        .select()
+        .from(guestAccountLinks)
+        .all()
+        .map((r) => r.guestId),
+    ).toEqual([bo]);
+  });
+
+  it("links a one-member household's only member with no choice made", async () => {
+    const { db, app } = buildApp();
+    const cookie = await claimCookie(app, TESTFAMILY);
+    const res = await postLink(app, { cookie, bearer: await auth.sign("usr_alice") });
+    expect(res.status).toBe(201);
+    expect(await jsonBody(res)).toEqual({ linked: true, guestId: guestIdByName(db, "Ada") });
   });
 
   it("returns 409 when the same invitee is linked twice", async () => {
@@ -264,10 +328,10 @@ describe("POST /api/account/link", () => {
   });
 
   it("returns 503 when account linking is not configured", async () => {
-    const { db, app } = buildApp("disabled");
+    const { app } = buildApp("disabled");
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
-    const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") });
+    const res = await postLink(app, { cookie, bearer });
     expect(res.status).toBe(503);
   });
 });
@@ -302,35 +366,72 @@ describe("POST /api/account/link — host preview", () => {
 });
 
 describe("DELETE /api/account/link/:guestId", () => {
-  it("removes a link and is idempotent", async () => {
+  /** A live `cire_org_session` for `profileId`, as the OIDC callback mints it. */
+  async function orgCookie(db: TestDb, profileId: string): Promise<string> {
+    const { token } = await Effect.runPromise(
+      organiserSessionService
+        .create({
+          osnProfileId: profileId,
+          osnSub: `sub_${profileId}`,
+          email: null,
+          handle: null,
+          displayName: null,
+          avatarUrl: null,
+        })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    return `cire_org_session=${token}`;
+  }
+
+  const del = (app: ReturnType<typeof createApp>, cookie: string, guestId: string) =>
+    app.fetch(
+      new Request(`http://localhost/api/account/link/${guestId}`, {
+        method: "DELETE",
+        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
+      }),
+    );
+
+  it("lets the linked account release its own seat, idempotently", async () => {
     const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const guestId = guestIdByName(db, "Bo");
     const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
-    // The link rotated the session — delete with the fresh cookie.
-    const cookie2 = rotatedCookie(linked, cookie);
+    // The link rotated the session — delete with the fresh cookie, signed in
+    // as the linked account.
+    const both = `${rotatedCookie(linked, cookie)}; ${await orgCookie(db, "usr_alice")}`;
 
-    const del = () =>
-      app.fetch(
-        new Request(`http://localhost/api/account/link/${guestId}`, {
-          method: "DELETE",
-          headers: { Cookie: cookie2, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
-        }),
-      );
-
-    const res1 = await del();
+    const res1 = await del(app, both, guestId);
     expect(res1.status).toBe(200);
     expect(await jsonBody(res1)).toEqual({ linked: false, guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
-
-    // Second delete still succeeds (idempotent).
-    expect((await del()).status).toBe(200);
+    expect((await del(app, both, guestId)).status).toBe(200);
   });
 
-  it("only unlinks within the caller's household", async () => {
+  it("refuses another account, or no sign-in, on the member's own seat", async () => {
+    const { db, app } = buildApp(async (profileId) => ({
+      ok: true,
+      accountId: `acc_${profileId}`,
+    }));
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bo = guestIdByName(db, "Bo");
+    const linked = await postLink(app, {
+      cookie,
+      bearer: await auth.sign("usr_alice"),
+      guestId: bo,
+    });
+    const session = rotatedCookie(linked, cookie);
+
+    const signedOut = await del(app, session, bo);
+    expect(signedOut.status).toBe(403);
+    const eve = await del(app, `${session}; ${await orgCookie(db, "usr_eve")}`, bo);
+    expect(eve.status).toBe(403);
+    expect(await jsonBody(eve)).toEqual({ error: "not_linked_account" });
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+  });
+
+  it("refuses a seat that is not the session's member, in or out of the household", async () => {
     const { db, app } = buildApp();
-    // Link Bo (Sampleton) as one household.
     const sampletonCookie = await claimCookie(app, SAMPLETON);
     const bo = guestIdByName(db, "Bo");
     await postLink(app, {
@@ -338,17 +439,13 @@ describe("DELETE /api/account/link/:guestId", () => {
       bearer: await auth.sign("usr_alice"),
       guestId: bo,
     });
+    const org = await orgCookie(db, "usr_alice");
 
-    // A different household (Testfamily) tries to delete Bo's link.
+    // A different household (Testfamily, member Ada) tries to delete Bo's link.
     const testfamilyCookie = await claimCookie(app, TESTFAMILY);
-    const res = await app.fetch(
-      new Request(`http://localhost/api/account/link/${bo}`, {
-        method: "DELETE",
-        headers: { Cookie: testfamilyCookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
-      }),
-    );
-    expect(res.status).toBe(200); // idempotent no-op, not an error
-    // Bo's link survives — the foreign household's scoped delete matched nothing.
+    const res = await del(app, `${testfamilyCookie}; ${org}`, bo);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "not_your_seat" });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
   });
 
@@ -369,7 +466,9 @@ describe("account-linking feature flag (cire.account-linking OFF)", () => {
     const { db, app } = buildApp(okResolver, false);
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
-    const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") });
+    // With the flag off there is no member step either.
+    expect((await chooseMember(app, cookie, guestIdByName(db, "Bo"))).status).toBe(404);
+    const res = await postLink(app, { cookie, bearer });
     expect(res.status).toBe(503);
     // Nothing was written.
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
@@ -398,8 +497,8 @@ describe("account-link rate limiting (S-L1)", () => {
         }),
       );
 
-    expect((await unlink()).status).toBe(200);
-    expect((await unlink()).status).toBe(200);
+    expect((await unlink()).status).not.toBe(429);
+    expect((await unlink()).status).not.toBe(429);
     const limited = await unlink();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("60");

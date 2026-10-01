@@ -16,6 +16,7 @@ import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import { faqEntries } from "../../components/faq-entries";
+import { memberRequired } from "../../components/household-member";
 import { faqState } from "../../components/invite-emptiness";
 import {
   createInviteRetry,
@@ -345,6 +346,9 @@ export default function InvitePage(props: InvitePageProps) {
         rsvpDeadlineState={rsvpState()}
         onSignOut={handleSignOut}
         onPlusOneChange={handlePlusOneChange}
+        // The member step's changes ("Who are you?", "Not you?", a link)
+        // land on the same one claim result.
+        onMemberChange={handlePlusOneChange}
       />
 
       <Show when={claimResult()}>
@@ -514,6 +518,14 @@ export default function InvitePage(props: InvitePageProps) {
               // Fires for the preview no-op too, which never touches
               // `claimResult` — see `respondedEventIds`'s comment.
               onConfirmed={() => setJustRespondedEventId(event().id)}
+              // Save waits until the household says who is answering.
+              memberRequired={memberRequired(claimResult())}
+              // The write asked for a member the payload did not: show the
+              // step ("Who are you?") from the members already on the page.
+              onMemberRequired={() => {
+                const current = claimResult();
+                if (current) setClaimResult({ ...current, member: null });
+              }}
             />
           </Suspense>
         )}

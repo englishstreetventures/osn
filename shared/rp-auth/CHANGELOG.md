@@ -1,5 +1,11 @@
 # @shared/rp-auth
 
+## 0.2.5
+
+### Patch Changes
+
+- b02b9be: `startSignIn` / `signInUrl` and `beginLogin` accept `prompt: "select_account"`, which asks the issuer to always show which account is signed in, with a way to use another.
+
 ## 0.2.4
 
 ### Patch Changes

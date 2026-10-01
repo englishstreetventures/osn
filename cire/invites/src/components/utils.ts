@@ -1,4 +1,4 @@
-import type { AccountLinkState, ClaimResult, RsvpSummary } from "./types";
+import type { AccountLinkState, ClaimResult, RsvpSummary, SignedInAccount } from "./types";
 
 // These guards read an untrusted payload one field at a time. Each field is
 // proven with `key in value` before it is read, which is what lets the checks
@@ -48,7 +48,46 @@ function isRsvpSummary(r: unknown): r is RsvpSummary {
     if (!Array.isArray(r.dietaryPresets)) return false;
     if (!r.dietaryPresets.every((preset: unknown) => typeof preset === "string")) return false;
   }
-  return !("dietaryConsentCurrent" in r) || typeof r.dietaryConsentCurrent === "boolean";
+  if ("dietaryConsentCurrent" in r && typeof r.dietaryConsentCurrent !== "boolean") return false;
+  // "Answered by" — proven when present, absent from an API without the
+  // member step. Null is the common case: an organiser's or an older reply.
+  if ("submittedBy" in r && r.submittedBy !== null) {
+    const by = r.submittedBy;
+    if (typeof by !== "object" || by === null) return false;
+    if (!("guestId" in by) || typeof by.guestId !== "string") return false;
+    if (!("firstName" in by) || typeof by.firstName !== "string") return false;
+  }
+  return true;
+}
+
+/** The account half of an account-link state, or undefined when absent or malformed. */
+function readSignedInAccount(value: unknown): SignedInAccount | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const nullableString = (v: unknown): v is string | null => v === null || typeof v === "string";
+  if (!("displayName" in value) || !nullableString(value.displayName)) return undefined;
+  if (!("handle" in value) || !nullableString(value.handle)) return undefined;
+  if (!("avatarUrl" in value) || !nullableString(value.avatarUrl)) return undefined;
+  if (!("matchesMember" in value) || typeof value.matchesMember !== "boolean") return undefined;
+  return {
+    displayName: value.displayName,
+    handle: value.handle,
+    avatarUrl: value.avatarUrl,
+    matchesMember: value.matchesMember,
+  };
+}
+
+/**
+ * The household member step as a claim payload carries it: `null` when the
+ * step is off (the field is absent or malformed), else the chosen member's id
+ * or `null` for none yet. A bad value costs the household the step, never the
+ * invite.
+ */
+export function readMember(value: ClaimResult): { guestId: string | null } | null {
+  if (!("member" in value) || value.member === undefined) return null;
+  const member = value.member;
+  if (member === null) return { guestId: null };
+  if (typeof member !== "object" || !("guestId" in member)) return null;
+  return typeof member.guestId === "string" ? { guestId: member.guestId } : null;
 }
 
 /**
@@ -69,7 +108,11 @@ export function readAccountLink(value: unknown): AccountLinkState | null {
   const ids: unknown[] = value.linkedGuestIds;
   const linkedGuestIds = ids.filter((id): id is string => typeof id === "string");
   if (linkedGuestIds.length !== ids.length) return null;
-  return { signedIn: value.signedIn, linkedGuestIds };
+  // The account is optional: a malformed one hides the account, not the box.
+  const account = "account" in value ? readSignedInAccount(value.account) : undefined;
+  return account
+    ? { signedIn: value.signedIn, linkedGuestIds, account }
+    : { signedIn: value.signedIn, linkedGuestIds };
 }
 
 /** The body of a 200 from `POST /api/rsvp`: the household's rows after the write. */

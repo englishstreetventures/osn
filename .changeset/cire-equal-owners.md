@@ -7,7 +7,7 @@
 A wedding can have more than one owner, and every owner is equal.
 
 Ownership moves from `weddings.owner_osn_profile_id` to `wedding_hosts`
-seats with the role `owner`; migration `0075_wedding_owners` seats every
+seats with the role `owner`; migration `0076_wedding_owners` seats every
 current owner and drops the column. Any owner holds every owner power —
 claim codes, settings, billing, the registry's payout account, the CSV
 exports, and who helps, the wedding's creator included. A wedding keeps at

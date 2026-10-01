@@ -171,7 +171,7 @@ the guard regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 163332 B | 175000 B *(pre-existing, tracker #287/#616)* |
+| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstventures/osn#1325 — see below)* |
 | cire/host | static | 256259 B | 267959 B *(re-baselined, englishstventures/osn#1238 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
@@ -236,6 +236,21 @@ Kobalte's switch the same change measured 257162 B, which is why `@shared/ui`'s
 on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
 `ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
 total the guard prints.*
+
+### `cire/invites` went up for the household member step
+
+The household member step (englishstventures/osn#1325) — "Who are you?" in the
+claim panel, the member-bound account-link box, "Answered by" in the RSVP
+sheet, and `household-member.ts` — took the guest Worker from **174402 B** on
+`main`'s source to **176733 B**, **+2331 B** across the same 38 files, past the
+175000 B threshold, which had 598 B of headroom left. The threshold moved to
+measured + ~11.7 KB, **188433 B**. No dependency was added; the bytes are the
+feature's own code.
+
+*Measured 2026-10-01 — `rm -rf cire/invites/dist && bun run --cwd cire/invites
+build` on `feat/cire-household-member`, and the same build with
+`cire/invites/src` and `shared/rp-auth/src` taken from `origin/main`, reading
+the total the guard prints.*
 
 The threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
 — a raise like this one is reviewed rather than waved through, which is the

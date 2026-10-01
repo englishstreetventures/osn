@@ -27,7 +27,13 @@ const household: ClaimResult = {
   ],
   events: [],
   rsvps: [],
-  accountLink: { enabled: true, signedIn: true, linkedGuestIds: ["g-ada"] },
+  accountLink: {
+    enabled: true,
+    signedIn: true,
+    linkedGuestIds: [],
+    account: { displayName: "Chidi O", handle: "chidi", avatarUrl: null, matchesMember: false },
+  },
+  member: { guestId: "g-chidi" },
 };
 
 afterEach(() => {
@@ -40,17 +46,21 @@ it("draws the account link from the claim payload, with no request to wait on", 
   vi.stubGlobal("fetch", fetchMock);
 
   const view = render(() => (
-    <LoginSection apiUrl="https://api.test" result={household} onClaimed={() => {}} />
+    <LoginSection
+      apiUrl="https://api.test"
+      result={household}
+      onClaimed={() => {}}
+      onMemberChange={() => {}}
+    />
   ));
 
-  await view.findByText("Link your Pulse account", {}, { timeout: 3000 });
-  // Drawn in the payload's state: signed in, Ada's seat already linked.
-  expect(view.getByText("Which guest are you?")).toBeTruthy();
-  expect(view.getAllByText("✓ Linked")).toHaveLength(1);
+  await view.findByText("Link your musubi account", {}, { timeout: 3000 });
+  // Drawn in the payload's state: signed in, the account named before Link.
+  expect(view.getByText("Link Chidi to @chidi?")).toBeTruthy();
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-it("draws the sign-in control, not the picker, when the payload says signed out", async () => {
+it("draws the sign-in control when the payload says signed out", async () => {
   const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
   vi.stubGlobal("fetch", fetchMock);
 
@@ -59,16 +69,16 @@ it("draws the sign-in control, not the picker, when the payload says signed out"
       apiUrl="https://api.test"
       result={{ ...household, accountLink: { enabled: true, signedIn: false, linkedGuestIds: [] } }}
       onClaimed={() => {}}
+      onMemberChange={() => {}}
     />
   ));
 
   await view.findByRole("button", { name: "Sign in with musubi" }, { timeout: 3000 });
-  expect(view.queryByText("Which guest are you?")).toBeNull();
+  expect(view.queryByText(/Link Chidi to/)).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-it("keeps a new link when a later copy of the same payload arrives", async () => {
-  // Linking answers 201; nothing else is asked.
+it("hands a new link to the page, which keeps it through a later copy of the payload", async () => {
   const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
     Promise.resolve(
       init?.method === "POST"
@@ -80,17 +90,17 @@ it("keeps a new link when a later copy of the same payload arrives", async () =>
   const [result, setResult] = createSignal<ClaimResult>(household);
 
   const view = render(() => (
-    <LoginSection apiUrl="https://api.test" result={result()} onClaimed={() => {}} />
+    <LoginSection
+      apiUrl="https://api.test"
+      result={result()}
+      onClaimed={() => {}}
+      onMemberChange={(update) => setResult(update(result()))}
+    />
   ));
-  await view.findByText("Which guest are you?", {}, { timeout: 3000 });
-  fireEvent.click(view.getByLabelText(/Chidi Okafor/));
-  fireEvent.click(view.getByRole("button", { name: "Link my account" }));
-  await waitFor(() => expect(view.getAllByText("✓ Linked")).toHaveLength(2));
+  fireEvent.click(await view.findByRole("button", { name: "Link" }, { timeout: 3000 }));
+  await waitFor(() => expect(view.getByText("✓ Linked")).toBeTruthy());
 
-  // An RSVP save hands the page a new result spread from the old one, still
-  // carrying the link state from before Chidi linked.
+  // An RSVP save hands the page a new result spread from its current one.
   setResult({ ...result(), rsvps: [] });
-
-  expect(view.getAllByText("✓ Linked")).toHaveLength(2);
-  expect((view.getByLabelText(/Chidi Okafor/) as HTMLInputElement).disabled).toBe(true);
+  expect(view.getByText("✓ Linked")).toBeTruthy();
 });

@@ -142,11 +142,21 @@ describe("GET /api/auth/oidc/start", () => {
     expect(location.searchParams.get("prompt")).toBe("create");
   });
 
+  it("forwards prompt=select_account, which always shows musubi's account screen", async () => {
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
+    const res = await appRequest(
+      app,
+      `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}&prompt=select_account`,
+    );
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("prompt")).toBe("select_account");
+  });
+
   it("drops any other prompt rather than forwarding it", async () => {
     // `none` is the one that matters: forwarded, it would ask the issuer for a
     // silent grant with no screen at all, from a query string anyone can write.
     const app = mkApp(freshDb(), { oidc: issuer.config() });
-    for (const prompt of ["none", "login", "select_account", "consent"]) {
+    for (const prompt of ["none", "login", "consent", "select_account login"]) {
       const res = await appRequest(
         app,
         `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}&prompt=${prompt}`,

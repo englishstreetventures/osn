@@ -131,22 +131,29 @@
     {
       "idx": 75,
       "version": "6",
-      "when": 1790844405612,
-      "tag": "0075_wedding_owners",
+      "when": 1790854131538,
+      "tag": "0075_household_member_identity",
       "breakpoints": true
     },
     {
       "idx": 76,
       "version": "6",
-      "when": 1790844411917,
-      "tag": "0076_wedding_soft_delete",
+      "when": 1790857877931,
+      "tag": "0076_wedding_owners",
       "breakpoints": true
     },
     {
       "idx": 77,
       "version": "6",
-      "when": 1790853705639,
-      "tag": "0077_child_key_indexes",
+      "when": 1790857884710,
+      "tag": "0077_wedding_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1790857885296,
+      "tag": "0078_child_key_indexes",
       "breakpoints": true
     }
   ]

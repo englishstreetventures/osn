@@ -252,7 +252,7 @@ table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
 and each statement needs its own `--> statement-breakpoint`, because
 `d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
 step that has to run before the drop goes at the top of the same file.
-`0075_wedding_owners.sql` is the example, and `migration-0075.test.ts` is the
+`0076_wedding_owners.sql` is the example, and `migration-0076.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no

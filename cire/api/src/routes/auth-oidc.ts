@@ -114,11 +114,16 @@ export const createAuthOidcRoutes = (
     // A plain link the frontends point a "Sign in" button at. `return_to` is
     // where the browser lands afterwards; it must be an allowlisted origin.
     //
-    // `prompt` is optional and allowlisted to `create` — the "Create account"
-    // button asks the issuer to open on its sign-up screen. Every other value
-    // is dropped rather than rejected: the query string is attacker-reachable,
-    // and forwarding it blind would let anyone turn a sign-in link into
-    // `prompt=none`, which asks for a silent grant with no screen at all.
+    // `prompt` is optional and allowlisted to two values: `create` — the
+    // "Create account" button asks the issuer to open on its sign-up screen —
+    // and `select_account`, which the guest site's account link sends so
+    // musubi always shows which account is signed in, with "Use another
+    // account", instead of re-granting silently as whoever last used the
+    // browser. Every other value is dropped rather than rejected: the query
+    // string is attacker-reachable, and forwarding it blind would let anyone
+    // turn a sign-in link into `prompt=none`, which asks for a silent grant
+    // with no screen at all. `login` stays off too: musubi's account screen
+    // already offers a fresh sign-in.
     // ---------------------------------------------------------------------
     .get("/oidc/start", async ({ query }) => {
       if (!oidc) {
@@ -132,7 +137,9 @@ export const createAuthOidcRoutes = (
       const started = await beginLogin(
         oidc,
         returnTo,
-        query["prompt"] === "create" ? { prompt: "create" } : {},
+        query["prompt"] === "create" || query["prompt"] === "select_account"
+          ? { prompt: query["prompt"] }
+          : {},
       );
       if (!started) {
         metricOidcLogin("bad_request");

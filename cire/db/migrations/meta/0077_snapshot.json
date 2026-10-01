@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "49ea1ea5-6aca-4106-b1ae-fa98ecd7bbe2",
-  "prevId": "58c3ace3-b42a-453e-8a0d-995e15f761b3",
+  "id": "d60ecf2a-3286-4c23-9571-12199048bc40",
+  "prevId": "9f650788-e4f9-49d6-a2f1-314650c1b3e9",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -733,13 +733,6 @@
           "name": "guest_account_links_family_idx",
           "columns": [
             "family_id"
-          ],
-          "isUnique": false
-        },
-        "guest_account_links_wedding_idx": {
-          "name": "guest_account_links_wedding_idx",
-          "columns": [
-            "wedding_id"
           ],
           "isUnique": false
         }
@@ -1589,13 +1582,6 @@
           ],
           "isUnique": false
         },
-        "registry_claims_family_idx": {
-          "name": "registry_claims_family_idx",
-          "columns": [
-            "family_id"
-          ],
-          "isUnique": false
-        },
         "registry_claims_item_status_idx": {
           "name": "registry_claims_item_status_idx",
           "columns": [
@@ -1850,13 +1836,6 @@
           "name": "registry_contributions_item_idx",
           "columns": [
             "item_id"
-          ],
-          "isUnique": false
-        },
-        "registry_contributions_family_idx": {
-          "name": "registry_contributions_family_idx",
-          "columns": [
-            "family_id"
           ],
           "isUnique": false
         },
@@ -2285,6 +2264,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "actor_guest_id": {
+          "name": "actor_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2411,6 +2397,21 @@
           "autoincrement": false,
           "default": "'guest'"
         },
+        "submitted_by_guest_id": {
+          "name": "submitted_by_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "submitted_via_link": {
+          "name": "submitted_via_link",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2434,6 +2435,14 @@
             "event_id"
           ],
           "isUnique": false
+        },
+        "rsvps_submitted_by_idx": {
+          "name": "rsvps_submitted_by_idx",
+          "columns": [
+            "submitted_by_guest_id"
+          ],
+          "isUnique": false,
+          "where": "submitted_by_guest_id IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -2461,6 +2470,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rsvps_submitted_by_guest_id_guests_id_fk": {
+          "name": "rsvps_submitted_by_guest_id_guests_id_fk",
+          "tableFrom": "rsvps",
+          "tableTo": "guests",
+          "columnsFrom": [
+            "submitted_by_guest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2505,6 +2527,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "member_guest_id": {
+          "name": "member_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2528,6 +2557,14 @@
             "expires_at"
           ],
           "isUnique": false
+        },
+        "sessions_member_idx": {
+          "name": "sessions_member_idx",
+          "columns": [
+            "member_guest_id"
+          ],
+          "isUnique": false,
+          "where": "member_guest_id IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -2542,6 +2579,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sessions_member_guest_id_guests_id_fk": {
+          "name": "sessions_member_guest_id_guests_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "guests",
+          "columnsFrom": [
+            "member_guest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2853,13 +2903,6 @@
           "name": "vendor_enquiries_directory_idx",
           "columns": [
             "directory_vendor_id"
-          ],
-          "isUnique": false
-        },
-        "vendor_enquiries_vendor_idx": {
-          "name": "vendor_enquiries_vendor_idx",
-          "columns": [
-            "vendor_id"
           ],
           "isUnique": false
         },

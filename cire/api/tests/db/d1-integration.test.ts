@@ -101,7 +101,7 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
-const MIGRATION_0075 = "0075_wedding_owners.sql";
+const MIGRATION_0076 = "0076_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -1481,6 +1481,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           "eventId",
           "guestId",
           "status",
+          "submittedBy",
         ].toSorted(),
       );
 
@@ -2055,7 +2056,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "runs migration 0075 on D1's own SQLite: owners become seats, nothing cascades",
+    "runs migration 0076 on D1's own SQLite: owners become seats, nothing cascades",
     async () => {
       // Its own instance, built from the chain up to 0070, so the weddings the
       // migration moves are rows that exist before it runs — including one
@@ -2070,7 +2071,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = readdirSync(MIGRATIONS_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
-        const cut = files.indexOf(MIGRATION_0075);
+        const cut = files.indexOf(MIGRATION_0076);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
           for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
@@ -2084,7 +2085,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0075);
+        const statements = migrationStatements(MIGRATION_0076);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 

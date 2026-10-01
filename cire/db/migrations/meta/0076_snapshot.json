@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "58c3ace3-b42a-453e-8a0d-995e15f761b3",
-  "prevId": "f4b3b9f3-8722-4736-8a32-8ed74f15375c",
+  "id": "9f650788-e4f9-49d6-a2f1-314650c1b3e9",
+  "prevId": "fc084040-66b6-4c78-9d78-5bb6a72abc68",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -2264,6 +2264,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "actor_guest_id": {
+          "name": "actor_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2390,6 +2397,21 @@
           "autoincrement": false,
           "default": "'guest'"
         },
+        "submitted_by_guest_id": {
+          "name": "submitted_by_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "submitted_via_link": {
+          "name": "submitted_via_link",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2413,6 +2435,14 @@
             "event_id"
           ],
           "isUnique": false
+        },
+        "rsvps_submitted_by_idx": {
+          "name": "rsvps_submitted_by_idx",
+          "columns": [
+            "submitted_by_guest_id"
+          ],
+          "isUnique": false,
+          "where": "submitted_by_guest_id IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -2440,6 +2470,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rsvps_submitted_by_guest_id_guests_id_fk": {
+          "name": "rsvps_submitted_by_guest_id_guests_id_fk",
+          "tableFrom": "rsvps",
+          "tableTo": "guests",
+          "columnsFrom": [
+            "submitted_by_guest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2484,6 +2527,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "member_guest_id": {
+          "name": "member_guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2507,6 +2557,14 @@
             "expires_at"
           ],
           "isUnique": false
+        },
+        "sessions_member_idx": {
+          "name": "sessions_member_idx",
+          "columns": [
+            "member_guest_id"
+          ],
+          "isUnique": false,
+          "where": "member_guest_id IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -2521,6 +2579,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sessions_member_guest_id_guests_id_fk": {
+          "name": "sessions_member_guest_id_guests_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "guests",
+          "columnsFrom": [
+            "member_guest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -3951,20 +4022,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deleted_by_osn_profile_id": {
-          "name": "deleted_by_osn_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -3981,14 +4038,6 @@
             "created_at"
           ],
           "isUnique": false
-        },
-        "weddings_deleted_at_idx": {
-          "name": "weddings_deleted_at_idx",
-          "columns": [
-            "deleted_at"
-          ],
-          "isUnique": false,
-          "where": "deleted_at IS NOT NULL"
         }
       },
       "foreignKeys": {},
