@@ -1,11 +1,14 @@
 import {
   createContext,
+  createMemo,
+  createSelector,
   createSignal,
   onCleanup,
   type Accessor,
   type ParentProps,
   useContext,
 } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 import { closestCenter } from "./collision";
 import type { DragEvent, DragTarget, Id, MeasuredTarget, Transform } from "./types";
@@ -27,6 +30,15 @@ type Detector = (
 
 export interface DragState {
   active: Accessor<{ draggable: DragTarget | null; droppable: DragTarget | null }>;
+  /**
+   * Whether a drag is live. A row that styles itself by this should read it
+   * rather than `active()`: `active` changes on every slot the pointer crosses,
+   * this only when a drag starts or ends, so a long list re-runs each row's
+   * effect twice per gesture instead of once per slot.
+   */
+  dragging: Accessor<boolean>;
+  /** Whether `id` is the row being dragged. Notifies only the rows whose answer flips. */
+  isDragged: (id: Id) => boolean;
   /** The dragged row's offset from where it started. `null` when nothing is dragging. */
   transform: Accessor<Transform | null>;
   /** How far a NON-dragged row has been pushed to open the gap. 0 for most rows. */
@@ -77,8 +89,13 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     draggable: DragTarget | null;
     droppable: DragTarget | null;
   }>({ draggable: null, droppable: null });
+  const draggedId = createMemo(() => active().draggable?.id ?? null);
+  const dragging = createMemo(() => draggedId() !== null);
+  const isDragged = createSelector<Id | null, Id>(draggedId);
   const [transform, setTransform] = createSignal<Transform | null>(null);
-  const [displaced, setDisplaced] = createSignal<Map<Id, number>>(new Map());
+  // A store rather than a Map signal: reading `displaced[key]` tracks that one
+  // key, so a slot change wakes only the rows whose shift changed, not every row.
+  const [displaced, setDisplaced] = createStore<Record<string, number>>({});
 
   const register = (id: Id, node: HTMLElement, group: symbol) => items.set(id, { node, group });
   const unregister = (id: Id) => items.delete(id);
@@ -146,7 +163,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     return out;
   }
 
-  const displacement = (id: Id) => displaced().get(id) ?? 0;
+  const displacement = (id: Id) => displaced[String(id)] ?? 0;
 
   /** Tears down whatever gesture is live. Set by `startDrag`, cleared by it. */
   let endGesture: (() => void) | null = null;
@@ -204,7 +221,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       captureTarget.releasePointerCapture?.(pointerId);
       endGesture = null;
       setTransform(null);
-      setDisplaced(new Map());
+      setDisplaced(reconcile({}));
       setActive({ draggable: null, droppable: null });
     };
 
@@ -231,7 +248,11 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       if (droppable?.id !== latest.droppable?.id) {
         latest = { draggable, droppable };
         setActive({ draggable, droppable });
-        setDisplaced(computeDisplacement(measured, stride, id, droppable?.id ?? null));
+        setDisplaced(
+          reconcile(
+            Object.fromEntries(computeDisplacement(measured, stride, id, droppable?.id ?? null)),
+          ),
+        );
         props.onDragOver?.(latest);
       }
     };
@@ -261,7 +282,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   return (
     <DragDropContext.Provider
       value={[
-        { active, transform, displacement },
+        { active, dragging, isDragged, transform, displacement },
         { register, unregister, registerGroup, unregisterGroup, startDrag },
       ]}
     >

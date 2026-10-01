@@ -9,7 +9,7 @@ import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
   isChangeInProgress,
   isHeadMoved,
@@ -76,8 +76,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const shownPreview = heldWhileClosing(preview);
 
-  const changesUrl = (op: string) =>
-    apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
+  const changesUrl = (op: string) => apiUrl(weddingPath(props.weddingId, `/changes/${op}`));
 
   /** Read the change head, then load events + guests + households and seed the
    *  draft at that head.
@@ -105,7 +104,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
     invalidateHouseholds(props.weddingId);
     const [events, guests, households] = await allAuthFirst([
       ensureEventsLoaded(props.weddingId, async () => {
-        const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+        const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
         if (res.status === 401) {
           redirectToLogin();
           throw new Error("unauthenticated");
@@ -118,7 +117,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         return rows;
       }),
       ensureGuestsLoaded(props.weddingId, async () => {
-        const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+        const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/guests")));
         if (res.status === 401) {
           redirectToLogin();
           throw new Error("unauthenticated");
@@ -131,9 +130,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         return rows;
       }),
       ensureHouseholdsLoaded(props.weddingId, async () => {
-        const res = await authFetch(
-          apiUrl(`/api/organiser/weddings/${props.weddingId}/households`),
-        );
+        const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
         if (res.status === 401) {
           redirectToLogin();
           throw new Error("unauthenticated");

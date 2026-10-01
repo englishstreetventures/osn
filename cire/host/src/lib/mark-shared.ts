@@ -1,4 +1,4 @@
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 import {
   hasCachedGuests,
   invalidateGuests,
@@ -35,7 +35,7 @@ export async function markHouseholdShared(
   let res: Response;
   try {
     res = await authFetch(
-      apiUrl(`/api/organiser/weddings/${weddingId}/families/${familyId}/mark-shared`),
+      apiUrl(weddingPath(weddingId, `/families/${encodeURIComponent(familyId)}/mark-shared`)),
       { method: "POST" },
     );
   } catch {

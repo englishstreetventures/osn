@@ -7,7 +7,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
@@ -122,12 +122,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const [shippingVisibleFrom, setShippingVisibleFrom] = createSignal("");
   const [cashGifts, setCashGifts] = createSignal(false);
 
-  const settingsUrl = () =>
-    apiUrl(`/api/organiser/weddings/${encodeURIComponent(props.weddingId)}/registry/settings`);
+  const settingsUrl = () => apiUrl(weddingPath(props.weddingId, "/registry/settings"));
   const stripeUrl = (leaf: "session" | "refresh") =>
-    apiUrl(
-      `/api/organiser/weddings/${encodeURIComponent(props.weddingId)}/registry/stripe/${leaf}`,
-    );
+    apiUrl(weddingPath(props.weddingId, `/registry/stripe/${leaf}`));
 
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
   const itemCount = () => snapshot()?.items.length ?? 0;
@@ -209,9 +206,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     void (async () => {
       try {
         await ensureRegistryLoaded(props.weddingId, async () => {
-          const res = await authFetch(
-            apiUrl(`/api/organiser/weddings/${encodeURIComponent(props.weddingId)}/registry`),
-          );
+          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/registry")));
           if (res.status === 401) {
             redirectToLogin();
             throw new Error("unauthorised");

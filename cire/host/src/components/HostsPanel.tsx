@@ -9,7 +9,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
   ASSIGNABLE_ROLES,
@@ -161,7 +161,7 @@ export default function HostsPanel(props: HostsPanelProps) {
 
   onCleanup(() => inFlight?.abort());
 
-  const endpoint = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/hosts`);
+  const endpoint = () => apiUrl(weddingPath(props.weddingId, "/hosts"));
 
   onCleanup(() => clearTimeout(debounceTimer));
 

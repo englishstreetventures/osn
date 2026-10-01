@@ -6,7 +6,7 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
@@ -139,7 +139,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
   onMount(async () => {
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/settings`));
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/settings")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         setLoadError(`Could not load the wedding profile (${res.status}).`);
@@ -237,7 +237,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     }
     setSaving(true);
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/settings`), {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/settings")), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(built.body),

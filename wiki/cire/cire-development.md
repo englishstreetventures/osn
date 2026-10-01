@@ -20,7 +20,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-10-01
 ---
 
 # Cire development guide
@@ -249,6 +249,20 @@ The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 bun run --cwd cire/invites build
 cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
+
+## Organiser API paths
+
+Every organiser-portal call to `/api/organiser/weddings/<id>/…` builds its path
+with `weddingPath(weddingId, rest)` from `cire/host/src/lib/api.ts`, wrapped in
+`apiUrl(...)` (not a helper that calls `apiUrl` itself, so a test's `apiUrl`
+override still applies). It percent-encodes the id, so an id holding `/`, `?` or
+`#` stays inside its own segment. Encoding leaves `.` and `..` alone and the URL
+parser resolves them as dot segments, so where a wedding id is read from a URL —
+the dashboard hash (`dashboard-route.ts`) and the upgrade return query
+(`upgrade-return.ts`) — `isDotSegment` refuses it. Ids further along the path
+(an item, a task, a payment) are encoded at the call site with
+`encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
+hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 
 ## Portal security headers
 

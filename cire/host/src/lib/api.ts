@@ -8,6 +8,19 @@ import { CIRE_API_URL } from "./osn";
 export const apiUrl = (path: string) => `${CIRE_API_URL}${path}`;
 
 /**
+ * The organiser API path for one wedding, with `rest` appended as written.
+ *
+ * The id is percent-encoded, so a `/`, `?` or `#` in it stays inside its path
+ * segment rather than starting a new one. Encoding leaves `.` and `..` as they
+ * are, and the URL parser resolves those as dot segments, so they are refused
+ * where an id is read from a URL (`isDotSegment` in `dashboard-route.ts`, used
+ * there and in `upgrade-return.ts`). This stays a pure string builder so a
+ * call during render can never throw.
+ */
+export const weddingPath = (weddingId: string, rest = "") =>
+  `/api/organiser/weddings/${encodeURIComponent(weddingId)}${rest}`;
+
+/**
  * The tag as an error NAME at the head of the printout — bare, or behind
  * Effect's `(FiberFailure)` prefix. Anchored, not a substring scan:
  * errors reaching this predicate include `EnquiryApiError`, whose message is

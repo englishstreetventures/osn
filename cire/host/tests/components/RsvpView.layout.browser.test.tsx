@@ -28,7 +28,8 @@ import "../../src/styles/global.css";
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
-vi.mock("../../src/lib/api", () => ({
+vi.mock("../../src/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
   isAuthExpired: () => false,
   redirectToLogin: () => {},

@@ -52,22 +52,30 @@ export function createSortable(id: Id): Sortable {
   const group = useContext(GroupContext);
   if (!group) throw new Error("createSortable must be used inside a <SortableProvider>");
 
-  const isActiveDraggable = createMemo(() => state.active().draggable?.id === id);
+  // A selector, not a memo over `active()`: a memo per row would re-run on
+  // every slot crossed, where the selector wakes only the row whose answer flips.
+  const isActiveDraggable = () => state.isDragged(id);
 
   onCleanup(() => registry.unregister(id));
 
   return {
     ref: (el: HTMLElement) => registry.register(id, el, group),
-    transform: createMemo((): Transform | null => {
-      // The dragged row tracks the pointer.
-      if (isActiveDraggable()) return state.transform();
-      // Everything between it and the drop target shifts by one row to open the
-      // gap — that preview is what makes a drop legible before it happens.
-      // `0` means "not displaced", and must stay `null` so the row writes no
-      // transform at all rather than an identity one.
-      const dy = state.displacement(id);
-      return dy === 0 ? null : { x: 0, y: dy };
-    }),
+    transform: createMemo(
+      (): Transform | null => {
+        // The dragged row tracks the pointer.
+        if (isActiveDraggable()) return state.transform();
+        // Everything between it and the drop target shifts by one row to open the
+        // gap — that preview is what makes a drop legible before it happens.
+        // `0` means "not displaced", and must stay `null` so the row writes no
+        // transform at all rather than an identity one.
+        const dy = state.displacement(id);
+        return dy === 0 ? null : { x: 0, y: dy };
+      },
+      undefined,
+      // By value: a displaced row gets a fresh `{ x, y }` on every slot change,
+      // and without this its style effect would re-run while it stays put.
+      { equals: sameTransform },
+    ),
     isActiveDraggable,
     dragActivators: {
       onPointerDown: (event: PointerEvent) => {
@@ -78,6 +86,10 @@ export function createSortable(id: Id): Sortable {
       },
     },
   };
+}
+
+function sameTransform(a: Transform | null, b: Transform | null): boolean {
+  return a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y);
 }
 
 /**

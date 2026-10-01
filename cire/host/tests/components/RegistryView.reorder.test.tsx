@@ -153,8 +153,7 @@ describe("gift list — keyboard", () => {
 
     expect(renderedOrder()).toEqual(["Wine fridge", "Copper pan", "Kettle"]);
     expect(screen.getByRole("status")).toHaveTextContent("Copper pan moved to position 2 of 3.");
-    // The moved row is rebuilt (its item object changed), so this is a NEW
-    // grip — and focus is on it, not on <body>.
+    // Focus stays on the moved row's grip, not on <body>.
     expect(document.activeElement).toBe(grip("Copper pan"));
 
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
@@ -224,6 +223,46 @@ describe("gift list — keyboard", () => {
     // The same node, not a rebuilt one — so a caret in it would survive.
     expect(container.querySelectorAll("form")[1]!.querySelector("input")).toBe(title);
     expect(title.value).toBe("Kettle, half typed");
+  });
+
+  it("moves rows past a gap in the stored order without rebuilding them", async () => {
+    // A delete leaves a gap (nothing renumbers on delete), so the next move
+    // stores a new order for every row past it. Those rows must keep their DOM.
+    setCachedRegistry(
+      "wed_1",
+      snapshot([
+        item({ id: "a", title: "Copper pan", sortOrder: 0 }),
+        item({ id: "b", title: "Wine fridge", sortOrder: 1 }),
+        item({ id: "c", title: "Kettle", sortOrder: 3 }),
+        item({ id: "d", title: "Toaster", sortOrder: 4 }),
+      ]),
+    );
+    authFetch.mockResolvedValue(ok());
+    mount();
+    await screen.findByText("Toaster");
+    const [pan, fridge, kettle, toaster] = rows();
+
+    fireEvent.keyDown(grip("Copper pan"), { key: "ArrowDown" });
+
+    expect(renderedOrder()).toEqual(["Wine fridge", "Copper pan", "Kettle", "Toaster"]);
+    expect(rows()).toEqual([fridge, pan, kettle, toaster]);
+    for (const [k, li] of [fridge, pan, kettle, toaster].entries()) expect(rows()[k]).toBe(li);
+  });
+
+  it("still rebuilds a row whose content changed", async () => {
+    mount();
+    await screen.findByText("Kettle");
+    const [pan, fridge, kettle] = rows();
+
+    setCachedRegistry(
+      "wed_1",
+      snapshot([ITEMS[0]!, ITEMS[1]!, { ...ITEMS[2]!, title: "Stovetop kettle" }]),
+    );
+
+    expect(renderedOrder()).toEqual(["Copper pan", "Wine fridge", "Stovetop kettle"]);
+    expect(rows()[0]).toBe(pan);
+    expect(rows()[1]).toBe(fridge);
+    expect(rows()[2]).not.toBe(kettle);
   });
 
   it("offers no reorder controls to a viewer", async () => {
