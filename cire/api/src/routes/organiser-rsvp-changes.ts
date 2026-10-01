@@ -39,7 +39,7 @@ const invalidBody = (set: { status?: number | string }) =>
  * Overview card reads the first (a count, the latest households, the digest
  * switch); the RSVP table reads the second (the rows to badge, and the
  * marker that covers exactly those), so neither downloads what it never
- * shows, and only the marker the table was shown can be posted back. The
+ * shows, and the card is never handed a marker to post back. The
  * POST is behind the read gate because it writes only the caller's own row in
  * `host_rsvp_notices` — no wedding data — and a viewer has changes to mark
  * seen like anyone else. Split from the write factory so the two gates never
