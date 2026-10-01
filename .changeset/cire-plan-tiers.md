@@ -12,7 +12,9 @@ the gift registry, up to 500. **Crimson** adds vendors (the CRM, the directory
 and enquiries) and every premium invite design, up to 1,000.
 
 - **Schema (migration 0071).** `weddings.tier` (default `ivory`) with
-  `tier_source` and `tier_granted_by`, and `wedding_upgrade_purchases.from_tier`.
+  `tier_source` and `tier_granted_by`, and on `wedding_upgrade_purchases`
+  `from_tier` plus the Price a purchase opened at (`price_id`,
+  `price_amount_minor`, `price_currency`).
   The one-pending purchase index narrows to one per wedding; pending legacy
   purchases are expired between the index drop and create, and weddings are
   lifted from their legacy rows (`vendors`/`capacity_1000` to Crimson,
@@ -27,10 +29,18 @@ and enquiries) and every premium invite design, up to 1,000.
   entitlement. The wedding list returns `tier` plus the legacy keys the tier
   stands for. `grant-tier.ts` replaces `grant-entitlement.ts`.
 - **Selling tiers.** The catalogue offers only tiers above the wedding's own;
-  `POST …/upgrade/session` takes `{ tier, module? }`. A pending purchase for a
-  different product is expired at Stripe before a new page opens. Settle maps
-  the stored product to a tier (legacy keys included), only ever raises it, and
-  answers 500 on a paid purchase that names no tier so Stripe retries.
+  `POST …/upgrade/session` takes `{ tier, module? }`, decoded whole at the
+  boundary (anything else is 404 `not_purchasable`). A pending purchase for a
+  different product, or a legacy per-module page 0071 expired only in D1, is
+  expired at Stripe before a new page opens. Settle maps the stored product to
+  a tier (legacy keys included), only ever raises it, and answers 500 on a paid
+  purchase that names no tier so Stripe retries. It grants only for a payment
+  of the recorded Price's amount and currency, adopts a session only onto a
+  pending row, grants nothing for a purchase an operator refunded, and grants a
+  purchase priced from Gold only while the wedding still holds Gold; each of
+  those answers 200 (`mismatch` or `refunded`) and is logged and counted.
+  `grant-tier.ts --lower` marks the purchases above the new tier `refunded`
+  before it lowers the tier.
 - **Portal.** Locks by tier: Checklist, Budget and Registry need Gold, Vendors
   Crimson. A locked row says which tier includes it; Overview neither reads nor
   shows a locked module, so an Ivory wedding's counts no longer blank on a 402.
@@ -47,7 +57,8 @@ until the Stripe Prices exist; unset means not for sale):
 **Deploy order.** Approve `deploy-cire-host` before `deploy-cire-api`, in
 separate reviews: the old portal on the new API would request `/tasks` for an
 Ivory wedding and blank its Overview. Run the pre-flight queries in
-`wiki/shared/production-deploy.md` §5.6 first.
+`wiki/shared/production-deploy.md` §5.6 first, and expire at Stripe any legacy
+session they show still pending.
 
 **Follow-up.** englishstventures/osn#1315 deletes the legacy entitlement rows
 (migration 0072), narrows the enums, and drops the list's legacy keys, the
