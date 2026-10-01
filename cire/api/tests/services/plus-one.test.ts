@@ -1216,7 +1216,11 @@ describe("plusOneService — statements per write", () => {
 });
 
 describe("plusOneService — the RSVP change log", () => {
-  const change = (familyId: string, guestId: string, kind: string) => ({
+  const change = (
+    familyId: string,
+    guestId: string,
+    kind: "plus_one_added" | "plus_one_renamed" | "plus_one_removed",
+  ) => ({
     weddingId: BOOTSTRAP_WEDDING_ID,
     familyId,
     guestId,
