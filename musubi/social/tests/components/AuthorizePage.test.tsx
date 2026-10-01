@@ -65,6 +65,15 @@ const bob = {
   avatarUrl: null,
 };
 
+/** A profile on a different account from alice's — `bob` is alice's second profile. */
+const carol = {
+  id: "usr_3",
+  handle: "carol",
+  email: "carol@example.com",
+  displayName: "Carol",
+  avatarUrl: null,
+};
+
 function context(overrides: Record<string, unknown> = {}) {
   return {
     client: {
@@ -390,14 +399,155 @@ describe("<AuthorizePage />", () => {
     );
   });
 
-  it("honours reason=select_account even when the app already knows a profile", async () => {
-    mocks.getContext.mockResolvedValue(
-      context({ profiles: [alice, bob], linkedProfileId: "usr_2" }),
-    );
+  describe("reason=select_account", () => {
+    const SELECT = `?request=${REQUEST_ID}&reason=select_account`;
 
-    renderPage(`?request=${REQUEST_ID}&reason=select_account`);
+    it("shows the signed-in account even for one profile the app already knows", async () => {
+      mocks.getContext.mockResolvedValue(context({ linkedProfileId: "usr_1" }));
 
-    expect(await screen.findByText("Choose a profile")).toBeDefined();
+      renderPage(SELECT);
+
+      expect(await screen.findByText("Signed in as")).toBeDefined();
+      expect(screen.getByText("@alice")).toBeDefined();
+      expect(screen.getByText("Continue")).toBeDefined();
+      expect(screen.getByText("Use another account")).toBeDefined();
+      expect(screen.queryByText("Allow")).toBeNull();
+    });
+
+    it("shows the account to a first-party app too, and Continue leads to consent", async () => {
+      mocks.getContext.mockResolvedValue(
+        context({
+          linkedProfileId: "usr_1",
+          client: { clientId: "cli_abc", name: "Cire", logoUrl: null, firstParty: true },
+        }),
+      );
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Continue"));
+      // Nothing is granted on Continue alone.
+      expect(mocks.submitDecision).not.toHaveBeenCalled();
+
+      fireEvent.click(await screen.findByText("Allow"));
+      await waitFor(() =>
+        expect(mocks.submitDecision).toHaveBeenCalledWith({
+          requestId: REQUEST_ID,
+          profileId: "usr_1",
+          approved: true,
+        }),
+      );
+    });
+
+    it("lists every profile and carries the one picked through Continue", async () => {
+      mocks.getContext.mockResolvedValue(
+        context({ profiles: [alice, bob], linkedProfileId: "usr_1" }),
+      );
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Bob"));
+      expect(screen.getByText("Bob").closest("button")?.getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByText("Selected").closest("button")?.textContent).toContain("Bob");
+      fireEvent.click(screen.getByText("Continue"));
+
+      // The account screen settled the profile — no second picker.
+      expect(screen.queryByText("Choose a profile")).toBeNull();
+      fireEvent.click(await screen.findByText("Allow"));
+      await waitFor(() =>
+        expect(mocks.submitDecision).toHaveBeenCalledWith({
+          requestId: REQUEST_ID,
+          profileId: "usr_2",
+          approved: true,
+        }),
+      );
+    });
+
+    it("signs in as another account and continues as that account", async () => {
+      mocks.getContext.mockResolvedValueOnce(context({ linkedProfileId: "usr_1" }));
+      mocks.getContext.mockResolvedValue(context({ profiles: [carol] }));
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Use another account"));
+      fireEvent.click(await screen.findByText("finish sign-in"));
+
+      // The sign-in was the choice of account: no account screen again.
+      fireEvent.click(await screen.findByText("Allow"));
+      expect(screen.getByText("@carol")).toBeDefined();
+      expect(screen.queryByText("Use another account")).toBeNull();
+      await waitFor(() =>
+        expect(mocks.submitDecision).toHaveBeenCalledWith({
+          requestId: REQUEST_ID,
+          profileId: "usr_3",
+          approved: true,
+        }),
+      );
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
+    });
+
+    it("goes back to the account screen from the sign-in panel", async () => {
+      mocks.getContext.mockResolvedValue(context());
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Use another account"));
+      expect(await screen.findByText("finish sign-in")).toBeDefined();
+
+      fireEvent.click(screen.getByText("Back"));
+
+      expect(await screen.findByText("Use another account")).toBeDefined();
+      expect(screen.queryByText("finish sign-in")).toBeNull();
+      // Back re-reads who is signed in rather than trusting the old screen.
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
+    });
+
+    it("treats Cancel on the account screen as a decision", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb?e" });
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Cancel"));
+
+      await waitFor(() =>
+        expect(mocks.submitDecision).toHaveBeenCalledWith({
+          requestId: REQUEST_ID,
+          profileId: "usr_1",
+          approved: false,
+        }),
+      );
+    });
+
+    it("shows a failed Cancel on the account screen itself", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      mocks.submitDecision.mockRejectedValue(new Error("Network down."));
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Cancel"));
+
+      expect((await screen.findByRole("alert")).textContent).toBe("Network down.");
+      expect(screen.getByText("Use another account")).toBeDefined();
+    });
+
+    it("asks for a profile after switching to an account with several", async () => {
+      mocks.getContext.mockResolvedValueOnce(context());
+      mocks.getContext.mockResolvedValue(context({ profiles: [carol, bob] }));
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Use another account"));
+      fireEvent.click(await screen.findByText("finish sign-in"));
+
+      expect(await screen.findByText("Choose a profile")).toBeDefined();
+    });
+
+    it("skips the account screen after a sign-in on this page", async () => {
+      mocks.getContext.mockResolvedValueOnce(context({ signedIn: false, profiles: [] }));
+      mocks.getContext.mockResolvedValue(context());
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("finish sign-in"));
+
+      expect(await screen.findByText("Allow")).toBeDefined();
+      expect(screen.queryByText("Use another account")).toBeNull();
+    });
   });
 
   it("puts the ceremony before the decision when reason=login", async () => {

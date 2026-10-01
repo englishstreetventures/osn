@@ -77,7 +77,15 @@ export function navigateTo(url: string) {
   window.location.assign(url);
 }
 
-type Screen = "loading" | "signedOut" | "picker" | "consent" | "redirecting" | "dead" | "error";
+type Screen =
+  | "loading"
+  | "signedOut"
+  | "account"
+  | "picker"
+  | "consent"
+  | "redirecting"
+  | "dead"
+  | "error";
 
 /**
  * A-L1. `<Switch>` swaps the whole screen without moving focus, so a screen
@@ -93,6 +101,7 @@ type Screen = "loading" | "signedOut" | "picker" | "consent" | "redirecting" | "
 const SCREEN_ANNOUNCEMENT = {
   loading: "Checking this request.",
   signedOut: "Sign in to continue.",
+  account: "Check the account to use.",
   picker: "Choose a profile.",
   consent: "Review what this app is asking for.",
   redirecting: "Taking you back to the app.",
@@ -152,6 +161,14 @@ export function AuthorizePage() {
   // is what stops the sign-in screen looping, since the URL still says
   // `login` / `create` afterwards.
   const [signedInHere, setSignedInHere] = createSignal(false);
+  // `reason=select_account`: the app wants the person at the keyboard to say
+  // which account this is, because the browser may be shared. The account
+  // screen leads until they press Continue — or until they sign in on this
+  // page, since a sign-in here is itself the choice of account.
+  const [accountConfirmed, setAccountConfirmed] = createSignal(false);
+  // "Use another account" was pressed: the sign-in panel shows over a live
+  // session, with a way back to the account screen.
+  const [switching, setSwitching] = createSignal(false);
   const [pending, setPending] = createSignal<boolean | null>(null);
   const [fatal, setFatal] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -167,7 +184,9 @@ export function AuthorizePage() {
   /**
    * The picker leads when there is a real choice to make: several profiles and
    * either the app asked for one (`select_account`) or it has never seen any of
-   * them. Single-profile accounts — the common case — never see this screen.
+   * them. Single-profile accounts never see this screen. On `select_account`
+   * the account screen comes first and its own profile list settles the
+   * choice, so the picker only follows a sign-in made on this page.
    */
   const autoPicker = createMemo(() => {
     const c = ctx();
@@ -210,8 +229,11 @@ export function AuthorizePage() {
     if (loadError()) return "error";
     if (context.loading || !ctx()) return "loading";
     const fresh = reason() === "login" || reason() === "create";
-    if (!ctx()!.signedIn || reauth() || (fresh && !signedInHere())) {
+    if (!ctx()!.signedIn || reauth() || switching() || (fresh && !signedInHere())) {
       return "signedOut";
+    }
+    if (reason() === "select_account" && !accountConfirmed() && !signedInHere()) {
+      return "account";
     }
     if (showPicker()) return "picker";
     return "consent";
@@ -281,6 +303,7 @@ export function AuthorizePage() {
    */
   async function afterSignIn() {
     setReauth(false);
+    setSwitching(false);
     setSignedInHere(true);
     setNotice(null);
     const before = new Set(profiles().map((p) => p.id));
@@ -295,6 +318,18 @@ export function AuthorizePage() {
       return;
     }
     if (answer !== null) await decide(answer);
+  }
+
+  /**
+   * Continue on the account screen. The profile on screen becomes the choice,
+   * and the page moves on to consent. Consent is shown even for a first-party
+   * app: the page sees only `reason=select_account`, and the app may have
+   * paired it with `prompt=consent`.
+   */
+  function confirmAccount() {
+    setChosenId(selectedId());
+    setNotice(null);
+    setAccountConfirmed(true);
   }
 
   return (
@@ -346,6 +381,11 @@ export function AuthorizePage() {
               <p class="text-muted-foreground text-body mt-4 text-center">{message()}</p>
             )}
           </Show>
+          <Show when={switching()}>
+            <p class="text-muted-foreground text-body mt-4 text-center">
+              Sign in with the account you want to use.
+            </p>
+          </Show>
           <div class="border-border rounded-card mt-4 border p-1">
             <Suspense
               fallback={<p class="text-muted-foreground text-body p-4 text-center">Loading…</p>}
@@ -368,6 +408,96 @@ export function AuthorizePage() {
               />
             </Suspense>
           </div>
+          <Show when={switching()}>
+            {/* A sign-in can set the new session cookie before it reports
+                success, so the account screen re-reads who is signed in
+                rather than trusting what it showed before. */}
+            <Button
+              variant="secondary"
+              class="mt-4 w-full"
+              onClick={() => {
+                setSwitching(false);
+                setChosenId(null);
+                void refetch();
+              }}
+            >
+              Back
+            </Button>
+          </Show>
+        </Match>
+
+        <Match when={screen() === "account"}>
+          <ClientCard context={ctx()} />
+          <h2 class="text-foreground text-body mt-6 mb-2 font-medium">Signed in as</h2>
+          <Show when={profiles().length > 1}>
+            <p class="text-muted-foreground text-meta mb-2">
+              {clientName()} will see the profile you pick, and only that one.
+            </p>
+          </Show>
+          <Show
+            when={profiles().length > 1}
+            fallback={
+              <Show when={selected()}>
+                {(profile) => (
+                  <div class="border-border flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                    <ProfileRow profile={profile()} />
+                  </div>
+                )}
+              </Show>
+            }
+          >
+            <div class="flex flex-col gap-2">
+              <For each={profiles()}>
+                {(profile) => (
+                  <button
+                    type="button"
+                    aria-pressed={profile.id === selectedId()}
+                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                    onClick={() => setChosenId(profile.id)}
+                  >
+                    <ProfileRow profile={profile} />
+                    <Show when={profile.id === selectedId()}>
+                      <span class="text-foreground text-meta ml-auto shrink-0 font-medium">
+                        Selected
+                      </span>
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+          <div class="mt-6 flex flex-col gap-2">
+            <Button class="w-full" disabled={!selectedId()} onClick={confirmAccount}>
+              Continue
+            </Button>
+            <Button
+              variant="secondary"
+              class="w-full"
+              disabled={submitting()}
+              onClick={() => {
+                setNotice(null);
+                setSwitching(true);
+              }}
+            >
+              Use another account
+            </Button>
+            {/* A denial is a decision, here as on every other screen. */}
+            <Button
+              variant="ghost"
+              class="w-full"
+              disabled={submitting()}
+              onClick={() => void decide(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+          <Show when={notice()}>
+            {(message) => (
+              <p class="text-destructive text-body mt-4" role="alert">
+                {message()}
+              </p>
+            )}
+          </Show>
         </Match>
 
         <Match when={screen() === "picker"}>
@@ -484,6 +614,20 @@ export function AuthorizePage() {
         </Match>
       </Switch>
     </main>
+  );
+}
+
+function ProfileRow(props: { profile: PublicProfile }) {
+  return (
+    <>
+      <ProfileAvatar profile={props.profile} />
+      <div class="flex min-w-0 flex-col">
+        <span class="text-foreground text-body truncate font-medium">
+          {props.profile.displayName || `@${props.profile.handle}`}
+        </span>
+        <span class="text-subtle text-meta truncate">@{props.profile.handle}</span>
+      </div>
+    </>
   );
 }
 
