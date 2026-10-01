@@ -103,6 +103,15 @@ export const weddings = sqliteTable(
     changeClaimedAt: integer("change_claimed_at"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    // ── Soft delete (migration 0072) ────────────────────────────────────────
+    // NULL means the wedding is live. Set, it is unreachable by every guest,
+    // vendor and co-host path, and by every organiser route except its owners'
+    // restore; the daily purge hard-deletes the row (and, by cascade, every
+    // child) once `deleted_at` is more than the restore window old. Seconds,
+    // like `created_at`. `deleted_by_osn_profile_id` is the owner who deleted
+    // it, cleared with `deleted_at` on a restore.
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
+    deletedByOsnProfileId: text("deleted_by_osn_profile_id"),
   },
   (t) => [
     // Added (migration 0053) for the public primary-wedding lookup
@@ -112,6 +121,11 @@ export const weddings = sqliteTable(
     // list orders by the caller's seat. Kept because dropping it costs a
     // migration and buys nothing on a table this size.
     index("weddings_created_at_idx").on(t.createdAt),
+    // The purge's candidate read. Partial, so it holds only deleted weddings
+    // and a live wedding's writes never touch it.
+    index("weddings_deleted_at_idx")
+      .on(t.deletedAt)
+      .where(sql`deleted_at IS NOT NULL`),
   ],
 );
 
@@ -1516,9 +1530,9 @@ export const weddingUpgradePurchases = sqliteTable(
 // and never holds the funds, so it carries no payment-record obligation of its
 // own" — and an upgrade is the case where cire IS the merchant.
 //
-// So: no foreign key, no wedding id, no profile id. Written at SETTLE rather
-// than at deletion, because there is no wedding-DELETE flow to trigger it and a
-// writer that only runs on deletion would be dead code.
+// So: no foreign key, no wedding id, no profile id. Written at SETTLE, not at
+// deletion: the daily purge of a soft-deleted wedding cascades its purchase
+// rows away, and this row is what is left of the sale afterwards.
 //
 // NOT anonymous, and the compliance pages must not say it is: `settled_at` is
 // the same timestamp the purchase row and the entitlement grant carry, and the

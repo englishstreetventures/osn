@@ -49,9 +49,12 @@ CREATE TABLE IF NOT EXISTS weddings (
   change_claim TEXT,
   change_claimed_at INTEGER,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER,
+  deleted_by_osn_profile_id TEXT
 );
 CREATE INDEX IF NOT EXISTS weddings_created_at_idx ON weddings(created_at);
+CREATE INDEX IF NOT EXISTS weddings_deleted_at_idx ON weddings(deleted_at) WHERE deleted_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS wedding_hosts (
   id TEXT PRIMARY KEY,

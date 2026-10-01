@@ -106,6 +106,13 @@
       "when": 1790828816884,
       "tag": "0071_wedding_owners",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1790838041219,
+      "tag": "0072_wedding_soft_delete",
+      "breakpoints": true
     }
   ]
 }
