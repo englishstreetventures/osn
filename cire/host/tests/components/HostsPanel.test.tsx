@@ -487,6 +487,49 @@ describe("HostsPanel", () => {
       expect(onLeft).not.toHaveBeenCalled();
     });
 
+    it("holds the dialog open and disabled while the leave is in flight", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      let settle!: (res: Response) => void;
+      authFetchMock.mockReturnValueOnce(new Promise<Response>((r) => (settle = r)));
+      render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave />);
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+
+      const confirm = await screen.findByRole("button", { name: /Leaving…/i });
+      expect((confirm as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: /Cancel/i }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+      settle(json({ left: true }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+    });
+
+    it("sends an expired session to sign in", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError"));
+      render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave />);
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+    });
+
+    it("says the API may be down on a network error, and keeps the wedding", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/API running/i);
+      expect(onLeft).not.toHaveBeenCalled();
+    });
+
     it("keeps the wedding and says why on a failure", async () => {
       authFetchMock.mockResolvedValueOnce(hostsBody());
       authFetchMock.mockResolvedValueOnce(json({ error: "owner_cannot_leave" }, 409));
