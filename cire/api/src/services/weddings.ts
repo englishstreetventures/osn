@@ -1,8 +1,9 @@
 import { weddingHosts, weddings } from "@cire/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
+import { epochSeconds, RESTORE_WINDOW_S, restoreUntil } from "../db/live-wedding";
 import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
@@ -24,6 +25,23 @@ export type WeddingSummary = {
   entitlements: string[];
   /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
   guestCap: number;
+};
+
+/** A soft-deleted wedding its owner can still restore, as the list shows it. */
+export type DeletedWeddingSummary = {
+  id: string;
+  slug: string;
+  displayName: string;
+  deletedAt: Date;
+  restoreUntil: Date;
+};
+
+/** The organiser's weddings: live ones to open, deleted ones to restore. */
+export type MemberWeddings = {
+  weddings: WeddingSummary[];
+  /** Only weddings the caller OWNS, and only inside the restore window. Never
+   *  in `weddings`, so no reader of that list can open a deleted wedding. */
+  deleted: DeletedWeddingSummary[];
 };
 
 /** Raised when a new wedding row cannot be persisted (slug collisions are
@@ -68,10 +86,18 @@ export const weddingsService = {
    * (legacy `host` normalised to `editor`) so the portal can label it and gate
    * write + management surfaces. One query: a profile holds at most one seat
    * per wedding, so the join yields each wedding once.
+   *
+   * A soft-deleted wedding is never in `weddings`. It comes back in `deleted`
+   * only to an owner, and only until its restore window closes; every other
+   * seat loses it the moment it is deleted.
    */
-  listForMember(osnProfileId: string): Effect.Effect<WeddingSummary[], never, DbService> {
+  listForMember(
+    osnProfileId: string,
+    now: Date = new Date(),
+  ): Effect.Effect<MemberWeddings, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const windowStartS = epochSeconds(now) - RESTORE_WINDOW_S;
       const rows = yield* dbQuery(() =>
         db
           .select({
@@ -79,10 +105,19 @@ export const weddingsService = {
             slug: weddings.slug,
             displayName: weddings.displayName,
             role: weddingHosts.role,
+            deletedAt: weddings.deletedAt,
           })
           .from(weddingHosts)
           .innerJoin(weddings, eq(weddingHosts.weddingId, weddings.id))
-          .where(eq(weddingHosts.osnProfileId, osnProfileId))
+          .where(
+            and(
+              eq(weddingHosts.osnProfileId, osnProfileId),
+              or(
+                isNull(weddings.deletedAt),
+                and(eq(weddingHosts.role, "owner"), sql`${weddings.deletedAt} > ${windowStartS}`),
+              ),
+            ),
+          )
           .orderBy(asc(weddingHosts.createdAt))
           // Defensive ceiling: an organiser holds a handful of seats, so this
           // never truncates real data — it just bounds the worst-case payload
@@ -90,14 +125,29 @@ export const weddingsService = {
           .limit(200)
           .all(),
       );
-      return rows.map((w) => ({
-        id: w.id,
-        slug: w.slug,
-        displayName: w.displayName,
-        role: normaliseHostRole(w.role),
-        entitlements: [],
-        guestCap: 100,
-      }));
+      const live: WeddingSummary[] = [];
+      const deleted: DeletedWeddingSummary[] = [];
+      for (const w of rows) {
+        if (w.deletedAt === null) {
+          live.push({
+            id: w.id,
+            slug: w.slug,
+            displayName: w.displayName,
+            role: normaliseHostRole(w.role),
+            entitlements: [],
+            guestCap: 100,
+          });
+        } else {
+          deleted.push({
+            id: w.id,
+            slug: w.slug,
+            displayName: w.displayName,
+            deletedAt: w.deletedAt,
+            restoreUntil: restoreUntil(w.deletedAt),
+          });
+        }
+      }
+      return { weddings: live, deleted };
     }).pipe(Effect.withSpan("cire.wedding.listForMember"));
   },
 

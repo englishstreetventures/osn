@@ -45,6 +45,10 @@ import {
 } from "./routes/organiser-rsvp-changes";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
+  createOrganiserWeddingDeleteRoute,
+  createOrganiserWeddingRestoreRoute,
+} from "./routes/organiser-wedding-lifecycle";
+import {
   createOrganiserExportRoutes,
   createOrganiserPreviewRoutes,
   createOrganiserRemintRoutes,
@@ -159,6 +163,12 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
  * hand-managing a wedding's hosts.
  */
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Default per-USER limiter shared by an owner's wedding delete and restore.
+ * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
+ * anyone deletes or restores weddings by hand.
+ */
+const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the co-host autocomplete (S-L1). osnAuth-gated
  * already, so this just caps the per-keystroke ARC-sign + S2S amplifier (the
@@ -351,6 +361,8 @@ export interface AppOptions {
   remintLimiter?: RateLimiterBackend;
   /** Override the co-host add/remove rate limiter (useful for testing). */
   hostLimiter?: RateLimiterBackend;
+  /** Override the wedding delete + restore rate limiter (useful for testing). */
+  weddingLifecycleLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -592,6 +604,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     weddingCreateLimiter = defaultWeddingCreateLimiter,
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
+    weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -1067,9 +1080,15 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const rootApp: AnyElysia = app;
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
+  // An owner's wedding delete and restore. Mounted past the widening for the
+  // same reason as the upgrade routes below, and before the no-Stripe early
+  // return so they exist in every deployment.
+  const withLifecycle: AnyElysia = rootApp
+    .use(createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+    .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter));
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
-    ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
-    : rootApp;
+    ? withLifecycle.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
+    : withLifecycle;
   // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
   // than inside the organiser chain above: that chain is already at
   // TypeScript's instantiation-depth limit (see the comment on `rootApp`), and

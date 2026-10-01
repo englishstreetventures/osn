@@ -72,9 +72,27 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { MAX_EVENT_BYTES, readBoundedText } from "../lib/webhook-body";
+import { metricRegistryStripeUnmatched } from "../metrics";
+import type { StripeUnmatchedEvent } from "../metrics";
 import { runCire } from "../observability";
 import { registryService } from "../services/registry";
 import { verifyStripeWebhook } from "../services/stripe";
+
+/**
+ * A refund or dispute on a connected account whose gift has no row here: the
+ * gift was never recorded, or its wedding has been purged. Still acknowledged
+ * (a retry would find nothing either), but never silently — a dispute reaches
+ * the platform's balance. No ids are logged; the event type is the whole
+ * attribute.
+ */
+const reportUnmatched = (event: StripeUnmatchedEvent) =>
+  Effect.sync(() => metricRegistryStripeUnmatched(event)).pipe(
+    Effect.andThen(
+      Effect.logWarning("stripe webhook: money event for a gift cire has no row for").pipe(
+        Effect.annotateLogs({ event }),
+      ),
+    ),
+  );
 
 /** Events this product acts on. Everything else is acknowledged and dropped. */
 const ACCOUNT_UPDATED = "account.updated";
@@ -346,6 +364,7 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
                 typeof charge?.amount_refunded === "number" ? charge.amount_refunded : null,
               fullyRefunded: charge?.refunded === true,
             });
+            if (outcome === "unknown") yield* reportUnmatched("refund");
             return { received: true, outcome };
           }
 
@@ -383,6 +402,7 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
               stripeAccountId,
               resolution,
             });
+            if (outcome === "unknown") yield* reportUnmatched("dispute");
             return { received: true, outcome };
           }
 

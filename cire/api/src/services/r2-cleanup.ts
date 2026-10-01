@@ -37,9 +37,10 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Best-effort bulk R2 object reaper, shared by any flow that orphans R2 objects
- * when it deletes the D1 rows that referenced them (today: the guest-data
- * retention sweep; a future organiser wedding-delete flow would call it too).
+ * Best-effort bulk R2 object reaper, shared by every flow that orphans R2
+ * objects when it deletes the D1 rows that referenced them: the guest-data
+ * retention sweep, the stale-preview sweep, and the purge of soft-deleted
+ * weddings, which reaps both buckets.
  *
  * Why a separate helper: cire stores R2 **keys** in D1 (`imports.events_r2_key`
  * / `guests_r2_key` in the `cire-sheets` bucket; `wedding_invite_customisations`

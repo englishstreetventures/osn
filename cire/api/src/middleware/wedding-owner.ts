@@ -10,7 +10,7 @@ import { readOsnProfileId } from "./upstream-context";
 import type { WeddingEntitlementFold } from "./wedding-member";
 import { decideCapability } from "./wedding-role";
 
-interface GateError {
+export interface GateError {
   status: number;
   body: { error: string };
 }
@@ -79,6 +79,43 @@ export function weddingOwner(db: Db, entitlementKey?: EntitlementKey) {
           ? { key: entitlementKey, entitled: result.entitled }
           : undefined,
       );
+    })
+    .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
+      if (weddingGateError) {
+        set.status = weddingGateError.status;
+        return weddingGateError.body;
+      }
+    });
+}
+
+/**
+ * {@link weddingOwner} for the one route that must reach a soft-deleted
+ * wedding: its owners' restore. The same capability check, over
+ * `hostsService.authorizeIncludingDeleted()`, so a deleted wedding's owner
+ * passes while every other organiser route answers it 404. Live or deleted is
+ * the route's own question: its guarded write refuses a live wedding.
+ */
+export function weddingOwnerIncludingDeleted(db: Db) {
+  return new Elysia()
+    .derive({ as: "scoped" }, async (ctx) => {
+      const { params } = ctx;
+      const osnProfileId = readOsnProfileId(ctx);
+
+      const weddingId = params?.weddingId;
+      if (!weddingId) return fail(400, "wedding_id_missing");
+      if (!osnProfileId) return fail(401, "unauthorised");
+
+      const result = await runCire(
+        hostsService
+          .authorizeIncludingDeleted(weddingId, osnProfileId)
+          .pipe(Effect.provideService(DbService, db)),
+      );
+
+      if (!result) return fail(404, "wedding_not_found");
+      if (!result.role || !decideCapability(result.role, "manage").allowed) {
+        return fail(403, "forbidden");
+      }
+      return pass(weddingId, undefined);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

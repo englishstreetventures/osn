@@ -29,6 +29,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { Data, Effect, type Types } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
+import { weddingIdIsLive } from "../db/live-wedding";
 import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
 import type { DirectoryVendorRow } from "./directory";
@@ -586,6 +587,9 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
                 eq(vendorEnquiries.directoryVendorId, input.directoryVendorId),
                 eq(vendorEnquiries.status, "open"),
                 isNull(vendorEnquiries.zapChatId),
+                // A soft-deleted wedding's enquiry stays buffered: no chat is
+                // opened with the couple and their message is not sent.
+                weddingIdIsLive(vendorEnquiries.weddingId),
               ),
             )
             .all(),

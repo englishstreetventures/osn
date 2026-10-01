@@ -43,6 +43,7 @@ import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { entitlementPresent } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
@@ -2891,7 +2892,8 @@ function resolveVisibleRegistry(
         })
         .from(weddings)
         .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
-        .where(eq(weddings.slug, slug))
+        // A soft-deleted wedding has no registry to show, as an unknown slug.
+        .where(and(eq(weddings.slug, slug), weddingIsLive))
         .all(),
     );
     const row = found as GateRow | undefined;

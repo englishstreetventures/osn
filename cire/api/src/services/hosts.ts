@@ -14,6 +14,7 @@ import {
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { entitlementPresent } from "./entitlements";
 import type { EntitlementKey } from "./entitlements";
 
@@ -331,7 +332,8 @@ const callerSeat = (osnProfileId: string) =>
  * The entitlement-free `authorize()`: the wedding row and the caller's seat on
  * it, in one query, with no `wedding_entitlements` column. Kept apart so both
  * the plain caller and {@link authorizeWithEntitlement}'s defect fallback can
- * reach it.
+ * reach it. A soft-deleted wedding matches no row, so every gate answers it
+ * as unknown.
  */
 function authorizePlain(
   weddingId: string,
@@ -349,7 +351,7 @@ function authorizePlain(
         })
         .from(weddings)
         .leftJoin(weddingHosts, callerSeat(osnProfileId))
-        .where(eq(weddings.id, weddingId))
+        .where(and(eq(weddings.id, weddingId), weddingIsLive))
         .all(),
     );
     return row ? resolveSeat(row) : null;
@@ -385,7 +387,7 @@ function authorizeWithEntitlement(
         })
         .from(weddings)
         .leftJoin(weddingHosts, callerSeat(osnProfileId))
-        .where(eq(weddings.id, weddingId))
+        .where(and(eq(weddings.id, weddingId), weddingIsLive))
         .all(),
     );
     if (!row) return null;
@@ -760,5 +762,35 @@ export const hostsService = {
       return authorizeWithEntitlement(weddingId, osnProfileId, entitlementKey);
     }
     return authorizePlain(weddingId, osnProfileId);
+  },
+
+  /**
+   * `authorize()` for the one route that must see a soft-deleted wedding: its
+   * owners' restore. The same single query without the live-wedding predicate,
+   * carrying `deletedAt` (null for a live wedding). No other caller may use
+   * it — every other organiser route answers a deleted wedding as unknown.
+   */
+  authorizeIncludingDeleted(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<(AuthorizeResult & { deletedAt: Date | null }) | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            slug: weddings.slug,
+            seatId: weddingHosts.id,
+            role: weddingHosts.role,
+            runSheetScope: weddingHosts.runSheetScope,
+            deletedAt: weddings.deletedAt,
+          })
+          .from(weddings)
+          .leftJoin(weddingHosts, callerSeat(osnProfileId))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      return row ? { ...resolveSeat(row), deletedAt: row.deletedAt } : null;
+    }).pipe(Effect.withSpan("cire.host.authorizeIncludingDeleted"));
   },
 };

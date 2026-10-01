@@ -110,9 +110,10 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       return runCire(
         Effect.gen(function* () {
           const list = yield* weddingsService.listForMember(osnProfileId);
-          const sets = yield* entitlementService.setsForWeddings(list.map((w) => w.id));
+          // Entitlements matter only to a wedding that can be opened.
+          const sets = yield* entitlementService.setsForWeddings(list.weddings.map((w) => w.id));
           return {
-            weddings: list.map((w) => {
+            weddings: list.weddings.map((w) => {
               const keys = sets.get(w.id) ?? [];
               return {
                 ...w,
@@ -120,6 +121,14 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                 guestCap: entitlementService.deriveCap(keys),
               };
             }),
+            // An owner's soft-deleted weddings they can still restore.
+            deleted: list.deleted.map((w) => ({
+              id: w.id,
+              slug: w.slug,
+              displayName: w.displayName,
+              deletedAt: w.deletedAt.toISOString(),
+              restoreUntil: w.restoreUntil.toISOString(),
+            })),
           };
         }).pipe(
           Effect.provideService(DbService, db),

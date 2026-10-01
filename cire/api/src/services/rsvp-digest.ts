@@ -41,6 +41,7 @@ import { Data, Effect } from "effect";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { deriveDigestStopKey, digestStopUrl, type DigestStopTarget } from "../lib/digest-stop";
 import { metricRsvpDigestEmails, type RsvpDigestOutcome } from "../metrics";
 import { decideCapability, type WeddingRole } from "../middleware/wedding-role";
@@ -313,7 +314,9 @@ export const rsvpDigestService = {
                 name: weddings.displayName,
               })
               .from(weddings)
-              .where(inArray(weddings.id, jsonEachIn(weddingIds)))
+              // A soft-deleted wedding is left out, and with it every one of
+              // its recipients below.
+              .where(and(inArray(weddings.id, jsonEachIn(weddingIds)), weddingIsLive))
               .all(),
           ),
           read(() =>
@@ -356,6 +359,7 @@ export const rsvpDigestService = {
       }));
       const pending: Recipient[] = [];
       for (const person of people) {
+        if (!names.has(person.weddingId)) continue;
         if (!receivesDigest(person.role)) continue;
         const notice = notices.get(noticeKey(person.weddingId, person.osnProfileId));
         if (notice?.digestEnabled === false) continue;

@@ -116,6 +116,17 @@ export const CIRE_METRICS = {
   inviteOpened: "cire.invite.opened",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
+  // An owner's soft delete of a wedding, their restore of it, and the daily
+  // purge that hard-deletes it once the restore window has passed.
+  weddingDeleted: "cire.wedding.deleted",
+  weddingRestored: "cire.wedding.restored",
+  weddingPurged: "cire.wedding.purged",
+  // Deleted weddings past their window that a purge run left for a later one
+  // because of its per-run cap — the backlog, recorded once per run.
+  weddingPurgeBacklog: "cire.wedding.purge.backlog",
+  // A Stripe Connect refund or dispute whose gift cire cannot find — the gift
+  // was never recorded here, or its wedding was purged.
+  registryStripeUnmatched: "cire.registry.stripe.unmatched",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
   // Settings writes refused because a non-owner reached past the RSVP-by date.
@@ -220,6 +231,24 @@ export type InviteOpenedResult = "ok" | "error";
 
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
+export type WeddingDeletedResult =
+  | "ok"
+  | "confirmation_mismatch"
+  | "purchase_in_flight"
+  | "gift_in_flight"
+  | "change_in_progress"
+  | "forbidden"
+  | "not_found"
+  | "error";
+export type WeddingRestoredResult =
+  | "ok"
+  | "not_deleted"
+  | "restore_window_passed"
+  | "forbidden"
+  | "not_found"
+  | "error";
+export type WeddingPurgedResult = "ok" | "held" | "error";
+export type StripeUnmatchedEvent = "refund" | "dispute";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */
@@ -498,6 +527,10 @@ type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
 type FamilyDeactivatedAttrs = { action: FamilyDeactivateAction; result: FamilyDeactivatedResult };
 type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
+type WeddingDeletedAttrs = { result: WeddingDeletedResult };
+type WeddingRestoredAttrs = { result: WeddingRestoredResult };
+type WeddingPurgedAttrs = { result: WeddingPurgedResult };
+type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult };
@@ -825,6 +858,39 @@ const weddingCreated = createCounter<WeddingCreatedAttrs>({
   unit: "{wedding}",
 });
 
+const weddingDeleted = createCounter<WeddingDeletedAttrs>({
+  name: CIRE_METRICS.weddingDeleted,
+  description: "Owner soft deletes of a wedding, by outcome",
+  unit: "{wedding}",
+});
+
+const weddingRestored = createCounter<WeddingRestoredAttrs>({
+  name: CIRE_METRICS.weddingRestored,
+  description: "Owner restores of a soft-deleted wedding, by outcome",
+  unit: "{wedding}",
+});
+
+const weddingPurged = createCounter<WeddingPurgedAttrs>({
+  name: CIRE_METRICS.weddingPurged,
+  description:
+    "Soft-deleted weddings past their restore window, per daily purge: hard-deleted, held for money or a change still in flight, or failed",
+  unit: "{wedding}",
+});
+
+const weddingPurgeBacklog = createHistogram<Record<never, never>>({
+  name: CIRE_METRICS.weddingPurgeBacklog,
+  description:
+    "Deleted weddings due for purge that a run left for a later one because of its per-run cap",
+  unit: "{wedding}",
+  boundaries: [0, 1, 3, 10, 30, 100],
+});
+
+const registryStripeUnmatched = createCounter<StripeUnmatchedAttrs>({
+  name: CIRE_METRICS.registryStripeUnmatched,
+  description: "Stripe Connect refund and dispute events whose gift cire has no row for, by event",
+  unit: "{event}",
+});
+
 const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
   name: CIRE_METRICS.weddingSettingsSaved,
   description: "Wedding-profile (Settings) saves, by outcome",
@@ -1091,6 +1157,23 @@ export const metricInviteOpened = (result: InviteOpenedResult): void =>
 
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });
+
+export const metricWeddingDeleted = (result: WeddingDeletedResult): void =>
+  weddingDeleted.inc({ result });
+
+export const metricWeddingRestored = (result: WeddingRestoredResult): void =>
+  weddingRestored.inc({ result });
+
+/** Weddings one purge run hard-deleted, held or failed on. Zero adds nothing. */
+export const metricWeddingPurged = (result: WeddingPurgedResult, count: number): void => {
+  if (count > 0) weddingPurged.add(count, { result });
+};
+
+/** The purge backlog one run left behind, recorded every run (zero included). */
+export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});
+
+export const metricRegistryStripeUnmatched = (event: StripeUnmatchedEvent): void =>
+  registryStripeUnmatched.inc({ event });
 
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });

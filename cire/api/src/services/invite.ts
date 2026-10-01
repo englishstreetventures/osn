@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import {
   decodeCrop,
@@ -614,8 +615,13 @@ export const inviteService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [wedding] = yield* dbQuery(() =>
-        db.select({ id: weddings.id }).from(weddings).where(eq(weddings.slug, slug)).all(),
+        db
+          .select({ id: weddings.id })
+          .from(weddings)
+          .where(and(eq(weddings.slug, slug), weddingIsLive))
+          .all(),
       );
+      // A soft-deleted wedding is answered as an unknown slug.
       if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const full = yield* inviteService.getForWedding(wedding.id, slug);
       return publicView(full);
@@ -639,7 +645,7 @@ export const inviteService = {
           .select({ familyId: families.id })
           .from(families)
           .innerJoin(weddings, eq(weddings.id, families.weddingId))
-          .where(and(eq(families.id, familyId), eq(weddings.slug, slug)))
+          .where(and(eq(families.id, familyId), eq(weddings.slug, slug), weddingIsLive))
           .all(),
       );
       return Boolean(row);
@@ -697,7 +703,7 @@ export const inviteService = {
             weddingInviteCustomisations,
             eq(weddingInviteCustomisations.weddingId, weddings.id),
           )
-          .where(eq(weddings.slug, slug))
+          .where(and(eq(weddings.slug, slug), weddingIsLive))
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
