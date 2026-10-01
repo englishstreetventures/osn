@@ -29,6 +29,7 @@ import {
   authFetchMock,
   redirectSpy,
   resetOrganiserMocks,
+  toastError,
   toastSuccess,
 } from "../test-support/mocks";
 
@@ -389,6 +390,84 @@ describe("HostsPanel", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add host/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Remove/i })).toBeNull();
+  });
+
+  describe("leaving the wedding", () => {
+    const hostsBody = () =>
+      json({ hosts: [{ osnProfileId: "usr_bob", role: "viewer", createdAt: 1 }] });
+
+    it("offers no leave control to the owner", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      expect(screen.queryByRole("button", { name: /Leave this wedding/i })).toBeNull();
+    });
+
+    it("asks first, then sends DELETE /hosts/me and reports the leave after the toast", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockResolvedValueOnce(json({ left: true }));
+      const order: string[] = [];
+      toastSuccess.mockImplementation(() => order.push("toast"));
+      const onLeft = vi.fn(() => order.push("left"));
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      // Opening the dialog sends nothing.
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+
+      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+      const [url, init] = authFetchMock.mock.calls[1]!;
+      expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/me");
+      expect((init as RequestInit).method).toBe("DELETE");
+      expect(order).toEqual(["toast", "left"]);
+    });
+
+    it("sends nothing when the confirmation is cancelled", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Cancel/i }));
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+      expect(onLeft).not.toHaveBeenCalled();
+    });
+
+    it("treats a 403 as already gone — the seat was removed elsewhere", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it("keeps the wedding and says why on a failure", async () => {
+      authFetchMock.mockResolvedValueOnce(hostsBody());
+      authFetchMock.mockResolvedValueOnce(json({ error: "owner_cannot_leave" }, 409));
+      const onLeft = vi.fn();
+      render(() => (
+        <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} canLeave onLeft={onLeft} />
+      ));
+      await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/own this wedding/i);
+      expect(onLeft).not.toHaveBeenCalled();
+    });
   });
 
   it("redirects to login on a 401 during load", async () => {
