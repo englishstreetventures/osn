@@ -18,13 +18,20 @@
  */
 
 import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, notInArray, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatchesReturning, type Db, DbService, dbQuery } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
 import type { StripeClient } from "./stripe";
-import { normaliseTier, type PaidTier, type Tier, tierAtLeast, tierService } from "./tiers";
+import {
+  normaliseTier,
+  PAID_TIERS,
+  type PaidTier,
+  type Tier,
+  tierAtLeast,
+  tierService,
+} from "./tiers";
 import type { UpgradeCatalogue } from "./upgrade-catalogue";
 
 /** A purchase attempt that cannot proceed, and why. */
@@ -131,6 +138,13 @@ export function productsAbove(tier: Tier): string[] {
  */
 export const STALE_PENDING_MS = 60_000;
 
+/**
+ * How long a Checkout Session stays payable. `createPlatformCheckoutSession`
+ * sets no `expires_at`, so Stripe's default of a day applies to every session
+ * this product has opened.
+ */
+export const CHECKOUT_SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
 export interface StartPurchaseInput {
   weddingId: string;
   tier: PaidTier;
@@ -180,13 +194,19 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const newId = deps.newId ?? ((prefix: string) => `${prefix}_${crypto.randomUUID()}`);
 
   /**
-   * Both questions `startPurchase` opens with, in one statement: the tier the
-   * wedding is on now, and whether any purchase of it is in flight.
+   * Everything `startPurchase` opens with, in one statement: the tier the
+   * wedding is on now, the purchase of it in flight if there is one, and any
+   * legacy per-module page whose row the tier migration expired.
    *
    * Anchored on `weddings` because the role gate has already proved that row
-   * exists, and the LEFT JOIN can fan out to at most one row:
-   * `wedding_upgrade_purchases_one_pending_uniq` allows one pending row per
-   * wedding, whatever it buys.
+   * exists. The LEFT JOIN fans out to at most one `pending` row —
+   * `wedding_upgrade_purchases_one_pending_uniq` allows one per wedding,
+   * whatever it buys — plus those legacy rows, a handful at most.
+   *
+   * A LEGACY ROW is one the migration marked `expired` without closing its
+   * Stripe session, which stays payable for a day after it opened. It is read
+   * here while it may still be payable, so the double-charge guard sees every
+   * page that could still take money. Removed by englishstventures/osn#1315.
    */
   const openingRead = (db: Db, weddingId: string) =>
     dbQuery(() =>
@@ -194,6 +214,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         .select({
           tier: weddings.tier,
           id: weddingUpgradePurchases.id,
+          status: weddingUpgradePurchases.status,
           product: weddingUpgradePurchases.entitlement,
           fromTier: weddingUpgradePurchases.fromTier,
           sessionId: weddingUpgradePurchases.checkoutSessionId,
@@ -204,31 +225,80 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           weddingUpgradePurchases,
           and(
             eq(weddingUpgradePurchases.weddingId, weddings.id),
-            eq(weddingUpgradePurchases.status, "pending"),
+            or(
+              eq(weddingUpgradePurchases.status, "pending"),
+              and(
+                eq(weddingUpgradePurchases.status, "expired"),
+                notInArray(weddingUpgradePurchases.entitlement, [...PAID_TIERS]),
+                isNotNull(weddingUpgradePurchases.checkoutSessionId),
+                gt(
+                  weddingUpgradePurchases.createdAt,
+                  new Date(now() - CHECKOUT_SESSION_LIFETIME_MS),
+                ),
+              ),
+            ),
           ),
         )
         .where(eq(weddings.id, weddingId))
         .all(),
     ).pipe(
       Effect.map((rows) => {
-        const row = rows[0];
+        // A LEFT JOIN with no match leaves the purchase columns null, which
+        // is "no live attempt" — distinct from "no wedding", which the gate
+        // already ruled out.
+        const pendingRow = rows.find((r) => r.status === "pending");
         return {
-          tier: normaliseTier(row?.tier),
-          // A LEFT JOIN with no match leaves the purchase columns null, which
-          // is "no live attempt" — distinct from "no wedding", which the gate
-          // already ruled out.
+          tier: normaliseTier(rows[0]?.tier),
           pending:
-            row && row.id !== null && row.product !== null && row.createdAt !== null
+            pendingRow &&
+            pendingRow.id !== null &&
+            pendingRow.product !== null &&
+            pendingRow.createdAt !== null
               ? {
-                  id: row.id,
-                  product: row.product,
-                  fromTier: row.fromTier,
-                  sessionId: row.sessionId,
-                  createdAt: row.createdAt,
+                  id: pendingRow.id,
+                  product: pendingRow.product,
+                  fromTier: pendingRow.fromTier,
+                  sessionId: pendingRow.sessionId,
+                  createdAt: pendingRow.createdAt,
                 }
               : null,
+          legacyPages: rows.flatMap((r) =>
+            r.status === "expired" && r.id !== null && r.sessionId !== null
+              ? [{ id: r.id, sessionId: r.sessionId }]
+              : [],
+          ),
         };
       }),
+    );
+
+  /**
+   * Ask Stripe where a session has got to. A probe that could not run is not
+   * evidence the session is dead, so it reads `unknown` — which every caller
+   * answers by waiting, never by minting a second payment page.
+   */
+  const probeSession = (purchaseId: string, sessionId: string) =>
+    deps.stripe.retrievePlatformCheckoutSession(sessionId).pipe(
+      Effect.catch((e: unknown) =>
+        Effect.logError("upgrade session probe failed", {
+          purchaseId,
+          reason: String(e),
+        }).pipe(Effect.as({ status: "unknown" as const })),
+      ),
+    );
+
+  /**
+   * Close an open session at Stripe so it can no longer be paid. `false` when
+   * Stripe refused, which means it may have completed in the meantime.
+   */
+  const expireAtStripe = (purchaseId: string, sessionId: string) =>
+    deps.stripe.expirePlatformCheckoutSession(sessionId).pipe(
+      Effect.as(true),
+      Effect.catch((e: unknown) =>
+        Effect.logError("upgrade session expire failed", {
+          purchaseId,
+          reason: String(e),
+        }).pipe(Effect.as(false)),
+      ),
     );
 
   /**
@@ -298,7 +368,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       return Effect.gen(function* () {
         const db = yield* DbService;
 
-        // 1. One statement answers both opening questions — see `openingRead`.
+        // 1. One statement answers the opening questions — see `openingRead`.
         const opening = yield* openingRead(db, input.weddingId);
         const from = opening.tier;
         const started = (result: Parameters<typeof metricUpgradeCheckoutStarted>[2]) =>
@@ -323,7 +393,22 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           return yield* Effect.fail(new UpgradeUnavailable({ tier: input.tier }));
         }
 
-        // 2. Resolve any live attempt BEFORE inserting. The partial unique
+        // 2. Close every legacy page that may still be payable, at Stripe,
+        //    before anything else: its row already reads `expired`, so the
+        //    pending-row logic below would never see it. Paid but unsettled,
+        //    or not closable, means wait. Removed by englishstventures/osn#1315.
+        for (const legacy of opening.legacyPages) {
+          const probe = yield* probeSession(legacy.id, legacy.sessionId);
+          const closed =
+            probe.status === "expired" ||
+            (probe.status === "open" && (yield* expireAtStripe(legacy.id, legacy.sessionId)));
+          if (!closed) {
+            started("processing");
+            return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
+          }
+        }
+
+        // 3. Resolve any live attempt BEFORE inserting. The partial unique
         //    index is the backstop behind this, not the control flow.
         const existing = opening.pending;
         if (existing !== null) {
@@ -335,20 +420,10 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           const samePurchase = existing.product === input.tier && existing.fromTier === from;
 
           if (existing.sessionId !== null) {
-            const probe = yield* deps.stripe
-              .retrievePlatformCheckoutSession(existing.sessionId)
-              .pipe(
-                Effect.catch((e: unknown) =>
-                  // A probe we could not run is not evidence the session is
-                  // dead. Answering "processing" makes the organiser wait and
-                  // retry; answering "expired" would mint a second payment page
-                  // for a session that may well be open.
-                  Effect.logError("upgrade session probe failed", {
-                    purchaseId: existing.id,
-                    reason: String(e),
-                  }).pipe(Effect.as({ status: "unknown" as const })),
-                ),
-              );
+            // A probe that could not run answers `unknown`: waiting and
+            // retrying is safe, while reading it as expired would mint a
+            // second payment page for a session that may well be open.
+            const probe = yield* probeSession(existing.id, existing.sessionId);
 
             if (probe.status === "complete" || probe.status === "unknown") {
               // THE DOUBLE-CHARGE GUARD. A complete session means the money has
@@ -368,17 +443,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               // Another product's page is still payable. Close it at Stripe
               // before opening this one, so the two can never both be paid. A
               // refusal means it may have completed in the meantime — wait.
-              const expired = yield* deps.stripe
-                .expirePlatformCheckoutSession(existing.sessionId)
-                .pipe(
-                  Effect.as(true),
-                  Effect.catch((e: unknown) =>
-                    Effect.logError("upgrade session expire failed", {
-                      purchaseId: existing.id,
-                      reason: String(e),
-                    }).pipe(Effect.as(false)),
-                  ),
-                );
+              const expired = yield* expireAtStripe(existing.id, existing.sessionId);
               if (!expired) {
                 started("processing");
                 return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
@@ -401,7 +466,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           }
         }
 
-        // 3. Insert through tryPromise, not dbQuery: a partial-index conflict
+        // 4. Insert through tryPromise, not dbQuery: a partial-index conflict
         //    must land in the error channel as a 409, not as a defect (a 500).
         //    `from` ranks below `input.tier`, so it is Ivory or Gold.
         const fromTier = from === "gold" ? "gold" : "ivory";
@@ -437,7 +502,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           },
         });
 
-        // 4. Mint the session. On failure close our own row in the same request
+        // 5. Mint the session. On failure close our own row in the same request
         //    so the next press is not made to wait out the staleness window.
         const session = yield* deps.stripe
           .createPlatformCheckoutSession({
@@ -457,7 +522,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             Effect.mapError((e) => new UpgradeProviderError({ reason: String(e) })),
           );
 
-        // 5. Store the session id CONDITIONALLY and check the row count. Zero
+        // 6. Store the session id CONDITIONALLY and check the row count. Zero
         //    rows means somebody closed or claimed this row while Stripe was
         //    thinking, and handing out its URL would take a payment into a row
         //    that can never settle.

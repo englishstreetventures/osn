@@ -145,6 +145,8 @@ interface StripeStub {
   successUrls: string[];
   /** Session ids this code asked Stripe to expire. */
   expired: string[];
+  /** Session ids this code asked Stripe about. */
+  probed: string[];
   /** What the next probe answers. */
   probe: PlatformSessionState | "error";
   failCreate: boolean;
@@ -163,6 +165,7 @@ function stubStripe(): StripeStub {
     pricedAt: [],
     successUrls: [],
     expired: [],
+    probed: [],
     probe: { status: "expired" },
     failCreate: false,
     failExpire: false,
@@ -189,7 +192,8 @@ function stubStripe(): StripeStub {
       const id = `cs_${minted}`;
       return Effect.succeed({ id, url: `https://pay.test/${id}` });
     },
-    retrievePlatformCheckoutSession() {
+    retrievePlatformCheckoutSession(sessionId: string) {
+      stub.probed.push(sessionId);
       return stub.probe === "error"
         ? Effect.fail(new StripeError({ reason: "unreachable" }))
         : Effect.succeed(stub.probe);
@@ -756,6 +760,122 @@ describe("startPurchase across products", () => {
         .filter((r) => r.status === "pending")
         .map((r) => r.id),
     ).toEqual(["upg_rival"]);
+  });
+});
+
+/**
+ * The tier migration marked every pending per-module purchase `expired` in the
+ * database, but a database write cannot close a Stripe session: each stays
+ * payable until Stripe expires it, a day after it opened. Until then the first
+ * tier checkout on that wedding must close it at Stripe before opening its own,
+ * exactly as it would a pending row's page — or the organiser could pay both.
+ */
+describe("startPurchase and a legacy page the migration closed only in the database", () => {
+  const HOUR = 60 * 60 * 1000;
+  const NOW = BASE_MS + HOUR;
+
+  function legacyPage(
+    db: Db,
+    opts: { id?: string; product?: string; sessionId?: string | null; createdMs?: number } = {},
+  ) {
+    seedPurchase(db, {
+      id: opts.id ?? "upg_vendors",
+      product: opts.product ?? "vendors",
+      fromTier: null,
+      status: "expired",
+      sessionId: opts.sessionId === undefined ? "cs_v" : opts.sessionId,
+      createdMs: opts.createdMs ?? BASE_MS,
+    });
+  }
+
+  it("expires it at Stripe before opening a tier's page", async () => {
+    const db = createDb();
+    seedWedding(db);
+    legacyPage(db);
+    const stripe = stubStripe();
+    stripe.probe = { status: "open", id: "cs_v", url: "https://pay.test/cs_v" };
+    const svc = makeService(stripe.client, { t: NOW });
+
+    const res = await run(db, svc.startPurchase(CRIMSON));
+    expect(res.url).not.toBe("https://pay.test/cs_v");
+    expect(stripe.expired).toEqual(["cs_v"]);
+    expect(stripe.created).toHaveLength(1);
+    expect(purchases(db).find((r) => r.id === "upg_vendors")?.status).toBe("expired");
+  });
+
+  it("closes every such page on the wedding", async () => {
+    const db = createDb();
+    seedWedding(db);
+    legacyPage(db, { id: "upg_vendors", product: "vendors", sessionId: "cs_v" });
+    legacyPage(db, { id: "upg_registry", product: "registry", sessionId: "cs_r" });
+    const stripe = stubStripe();
+    stripe.probe = { status: "open", id: "cs_x", url: "https://pay.test/cs_x" };
+    const svc = makeService(stripe.client, { t: NOW });
+
+    await run(db, svc.startPurchase(START));
+    expect(stripe.expired.toSorted()).toEqual(["cs_r", "cs_v"]);
+  });
+
+  it("waits, and opens nothing, while that page is paid and not yet settled", async () => {
+    const db = createDb();
+    seedWedding(db);
+    legacyPage(db);
+    const stripe = stubStripe();
+    stripe.probe = { status: "complete" };
+    const svc = makeService(stripe.client, { t: NOW });
+
+    expect(await conflictOf(db, svc.startPurchase(CRIMSON))).toBe("processing");
+    expect(stripe.created).toEqual([]);
+    expect(purchases(db).map((r) => r.id)).toEqual(["upg_vendors"]);
+  });
+
+  it("waits when Stripe will not expire it, or cannot be asked", async () => {
+    for (const failure of ["expire", "probe"] as const) {
+      const db = createDb();
+      seedWedding(db);
+      legacyPage(db);
+      const stripe = stubStripe();
+      stripe.probe =
+        failure === "probe"
+          ? "error"
+          : { status: "open", id: "cs_v", url: "https://pay.test/cs_v" };
+      stripe.failExpire = failure === "expire";
+      const svc = makeService(stripe.client, { t: NOW });
+
+      expect(await conflictOf(db, svc.startPurchase(CRIMSON)), failure).toBe("processing");
+      expect(stripe.created, failure).toEqual([]);
+    }
+  });
+
+  it("asks Stripe nothing about a page older than a session can live", async () => {
+    const db = createDb();
+    seedWedding(db);
+    legacyPage(db, { createdMs: NOW - 24 * HOUR - 1000 });
+    const stripe = stubStripe();
+    const svc = makeService(stripe.client, { t: NOW });
+
+    await run(db, svc.startPurchase(CRIMSON));
+    expect(stripe.probed).toEqual([]);
+    expect(stripe.created).toHaveLength(1);
+  });
+
+  it("asks Stripe nothing about an expired tier purchase, or a legacy row with no session", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, {
+      id: "upg_gold_old",
+      product: "gold",
+      status: "expired",
+      sessionId: "cs_g",
+      createdMs: BASE_MS,
+    });
+    legacyPage(db, { id: "upg_sessionless", sessionId: null });
+    const stripe = stubStripe();
+    const svc = makeService(stripe.client, { t: NOW });
+
+    await run(db, svc.startPurchase(CRIMSON));
+    expect(stripe.probed).toEqual([]);
+    expect(stripe.created).toHaveLength(1);
   });
 });
 

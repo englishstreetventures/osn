@@ -13,7 +13,10 @@
 -- pending is a legacy per-module attempt that no tier checkout will resume,
 -- and two of them on one wedding would fail the new index, so they are expired
 -- between dropping the old index and creating the new one. Its webhook still
--- settles, because settle accepts an expired row.
+-- settles, because settle accepts an expired row. Expiring the row does not
+-- close its Stripe session, which stays payable until Stripe expires it a day
+-- after it opened: until then the first tier checkout on that wedding finds
+-- it and closes it at Stripe before opening its own.
 --
 -- `wedding_upgrade_purchases.from_tier` records the tier a purchase started
 -- from, and `price_id`, `price_amount_minor` and `price_currency` the Stripe
