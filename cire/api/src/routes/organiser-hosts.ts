@@ -50,9 +50,10 @@ class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
 
 /**
  * Co-host LISTING — owner OR co-host (weddingMember). A co-host can see who else
- * hosts the wedding from their dashboard; only the owner can change the list
- * (the add/remove instances below are owner-gated). Split from the mutating
- * routes so the read isn't behind the per-IP add limiter.
+ * hosts the wedding from their dashboard; changing the list is the write
+ * instance below (add: owner or editor; remove or re-role someone: owner only;
+ * leave: any co-host, for their own seat). Split from the mutating routes so the
+ * read isn't behind the per-user host-management limiter.
  */
 export const createOrganiserHostsReadRoutes = (
   db: Db,
@@ -136,27 +137,31 @@ export const createOrganiserHostsReadRoutes = (
     );
 
 /**
- * Co-host ADD / REMOVE / ROLE CHANGE. Split into its own instance so the per-IP
- * rate limiter gates the ARC-sign + S2S handle-resolve amplifier on the add (and
+ * Co-host ADD / REMOVE / ROLE CHANGE / LEAVE. Split into its own instance so the
+ * per-user rate limiter gates the ARC-sign + S2S handle-resolve amplifier on the add (and
  * the host-management churn on remove) without touching the dashboard reads. The
  * handle is resolved to a profile id server-to-server over ARC; when the bridge
  * is unconfigured the add fails closed with 503 (the same degradation as
  * account-linking).
  *
- * **The three routes do NOT share a gate.** Adding is `weddingEditor()` — an
+ * **The routes do NOT share a gate.** Adding is `weddingEditor()` — an
  * editor co-host can grow the team, which is what stops the owner being the
  * single person who has to hand out every claim code. Removing and role-changing
- * stay `weddingOwner()`. The split is deliberate and the line is
+ * someone else stay `weddingOwner()`. Leaving (`DELETE /hosts/me`) is
+ * `weddingMember()`. The split is deliberate and the line is
  * additive-versus-subtractive:
  *
  *   - An editor's ceiling is `editor`. Every assignable role ranks at or below
  *     it and the owner is never rowed into `wedding_hosts`, so there is no seat
  *     above the caller's own to grant. Adding a peer is not escalation, and
  *     adding a `viewer` or a `helper` is less than one.
- *   - An editor cannot remove or demote ANYONE, so they cannot evict the owner's
- *     other co-hosts, cannot demote a rival, and cannot take the wedding over.
- *     The owner keeps `DELETE`, so every addition an editor makes is reversible
- *     by the one person who can't be removed.
+ *   - An editor cannot remove or demote anyone else, so they cannot evict the
+ *     owner's other co-hosts, cannot demote a rival, and cannot take the wedding
+ *     over. The owner keeps `DELETE /hosts/:osnProfileId`, so every addition an
+ *     editor makes is reversible by the one person who can't be removed.
+ *   - Leaving is subtractive only over the caller's own seat: the route takes
+ *     no profile id, so it cannot reach anyone else's. The owner has no seat
+ *     and is refused (409 `owner_cannot_leave`) — a wedding always has its owner.
  *
  * That asymmetry is the whole safety argument: the worst an editor can do is add
  * someone unwanted, and the owner can always undo it. Same shape as the
@@ -368,13 +373,58 @@ export const createOrganiserHostsWriteRoutes = (
           return runCire(
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
-              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok"))),
+              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
               Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
               Effect.catchTag("HostWriteError", () =>
                 Effect.sync(() => {
-                  metricHostRemoved("error");
+                  metricHostRemoved("error", "owner");
                   set.status = 500;
                   return { error: "Could not remove host" };
+                }),
+              ),
+              Effect.catchDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    )
+    // LEAVE — any co-host the member gate admits, for their own seat only. A
+    // third group because it is a third gate. The static `/hosts/me` path is
+    // matched ahead of the owner group's `/hosts/:osnProfileId`, and each
+    // group's gate runs only for its own routes, so the owner gate never sees
+    // this request.
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingMember(db))
+        .use(rateLimitMiddlewareByUser(limiter))
+        .delete("/hosts/me", ({ weddingId, osnProfileId, weddingIsOwner, set }) => {
+          if (!weddingId || !osnProfileId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          if (weddingIsOwner) {
+            // The owner is never rowed into `wedding_hosts`, so there is no
+            // seat to delete, and a wedding cannot be left without its owner.
+            // Refused before the service runs: `remove` would also delete the
+            // owner's own `host_rsvp_notices` row.
+            metricHostRemoved("owner_refused", "self");
+            set.status = 409;
+            return { error: "owner_cannot_leave" };
+          }
+          return runCire(
+            hostsService.remove({ weddingId, osnProfileId }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
+              Effect.as({ left: true }),
+              Effect.catchTag("HostWriteError", () =>
+                Effect.sync(() => {
+                  metricHostRemoved("error", "self");
+                  set.status = 500;
+                  return { error: "Could not leave this wedding" };
                 }),
               ),
               Effect.catchDefect(() =>
