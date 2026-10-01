@@ -785,6 +785,7 @@ export const createRegistryImageServeRoutes = (
               // cache path and is told apart only by `versionFromKey`, a 32-bit
               // hash that is not a security primitive and need not be unique.
               cacheSlot: `registry:${weddingId}:${params.name}`,
+              logSlot: "registry",
               variant,
               format,
               visibility: "private",

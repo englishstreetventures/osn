@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-30
 ---
 
 # Logging
@@ -109,6 +109,11 @@ there by hand.
 | `userId` | Yes | Opaque ID, not PII |
 | `handle` | No | User-chosen identifier, treated as PII |
 | `email` | No | PII -- always redacted |
+| A wedding slug | No | It is the couple's names; log the slot or route kind instead |
+
+### Failed-query errors carry no bound values
+
+Redaction matches keys, so it cannot clean a value that is already inside an error's message — and many services log `reason: String(e)`. `drizzle-orm`'s `DrizzleQueryError` puts every bound parameter in its message, which on a failed write means guest names or answers. The repository patches it (`patches/drizzle-orm@0.45.2.patch`, applied by `bun install`): the message is `Failed query: <sql>` only, and `params` stays on the error as a non-enumerable field, so no log line, `String(e)`, JSON form or span exception carries it. `cire/api/tests/db/query-error.test.ts` fails if the patch stops applying. A drizzle upgrade must carry the patch forward. See [[tracing]].
 
 ## Dev-mode OTP logging
 

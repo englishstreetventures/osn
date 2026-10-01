@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-30
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -405,7 +405,7 @@ quietly accepting tokens from anywhere.
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
 | D1 `database_id` | `wrangler.toml` (top-level + `[env.production]`) | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. |
-| `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include the guest, organiser **and** vendor origins. Each entry must be `https://…` or the Worker fails closed at the edge (`src/index.ts:59-74`). Prod = **`https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`**. |
+| `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include the guest, organiser **and** vendor origins. Each entry must be an exact origin (`new URL(o).origin === o`: no path, trailing slash or userinfo) over `https://`, or the Worker fails closed at the edge with a 503; `http://localhost` is accepted only when `OSN_ENV` is `local` (`cire/api/src/lib/web-origin.ts`). Prod = **`https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`**. |
 | `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`). Prod = **`https://id.musubi.social/.well-known/jwks.json`**. |
 | `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes — Worker answers 503 without it** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`, since it is the `iss` claim cire checks. Since 2026-08-30 it is on the edge required-vars list (`cire/api/src/index.ts`), so an unset value takes the Worker down rather than falling back to the localhost default and 401ing every request with nothing to say why. Prod = **`https://id.musubi.social`**. |
 | `OSN_AUDIENCE` | `wrangler.toml` `[env.production.vars]` | **Yes** | `osn-access` (the user access-token audience). |
@@ -1108,7 +1108,7 @@ Run these in order. Each one maps to a startup requirement listed above.
 | osn D1 bindings + per-env vars | `osn/api/wrangler.toml` (`[[env.<env>.d1_databases]]`, `[env.<env>.vars]`) |
 | osn migrations | `osn/db/drizzle/`; scripts `osn/db/package.json` (`db:migrate:*`); prod applied by CI (`deploy-osn-api`) |
 | cire D1 / R2 bindings + prod vars | `cire/api/wrangler.toml:12-43` |
-| cire edge fail-closed + WEB_ORIGIN parse | `cire/api/src/index.ts:44-101` |
+| cire edge fail-closed + WEB_ORIGIN parse | `cire/api/src/index.ts` (`fetch`), rule in `cire/api/src/lib/web-origin.ts` |
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
 | Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations-archive/0015_drop_bootstrap_wedding.sql` (applied; squashed out of the live set 2026-09-10) |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |

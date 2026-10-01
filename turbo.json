@@ -8,8 +8,10 @@
   // invalidates every task in the repo, which is the blunt version of correct.
   // `.browserslistrc` is the same case for builds: Babel core reads it on every
   // Solid transform (it resolves `targets` from it), and it too sits in no
-  // package.
-  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc"],
+  // package. `patches/**` holds the dependency patches `bun install` applies;
+  // `bun.lock` records only their paths, so an edit to one changes no other
+  // input and would otherwise serve every cached test from before it.
+  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc", "patches/**"],
   "tasks": {
     "build": {
       "dependsOn": [

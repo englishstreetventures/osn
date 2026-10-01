@@ -371,6 +371,27 @@
       }
     },
     {
+      // The cire Worker. workerd fills `process.env` on first access inside a
+      // request or cron handler (`nodejs_compat_populate_process_env`, see
+      // cire/api/wrangler.toml) and never while a module is being evaluated,
+      // so a module-scope read sees an empty object in every deployed tier and
+      // silently takes its fallback. Types cannot say "not at module scope",
+      // so this rule does. The osn, pulse and zap Worker sources still hold
+      // module-scope reads and are not covered yet.
+      "files": ["cire/api/src/**"],
+      "rules": {
+        "house/no-module-scope-process-env": "error"
+      }
+    },
+    {
+      // The Bun-only dev entry, which never runs on workerd: there
+      // `process.env` is native and complete at load.
+      "files": ["cire/api/src/local.ts"],
+      "rules": {
+        "house/no-module-scope-process-env": "off"
+      }
+    },
+    {
       // Tests: sequential awaits in loops are usually the point
       // (rate-limit windows, ordered seeding).
       "files": ["**/*.test.*", "**/tests/**"],

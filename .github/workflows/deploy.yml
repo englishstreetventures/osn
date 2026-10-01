@@ -117,10 +117,10 @@ jobs:
           fi
 
           # Anything shared sits under everything: the shared/ packages, the
-          # lockfile, the root build config, and this workflow itself. Rather
+          # dependency patches, the lockfile, the root build config, and this workflow itself. Rather
           # than map each shared package to its consumers (a mapping that rots
           # the first time an import is added), treat any of them as "all".
-          if [ "$all" != "true" ] && echo "$changed" | grep -qE '^(shared/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$|\.github/workflows/deploy\.yml$)'; then
+          if [ "$all" != "true" ] && echo "$changed" | grep -qE '^(shared/|patches/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$|\.github/workflows/deploy\.yml$)'; then
             echo "a shared package or root build file changed — deploying every surface."
             all=true
           fi
