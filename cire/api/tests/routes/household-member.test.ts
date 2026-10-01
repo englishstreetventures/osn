@@ -11,7 +11,7 @@ import {
 } from "@cire/db";
 import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -265,6 +265,22 @@ describe("POST / DELETE /api/claim/member", () => {
     const res = await restore(app, cookie);
     expect(res.status).toBe(200);
     expect(((await jsonBody(res)) as { member: unknown }).member).toBeNull();
+  });
+});
+
+describe("DELETE /api/claim/member when the write fails", () => {
+  it("answers 500, so the page does not show a member it did not clear", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    db.run(
+      sql`CREATE TRIGGER refuse_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+    );
+    const res = await call(app, "DELETE", "/api/claim/member", cookie);
+    expect(res.status).toBe(500);
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(
+      guestId(db, "Bo"),
+    );
   });
 });
 

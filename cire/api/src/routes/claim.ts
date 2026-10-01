@@ -475,16 +475,22 @@ export const createClaimMemberRoutes = (
     .delete("/member", async ({ familyId, request, set }) => {
       const token = parseSessionToken(request.headers.get("cookie"));
       if (familyId && token) {
-        await runCire(
+        const cleared = await runCire(
           sessionService.setMember(token, familyId, null).pipe(
             Effect.provideService(DbService, db),
             Effect.tap(() => Effect.sync(() => metricHouseholdMemberCleared())),
             Effect.withSpan("cire.claim.clearMember"),
-            // Logged inside the service. The page has already returned to
-            // "Who are you?"; the next choice overwrites the stale one.
-            Effect.catchTag("SessionWriteError", () => Effect.void),
+            Effect.as(true),
+            // Logged inside the service. The page keeps the member until this
+            // answers 2xx, so a failed write must not read as cleared: a
+            // reload would bring the last person back.
+            Effect.catchTag("SessionWriteError", () => Effect.succeed(false)),
           ),
         );
+        if (!cleared) {
+          set.status = 500;
+          return { error: "Could not clear your choice" };
+        }
       }
       set.status = 204;
       return null;
