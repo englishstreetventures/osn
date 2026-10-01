@@ -316,6 +316,65 @@ describe("GET /authorize", () => {
     expect(loc.searchParams.get("reason")).toBe("select_account");
   });
 
+  /**
+   * `prompt=select_account` is how a relying party on a shared browser stops a
+   * previous person's account being re-granted silently, so it must park even
+   * when a consent covering the scopes is on record — the case where every
+   * other branch would hand back a code with no screen.
+   */
+  it("parks prompt=select_account when a third-party consent is on record", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "selectc@example.com", "selectc_user");
+    const { requestId, profileId, cookie } = await parkRequest(h, sessionCookie);
+    await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ requestId, profileId, approved: true }),
+      }),
+    );
+    // The consent is live: a plain request is answered silently.
+    const silent = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: sessionCookie } }),
+    );
+    expect(new URL(silent.headers.get("location")!).searchParams.get("code")).toMatch(/^cod_/);
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "select_account" }), {
+        headers: { cookie: sessionCookie },
+      }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("reason")).toBe("select_account");
+    expect(loc.searchParams.get("code")).toBeNull();
+  });
+
+  it("parks prompt=select_account for a first-party client with consent on record", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "selectfp@example.com", "selectfp_user");
+    // The first-party short-cut records consent as it hands back the code.
+    const first = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie } }),
+    );
+    expect(new URL(first.headers.get("location")!).searchParams.get("code")).toMatch(/^cod_/);
+    expect(
+      h.sqlite.query("SELECT COUNT(*) AS n FROM oauth_consents WHERE client_id = 'cid_rp'").get(),
+    ).toEqual({ n: 1 });
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "select_account" }), {
+        headers: { cookie },
+      }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("reason")).toBe("select_account");
+    expect(loc.searchParams.get("code")).toBeNull();
+  });
+
   it("leads with registration for prompt=create even when a session exists", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });
@@ -594,6 +653,47 @@ describe("POST /authorize/decision", () => {
     const second = await decide();
     expect(second.status).toBe(400);
     expect(((await second.json()) as { error: string }).error).toBe("invalid_request");
+  });
+
+  /**
+   * "Use another account" on the account screen: the request was parked under
+   * one account, a second account signs in on the same browser (replacing the
+   * session cookie), and that second account answers. The binding cookie ties
+   * the request to the browser, not to the account that parked it, so the code
+   * goes to the account that decided.
+   */
+  it("lets the account that signed in after parking answer a select_account request", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const firstCookie = await signIn(h, "first@example.com", "first_user");
+    const { requestId, binding } = await startAuthorize(h, firstCookie, {
+      ...goodParams,
+      prompt: "select_account",
+    });
+    const secondCookie = await signIn(h, "second@example.com", "second_user");
+    const cookie = `${secondCookie}; ${binding}`;
+    const ctxRes = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    const { profiles } = (await ctxRes.json()) as { profiles: { id: string; handle: string }[] };
+    expect(profiles.map((p) => p.handle)).toEqual(["second_user"]);
+
+    const res = await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ requestId, profileId: profiles[0].id, approved: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const { redirectTo } = (await res.json()) as { redirectTo: string };
+    expect(new URL(redirectTo).searchParams.get("code")).toMatch(/^cod_/);
+    expect(h.sqlite.query("SELECT profile_id FROM oauth_authorization_codes").all()).toEqual([
+      { profile_id: profiles[0].id },
+    ]);
   });
 
   it("refuses a profile the deciding account does not own", async () => {
