@@ -1,6 +1,6 @@
 {
   "name": "@pulse/web",
-  "version": "0.24.6",
+  "version": "0.24.7",
   "private": true,
   "description": "Pulse - Events platform for OSN",
   "license": "GPL-3.0",
