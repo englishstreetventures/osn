@@ -194,9 +194,11 @@ const threadUrl = (base: string, enquiryId: string): string =>
  *     `zap_chat_id IS NULL`, so a second runner cannot overwrite the first's
  *     chat and a thread the couple closed meanwhile is not marked delivered.
  *
- * A failure after step 1 writes the chat to `handoff_chat_id` in the same
- * UPDATE that bumps `updated_at` (which moves the enquiry to the back of the
- * sweep's queue), so the retry reuses it rather than provisioning another.
+ * A failure after provisioning writes the new chat to `handoff_chat_id` in the
+ * same UPDATE that bumps `updated_at` (which moves the enquiry to the back of
+ * the sweep's queue), so the retry reuses it rather than provisioning another.
+ * A failure on a reused chat clears it, so a chat zap no longer accepts costs
+ * one more chat rather than blocking the enquiry for good.
  * The success path stays one D1 write. `zap_chat_id` alone tells readers a
  * thread exists, and it is set only once the body is delivered, so an open
  * enquiry never shows a chat while its first message waits.
@@ -217,8 +219,10 @@ function flushOnce(
   enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody" | "handoffChatId">,
   vendorProfileId: string,
 ): Effect.Effect<boolean, never, DbService> {
-  // The chat this attempt holds, for the failure path to keep.
+  // The chat this attempt provisioned, for the failure path to keep. A reused
+  // chat that fails is dropped instead (see the catch below).
   let chatId: string | null = enq.handoffChatId;
+  let provisionedNow = false;
   return Effect.gen(function* () {
     if (enq.pendingBody === null) return false;
     const body = enq.pendingBody;
@@ -234,6 +238,7 @@ function flushOnce(
         }),
       );
       chatId = provisioned.chatId;
+      provisionedNow = true;
     } else {
       const reused = chatId;
       const { messages } = yield* Effect.promise(() => zap.listC2bMessages(reused, { limit: 1 }));
@@ -273,18 +278,19 @@ function flushOnce(
         yield* Effect.logError("[enquiries] buffered enquiry hand-off failed").pipe(
           Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
         );
-        // Keep the chat for the retry, and move the enquiry to the back of the
-        // sweep's queue (ordered by `updated_at`) so one that keeps failing
-        // cannot hold every run's slots. The chat is kept only while the
-        // enquiry is still undelivered.
+        // Move the enquiry to the back of the sweep's queue (ordered by
+        // `updated_at`) so one that keeps failing cannot hold every run's
+        // slots. Keep a chat this attempt provisioned, for the retry. Drop a
+        // reused chat that failed: zap may have lost or refused it for good,
+        // and keeping it would fail every retry the same way.
         const db = yield* DbService;
-        const kept = chatId;
+        const kept = provisionedNow ? chatId : null;
         yield* dbQuery(() =>
           db
             .update(vendorEnquiries)
             .set({
               updatedAt: new Date(),
-              handoffChatId: sql`CASE WHEN ${vendorEnquiries.zapChatId} IS NULL THEN COALESCE(${kept}, ${vendorEnquiries.handoffChatId}) ELSE NULL END`,
+              handoffChatId: sql`CASE WHEN ${vendorEnquiries.zapChatId} IS NULL THEN ${kept} ELSE NULL END`,
             })
             .where(eq(vendorEnquiries.id, enq.id))
             .run(),

@@ -724,6 +724,38 @@ describe("flushBufferedEnquiry", () => {
     expect(after.pendingBody).toBeNull();
   });
 
+  it("drops a reused chat that fails, so the next attempt provisions afresh", async () => {
+    const db = db0();
+    const zap = fakeZap();
+    const svc = createEnquiryService({
+      zap: zap.client,
+      sendEmail: fakeEmail().sendEmail,
+      threadBaseUrl: THREAD_BASE,
+    });
+    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
+    if (!Exit.isSuccess(opened)) throw new Error("open failed");
+    db.update(vendorEnquiries)
+      .set({ handoffChatId: "chat_gone" })
+      .where(eq(vendorEnquiries.id, opened.value.id))
+      .run();
+    const lost: ZapChatClient = {
+      ...zap.client,
+      listC2bMessages: async () => {
+        throw new Error("zap-api 404");
+      },
+    };
+
+    await run(db, flushBufferedEnquiry(lost, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID));
+    expect(readEnquiry(db, opened.value.id).handoffChatId).toBeNull();
+
+    const res = await run(
+      db,
+      flushBufferedEnquiry(zap.client, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
+    );
+    expect(Exit.isSuccess(res) && res.value).toBe(true);
+    expect(readEnquiry(db, opened.value.id).zapChatId).toBe("chat_1");
+  });
+
   it("does not send twice when an earlier run sent but failed to record it", async () => {
     const db = db0();
     const zap = fakeZap();

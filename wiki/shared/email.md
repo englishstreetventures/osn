@@ -102,6 +102,7 @@ cire-api sends from the same catalogue:
 | `vendor-claim-invite` | `{ claimUrl, vendorName }` | the vendor directory's claim invite |
 | `registry-gift-summary` | `RegistryGiftSummaryData` (aggregates only) | the retention sweep, as it deletes a wedding's guest data |
 | `rsvp-change-digest` | `{ weddingName, households, counts, rsvpUrl }` — counts per kind of change, no guest name | the daily RSVP digest cron — see [[cire-rsvp-changes]] |
+| `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 
 `otp-recovery` is the only OTP template sent from an **unauthenticated**
 endpoint, which shapes its copy: anyone who knows the address can cause it to
@@ -327,7 +328,7 @@ set the `CLOUDFLARE_*` vars) but is no longer the live transport.
   `LogEmailLive` only (guarded by log level).
 - **Metrics** (in `shared/email/src/metrics.ts`):
   - `osn.email.send.attempts` — counter, `{ template: 18 values,
-    outcome: sent|failed|rate_limited|skipped }`. Cardinality: 72 series.
+    outcome: sent|failed|rate_limited|skipped }`. Cardinality: 76 series.
   - `osn.email.send.duration` — histogram, same attrs.
   - `osn.email.render.duration` — histogram,
     `{ template, outcome: ok|error }`.

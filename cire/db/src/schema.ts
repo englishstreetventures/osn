@@ -597,7 +597,9 @@ export const vendorEnquiries = sqliteTable(
     // The chat a failed hand-off attempt provisioned, kept so the retry reuses
     // it instead of provisioning another. Set only while `pendingBody` is and
     // read only by the hand-off. Never a sign that a thread exists: that is
-    // `zapChatId` alone.
+    // `zapChatId` alone. Its members are the couple and the listing's
+    // claimant when it was provisioned, which holds because a confirmed
+    // claimant never changes.
     handoffChatId: text("handoff_chat_id"),
     status: text("status", { enum: ["open", "quoted", "closed"] })
       .notNull()
