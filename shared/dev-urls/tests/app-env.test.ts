@@ -109,12 +109,16 @@ describe("buildDevEnv", () => {
   });
 
   it("gives @cire/api a WEB_ORIGIN its Workers entry will accept", () => {
-    // cire/api/src/index.ts 503s the whole Worker unless every entry is
-    // https:// or http://localhost. Portless serves TLS, so this holds — but
-    // the assertion is here because that guard lives in another package.
+    // cire/api/src/lib/web-origin.ts 503s the whole Worker unless every entry
+    // is an exact origin (`new URL(o).origin === o`) over https, or
+    // http://localhost outside a deployed tier. Portless serves TLS, so this
+    // holds — but the assertion is here because that guard lives in another
+    // package.
     const origins = buildDevEnv("@cire/api", urlFor("@cire/api")).WEB_ORIGIN!.split(",");
     for (const origin of origins) {
-      expect(origin.startsWith("https://") || origin.startsWith("http://localhost")).toBe(true);
+      const url = new URL(origin);
+      expect(url.origin).toBe(origin);
+      expect(url.protocol === "https:" || url.hostname === "localhost").toBe(true);
     }
   });
 });

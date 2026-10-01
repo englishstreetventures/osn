@@ -18,13 +18,17 @@ import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
   buildRecordStatement,
-  buildUnseenQuery,
+  buildUnseenHouseholdsQuery,
+  buildUnseenPairsQuery,
   classifyRsvpChanges,
+  FEED_ITEM_LIMIT,
   pairKey,
   RSVP_CHANGE_RETENTION_MS,
   rsvpChangeService,
-  summariseUnseen,
-  UNSEEN_ROW_LIMIT,
+  summariseHouseholds,
+  summarisePairs,
+  UNSEEN_PAIR_LIMIT,
+  UNSEEN_SCAN_LIMIT,
   type PriorReply,
 } from "../../src/services/rsvp-changes";
 import { counterValue } from "../test-helpers/metrics-harness";
@@ -56,7 +60,11 @@ async function ok<A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>): Pro
 async function record(
   db: TestDb,
   familyId: string,
-  changes: { guestId: string; eventId: string | null; kind: "reply_new" | "reply_edited" }[],
+  changes: {
+    guestId: string;
+    eventId: string | null;
+    kind: "reply_new" | "reply_edited" | "plus_one_added";
+  }[],
   at = new Date(),
 ) {
   const statement = buildRecordStatement(
@@ -200,79 +208,97 @@ describe("buildRecordStatement", () => {
   });
 });
 
-describe("summariseUnseen", () => {
-  const row = (
-    seq: number,
+describe("summariseHouseholds", () => {
+  const group = (
     familyId: string,
-    guestId: string,
-    eventId: string | null,
     kind: "reply_new" | "reply_edited" | "plus_one_added",
+    last: number,
+    extra: { households?: number; scanned?: number } = {},
   ) => ({
-    seq,
     familyId,
     familyName: familyId.toUpperCase(),
-    guestId,
-    eventId,
     kind,
-    createdAt: new Date(seq * 1000),
+    last,
+    at: last * 10,
+    households: extra.households ?? 2,
+    scanned: extra.scanned ?? 5,
   });
 
-  it("is empty with nothing to mark when nothing is unseen", () => {
-    expect(summariseUnseen([], 5, 500)).toEqual({
-      markSeq: 0,
-      households: 0,
+  it("is empty when nothing is unseen", () => {
+    expect(summariseHouseholds([])).toEqual({ households: 0, truncated: false, items: [] });
+  });
+
+  it("folds groups into households, newest first, kinds in a fixed order", () => {
+    const summary = summariseHouseholds([
+      group("fam_a", "plus_one_added", 8),
+      group("fam_b", "reply_edited", 9),
+      group("fam_a", "reply_new", 7),
+      group("fam_b", "reply_new", 6),
+    ]);
+    expect(summary).toEqual({
+      households: 2,
       truncated: false,
-      items: [],
-      rows: [],
+      items: [
+        {
+          familyId: "fam_b",
+          familyName: "FAM_B",
+          kinds: ["reply_new", "reply_edited"],
+          at: new Date(90_000),
+        },
+        {
+          familyId: "fam_a",
+          familyName: "FAM_A",
+          kinds: ["reply_new", "plus_one_added"],
+          at: new Date(80_000),
+        },
+      ],
     });
   });
 
-  it("folds rows into households, newest first, kinds in a fixed order", () => {
-    const summary = summariseUnseen(
-      [
-        row(9, "fam_b", "g3", "e1", "reply_edited"),
-        row(8, "fam_a", "g1", null, "plus_one_added"),
-        row(7, "fam_a", "g1", "e1", "reply_new"),
-        row(6, "fam_b", "g3", "e1", "reply_new"),
-        row(5, "fam_a", "g2", "e2", "reply_new"),
-      ],
-      5,
-      500,
-    );
-    expect(summary.markSeq).toBe(9);
-    expect(summary.households).toBe(2);
-    expect(summary.items).toEqual([
-      {
-        familyId: "fam_b",
-        familyName: "FAM_B",
-        kinds: ["reply_new", "reply_edited"],
-        at: new Date(9000),
-      },
-      {
-        familyId: "fam_a",
-        familyName: "FAM_A",
-        kinds: ["reply_new", "plus_one_added"],
-        at: new Date(8000),
-      },
-    ]);
-    expect(summary.rows).toEqual([
-      { guestId: "g3", eventId: "e1" },
-      { guestId: "g1", eventId: null },
-      { guestId: "g1", eventId: "e1" },
-      { guestId: "g2", eventId: "e2" },
-    ]);
+  it("calls the count a floor only past the scan limit", () => {
+    expect(
+      summariseHouseholds([group("fam_a", "reply_new", 1, { scanned: UNSEEN_SCAN_LIMIT })])
+        .truncated,
+    ).toBe(false);
+    expect(
+      summariseHouseholds([group("fam_a", "reply_new", 1, { scanned: UNSEEN_SCAN_LIMIT + 1 })])
+        .truncated,
+    ).toBe(true);
+  });
+});
+
+describe("summarisePairs", () => {
+  const pair = (guestId: string, first: number, last: number) => ({
+    guestId,
+    eventId: "e1",
+    first,
+    last,
   });
 
-  it("lists at most the item limit, and flags a read that hit the row limit", () => {
-    const rows = Array.from({ length: 4 }, (_, i) =>
-      row(10 - i, `fam_${i}`, `g${i}`, "e1", "reply_new"),
-    );
-    const summary = summariseUnseen(rows, 2, 3);
-    expect(summary.items.map((i) => i.familyId)).toEqual(["fam_0", "fam_1"]);
-    expect(summary.truncated).toBe(true);
-    expect(summary.households).toBe(3);
-    expect(summary.rows).toHaveLength(3);
-    expect(summary.markSeq).toBe(10);
+  it("marks nothing when nothing is unseen", () => {
+    expect(summarisePairs([], 3)).toEqual({ markSeq: 0, rows: [] });
+  });
+
+  it("marks up to the newest change it read when every pair is shown", () => {
+    expect(summarisePairs([pair("g1", 4, 12), pair("g2", 5, 6)], 3)).toEqual({
+      markSeq: 12,
+      rows: [
+        { guestId: "g1", eventId: "e1" },
+        { guestId: "g2", eventId: "e1" },
+      ],
+    });
+  });
+
+  it("marks up to the newest change when exactly the limit is shown", () => {
+    const summary = summarisePairs([pair("g1", 4, 40), pair("g2", 5, 6)], 2);
+    expect(summary.rows).toHaveLength(2);
+    expect(summary.markSeq).toBe(40);
+  });
+
+  it("stops the marker just below the first pair left out", () => {
+    const summary = summarisePairs([pair("g1", 4, 40), pair("g2", 5, 6), pair("g3", 9, 9)], 2);
+    expect(summary.rows.map((r) => r.guestId)).toEqual(["g1", "g2"]);
+    expect(summary.markSeq).toBe(8);
   });
 });
 
@@ -284,12 +310,15 @@ describe("rsvpChangeService.feed", () => {
     expect(first.households).toBe(1);
     expect(first.digestEnabled).toBe(true);
 
-    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, first.markSeq));
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, table.markSeq));
     await record(db, bo.familyId, [{ guestId: bo.id, eventId: RECEPTION, kind: "reply_edited" }]);
 
     const owner = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
     expect(owner.items.map((i) => i.familyId)).toEqual([bo.familyId]);
-    expect(owner.rows).toEqual([{ guestId: bo.id, eventId: RECEPTION }]);
+    expect((await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).rows).toEqual([
+      { guestId: bo.id, eventId: RECEPTION },
+    ]);
 
     // The editor has marked nothing, so both households are still new to them.
     const editor = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, EDITOR));
@@ -324,21 +353,29 @@ describe("rsvpChangeService.feed", () => {
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
     const feed = await ok(db, rsvpChangeService.feed("wed_elsewhere", OWNER));
     expect(feed.households).toBe(0);
-    expect(feed.markSeq).toBe(0);
+    expect(await ok(db, rsvpChangeService.unseenRows("wed_elsewhere", OWNER))).toEqual({
+      markSeq: 0,
+      rows: [],
+    });
   });
 
-  it("reads through the wedding index, ranging on seq", () => {
+  it("reads each window once, through the wedding index, ranging on seq", () => {
     const { db } = fixture();
-    const { sql: text, params } = buildUnseenQuery(db, BOOTSTRAP_WEDDING_ID, OWNER).toSQL();
-    const plan = db.$client
-      .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
-      .all(...(params as never[]))
-      .map((r) => r.detail)
-      .join("\n");
-    expect(plan).toMatch(
-      /rsvp_changes USING INDEX rsvp_changes_wedding_idx \(wedding_id=\? AND rowid>\?\)/,
-    );
-    expect(UNSEEN_ROW_LIMIT).toBe(500);
+    for (const build of [buildUnseenHouseholdsQuery, buildUnseenPairsQuery]) {
+      const { sql: text, params } = build(db, BOOTSTRAP_WEDDING_ID, OWNER).toSQL();
+      const lines = db.$client
+        .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
+        .all(...(params as never[]))
+        .map((r) => r.detail)
+        .filter((detail) => /\b(SEARCH|SCAN) rsvp_changes\b/.test(detail));
+      expect(lines).toEqual([
+        expect.stringMatching(
+          /^SEARCH rsvp_changes USING INDEX rsvp_changes_wedding_idx \(wedding_id=\? AND rowid>\?\)$/,
+        ),
+      ]);
+    }
+    expect(UNSEEN_SCAN_LIMIT).toBe(5000);
+    expect(UNSEEN_PAIR_LIMIT).toBe(500);
   });
 });
 
@@ -351,8 +388,8 @@ describe("rsvpChangeService.markSeen", () => {
     expect(seen).toBe(newest!.seq);
 
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: RECEPTION, kind: "reply_new" }]);
-    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
-    expect(feed.rows).toEqual([{ guestId: ada.id, eventId: RECEPTION }]);
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(table.rows).toEqual([{ guestId: ada.id, eventId: RECEPTION }]);
   });
 
   it("never moves the marker backwards", async () => {
@@ -361,10 +398,10 @@ describe("rsvpChangeService.markSeen", () => {
       { guestId: ada.id, eventId: HINDU, kind: "reply_new" },
       { guestId: ada.id, eventId: RECEPTION, kind: "reply_new" },
     ]);
-    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
-    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, feed.markSeq));
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, table.markSeq));
     const again = await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, 0));
-    expect(again).toBe(feed.markSeq);
+    expect(again).toBe(table.markSeq);
   });
 });
 
@@ -448,6 +485,18 @@ describe("typed failures", () => {
   const flip = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.flip, Effect.provideService(DbService, db)));
 
+  it("fails both feed reads as RsvpChangeError, never a defect", async () => {
+    const { db } = fixture();
+    db.run(sql`DROP TABLE rsvp_changes`);
+    expect(await flip(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).toMatchObject({
+      _tag: "RsvpChangeError",
+      op: "feed",
+    });
+    expect(await flip(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toMatchObject(
+      { _tag: "RsvpChangeError", op: "feed" },
+    );
+  });
+
   it("fails markSeen, setDigest and sweepExpired as RsvpChangeError, never a defect", async () => {
     const { db } = fixture();
     db.run(sql`DROP TABLE host_rsvp_notices`);
@@ -493,24 +542,141 @@ describe("markSeen on a wedding with no changes", () => {
   });
 });
 
-describe("the feed's row limit", () => {
-  it("reads exactly the limit without calling it truncated, and one more as truncated", async () => {
+describe("the feed's limits", () => {
+  it("calls exactly the scan limit whole, and one more row a floor", async () => {
     const { db, ada } = fixture();
-    const changes = Array.from({ length: UNSEEN_ROW_LIMIT }, (_, i) => ({
+    const changes = Array.from({ length: UNSEEN_SCAN_LIMIT }, (_, i) => ({
+      guestId: `${ada.id}-${i % 10}`,
+      eventId: HINDU,
+      kind: "reply_edited" as const,
+    }));
+    await record(db, ada.familyId, changes);
+    const full = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(full).toMatchObject({ households: 1, truncated: false });
+
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: RECEPTION, kind: "reply_new" }]);
+    const over = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(over).toMatchObject({ households: 1, truncated: true });
+  });
+
+  it("badges the oldest pairs first, and marks seen only what it badged", async () => {
+    const { db, ada, bo } = fixture();
+    // Bo's household changes first, then Ada's floods more pairs than one
+    // table visit shows.
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    const flood = Array.from({ length: UNSEEN_PAIR_LIMIT + 100 }, (_, i) => ({
       guestId: `${ada.id}-${i}`,
       eventId: HINDU,
       kind: "reply_new" as const,
     }));
-    await record(db, ada.familyId, changes);
-    const full = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
-    expect(full.truncated).toBe(false);
-    expect(full.rows).toHaveLength(UNSEEN_ROW_LIMIT);
+    await record(db, ada.familyId, flood);
 
-    await record(db, ada.familyId, [{ guestId: ada.id, eventId: RECEPTION, kind: "reply_new" }]);
-    const over = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
-    expect(over.truncated).toBe(true);
-    expect(over.rows).toHaveLength(UNSEEN_ROW_LIMIT);
-    // The newest change is the one kept, and it is the marker.
-    expect(over.rows[0]).toEqual({ guestId: ada.id, eventId: RECEPTION });
+    const first = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(first.rows).toHaveLength(UNSEEN_PAIR_LIMIT);
+    expect(first.rows[0]).toEqual({ guestId: bo.id, eventId: HINDU });
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, first.markSeq));
+
+    // The next visit badges exactly the pairs the first one left out.
+    const second = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    const shown = new Set([...first.rows, ...second.rows].map((r) => r.guestId));
+    expect(second.rows).toHaveLength(101);
+    expect(shown.size).toBe(UNSEEN_PAIR_LIMIT + 101);
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, second.markSeq));
+    expect(await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      markSeq: 0,
+      rows: [],
+    });
+  });
+
+  it("does not let one household's repeated edits crowd another out of the card", async () => {
+    const { db, ada, bo } = fixture();
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    // Twenty submits of the same pairs: many rows, few pairs.
+    for (let i = 0; i < 20; i++) {
+      await record(
+        db,
+        ada.familyId,
+        Array.from({ length: 50 }, (_, j) => ({
+          guestId: `${ada.id}-${j}`,
+          eventId: HINDU,
+          kind: "reply_edited" as const,
+        })),
+      );
+    }
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.households).toBe(2);
+    expect(feed.items.map((i) => i.familyId)).toEqual([ada.familyId, bo.familyId]);
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(table.rows).toHaveLength(51);
+  });
+
+  it("names only the five households with the newest change, and counts them all", async () => {
+    const { db } = fixture();
+    const now = new Date();
+    for (let i = 0; i < FEED_ITEM_LIMIT + 2; i++) {
+      db.insert(families)
+        .values({
+          id: `fam_n${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          publicId: `NEWEST-${i}`,
+          familyName: `N${i}`,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      await record(db, `fam_n${i}`, [{ guestId: `g_n${i}`, eventId: HINDU, kind: "reply_new" }]);
+    }
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.households).toBe(FEED_ITEM_LIMIT + 2);
+    expect(feed.items.map((i) => i.familyId)).toEqual([
+      "fam_n6",
+      "fam_n5",
+      "fam_n4",
+      "fam_n3",
+      "fam_n2",
+    ]);
+  });
+
+  it("marks seen only the window it read when one pair fills it", async () => {
+    const { db, ada, bo } = fixture();
+    // More rows than one read takes, all on ten pairs, then a new pair.
+    for (let round = 0; round < Math.ceil((UNSEEN_SCAN_LIMIT + 10) / 200); round++) {
+      await record(
+        db,
+        ada.familyId,
+        Array.from({ length: 200 }, (_, i) => ({
+          guestId: `${ada.id}-${i % 10}`,
+          eventId: HINDU,
+          kind: "reply_edited" as const,
+        })),
+      );
+    }
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    const [boRow] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.guestId, bo.id))
+      .all();
+
+    const first = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(first.rows).toHaveLength(10);
+    expect(first.markSeq).toBeLessThan(boRow!.seq);
+    await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, first.markSeq));
+
+    const later = new Set<string>();
+    for (let visit = 0; visit < 3; visit++) {
+      const next = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+      for (const row of next.rows) later.add(row.guestId);
+      await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, next.markSeq));
+    }
+    expect(later.has(bo.id)).toBe(true);
+  });
+
+  it("dates each household's latest change from the stored time", async () => {
+    const { db, ada } = fixture();
+    const at = new Date("2026-09-20T10:00:00Z");
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }], at);
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.items[0]!.at).toEqual(at);
   });
 });

@@ -123,6 +123,18 @@ export interface FlagEvaluator {
   getValue<K extends FlagKey>(key: K): FlagValue<K>;
 }
 
+/** Per-call options for {@link FeatureFlags.forRequest}. */
+export interface ForRequestOptions {
+  /**
+   * The request's `waitUntil`. Given one, a cached payload up to two TTLs old
+   * is served at once and its refresh runs in the background under this
+   * `waitUntil`, so the request does not wait on the CDN. Without one, or with
+   * an older payload, the refresh runs in line, as on a cold cache. Leave it
+   * out where the flag guards a write and must read as current.
+   */
+  waitUntil?: ((promise: Promise<unknown>) => void) | undefined;
+}
+
 /**
  * Builds per-request {@link FlagEvaluator}s. Hold ONE of these per Worker (built
  * from env once) and call {@link forRequest} per request with that request's
@@ -133,9 +145,10 @@ export interface FeatureFlags {
    * Evaluate flags for a request. Loads the SDK payload (cached; may hit the
    * CDN on a cold/expired cache) then returns a synchronous evaluator bound to
    * `attributes`. Fail-safe: on any load failure the evaluator uses the last
-   * good payload, or coded defaults if none.
+   * good payload, or coded defaults if none. Pass `options.waitUntil` to serve
+   * a stale payload at once and refresh it in the background.
    */
-  forRequest(attributes?: FlagAttributes): Promise<FlagEvaluator>;
+  forRequest(attributes?: FlagAttributes, options?: ForRequestOptions): Promise<FlagEvaluator>;
 }
 
 /** Minimal fetch shape — both global `fetch` and `instrumentedFetch` satisfy it. */
@@ -180,6 +193,13 @@ export interface FeatureFlagsConfig {
 export const DEFAULT_API_HOST = "https://cdn.growthbook.io";
 /** Default payload cache window: 60s. A flag change propagates within this. */
 export const DEFAULT_TTL_SECONDS = 60;
+/**
+ * How many TTLs old a payload may be and still be served while it refreshes in
+ * the background. Past this it is refreshed in line, so a flag turned off is
+ * never served on from a payload older than two TTLs (120 s by default) when
+ * the CDN answers.
+ */
+const STALE_SERVE_TTLS = 2;
 /** KV key the payload is cached under. */
 const KV_PAYLOAD_KEY = "gb:payload";
 
@@ -224,6 +244,7 @@ export function createFeatureFlags(config: FeatureFlagsConfig): FeatureFlags {
 
   const apiHost = (config.apiHost?.trim() || DEFAULT_API_HOST).replace(/\/+$/, "");
   const ttlMs = (config.ttlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
+  const staleServeMs = ttlMs * STALE_SERVE_TTLS;
   const fetchImpl = config.fetchImpl ?? instrumentedFetch;
   const kv = config.kv ?? null;
   const ctx = config.ctx ?? null;
@@ -237,7 +258,43 @@ export function createFeatureFlags(config: FeatureFlagsConfig): FeatureFlags {
   // De-dupes concurrent cold-start fetches within one isolate.
   let inFlight: Promise<CachedPayload | null> | null = null;
 
-  async function loadPayload(now: number): Promise<SdkPayload> {
+  /**
+   * Start a CDN refresh, or join the one already running in this isolate.
+   * Never rejects: `fetchPayload` answers `null` on any failure. The KV write
+   * that follows a good fetch is held by the config `ctx`, else by the
+   * `waitUntil` of the request that started the refresh, so the response
+   * ending does not cancel it.
+   */
+  function refresh(
+    now: number,
+    waitUntil: ForRequestOptions["waitUntil"],
+  ): Promise<CachedPayload | null> {
+    if (!inFlight) {
+      inFlight = fetchPayload(url, fetchImpl, now)
+        .then((fetched) => {
+          if (fetched) {
+            memo = fetched;
+            // Persist to KV for other isolates; don't block the request on it.
+            if (kv) {
+              const write = writeKv(kv, fetched, config.ttlSeconds ?? DEFAULT_TTL_SECONDS);
+              if (ctx) ctx.waitUntil(write);
+              else if (waitUntil) waitUntil(write);
+              else void write.catch(() => {});
+            }
+          }
+          return fetched;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    }
+    return inFlight;
+  }
+
+  async function loadPayload(
+    now: number,
+    waitUntil: ForRequestOptions["waitUntil"],
+  ): Promise<SdkPayload> {
     // 1. Fresh in-isolate memo ⇒ use it, no I/O.
     if (memo && now - memo.fetchedAt < ttlMs) return memo.payload;
 
@@ -252,37 +309,33 @@ export function createFeatureFlags(config: FeatureFlagsConfig): FeatureFlags {
       }
     }
 
-    // 3. Refresh from the CDN. De-dupe concurrent refreshes in this isolate.
-    if (!inFlight) {
-      inFlight = fetchPayload(url, fetchImpl, now)
-        .then((fetched) => {
-          if (fetched) {
-            memo = fetched;
-            // Persist to KV for other isolates; don't block the request on it.
-            if (kv) {
-              const write = writeKv(kv, fetched, config.ttlSeconds ?? DEFAULT_TTL_SECONDS);
-              if (ctx) ctx.waitUntil(write);
-              else void write.catch(() => {});
-            }
-          }
-          return fetched;
-        })
-        .finally(() => {
-          inFlight = null;
-        });
+    // 3. A memo under two TTLs old and a `waitUntil` to hold a refresh past
+    // the response: serve the memo now and refresh in the background. Older
+    // than that (an isolate idle for a while, an old KV entry) it is refreshed
+    // in line, so what a request sees is never more than two TTLs old while
+    // the CDN answers. `refresh` never rejects, so `waitUntil` cannot see a
+    // rejection. On a cold isolate the KV read above may outlast the caller's
+    // own wait; the caller holds its whole check under the same `waitUntil`,
+    // so the context is still alive when this runs.
+    if (memo && waitUntil && now - memo.fetchedAt < staleServeMs) {
+      waitUntil(refresh(now, waitUntil));
+      return memo.payload;
     }
-    const refreshed = await inFlight;
 
-    // 4. Fail-safe ladder: fresh fetch → any stale memo → empty payload (⇒ the
+    // 4. No usable payload, or no way to hold a background refresh: refresh
+    // from the CDN in line. De-duped with any refresh already running.
+    const refreshed = await refresh(now, waitUntil);
+
+    // 5. Fail-safe ladder: fresh fetch → any stale memo → empty payload (⇒ the
     // evaluator serves registry defaults). A CDN blip never breaks a request.
     return refreshed?.payload ?? memo?.payload ?? {};
   }
 
   return {
-    async forRequest(attributes) {
+    async forRequest(attributes, options) {
       let payload: SdkPayload;
       try {
-        payload = await loadPayload(clock());
+        payload = await loadPayload(clock(), options?.waitUntil);
       } catch {
         // Belt-and-braces: loadPayload already fails safe, but never let a flag
         // read throw into a request handler.

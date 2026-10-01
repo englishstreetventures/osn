@@ -994,8 +994,10 @@ export const rsvps = sqliteTable(
     // household attests for them; see the DPIA's inviter-attested variant.
     // Plain text with no CHECK constraint, so a new value needs no DDL. One
     // column carries both facts because the writer and the consent-attester are
-    // always the same principal here, so a separate `recorded_by` would be 1:1
-    // redundant. Legacy rows back-fill to `'guest'` (the form was the only
+    // the same principal, with one exception: an organiser's status-only
+    // recording for a plus-one keeps `'inviter_attested'` while the row holds
+    // the household's dietary answer or its consent record. The column then
+    // names the dietary data's basis, not who wrote the status. Legacy rows back-fill to `'guest'` (the form was the only
     // writer pre-0037). The dashboard reads this to badge organiser-entered
     // answers distinctly and show they overwrite a prior guest reply.
     consentSource: text("consent_source", {

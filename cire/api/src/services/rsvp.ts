@@ -1,11 +1,12 @@
 import { rsvps, guests } from "@cire/db";
 import {
+  ORGANISER_DIETARY_ATTESTATION,
   parsePresets,
   PLUS_ONE_DIETARY_ATTESTATION,
   serialisePresets,
   type DietaryPreset,
 } from "@cire/dietary";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
@@ -27,15 +28,21 @@ import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
 
 /**
- * The consent version a reply is stamped with, chosen by who recorded it: the
- * household's attestation for its plus-one carries the attestation wording's
- * own version; a guest's own reply and an organiser's recording carry the
- * guest's own-consent version. The one place a version is chosen.
+ * The consent version a reply is stamped with, chosen by who recorded it: each
+ * writer ticks its own words, and the row names the version of those words —
+ * the guest's own-consent copy, the household's attestation for its plus-one,
+ * or the organiser's attestation for a phone or paper reply. The one place a
+ * version is chosen.
  */
 export function dietaryConsentVersionFor(source: ConsentSource): string {
-  return source === "inviter_attested"
-    ? PLUS_ONE_DIETARY_ATTESTATION.version
-    : DIETARY_CONSENT_VERSION;
+  switch (source) {
+    case "inviter_attested":
+      return PLUS_ONE_DIETARY_ATTESTATION.version;
+    case "organiser_attested":
+      return ORGANISER_DIETARY_ATTESTATION.version;
+    case "guest":
+      return DIETARY_CONSENT_VERSION;
+  }
 }
 
 /**
@@ -256,6 +263,79 @@ export const rsvpService = {
         yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
       }
     }).pipe(Effect.withSpan("cire.rsvp.submit"));
+  },
+
+  /**
+   * An organiser's status-only reply for a plus-one: write `status` and leave
+   * the household's dietary answer and its consent record as they are. Same
+   * precondition as {@link submitRsvps} — the caller has checked the guest and
+   * the invitation.
+   *
+   * One upsert. With no prior reply it inserts an organiser-attested row
+   * holding no dietary data. Over a prior reply it sets the status, and keeps
+   * `consent_source` while the row holds any dietary data or consent record
+   * (that column is then the data's consent basis, and the household gave it);
+   * a row holding none is repointed to `organiser_attested`, the writer of
+   * what it now holds. The dietary and consent columns are never written.
+   * Returns the row as stored.
+   */
+  recordStatus(input: {
+    guestId: string;
+    eventId: string;
+    status: RsvpInput["status"];
+  }): Effect.Effect<
+    {
+      status: RsvpInput["status"];
+      dietary: string;
+      dietaryPresets: DietaryPreset[];
+      consentSource: ConsentSource;
+    },
+    never,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .insert(rsvps)
+          .values({
+            id: crypto.randomUUID(),
+            guestId: input.guestId,
+            eventId: input.eventId,
+            status: input.status,
+            dietary: "",
+            dietaryPresets: "",
+            dietaryConsentAt: null,
+            dietaryConsentVersion: null,
+            consentSource: "organiser_attested",
+            createdAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [rsvps.guestId, rsvps.eventId],
+            set: {
+              status: input.status,
+              consentSource: sql`CASE WHEN ${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
+            },
+          })
+          .returning({
+            status: rsvps.status,
+            dietary: rsvps.dietary,
+            dietaryPresets: rsvps.dietaryPresets,
+            consentSource: rsvps.consentSource,
+          })
+          .all(),
+      );
+      const row = rows[0];
+      if (!row) return yield* Effect.die(new Error("rsvp upsert returned no row"));
+      // The organiser wrote it, whatever the row's consent basis stays.
+      yield* Effect.sync(() => metricRsvpUpserted(input.status, "organiser", "ok"));
+      return {
+        status: row.status,
+        dietary: row.dietary,
+        dietaryPresets: parsePresets(row.dietaryPresets),
+        consentSource: row.consentSource,
+      };
+    }).pipe(Effect.withSpan("cire.rsvp.recordStatus"));
   },
 
   getRsvpsForFamily(familyId: string): Effect.Effect<RsvpRecord[], never, DbService> {

@@ -38,7 +38,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 // only request is the RSVP read.
 vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
-  fetchRsvpChanges: async () => null,
+  fetchRsvpChangeRows: async () => null,
   markRsvpChangesSeen: async () => {},
 }));
 

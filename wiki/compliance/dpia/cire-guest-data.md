@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # DPIA — Cire guest data
@@ -55,7 +55,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `rsvps.consent_source = 'organiser_attested'` (default `'guest'`); a guest's
   own reply is `'guest'`. This is the writer attribution AND the consent-basis
   in one column — see §2 (lawful basis) for the Art. 9 story of the
-  organiser-attested variant.
+  organiser-attested variant. The one case where the two differ is a
+  plus-one's reply whose status an organiser changed: see the inviter-attested
+  variant below.
 - **Plus-ones (migration 0066).** An editor co-host may let a guest bring a
   plus-one (`guests.plus_one_allowed`). The household then types the
   plus-one's name on the invite, and the plus-one becomes an ordinary `guests`
@@ -161,6 +163,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     the same server-set `dietary_consent_at` / `dietary_consent_version`
     evidence, so the stored record distinguishes **guest-given** from
     **organiser-attested** consent (who asserted it, when, which copy version).
+    The version names the organiser's own wording, not the guest's:
+    `ORGANISER_DIETARY_ATTESTATION` in `@cire/dietary` holds the sentence
+    beside its version (currently `"organiser-2026-10-01"`), the portal renders
+    that sentence and sends that version, and the API refuses (422
+    `dietary_attestation_outdated`) dietary data sent with any other. Organiser
+    rows stored before that version carry the guest's `"2026-09-17"`.
     The organiser (as the wedding **controller** — §1 Roles) is accountable for
     the truth of the attestation; cire (processor) captures it. No new
     subprocessor, no new data class beyond the `consent_source` discriminator.
@@ -192,7 +200,18 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     refuses dietary data on a plus-one's reply**: its rows are stamped with the guest's own-consent
     version, not a version of the organiser's own attestation words, so for a
     person whose data comes from someone else it would store evidence naming
-    copy nobody saw. The organiser remains controller and accountable; the
+    copy nobody saw. **An organiser's status-only recording for a plus-one
+    keeps the household's dietary answer, its consent record and
+    `consent_source = 'inviter_attested'`**, and changes only the status (owner
+    decision, englishstventures/osn#1251). The column then states the dietary
+    data's consent basis, which is still the household's attestation, and no
+    longer who wrote the status. Organiser recordings are not in the RSVP
+    change log either, so nothing in the database records that an organiser
+    changed that status. Accepted: the status is not special-category data,
+    the dietary evidence stays accurate, and splitting writer from consent
+    basis would take a migration for a trail nobody has asked for. An
+    organiser dietary edit on a plus-one still replaces the reply and stamps
+    `'organiser_attested'`; only an empty one is accepted (above). The organiser remains controller and accountable; the
     household is the attester.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
     the controller owes them the Art. 14 information. The invite's plus-one

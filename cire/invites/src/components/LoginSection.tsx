@@ -2,7 +2,7 @@ import Button from "@cire/ui/button";
 import { createEffect, createMemo, For, lazy, onMount, Show, Suspense } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
-import { hasClaimedHint, noteClaimed, signOut } from "./claim-session";
+import { hasClaimedHint, hasPlusOneHint, noteClaimed, signOut } from "./claim-session";
 import { filterThemeVars } from "./invite-theme";
 import { invitedMembers, isPlusOne } from "./plus-one";
 import type { RsvpDeadlineState } from "./rsvp-deadline";
@@ -28,17 +28,23 @@ const PlusOnePrompt = lazy(() =>
 );
 
 /**
- * Start downloading the household's controls — the account link and the
- * plus-one prompt — without rendering either. Called as a claim or a session
- * restore begins, so the chunks arrive while that request is in flight: the
- * controls sit above the events, and the claim payload carries everything else
- * they need, so the chunks are the only thing they could wait for. Idempotent
- * — `lazy` keeps one promise per chunk. A failed download is left for the
- * render to meet, inside its own Suspense boundary.
+ * Start downloading the household's controls — the account link and, when
+ * asked, the plus-one prompt — without rendering either. Called as a claim or
+ * a session restore begins, so the chunks arrive while that request is in
+ * flight: the controls sit above the events, and the claim payload carries
+ * everything else they need, so the chunks are the only thing they could wait
+ * for. Idempotent — `lazy` keeps one promise per chunk. A failed download is
+ * left for the render to meet, inside its own Suspense boundary.
  */
-function warmHouseholdControls(): void {
+function warmHouseholdControls(plusOne: boolean): void {
   void PulseAccountLink.preload().catch(() => {});
-  void PlusOnePrompt.preload().catch(() => {});
+  if (plusOne) void PlusOnePrompt.preload().catch(() => {});
+}
+
+/** Whether a household with these members is offered the plus-one prompt:
+ *  someone may bring a guest, or one is named. */
+function hasPlusOneToOffer(result: ClaimResult): boolean {
+  return result.members.some((m) => m.plusOneAllowed === true || isPlusOne(m));
 }
 
 /**
@@ -201,21 +207,28 @@ export function LoginSection(props: LoginSectionProps) {
       // restores instead of asking for the code again, and so a first-time
       // visitor never spends a request on a guaranteed 401. After the page's
       // handler, so its result is set before other islands hear of the claim.
-      noteClaimed();
+      // The hint also records whether this claim shows the plus-one prompt, so
+      // a restore warms that chunk only for a household that uses it.
+      noteClaimed(
+        props.onPlusOneChange !== undefined && result.preview !== true && hasPlusOneToOffer(result),
+      );
     },
   });
 
-  // Warm the account link the moment a claim is under way — a typed code or
-  // the `?code=` deep link — so it is ready when the result lands. A host
-  // preview arrives this way too and never shows the link; that costs the
-  // organiser one small download, which is cheaper than waiting to know.
+  // Warm the controls the moment a claim is under way — a typed code or the
+  // `?code=` deep link — so they are ready when the result lands. Nothing is
+  // known about the household yet, so the plus-one prompt is warmed too. A
+  // host preview arrives this way and shows neither; that costs the organiser
+  // one small download, which is cheaper than waiting to know.
   createEffect(() => {
-    if (claim.loading()) warmHouseholdControls();
+    if (claim.loading()) warmHouseholdControls(true);
   });
   // A returning household: the restore hint says the page's session restore
-  // is about to open the invite without a code, so warm it beside that request.
+  // is about to open the invite without a code, so warm the controls beside
+  // that request — the plus-one prompt only when the claim behind the hint
+  // showed it.
   onMount(() => {
-    if (hasClaimedHint()) warmHouseholdControls();
+    if (hasClaimedHint()) warmHouseholdControls(hasPlusOneHint());
   });
 
   // Falls back to `result` so the section still swaps for a caller that passes
@@ -243,15 +256,15 @@ export function LoginSection(props: LoginSectionProps) {
 
   // Whether this household has a plus-one prompt: someone may bring a guest,
   // or one is named. A household with neither never renders it (its chunk is
-  // still warmed with the account link's as a claim starts, before anyone
-  // knows). Never in host preview. Once shown it stays for
+  // still warmed as a claim starts, before anyone knows, but not on a restore
+  // whose hint says it was not shown). Never in host preview. Once shown it stays for
   // that household (by code), even when a removal leaves nothing to offer —
   // the prompt still holds that removal's confirmation and the focus.
   let plusOneShownFor: string | null = null;
   const offersPlusOne = createMemo(() => {
     const result = props.result;
     if (result === null || result.preview === true) return false;
-    if (members().some((m) => m.plusOneAllowed === true || isPlusOne(m))) {
+    if (hasPlusOneToOffer(result)) {
       plusOneShownFor = result.publicId;
       return true;
     }

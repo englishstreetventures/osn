@@ -1,3 +1,4 @@
+import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -33,6 +34,12 @@ const manualParse = { parse: () => ({}) };
  * Deliberately its OWN direct endpoint, NOT routed through `changes/*` — RSVPs
  * sit outside the reconcile pipeline ([[platform-plan]] §5 blast-radius).
  *
+ * A body with neither `dietary` nor `dietaryPresets` is status-only. For a
+ * plus-one it sets the status and keeps the dietary answer the household gave
+ * and that answer's consent record and `consent_source`. For any other guest
+ * it is a reply with no dietary data, replacing what was there, as a body with
+ * both fields empty would.
+ *
  * The wedding's RSVP DEADLINE does not gate this route. It closes the GUEST
  * invite (`POST /api/rsvp` → 403 `rsvp_closed`) so late self-service replies
  * can't land; an organiser entering a phone/paper reply that arrived after the
@@ -56,32 +63,49 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
             Effect.gen(function* () {
               const body = yield* Schema.decodeUnknownEffect(OrganiserRsvpBody)(raw);
 
+              // A body naming neither dietary field is a status-only reply;
+              // the service decides what that keeps.
+              const dietaryEdit = body.dietary !== undefined || body.dietaryPresets !== undefined;
+              const dietary = body.dietary ?? "";
+
               // Art. 9(2)(a) gate (mirrors the guest path): special-category
               // dietary data may only be stored WITH consent — here the
               // organiser's attestation. Presets count as much as free text, so
               // a reply recorded entirely from the picker is gated too. The form
               // blocks this, so reaching it means a tampered client.
-              const hasDietaryData = body.dietary.length > 0 || body.dietaryPresets.length > 0;
+              const requestedPresets = body.dietaryPresets ?? [];
+              const hasDietaryData = dietary.length > 0 || requestedPresets.length > 0;
               if (hasDietaryData && !body.dietaryConsent) {
                 set.status = 422;
                 return { error: "Dietary requirements need the guest's consent to store" };
+              }
+              // The attestation must name the words this API stamps. A portal
+              // built from another commit showed other words, so its tick is
+              // refused rather than stored as evidence of copy that was not on
+              // screen. Checked before the plus-one refusal in the service.
+              if (
+                hasDietaryData &&
+                body.dietaryAttestation !== ORGANISER_DIETARY_ATTESTATION.version
+              ) {
+                set.status = 422;
+                yield* Effect.logWarning("organiser rsvp: dietary attestation version refused");
+                return { error: "dietary_attestation_outdated" };
               }
 
               // Free text implies `other`, as on the guest path: an organiser
               // typing a note the picker has no key for must still leave the row
               // able to reveal it.
               const dietaryPresets =
-                body.dietary.trim().length > 0 && !body.dietaryPresets.includes("other")
-                  ? ([...body.dietaryPresets, "other"] as const)
-                  : body.dietaryPresets;
+                dietary.trim().length > 0 && !requestedPresets.includes("other")
+                  ? ([...requestedPresets, "other"] as const)
+                  : requestedPresets;
 
               const rsvp = yield* organiserRsvpService.record({
                 weddingId,
                 guestId: params.guestId,
                 eventId: params.eventId,
                 status: body.status,
-                dietary: body.dietary,
-                dietaryPresets,
+                dietary: dietaryEdit ? { text: dietary, presets: dietaryPresets } : null,
                 dietaryConsent: body.dietaryConsent,
               });
               return { rsvp };

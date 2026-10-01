@@ -1,4 +1,4 @@
-import { formatDietaryCell } from "@cire/dietary";
+import { formatDietaryCell, ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -22,7 +22,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import { fetchRsvpChanges, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
+import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
   filterRows,
   mergeRows,
@@ -149,7 +149,7 @@ export default function RsvpView(props: RsvpViewProps) {
   );
 
   onMount(() => {
-    const changes = fetchRsvpChanges(authFetch, props.weddingId);
+    const changes = fetchRsvpChangeRows(authFetch, props.weddingId);
     void Promise.all([load(), changes]).then(async ([loaded, feed]) => {
       if (!feed) return false;
       setIsNewRow(() => newRowCheck(feed.rows));
@@ -263,8 +263,9 @@ export default function RsvpView(props: RsvpViewProps) {
   const save = async () => {
     const target = edit();
     if (!target) return;
-    // A plus-one's reply goes without dietary data, which the API refuses on
-    // this path; the form shows no fields for it.
+    // A plus-one's reply is status-only: the API keeps the dietary answer the
+    // household gave, and refuses dietary data on this path; the form shows no
+    // fields for it.
     const dietary = target.plusOne ? "" : formDietary().trim();
     const dietaryPresets = target.plusOne ? [] : formPresets();
     // Presets are special-category exactly as the free text is, so either one
@@ -288,12 +289,20 @@ export default function RsvpView(props: RsvpViewProps) {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: formStatus(),
-            dietary,
-            dietaryPresets,
-            dietaryConsent: hasDietaryData ? formConsent() : false,
-          }),
+          body: JSON.stringify(
+            target.plusOne
+              ? { status: formStatus() }
+              : {
+                  status: formStatus(),
+                  dietary,
+                  dietaryPresets,
+                  dietaryConsent: hasDietaryData ? formConsent() : false,
+                  // The version of the words beside the box. The API refuses dietary
+                  // data unless it is the version it stamps, so a stale portal
+                  // cannot store evidence of copy it did not show.
+                  dietaryAttestation: hasDietaryData ? ORGANISER_DIETARY_ATTESTATION.version : "",
+                },
+          ),
         },
       );
       if (res.status === 401) return redirectToLogin();
@@ -305,7 +314,12 @@ export default function RsvpView(props: RsvpViewProps) {
       }
       if (!res.ok) {
         haptic("reject");
-        setFormError("Could not save this RSVP. Please try again.");
+        const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+        setFormError(
+          body?.error === "dietary_attestation_outdated"
+            ? "This page is out of date. Reload it and try again."
+            : "Could not save this RSVP. Please try again.",
+        );
         setSaving(false);
         return;
       }
@@ -520,7 +534,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                     {" "}
                                     <span
                                       class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
-                                      title="Given by the household that brought them, not by the plus-one"
+                                      title="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's."
                                     >
                                       Household-entered
                                     </span>
@@ -595,15 +609,15 @@ export default function RsvpView(props: RsvpViewProps) {
   /** The editor form body. `guest` names whoever the reply is being recorded
    *  for — the form reads the same whether or not they answered before. */
   function renderEditorForm(guest: { firstName: string; lastName: string }, target: EditTarget) {
-    /** What the household gave for a plus-one, which a save here replaces. */
+    /** What the household gave for a plus-one, which a save here keeps. */
     const storedDietary = () =>
       target.plusOne ? formatDietaryCell(target.dietaryPresets, target.dietary) : "";
     // Read with Save, so a keyboard or screen-reader user hears what a save
     // does to a plus-one's reply where they decide, not only a sighted one.
     const noDietaryId = createUniqueId();
-    const clearsId = createUniqueId();
+    const keepsId = createUniqueId();
     const saveDescribedBy = () =>
-      target.plusOne ? [noDietaryId, ...(storedDietary() ? [clearsId] : [])].join(" ") : undefined;
+      target.plusOne ? [noDietaryId, ...(storedDietary() ? [keepsId] : [])].join(" ") : undefined;
     return (
       <form
         class="border-gold/30 bg-surface/60 flex flex-col gap-3 rounded-sm border p-4"
@@ -635,17 +649,17 @@ export default function RsvpView(props: RsvpViewProps) {
 
         {/* A plus-one's dietary answers are the household's to give, on the
             invite; the organiser route refuses them. Where the household has
-            given some, a save here replaces their reply, so say what goes. */}
+            given some, a save here changes the status only, so say what stays. */}
         <Show when={target.plusOne}>
           <p id={noDietaryId} class="font-body text-text-muted text-ui-sm">
             Dietary requirements can't be recorded here for a plus-one.
           </p>
           <Show when={storedDietary()}>
             {(stored) => (
-              <Notice id={clearsId} tone="warn">
-                Saving replaces their household's reply and clears the dietary requirements it gave:{" "}
+              <p id={keepsId} class="font-body text-text-muted text-ui-sm">
+                Saving changes the status only. The dietary requirements their household gave stay:{" "}
                 {stored()}.
-              </Notice>
+              </p>
             )}
           </Show>
         </Show>
@@ -695,10 +709,7 @@ export default function RsvpView(props: RsvpViewProps) {
               onChange={(e) => setFormConsent(e.currentTarget.checked)}
               disabled={saving()}
             />
-            <span>
-              I confirm the guest consented to their dietary requirements being stored and shared
-              with the caterers for this wedding.
-            </span>
+            <span>{ORGANISER_DIETARY_ATTESTATION.text}</span>
           </label>
         </Show>
 

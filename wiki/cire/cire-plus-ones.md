@@ -10,6 +10,7 @@ related:
   - "[[dpia/cire-guest-data]]"
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
+  - "[[cire-rsvp-changes]]"
 last-reviewed: 2026-10-01
 ---
 # Plus-ones
@@ -87,9 +88,11 @@ Behind the household session cookie, like `POST /api/rsvp`, with no Turnstile fo
 
 Names are trimmed and at most 100 characters each. They may not contain control, format or separator characters (Unicode `Cc`, `Cf`, `Zl`, `Zp` — zero-width spaces, direction marks and overrides among them — save the zero-width joiner and non-joiner some scripts need) or the letters that render blank. A first name must contain a letter or digit, so it cannot look blank.
 
-**Each guest write reads its whole context in one statement** — the household, the deadline, the inviter, their plus-one with invitations, and the wedding's capacity entitlements — so naming costs that read, the guest count and one batch; renaming costs the read and one batch of two (clear any dietary answers, write the name and return it); removing costs the read and one write. Only a save's read carries the check for dietary answers on file.
+**Each guest write reads its whole context in one statement** — the household, the deadline, the inviter, their plus-one with invitations, and the wedding's capacity entitlements — so naming costs that read and one batch (the guarded insert, the invitations, the change row and the read-back); renaming costs the read and one batch of three (clear any dietary answers, log the change, write the name and return it); removing costs the read and one batch of two (log the change, delete). Only a save's read carries the check for dietary answers on file.
 
-**Naming is one D1 batch, and it checks its rules inside the insert.** The guest row is an `INSERT … SELECT` from the inviter's row, which writes nothing unless, at that moment, the inviter is in the session's household, has permission, is not a plus-one, and the wedding has room for one more guest under the cap its capacity entitlements give it (`roomForOneMoreGuest` in `cire/api/src/services/entitlements.ts`). D1 runs batches one at a time, so an organiser's revoke or another household's naming that commits first is seen by the one that commits second. When the insert writes nothing and the read-back finds no plus-one, a fresh read decides the answer: `403 plus_one_not_allowed` or `409 guest_capacity`. The insert is the only cap check a naming makes; no count runs ahead of it. The insert is also skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`, untargeted, since a conflict target cannot name a partial index; the row's id is a fresh UUID, so that index is the only thing it can meet), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
+**Each household write logs one change** for the organisers — `plus_one_added`, `plus_one_renamed` or `plus_one_removed` in the RSVP change log ([[cire-rsvp-changes]]), keyed on the guest who brought the plus-one, with no event. The row rides the batch that makes the change and is written only when that change happens: a double submit whose insert is skipped, a rename to the same name, and a plus-one already gone log nothing. The organiser's writes (the name correction, a permission switch that removes plus-ones) log nothing.
+
+**Naming is one D1 batch, and it checks its rules inside the insert.** The guest row is an `INSERT … SELECT` from the inviter's row, which writes nothing unless, at that moment, the inviter is in the session's household, has permission, is not a plus-one, and the wedding has room for one more guest under the cap its capacity entitlements give it (`roomForOneMoreGuest` in `cire/api/src/services/entitlements.ts`). D1 runs batches one at a time, so an organiser's revoke or another household's naming that commits first is seen by the one that commits second. When the insert writes nothing and the read-back finds no plus-one, a fresh read decides the answer: `403 plus_one_not_allowed` or `409 guest_capacity`. The insert is the only cap check a naming makes; no count runs ahead of it. The insert is also skipped by the one-per-guest index when a plus-one already exists (`ON CONFLICT DO NOTHING`, untargeted, since a conflict target cannot name a partial index; the row's id is a fresh UUID, so that index is the only thing it can meet), and the invitation copy reads the inviter's `guest_events` joined to the row that insert just wrote; the change row is written only if that row is there. So a double submit that raced past the read copies nothing and fails nothing; the read-back at the end of the batch returns whichever plus-one won.
 
 ### The reply
 
@@ -101,7 +104,7 @@ Names are trimmed and at most 100 characters each. They may not contain control,
 - The row is stamped with the attestation's version (`dietaryConsentVersionFor` in `cire/api/src/services/rsvp.ts`), never the guest's own-consent `DIETARY_CONSENT_VERSION`.
 - A status-only reply needs no attestation.
 
-**The organiser's recording route still refuses dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`). Its rows are stamped with the guest's own-consent version, not a version of the words the organiser ticks, so for a person whose data comes from someone else they would store evidence naming copy nobody saw. See the inviter-attested variant in [[dpia/cire-guest-data]].
+**The organiser's recording route still refuses dietary data on a plus-one's reply** (`422 plus_one_dietary_unavailable`), and keeps the household's on a status-only one ([[#The RSVP table]]). Its rows are stamped with the guest's own-consent version, not a version of the words the organiser ticks, so for a person whose data comes from someone else they would store evidence naming copy nobody saw. See the inviter-attested variant in [[dpia/cire-guest-data]].
 
 **"Current" consent** — the boolean the invite seeds its boxes from (`dietaryConsentCurrent`) — means the record was made by the writer the box speaks for, against the words it shows now (`isDietaryConsentCurrent`): a member's row counts only as `guest` with `DIETARY_CONSENT_VERSION`, a plus-one's only as `inviter_attested` with the attestation's version. An organiser's recording never opens either box ticked. The claim payload and the RSVP read-back both answer through it.
 
@@ -138,7 +141,21 @@ The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any gues
 - **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's own reply carries no badge.
 - **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
 
-Recording a reply for a plus-one sets the status only. The dietary picker, the free text and the consent tick are not shown, and the form says "Dietary requirements can't be recorded here for a plus-one", because the organiser route refuses dietary data on that reply. Where the stored reply already carries dietary requirements the household gave, the form names them and warns that saving replaces the household's reply and clears them: the organiser write is an upsert of the whole reply. Keeping such an answer through an organiser's status change needs a consent-source decision, tracked in englishstventures/osn#1251.
+Recording a reply for a plus-one sets the status only. The dietary picker, the free text and the consent tick are not shown, and the form says "Dietary requirements can't be recorded here for a plus-one", because the organiser route refuses dietary data on that reply. Where the stored reply already carries dietary requirements the household gave, the form names them and says they stay.
+
+The portal sends such a save as `{ status }` alone. **A body with neither `dietary` nor `dietaryPresets` is status-only**, and for a plus-one the route then writes the status and nothing else (`rsvpService.recordStatus`, one upsert):
+
+| Stored reply | After an organiser's status-only save |
+|---|---|
+| The household's, with dietary answers or a consent record | Status changed; `dietary`, `dietary_presets`, `dietary_consent_at`, `dietary_consent_version` and `consent_source = 'inviter_attested'` kept |
+| The household's, with neither | Status changed; `consent_source = 'organiser_attested'` |
+| None | A new row, `organiser_attested`, no dietary data |
+
+So the row keeps the household's attestation, and the household's box on the invite still opens ticked for it. On such a row `consent_source` names the dietary data's basis, not who wrote the status: the badge stays **Household-entered** (its tooltip says a host may have changed the status), and the CSV's **Recorded By** says **Household**. Nothing records that an organiser changed it; organiser writes are not in the change log ([[cire-rsvp-changes]]). The DPIA accepts that — see the inviter-attested variant in [[dpia/cire-guest-data]].
+
+A body naming either dietary field is a dietary edit and replaces the whole reply, stamped `organiser_attested`; for a plus-one only an empty one is accepted, which clears the household's answer. The portal never sends one for a plus-one, so it offers no way to clear the household's answer; the household changes it on the invite, or a rename clears it. For any other guest a status-only body records no dietary data, as an empty one would — the portal always sends the fields for them.
+
+The host and the API deploy separately. A portal that sends `{ status }` to an API without this behaviour gets the old upsert, which clears the household's answer while the form says it stays, so the API goes to production first.
 
 The table lists replies before the guests who have not answered, so a plus-one and their inviter sit together only when both have replied or neither has; the marker names the inviter either way.
 
@@ -211,7 +228,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | `cire.plus_one.permission.set` | `scope`: `guest` \| `household`; `allowed`: `on` \| `off` |
 | `cire.rsvp.blocked` | gains `reason = plus_one_dietary`: a plus-one's dietary data without the current attestation |
 
-`cire.rsvp.upserted` counts a plus-one's reply as a `guest` write. Spans: `cire.plus_one.save`, `.remove`, `.renameAsOrganiser`, `.setGuestPermission`, `.setHouseholdPermission`. No log line carries a name.
+`cire.rsvp.upserted` counts a plus-one's reply as a `guest` write, and an organiser's status-only one as `organiser`. Spans: `cire.rsvp.recordStatus` (that status-only write), `cire.plus_one.save`, `.remove`, `.renameAsOrganiser`, `.setGuestPermission`, `.setHouseholdPermission`. No log line carries a name.
 
 ---
 
@@ -224,6 +241,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Routes | `cire/api/src/routes/plus-one.ts`, `cire/api/src/routes/organiser-plus-one.ts` |
 | Bodies | `cire/api/src/schemas/plus-one.ts` |
 | Reply provenance | `cire/api/src/routes/rsvp.ts`, `cire/api/src/services/rsvp.ts` |
+| Organiser recording | `cire/api/src/routes/organiser-rsvp.ts`, `cire/api/src/services/organiser-rsvp.ts` |
 | Reads | `cire/api/src/services/claim.ts`, `cire/api/src/services/rsvp-export.ts`, `cire/api/src/services/table-export.ts` |
 | Pipeline | `cire/api/src/services/import.ts`, `state-export.ts`, `revert.ts` |
 | Editor draft | `cire/host/src/lib/guest-event-draft.ts` |

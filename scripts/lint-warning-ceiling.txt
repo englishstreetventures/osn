@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-991   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-host-views-followups merged with fix/cire-changes-followups-2 @ 2026-10-01 — a rewritten RegistryView comment dropped one finding tag. No rule was disabled and nothing was suppressed.
+988   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-host-views-main @ 2026-10-01 — after merging main at 989: a rewritten RegistryView comment drops one warning. No rule was disabled and nothing was suppressed.

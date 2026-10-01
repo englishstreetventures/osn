@@ -9,7 +9,8 @@ related:
   - "[[email]]"
   - "[[retention]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-09-27
+  - "[[cire-plus-ones]]"
+last-reviewed: 2026-10-01
 ---
 # RSVP changes
 
@@ -31,7 +32,7 @@ Only guest-side writes. `POST /api/rsvp` compares each guest×event pair with it
 |---|---|
 | `reply_new` | The pair had no stored reply |
 | `reply_edited` | Its status, dietary text or dietary picks differ (picks compared in stored, canonical order) |
-| `plus_one_added`, `plus_one_renamed`, `plus_one_removed` | Written by the guest's own plus-one writes, with no event. **Nothing writes these yet** — see below |
+| `plus_one_added`, `plus_one_renamed`, `plus_one_removed` | Written by the household's own plus-one writes, with no event — see below |
 
 An identical re-submit writes nothing, and a pair named twice in one body is judged once, from its last entry. `POST /api/rsvp` sits behind the same per-IP limiter as the other guest writes (20 a minute, `defaultRsvpLimiter` in `cire/api/src/app.ts`), since each submit can add up to 200 rows to the log. A reply an organiser records (`PUT …/guests/:guestId/rsvps/:eventId`) is never logged. The log stores ids, the kind and the time; dietary content is compared in the route and never stored.
 
@@ -39,7 +40,15 @@ The change row rides the reply's own batch, after the upserts and before the rea
 
 ### Plus-ones
 
-A plus-one is a `guests` row once the plus-one work lands. Its own replies go through `POST /api/rsvp` and are logged like anyone's. The three `plus_one_*` kinds need one call in the guest plus-one write — `buildRecordStatement` from `cire/api/src/services/rsvp-changes.ts`, with `eventId: null` and the inviter's guest id — which is englishstventures/osn#1258. The feed, badges and email already word all three kinds.
+A plus-one is a `guests` row ([[cire-plus-ones]]). Their own replies go through `POST /api/rsvp` and are logged like anyone's. The household's plus-one writes log the three `plus_one_*` kinds through `buildRecordStatement` (`cire/api/src/services/rsvp-changes.ts`), keyed on the guest who brought the plus-one, with no event:
+
+| Write | Kind | Logged only when |
+|---|---|---|
+| `PUT /api/plus-one/:guestId`, naming | `plus_one_added` | The new guest row is there — a double submit whose insert is skipped logs nothing |
+| `PUT /api/plus-one/:guestId`, renaming | `plus_one_renamed` | The plus-one is still there and carries another name — a rename to the same name logs nothing |
+| `DELETE /api/plus-one/:guestId` | `plus_one_removed` | There is a plus-one for the delete to take |
+
+Each row rides the batch that makes the change, with its condition (`when`) tested inside that batch. A refused write (deadline, preview, permission, guest cap) never reaches the batch. The organiser's writes — the name correction and a permission switch that removes plus-ones — log nothing.
 
 ## Storage — migration 0068
 
@@ -47,7 +56,7 @@ A plus-one is a `guests` row once the plus-one work lands. Its own replies go th
 
 - `seq` is the cursor every reader keeps. It is **AUTOINCREMENT** so a number is never reused after the newest rows are cascaded away — a reused number would sit at or below a cursor and read as seen. The DDL lockstep test cannot see AUTOINCREMENT (it reads `PRAGMA table_info`), so `cire/api/tests/db/rsvp-changes-seq.test.ts` pins it on the migration and the test DDL.
 - `guest_id` has no foreign key on purpose: a removed guest's change stays under their household until the row ages out, and `plus_one_removed` names a row that is gone by design.
-- Indexes: `(wedding_id)` — every index entry ends in the rowid, so `wedding_id = ? AND seq > ?` is a range on it (pinned by an `EXPLAIN QUERY PLAN` test); `(created_at)` for the digest look-back and the purge; `(family_id)` for the cascade.
+- Indexes: `(wedding_id)` — every index entry ends in the rowid, so `wedding_id = ? AND seq > ?` is a range on it in either direction (both feed reads are pinned by an `EXPLAIN QUERY PLAN` test to touch `rsvp_changes` once, through this range); `(created_at)` for the digest look-back and the purge; `(family_id)` for the cascade.
 - The whole change set is **one** `INSERT … SELECT … FROM json_each(?)` statement with one bound parameter, so a 200-pair RSVP stays under D1's 100-parameter cap ([[d1-limits]]).
 
 `host_rsvp_notices`: primary key `(wedding_id, osn_profile_id)`; `seen_seq` (the feed cursor), `digest_seq` (the last change mailed), `digest_enabled` (default on), `updated_at`. No row reads as "nothing seen, digest on". Removing a co-host deletes their row in the same batch as the seat.
@@ -56,7 +65,8 @@ A plus-one is a `guests` row once the plus-one work lands. Its own replies go th
 
 | Route | Gate | Does |
 |---|---|---|
-| `GET /api/organiser/weddings/:weddingId/rsvp-changes` | `weddingMember` | The caller's unseen changes (newest first, at most 500 rows read, `truncated` past that), the latest five households, the changed rows for badges, and `digest: { available, enabled }`. `no-store` |
+| `GET /api/organiser/weddings/:weddingId/rsvp-changes` | `weddingMember` | The card's summary: `households` (distinct households in the newest 5,001 unseen rows), `truncated` (more than 5,000 unseen, so the count is a floor), the five households with the newest change and their kinds, and `digest: { available, enabled }`. No rows and no marker. `no-store` |
+| `GET …/rsvp-changes/rows` | `weddingMember` | The table's badges: the oldest 5,001 unseen rows grouped by guest×event, at most 500 pairs in the order each first changed, and `markSeq`, the marker that covers exactly those pairs. `no-store` |
 | `POST …/rsvp-changes/seen` `{ seq }` | `weddingMember` | Moves the caller's `seen_seq` to `seq`, clamped to the wedding's newest change and never backwards |
 | `PUT …/rsvp-changes/digest` `{ enabled }` | `weddingEditor` | The caller's own digest switch. Turning it back on moves `digest_seq` to the newest change, so the next email covers what happens from then |
 
@@ -64,7 +74,9 @@ A plus-one is a `guests` row once the plus-one work lands. Its own replies go th
 
 ## The portal
 
-The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches on its own and renders nothing when it cannot, so a failed read never holds up the Overview. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads the feed beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the newest change it was shown. The badges stay for that visit. A change with no event (the plus-one kinds) badges every row of that guest.
+The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches the summary on its own and renders nothing when it cannot, so a failed read never holds up the Overview. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads `…/rsvp-changes/rows` beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the `markSeq` that read returned. The badges stay for that visit. A change with no event (the plus-one kinds) badges every row of that guest.
+
+**Seen means shown.** Every unseen change at or below `markSeq` belongs to a pair the table badged. With more than 500 pairs unseen, the marker stops just below the first pair left out, and the next visit badges the rest, oldest first. Each read costs at most 5,001 rows however long the unseen range is, so one household submitting the same replies over and over cannot push another household's change off the table or have it marked seen unshown. Past 500 pairs the card and the table can disagree for a visit or two: the card names the households with the newest changes, while the table badges the oldest first, and the card goes on counting what is still unshown.
 
 ## The daily digest
 
@@ -78,11 +90,18 @@ Runs in the 04:00 UTC cron (`scheduled` in `cire/api/src/index.ts`), only when o
 6. One Resend batch call for every email (`EmailService.sendBatch`, `POST /emails/batch`, up to 100), all or nothing. A sent batch moves each recipient's marker to the newest change it covered; a failed one moves none, so the next run includes them.
 7. One upsert moves every marker (never backwards, never touching the switch), and writes a row only for someone who still owns the wedding or holds a seat on it.
 
+**Stopping it without signing in.** When cire-api has both `CIRE_API_ORIGIN` and `CIRE_OIDC_CLIENT_SECRET`, each email links `GET /api/rsvp-digest/stop?t=<token>` and names the same URL in `List-Unsubscribe` / `List-Unsubscribe-Post` (RFC 8058), so a mail client can offer one-click unsubscribe. Without either, the email carries neither and the route answers 503.
+
+- The token (`cire/api/src/lib/digest-stop.ts`) is the wedding id and the recipient's profile id with an HMAC-SHA256 over them. Its key is derived by HKDF from `CIRE_OIDC_CLIENT_SECRET` under its own `info`: once per cron run, and only when the run has someone to mail; once per isolate on the route, on its first stop request. It does not expire; rotating the client secret voids every link already sent.
+- `GET` only shows a page asking to confirm, because mail scanners fetch every link. Its button, and a mail client's one-click call, `POST` to the same URL, which turns that person's digest off (`rsvpChangeService.setDigest`) — only while they hold a seat with the `editor` capability, so a link from before a seat was removed writes nothing. The page reads the same either way.
+- Mounted before the origin guard (a one-click POST has no `Origin`), behind its own per-IP limiter (30/min). Pages are fixed HTML with `no-store`, `no-referrer` and a CSP that allows no script.
+- Anyone who holds the token can do exactly one thing: turn that one digest off. It sits in the email at Resend, and in Workers request logs (7 days) once used. Each use logs `rsvp digest stop` with `outcome` (`stopped`, `no_seat`, `invalid`) and never the token.
+
 A run ends with one `rsvp digest run complete` log line carrying the counts — the only signal that reaches production, since cire metrics are a no-op on workerd ([[cire-workerd]]).
 
-**Budget.** The cron is one invocation shared by every sweep, on Workers Free: 10 ms CPU, 50 external subrequests, 50 D1 queries ([[free-tier-limits]]). The digest costs six D1 queries whatever the recipient count, and two external subrequests (one lookup, one batch) for up to 100 organisers. The retention sweep's gift-summary emails share the same 50.
+**Budget.** The cron is one invocation shared by every sweep, on Workers Free: 10 ms CPU, 50 external subrequests, 50 D1 queries ([[free-tier-limits]]). The digest costs six D1 queries whatever the recipient count, and two external subrequests (one lookup, one batch) for up to 100 organisers. Signing up to 100 stop links adds no query and no subrequest, only CPU. The retention sweep's gift-summary emails share the same 50.
 
-*Unverified — the digest's CPU time on workerd has not been measured; no deployed run exists yet.*
+*Unverified — the digest's CPU time on workerd, stop-link signing included, has not been measured; no deployed run exists yet.*
 
 The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
 

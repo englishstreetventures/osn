@@ -24,6 +24,7 @@ import {
   faqs,
   guests,
   hosts,
+  ORGANISER_DIETARY_CONSENT_VERSION,
   registryClaims,
   registryItems,
   registrySettings,
@@ -319,7 +320,13 @@ function rsvpRow(rsvp: SeedRsvp): string {
   // being present is what earns the stamp.
   const hasDietaryData = rsvp.dietary !== "" || rsvp.dietaryPresets !== "";
   const consentAt = hasDietaryData ? daysAgo(rsvp.daysAgo) : "NULL";
-  const consentVersion = hasDietaryData ? sql(DIETARY_CONSENT_VERSION) : "NULL";
+  // The version names the words the writer ticked: an organiser's attestation
+  // or the guest's own consent.
+  const version =
+    rsvp.consentSource === "organiser_attested"
+      ? ORGANISER_DIETARY_CONSENT_VERSION
+      : DIETARY_CONSENT_VERSION;
+  const consentVersion = hasDietaryData ? sql(version) : "NULL";
   return `  (${sql(rsvp.id)}, ${sql(rsvp.guestId)}, ${sql(rsvp.eventId)}, ${sql(rsvp.status)}, ${sql(rsvp.dietary)}, ${sql(rsvp.dietaryPresets)}, ${consentAt}, ${consentVersion}, ${sql(rsvp.consentSource)}, ${daysAgo(rsvp.daysAgo)})`;
 }
 

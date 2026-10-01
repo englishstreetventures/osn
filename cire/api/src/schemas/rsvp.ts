@@ -12,8 +12,9 @@ const MAX_RSVP_BATCH = 200;
 // to. The server stamps THIS value (never a client-supplied one) into
 // `rsvps.dietary_consent_version` on a guest's own reply, so the stored
 // Art. 9(2)(a) evidence always pins the copy actually shown. A plus-one's reply
-// carries the household's attestation instead, whose version lives with its
-// wording in `@cire/dietary` (`PLUS_ONE_DIETARY_ATTESTATION`). Bump
+// carries the household's attestation instead, and an organiser's recording
+// the organiser's; each version lives with its wording in `@cire/dietary`
+// (`PLUS_ONE_DIETARY_ATTESTATION`, `ORGANISER_DIETARY_ATTESTATION`). Bump
 // (date-stamped, matching the wiki `last-reviewed` convention) whenever the
 // consent wording materially changes.
 //
@@ -83,11 +84,25 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // data (the Art. 9(2)(a) evidence for `consent_source='organiser_attested'`
 // — see [[wiki/compliance/dpia/cire-guest-data]], organiser-attested
 // variant). Same caps and consent gate as the guest path.
+//
+// `dietary` and `dietaryPresets` stay absent when the body omits them: a body
+// with neither is a status-only reply, which for a plus-one keeps the
+// household's dietary answer (see `organiserRsvpService.record`). Either one
+// present makes it a dietary edit, the other counting as empty.
+//
+// `dietaryAttestation` is the version of the attestation wording the portal
+// showed (`ORGANISER_DIETARY_ATTESTATION.version` in `@cire/dietary`). The
+// route refuses dietary data unless it is the version this API stamps, and
+// stamps its own constant, never this string. Bounded because it is compared,
+// not stored.
 export const OrganiserRsvpBody = Schema.Struct({
   status: Schema.Literals(["attending", "declined", "maybe"]),
-  dietary: DietaryText.pipe(Schema.withDecodingDefaultType(Effect.succeed(""))),
-  dietaryPresets: DietaryPresets.pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
+  dietary: Schema.optionalKey(DietaryText),
+  dietaryPresets: Schema.optionalKey(DietaryPresets),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
+  dietaryAttestation: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("")),
+  ),
 });
 export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;
 

@@ -1,6 +1,8 @@
 /**
  * The organiser's unseen RSVP changes: what guests changed since this organiser
  * last opened the RSVP table, their read marker, and their daily digest switch.
+ * The Overview card reads a summary; the RSVP table reads the rows to badge
+ * and the marker that covers exactly those, which is the only marker it posts.
  *
  * The API decides everything role-shaped. `digest.available` is its answer to
  * "does this organiser get the daily email", so the portal shows the switch
@@ -29,16 +31,21 @@ export interface RsvpChangeItem {
   at: string;
 }
 
+/** The Overview card's summary. */
 export interface RsvpChanges {
-  /** The newest unseen change — sent back to mark everything seen. 0 when none. */
-  markSeq: number;
   households: number;
   /** The API read as many rows as it will; `households` may be more. */
   truncated: boolean;
   items: RsvpChangeItem[];
+  digest: { available: boolean; enabled: boolean };
+}
+
+/** The RSVP table's badges. */
+export interface RsvpChangeRows {
+  /** Sent back to mark seen: covers exactly `rows`. 0 when none. */
+  markSeq: number;
   /** Changed RSVP-table rows; `eventId: null` means every row of that guest. */
   rows: { guestId: string; eventId: string | null }[];
-  digest: { available: boolean; enabled: boolean };
 }
 
 type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -96,29 +103,34 @@ function isItem(item: unknown): item is RsvpChangeItem {
   return item.kinds.every((kind: unknown) => typeof kind === "string");
 }
 
-function isRow(row: unknown): row is RsvpChanges["rows"][number] {
+function isRow(row: unknown): row is RsvpChangeRows["rows"][number] {
   if (typeof row !== "object" || row === null) return false;
   if (!("guestId" in row) || typeof row.guestId !== "string") return false;
   return "eventId" in row && (row.eventId === null || typeof row.eventId === "string");
 }
 
-/** The body really is a feed, not an error or some other route's answer. */
+/** The body really is the card's summary, not an error or some other route's answer. */
 function isRsvpChanges(body: unknown): body is RsvpChanges {
   if (typeof body !== "object" || body === null) return false;
-  if (!("markSeq" in body) || typeof body.markSeq !== "number") return false;
   if (!("households" in body) || typeof body.households !== "number") return false;
   if (!("truncated" in body) || typeof body.truncated !== "boolean") return false;
   if (!("items" in body) || !Array.isArray(body.items) || !body.items.every(isItem)) return false;
-  if (!("rows" in body) || !Array.isArray(body.rows) || !body.rows.every(isRow)) return false;
   if (!("digest" in body) || typeof body.digest !== "object" || body.digest === null) return false;
   const digest = body.digest;
   if (!("available" in digest) || typeof digest.available !== "boolean") return false;
   return "enabled" in digest && typeof digest.enabled === "boolean";
 }
 
+/** The body really is the table's rows and marker. */
+function isRsvpChangeRows(body: unknown): body is RsvpChangeRows {
+  if (typeof body !== "object" || body === null) return false;
+  if (!("markSeq" in body) || typeof body.markSeq !== "number") return false;
+  return "rows" in body && Array.isArray(body.rows) && body.rows.every(isRow);
+}
+
 const base = (weddingId: string) => apiUrl(weddingPath(weddingId, "/rsvp-changes"));
 
-/** The caller's unseen changes, or null when they cannot be read. */
+/** The card's summary of the caller's unseen changes, or null when it cannot be read. */
 export async function fetchRsvpChanges(
   authFetch: AuthFetch,
   weddingId: string,
@@ -128,6 +140,21 @@ export async function fetchRsvpChanges(
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRsvpChanges(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The RSVP table's changed rows and their marker, or null when they cannot be read. */
+export async function fetchRsvpChangeRows(
+  authFetch: AuthFetch,
+  weddingId: string,
+): Promise<RsvpChangeRows | null> {
+  try {
+    const res = await authFetch(`${base(weddingId)}/rows`);
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRsvpChangeRows(body) ? body : null;
   } catch {
     return null;
   }

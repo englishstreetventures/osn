@@ -9,6 +9,7 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
+import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -17,6 +18,8 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { organiserRsvpService } from "../../src/services/organiser-rsvp";
+import { dietaryConsentVersionFor, rsvpService } from "../../src/services/rsvp";
+import { seedPlusOne } from "../test-helpers/plus-one";
 
 // Ada (Testfamily) is invited to catholic + hindu + reception, NOT mehendi.
 // (Mirrors the guest RSVP route test fixtures.)
@@ -102,8 +105,7 @@ describe("organiserRsvpService.record", () => {
         guestId: adaId,
         eventId: hindu,
         status: "attending",
-        dietary: "",
-        dietaryPresets: [],
+        dietary: { text: "", presets: [] },
         dietaryConsent: false,
       }),
     );
@@ -139,8 +141,7 @@ describe("organiserRsvpService.record", () => {
         guestId: adaId,
         eventId: hindu,
         status: "attending",
-        dietary: "",
-        dietaryPresets: [],
+        dietary: { text: "", presets: [] },
         dietaryConsent: false,
       }),
     );
@@ -164,8 +165,7 @@ describe("organiserRsvpService.record", () => {
         guestId: adaId,
         eventId: hindu,
         status: "maybe",
-        dietary: "",
-        dietaryPresets: [],
+        dietary: { text: "", presets: [] },
         dietaryConsent: false,
       }),
     );
@@ -202,8 +202,7 @@ describe("organiserRsvpService.record", () => {
         guestId: adaId,
         eventId: hindu,
         status: "attending",
-        dietary: "Coeliac",
-        dietaryPresets: [],
+        dietary: { text: "Coeliac", presets: [] },
         dietaryConsent: true,
       }),
     );
@@ -219,7 +218,7 @@ describe("organiserRsvpService.record", () => {
       .get();
     expect(row?.dietary).toBe("Coeliac");
     expect(row?.at).toBeInstanceOf(Date);
-    expect(row?.version).toBe(DIETARY_CONSENT_VERSION);
+    expect(row?.version).toBe(ORGANISER_DIETARY_ATTESTATION.version);
     expect(row?.source).toBe("organiser_attested");
   });
 
@@ -231,8 +230,7 @@ describe("organiserRsvpService.record", () => {
         guestId: adaId,
         eventId: hindu,
         status: "attending",
-        dietary: "",
-        dietaryPresets: [],
+        dietary: { text: "", presets: [] },
         dietaryConsent: true,
       }),
     );
@@ -254,8 +252,7 @@ describe("organiserRsvpService.record", () => {
           guestId: adaId,
           eventId: mehendi,
           status: "attending",
-          dietary: "",
-          dietaryPresets: [],
+          dietary: { text: "", presets: [] },
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -279,8 +276,7 @@ describe("organiserRsvpService.record", () => {
           guestId: "guest_foreign", // but targeting the FOREIGN wedding's guest
           eventId: "evt_foreign",
           status: "attending",
-          dietary: "",
-          dietaryPresets: [],
+          dietary: { text: "", presets: [] },
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -303,8 +299,7 @@ describe("organiserRsvpService.record", () => {
           guestId: adaId, // a real bootstrap guest
           eventId: "evt_foreign", // but a foreign wedding's event
           status: "attending",
-          dietary: "",
-          dietaryPresets: [],
+          dietary: { text: "", presets: [] },
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -347,12 +342,304 @@ describe("organiserRsvpService.record", () => {
           guestId: "guest_host",
           eventId: hindu,
           status: "attending",
-          dietary: "",
-          dietaryPresets: [],
+          dietary: { text: "", presets: [] },
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
     );
     expect(err._tag).toBe("GuestNotInWedding");
+  });
+});
+
+describe("organiserRsvpService.record — a plus-one's household-given dietary answer", () => {
+  const consentAt = new Date("2026-09-20T10:00:00Z");
+
+  /** Sam, Ada's plus-one, with the household's reply to the hindu event:
+   *  attending, halal + a note, under the household's attestation. */
+  function seedHouseholdReply() {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "No sesame",
+        dietaryPresets: "halal,other",
+        dietaryConsentAt: consentAt,
+        dietaryConsentVersion: PLUS_ONE_DIETARY_ATTESTATION.version,
+        consentSource: "inviter_attested",
+        createdAt: consentAt,
+      })
+      .run();
+    return { samId, hindu };
+  }
+
+  function storedRow(guestId: string, eventId: string) {
+    return db
+      .select({
+        status: rsvps.status,
+        dietary: rsvps.dietary,
+        presets: rsvps.dietaryPresets,
+        at: rsvps.dietaryConsentAt,
+        version: rsvps.dietaryConsentVersion,
+        source: rsvps.consentSource,
+      })
+      .from(rsvps)
+      .where(and(eq(rsvps.guestId, guestId), eq(rsvps.eventId, eventId)))
+      .all();
+  }
+
+  it("a status-only recording sets the status and keeps the answer, its consent record and its source", async () => {
+    const { samId, hindu } = seedHouseholdReply();
+
+    const result = await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "maybe",
+        dietary: null,
+        dietaryConsent: false,
+      }),
+    );
+
+    const rows = storedRow(samId, hindu);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      status: "maybe",
+      dietary: "No sesame",
+      presets: "halal,other",
+      at: consentAt,
+      version: PLUS_ONE_DIETARY_ATTESTATION.version,
+      source: "inviter_attested",
+    });
+    // The answer reports what is stored, not what was sent.
+    expect(result).toEqual({
+      guestId: samId,
+      eventId: hindu,
+      status: "maybe",
+      dietary: "No sesame",
+      dietaryPresets: ["halal", "other"],
+      consentSource: "inviter_attested",
+    });
+
+    // The household's attestation still counts as current, so the invite's
+    // box for Sam opens ticked over the answer it gave.
+    const famId = db
+      .select({ familyId: guests.familyId })
+      .from(guests)
+      .where(eq(guests.id, samId))
+      .get()?.familyId;
+    if (!famId) throw new Error("no family");
+    const family = await run(rsvpService.getRsvpsForFamily(famId));
+    const sams = family.find((r) => r.guestId === samId && r.eventId === hindu);
+    expect(sams?.dietaryConsentCurrent).toBe(true);
+  });
+
+  it("a status-only recording over a household reply with no dietary data repoints the source to the organiser", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        consentSource: "inviter_attested",
+        createdAt: consentAt,
+      })
+      .run();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "declined",
+        dietary: null,
+        dietaryConsent: false,
+      }),
+    );
+
+    const [row] = storedRow(samId, hindu);
+    expect(row?.status).toBe("declined");
+    expect(row?.source).toBe("organiser_attested");
+    expect(row?.dietary).toBe("");
+    expect(row?.version).toBeNull();
+  });
+
+  it("a status-only recording keeps the source while a consent record is held without answers", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietaryConsentAt: consentAt,
+        dietaryConsentVersion: PLUS_ONE_DIETARY_ATTESTATION.version,
+        consentSource: "inviter_attested",
+        createdAt: consentAt,
+      })
+      .run();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "maybe",
+        dietary: null,
+        dietaryConsent: false,
+      }),
+    );
+
+    // Never a row naming the organiser while pinning the household's words.
+    const [row] = storedRow(samId, hindu);
+    expect(row?.source).toBe("inviter_attested");
+    expect(row?.version).toBe(PLUS_ONE_DIETARY_ATTESTATION.version);
+  });
+
+  it("a status-only recording with no prior reply writes an organiser-attested row with no dietary data", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietary: null,
+        dietaryConsent: false,
+      }),
+    );
+
+    expect(storedRow(samId, hindu)).toEqual([
+      {
+        status: "attending",
+        dietary: "",
+        presets: "",
+        at: null,
+        version: null,
+        source: "organiser_attested",
+      },
+    ]);
+  });
+
+  it("a dietary edit replaces the household's answer and stamps the organiser as its source", async () => {
+    const { samId, hindu } = seedHouseholdReply();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "maybe",
+        dietary: { text: "", presets: [] },
+        dietaryConsent: false,
+      }),
+    );
+
+    expect(storedRow(samId, hindu)).toEqual([
+      {
+        status: "maybe",
+        dietary: "",
+        presets: "",
+        at: null,
+        version: null,
+        source: "organiser_attested",
+      },
+    ]);
+  });
+
+  it("a dietary edit carrying data is still refused for a plus-one, and the household's answer stays", async () => {
+    const { samId, hindu } = seedHouseholdReply();
+
+    const err = await run(
+      organiserRsvpService
+        .record({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: samId,
+          eventId: hindu,
+          status: "maybe",
+          dietary: { text: "", presets: ["vegan"] },
+          dietaryConsent: true,
+        })
+        .pipe(Effect.flip),
+    );
+
+    expect(err._tag).toBe("PlusOneDietaryUnavailable");
+    expect(storedRow(samId, hindu)[0]?.presets).toBe("halal,other");
+    expect(storedRow(samId, hindu)[0]?.source).toBe("inviter_attested");
+  });
+
+  it("a status-only recording for a member who is not a plus-one records no dietary data, as before", async () => {
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "Coeliac",
+        dietaryConsentAt: consentAt,
+        dietaryConsentVersion: DIETARY_CONSENT_VERSION,
+        consentSource: "guest",
+        createdAt: consentAt,
+      })
+      .run();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: adaId,
+        eventId: hindu,
+        status: "declined",
+        dietary: null,
+        dietaryConsent: false,
+      }),
+    );
+
+    const [row] = storedRow(adaId, hindu);
+    expect(row?.dietary).toBe("");
+    expect(row?.version).toBeNull();
+    expect(row?.source).toBe("organiser_attested");
+  });
+
+  it("a dietary edit for a member stamps the organiser's attestation over the guest's own answer", async () => {
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "Coeliac",
+        consentSource: "guest",
+        createdAt: consentAt,
+      })
+      .run();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: { text: "", presets: ["vegan"] },
+        dietaryConsent: true,
+      }),
+    );
+
+    const [row] = storedRow(adaId, hindu);
+    expect(row?.presets).toBe("vegan");
+    expect(row?.dietary).toBe("");
+    expect(row?.source).toBe("organiser_attested");
+    expect(row?.at).toBeInstanceOf(Date);
+    expect(row?.version).toBe(dietaryConsentVersionFor("organiser_attested"));
   });
 });

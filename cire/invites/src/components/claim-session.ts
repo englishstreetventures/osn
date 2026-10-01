@@ -33,7 +33,34 @@ const CLAIMED_HINT_MAX_AGE = 30 * 24 * 60 * 60;
  * people share), so an ungated read would fire once per page view.
  */
 export function hasClaimedHint(): boolean {
-  return document.cookie.split(";").some((c) => c.trim().startsWith(`${CLAIMED_HINT}=`));
+  return claimedHintValue() !== null;
+}
+
+/**
+ * The hint's value when this browser's claim showed the plus-one prompt. Any
+ * other value means it did not.
+ */
+const PLUS_ONE_SHOWN = "plus-one";
+
+/**
+ * Whether the claim that set the hint showed this household the plus-one
+ * prompt. The page warms the prompt's chunk beside a restore only when it did,
+ * so a household never offered a plus-one does not download it on every visit.
+ *
+ * Read only when {@link hasClaimedHint} holds. The answer is as of the claim:
+ * a household whose plus-one permission changed since then still gets the
+ * prompt on a restore, drawn once its chunk arrives.
+ */
+export function hasPlusOneHint(): boolean {
+  return claimedHintValue() === PLUS_ONE_SHOWN;
+}
+
+function claimedHintValue(): string | null {
+  for (const part of document.cookie.split(";")) {
+    const cookie = part.trim();
+    if (cookie.startsWith(`${CLAIMED_HINT}=`)) return cookie.slice(CLAIMED_HINT.length + 1);
+  }
+  return null;
 }
 
 /**
@@ -46,7 +73,11 @@ export function hasClaimedHint(): boolean {
  * `Document.astro` mounts after it. They share no Solid
  * root, and a claim navigates nowhere: the reveal is an in-page animation. So
  * nothing but this event can tell the band that the code form just signed in,
- * or that the guest just signed out.
+ * or that the guest just signed out. The band does not need to be a separate
+ * island — its read is claim-gated like the rest of the invitation, so nested
+ * in `InvitePage`'s claim-gated body it would appear at the same moment — and
+ * moving it there would make this event unnecessary for it; the comment above
+ * it in each `Document.astro` says the same.
  *
  * Without it the band stays absent after a claim, and stays up after a
  * sign-out, until the guest reloads.
@@ -65,7 +96,8 @@ function announceClaimSession(): void {
 
 /**
  * Record that this browser now holds a household session, so the next visit
- * restores instead of asking for the code. Call from the claim success path.
+ * restores instead of asking for the code. Call from the claim success path,
+ * saying whether the claimed invite shows the household the plus-one prompt.
  *
  * The hint and the session it stands for are both minted by the same successful
  * claim and both last 30 days, so they lapse together — and the one place it
@@ -75,12 +107,16 @@ function announceClaimSession(): void {
  * The ONLY thing that clears it early is an explicit sign-out ({@link signOut}),
  * which is the unambiguous case that rationale excludes.
  */
-export function noteClaimed(): void {
+export function noteClaimed(plusOnePromptShown = false): void {
   if (typeof document === "undefined") return;
   // `Secure` only over HTTPS — setting it on `http://localhost:4321` would make
   // the browser drop the cookie, silently disabling the restore in local dev.
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `${CLAIMED_HINT}=1; Path=/; Max-Age=${CLAIMED_HINT_MAX_AGE}; SameSite=Lax${secure}`;
+  // The value also says whether this claim showed the plus-one prompt
+  // ({@link hasPlusOneHint}). It rides in this cookie, written at this one
+  // moment, so it adds no storage and never extends the hint's life.
+  const value = plusOnePromptShown ? PLUS_ONE_SHOWN : "1";
+  document.cookie = `${CLAIMED_HINT}=${value}; Path=/; Max-Age=${CLAIMED_HINT_MAX_AGE}; SameSite=Lax${secure}`;
   // The cookie alone is inert: no other island is watching `document.cookie`.
   announceClaimSession();
 }
