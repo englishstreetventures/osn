@@ -9,7 +9,7 @@ import { Effect, Layer } from "effect";
 import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
-import { sendClaimReviewAlert } from "./lib/claim-review-email";
+import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
@@ -718,17 +718,18 @@ const handler: ExportedHandler<Env> = {
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
-    // The operator reminder needs an address and a real transport; with
-    // either missing it is skipped and the sweep's log line stays the signal.
-    const opsEmail = env.CIRE_OPS_EMAIL?.trim();
+    // The operator reminder needs an address, a real transport and a deployed
+    // tier; without them it is skipped and the sweep's log line stays the
+    // signal.
+    const alertTarget = claimReviewAlertTarget({
+      CIRE_OPS_EMAIL: env.CIRE_OPS_EMAIL,
+      RESEND_API_KEY: resendApiKey,
+      tier: parseDeploymentEnvironment(env.OSN_ENV),
+    });
     const alertOperator =
-      opsEmail && resendApiKey
+      alertTarget && resendApiKey
         ? (summary: PendingClaimsSummary) =>
-            sendClaimReviewAlert({
-              to: opsEmail,
-              env: parseDeploymentEnvironment(env.OSN_ENV) === "production" ? "production" : "dev",
-              summary,
-            }).pipe(
+            sendClaimReviewAlert({ ...alertTarget, summary }).pipe(
               Effect.provide(
                 makeResendEmailLive({
                   apiKey: resendApiKey,

@@ -16,6 +16,21 @@ import { Effect } from "effect";
 import { metricVendorClaimReview } from "../metrics";
 import type { PendingClaimsSummary } from "../services/claim-review";
 
+/**
+ * Where the reminder goes on this deployment, or null to send none. It needs
+ * an address, a Resend key and a deployed tier: a local run has no remote
+ * claims for the operator to list, so it sends nothing.
+ */
+export function claimReviewAlertTarget(env: {
+  CIRE_OPS_EMAIL?: string;
+  RESEND_API_KEY?: string;
+  tier: "local" | "dev" | "staging" | "production";
+}): { to: string; env: "dev" | "production" } | null {
+  const to = env.CIRE_OPS_EMAIL?.trim();
+  if (!to || !env.RESEND_API_KEY || env.tier === "local") return null;
+  return { to, env: env.tier === "production" ? "production" : "dev" };
+}
+
 export interface ClaimReviewAlertInput {
   /** The operator address from deployment config. */
   readonly to: string;

@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
 import { Effect, Exit, Layer } from "effect";
 
-import { sendClaimReviewAlert } from "../../src/lib/claim-review-email";
+import { claimReviewAlertTarget, sendClaimReviewAlert } from "../../src/lib/claim-review-email";
 import { captureLogs } from "../test-helpers/capture-logs";
 
 const input = {
@@ -44,5 +44,27 @@ describe("sendClaimReviewAlert", () => {
     });
     expect(ok).toBe(true);
     expect(logs).toContain("operator reminder send failed");
+  });
+});
+
+describe("claimReviewAlertTarget", () => {
+  const base = { CIRE_OPS_EMAIL: " ops@example.test ", RESEND_API_KEY: "re_x" };
+
+  it("trims the address and maps the tier to the script's --env", () => {
+    expect(claimReviewAlertTarget({ ...base, tier: "production" })).toEqual({
+      to: "ops@example.test",
+      env: "production",
+    });
+    expect(claimReviewAlertTarget({ ...base, tier: "dev" })?.env).toBe("dev");
+  });
+
+  it("sends nothing without an address, a Resend key, or a deployed tier", () => {
+    expect(claimReviewAlertTarget({ ...base, CIRE_OPS_EMAIL: "  ", tier: "production" })).toBe(
+      null,
+    );
+    expect(claimReviewAlertTarget({ CIRE_OPS_EMAIL: "ops@example.test", tier: "production" })).toBe(
+      null,
+    );
+    expect(claimReviewAlertTarget({ ...base, tier: "local" })).toBe(null);
   });
 });

@@ -35,7 +35,7 @@ import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
 import type { DirectoryVendorRow } from "./directory";
 import { vendorsService } from "./vendors";
-import type { ZapChatClient } from "./zap-bridge";
+import { type ZapChatClient, ZapChatRejected } from "./zap-bridge";
 
 // ---------------------------------------------------------------------------
 // Tagged errors
@@ -197,8 +197,10 @@ const threadUrl = (base: string, enquiryId: string): string =>
  * A failure after provisioning writes the new chat to `handoff_chat_id` in the
  * same UPDATE that bumps `updated_at` (which moves the enquiry to the back of
  * the sweep's queue), so the retry reuses it rather than provisioning another.
- * A failure on a reused chat clears it, so a chat zap no longer accepts costs
- * one more chat rather than blocking the enquiry for good.
+ * Any other failure keeps it too, including a transient one on a reused chat
+ * or a failed record after a delivered send, whose retry then skips the send.
+ * Only `ZapChatRejected` (zap lost or refuses that chat) clears it, so such a
+ * chat costs one more chat rather than blocking the enquiry for good.
  * The success path stays one D1 write. `zap_chat_id` alone tells readers a
  * thread exists, and it is set only once the body is delivered, so an open
  * enquiry never shows a chat while its first message waits.
@@ -219,10 +221,8 @@ function flushOnce(
   enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody" | "handoffChatId">,
   vendorProfileId: string,
 ): Effect.Effect<boolean, never, DbService> {
-  // The chat this attempt provisioned, for the failure path to keep. A reused
-  // chat that fails is dropped instead (see the catch below).
+  // The chat this attempt holds, for the failure path to keep.
   let chatId: string | null = enq.handoffChatId;
-  let provisionedNow = false;
   return Effect.gen(function* () {
     if (enq.pendingBody === null) return false;
     const body = enq.pendingBody;
@@ -238,7 +238,6 @@ function flushOnce(
         }),
       );
       chatId = provisioned.chatId;
-      provisionedNow = true;
     } else {
       const reused = chatId;
       const { messages } = yield* Effect.promise(() => zap.listC2bMessages(reused, { limit: 1 }));
@@ -280,11 +279,10 @@ function flushOnce(
         );
         // Move the enquiry to the back of the sweep's queue (ordered by
         // `updated_at`) so one that keeps failing cannot hold every run's
-        // slots. Keep a chat this attempt provisioned, for the retry. Drop a
-        // reused chat that failed: zap may have lost or refused it for good,
-        // and keeping it would fail every retry the same way.
+        // slots, and keep the chat for the retry. Drop it only when zap
+        // refused that chat for good, which no retry on it could get past.
         const db = yield* DbService;
-        const kept = provisionedNow ? chatId : null;
+        const kept = cause instanceof ZapChatRejected ? null : chatId;
         yield* dbQuery(() =>
           db
             .update(vendorEnquiries)
