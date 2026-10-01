@@ -12,7 +12,7 @@
 // no Effect.
 import type { AuthFetch } from "@shared/rp-auth";
 
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 import type { OrganiserGuestRow } from "./guests-store";
 
 /** One guest's permission, or every member's in one household. */
@@ -169,7 +169,7 @@ interface PermissionReply {
 }
 
 function permissionPath(weddingId: string, scope: PlusOneScope): string {
-  const wedding = `/api/organiser/weddings/${encodeURIComponent(weddingId)}`;
+  const wedding = weddingPath(weddingId);
   return scope.kind === "guest"
     ? `${wedding}/guests/${encodeURIComponent(scope.guestId)}/plus-one`
     : `${wedding}/families/${encodeURIComponent(scope.familyId)}/plus-one`;

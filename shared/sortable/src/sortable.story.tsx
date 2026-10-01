@@ -125,7 +125,7 @@ function DragInner(props: {
   // Non-null: this only ever renders inside the provider above.
   const [state] = useDragDropContext()!;
   /** True while a drag is live — gates the shift transition on the other rows. */
-  const active = () => !!state.active().draggable;
+  const active = state.dragging;
   return (
     <section class="flex w-96 flex-col gap-3">
       <header class="flex items-baseline justify-between">

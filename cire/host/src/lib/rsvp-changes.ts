@@ -13,7 +13,7 @@
 
 import { createResource } from "solid-js";
 
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 
 /** The kinds this build words. The API may send one it does not know yet. */
 export type RsvpChangeKind =
@@ -128,8 +128,7 @@ function isRsvpChangeRows(body: unknown): body is RsvpChangeRows {
   return "rows" in body && Array.isArray(body.rows) && body.rows.every(isRow);
 }
 
-const base = (weddingId: string) =>
-  apiUrl(`/api/organiser/weddings/${encodeURIComponent(weddingId)}/rsvp-changes`);
+const base = (weddingId: string) => apiUrl(weddingPath(weddingId, "/rsvp-changes"));
 
 /** The card's summary of the caller's unseen changes, or null when it cannot be read. */
 export async function fetchRsvpChanges(
