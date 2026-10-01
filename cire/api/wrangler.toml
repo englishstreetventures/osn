@@ -184,6 +184,16 @@ type = "ratelimit"
 namespace_id = "1004"
 simple = { limit = 10, period = 60 }
 
+# The link picker's thumbnails. Its own namespace: each call is one outbound
+# fetch plus one Images transform, and one preview offers up to six candidates,
+# so 60/60 is six thumbnails for each preview the 10/60 above allows.
+# 60/60 mirrors `defaultRegistryThumbLimiter` in src/app.ts.
+[[unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1006"
+simple = { limit = 60, period = 60 }
+
 # The guest registry write limiter — claiming and releasing a gift. Its own
 # namespace because it belongs to a different population: the two above are the
 # organiser building a list, this one is every guest of every wedding, and a
@@ -339,6 +349,12 @@ namespace_id = "1104"
 simple = { limit = 10, period = 60 }
 
 [[env.dev.unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1106"
+simple = { limit = 60, period = 60 }
+
+[[env.dev.unsafe.bindings]]
 name = "REGISTRY_GUEST_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1105"
@@ -469,6 +485,12 @@ name = "REGISTRY_IMAGE_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1004"
 simple = { limit = 10, period = 60 }
+
+[[env.production.unsafe.bindings]]
+name = "REGISTRY_THUMB_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1006"
+simple = { limit = 60, period = 60 }
 
 [[env.production.unsafe.bindings]]
 name = "REGISTRY_GUEST_RATE_LIMITER"

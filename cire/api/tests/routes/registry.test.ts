@@ -16,6 +16,10 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { createAssetsStub, MAX_IMAGE_BYTES } from "../../src/services/invite-assets";
+import type {
+  ImagesBindingLike,
+  ImageTransformHandle,
+} from "../../src/services/invite-image-transform";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
 import type {
   GiftLogEntryDto,
@@ -49,11 +53,15 @@ function buildApp({
   grantRegistry = false,
   linkPreview,
   assets,
+  images,
+  thumbRequireTransform,
   seed,
 }: {
   grantRegistry?: boolean;
   linkPreview?: LinkPreviewOptions;
   assets?: ReturnType<typeof createAssetsStub>;
+  images?: ImagesBindingLike;
+  thumbRequireTransform?: boolean;
   /** Rows the route then has to read back. This fixture owns its database and
    *  never hands the handle out, so anything a test needs on disk goes here. */
   seed?: (db: ReturnType<typeof createDb>) => void;
@@ -115,8 +123,11 @@ function buildApp({
     // test happened to run last.
     registryPreviewLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
     registryImageLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+    registryThumbLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+    registryThumbRequireTransform: thumbRequireTransform,
     registryLinkPreviewOptions: linkPreview,
     assets,
+    images,
   });
 }
 type App = ReturnType<typeof buildApp>;
@@ -192,6 +203,7 @@ describe("registry ships locked", () => {
     ["POST", `${base}/gifts/claim/rcl_x/thanked`, { thanked: true }],
     ["POST", `${base}/gifts/claim/rcl_x/note-hidden`, { hidden: true }],
     ["POST", `${base}/link-preview`, { url: "https://shop.example/pan" }],
+    ["POST", `${base}/link-preview/image`, { url: "https://cdn.example/pan.jpg" }],
     ["POST", `${base}/image`],
     ["POST", `${base}/image/from-url`, { url: "https://cdn.example/pan.jpg" }],
     ["GET", `${base}/image/registry-abc`],
@@ -1149,6 +1161,146 @@ describe("POST /registry/link-preview", () => {
     // The owner has their own budget, and the registry writes have their own limiter.
     expect((await req(app, "POST", previewPath, OWNER, body)).status).toBe(200);
     expect((await req(app, "POST", `${base}/items`, EDITOR, ITEM)).status).toBe(200);
+  });
+});
+
+describe("POST /registry/link-preview/image", () => {
+  const thumbPath = `${base}/link-preview/image`;
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+  const WEBP_OUT = new Uint8Array([0xaa, 0xbb]);
+  const CANDIDATE = "https://cdn.example/pan.jpg?w=1200&h=1200";
+
+  /** Injected fetch + DNS; records the URLs fetched. No network. */
+  function remote(addresses = ["93.184.216.34"]) {
+    const fetched: string[] = [];
+    const options: LinkPreviewOptions = {
+      fetchImpl: ((input: string) => {
+        fetched.push(String(input));
+        return Promise.resolve(
+          new Response(PNG, { status: 200, headers: { "content-type": "image/png" } }),
+        );
+      }) as unknown as typeof fetch,
+      resolveHost: () => Promise.resolve(addresses),
+    };
+    return { fetched, options };
+  }
+
+  function imagesStub(): ImagesBindingLike & { widths: (number | undefined)[] } {
+    const widths: (number | undefined)[] = [];
+    return {
+      widths,
+      input() {
+        const handle: ImageTransformHandle = {
+          transform(t) {
+            widths.push(t.width);
+            return handle;
+          },
+          output(o) {
+            return Promise.resolve({
+              response: () => new Response(WEBP_OUT, { headers: { "Content-Type": o.format } }),
+              contentType: () => o.format,
+            });
+          },
+        };
+        return handle;
+      },
+    };
+  }
+
+  async function thumb(
+    app: App,
+    profileId: string | undefined,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
+    const all: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "image/webp,image/*",
+      ...headers,
+    };
+    if (profileId) all.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, thumbPath, { method: "POST", headers: all, body: JSON.stringify(body) });
+  }
+
+  it("answers a re-encoded thumbnail for the exact candidate, query string and all", async () => {
+    const { fetched, options } = remote();
+    const images = imagesStub();
+    const app = buildApp({ grantRegistry: true, linkPreview: options, images });
+    const res = await thumb(app, EDITOR, { url: CANDIDATE });
+    expect(res.status).toBe(200);
+    expect(fetched).toEqual([CANDIDATE]);
+    expect(images.widths).toEqual([320]);
+    expect(res.headers.get("content-type")).toBe("image/webp");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(WEBP_OUT);
+  });
+
+  it("401 without a session, 403 for a viewer or a stranger", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({ grantRegistry: true, linkPreview: options });
+    expect((await thumb(app, undefined, { url: CANDIDATE })).status).toBe(401);
+    expect((await thumb(app, VIEWER, { url: CANDIDATE })).status).toBe(403);
+    expect((await thumb(app, STRANGER, { url: CANDIDATE })).status).toBe(403);
+    expect(fetched).toEqual([]);
+  });
+
+  it("403s a request from an origin the API does not serve, before any fetch", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({ grantRegistry: true, linkPreview: options });
+    const res = await thumb(app, EDITOR, { url: CANDIDATE }, { Origin: "https://elsewhere.test" });
+    expect(res.status).toBe(403);
+    expect(fetched).toEqual([]);
+  });
+
+  it("400s a missing or non-https url, and a blocked one with no reason", async () => {
+    const app = buildApp({ grantRegistry: true, linkPreview: remote().options });
+    expect((await thumb(app, EDITOR, {})).status).toBe(400);
+    expect((await thumb(app, EDITOR, { url: "http://cdn.example/pan.jpg" })).status).toBe(400);
+
+    const inward = buildApp({ grantRegistry: true, linkPreview: remote(["127.0.0.1"]).options });
+    const blocked = await thumb(inward, EDITOR, { url: CANDIDATE });
+    expect(blocked.status).toBe(400);
+    expect(await jsonBody(blocked)).toEqual({ error: "blocked_url" });
+  });
+
+  it("503s in a deployed tier with no Images binding rather than serve the raw bytes", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({
+      grantRegistry: true,
+      linkPreview: options,
+      thumbRequireTransform: true,
+    });
+    const res = await thumb(app, EDITOR, { url: CANDIDATE });
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ error: "thumbnail_unavailable" });
+    expect(fetched).toEqual([]);
+  });
+
+  it("has its own budget, apart from the preview's", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "registry",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: OWNER,
+        providerRef: null,
+      })
+      .run();
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      registryPreviewLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+      registryThumbLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
+      registryLinkPreviewOptions: remote().options,
+    });
+    expect((await thumb(app, OWNER, { url: CANDIDATE })).status).toBe(200);
+    expect((await thumb(app, OWNER, { url: CANDIDATE })).status).toBe(200);
+    const limited = await thumb(app, OWNER, { url: CANDIDATE });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("60");
   });
 });
 

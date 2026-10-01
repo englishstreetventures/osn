@@ -56,6 +56,7 @@ import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
   createRegistryLinkPreviewRoutes,
+  createRegistryLinkThumbRoutes,
   createRegistryReadRoutes,
   createRegistryWriteRoutes,
 } from "./routes/registry";
@@ -223,6 +224,13 @@ const defaultRegistryPreviewLimiter = createRateLimiter({ maxRequests: 10, windo
  * organiser has to preview before they can pick.
  */
 const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the link picker's thumbnails. Its own budget,
+ * not the preview's: one preview offers up to six candidates and the picker
+ * asks for a thumbnail of each, so 60/min is six for every preview the
+ * preview's own 10/min allows.
+ */
+const defaultRegistryThumbLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the two GUEST registry writes (claim / release).
  *
@@ -511,6 +519,14 @@ export interface AppOptions {
   registryPreviewLimiter?: RateLimiterBackend;
   /** Override the registry image-save rate limiter (useful for testing). */
   registryImageLimiter?: RateLimiterBackend;
+  /** Override the link-picker thumbnail rate limiter (useful for testing). */
+  registryThumbLimiter?: RateLimiterBackend;
+  /**
+   * True in a deployed tier. The link-picker thumbnail route then refuses (503)
+   * when there is no Images binding, rather than serve a shop's bytes as they
+   * arrived. False (the default) is the local path, which has no binding.
+   */
+  registryThumbRequireTransform?: boolean;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
   /** Override the guest RSVP write rate limiter (useful for testing). */
@@ -560,8 +576,8 @@ export interface AppOptions {
    * service, so its route tests reach no network. Production passes nothing and
    * the service uses global `fetch` + Cloudflare DoH.
    *
-   * The image save-from-url leg takes the SAME options, so one seam covers both
-   * halves of paste-link → pick → copy.
+   * The image save-from-url leg and the picker's thumbnails take the SAME
+   * options, so one seam covers paste-link → show → pick → copy.
    */
   registryLinkPreviewOptions?: LinkPreviewOptions;
   /**
@@ -626,6 +642,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     enquiryLimiter = defaultEnquiryLimiter,
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
+    registryThumbLimiter = defaultRegistryThumbLimiter,
+    registryThumbRequireTransform = false,
     registryGuestLimiter = defaultRegistryGuestLimiter,
     rsvpLimiter = defaultRsvpLimiter,
     plusOneLimiter = defaultPlusOneLimiter,
@@ -954,6 +972,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(
         createRegistryLinkPreviewRoutes(db, osnAuthOptions, {
           limiter: registryPreviewLimiter,
+          linkPreviewOptions: registryLinkPreviewOptions,
+        }),
+      )
+      // The picker's thumbnails are their own sibling for the same reason: an
+      // outbound fetch per call, and a budget sized for six per preview.
+      .use(
+        createRegistryLinkThumbRoutes(db, osnAuthOptions, {
+          limiter: registryThumbLimiter,
+          images,
+          requireTransform: registryThumbRequireTransform,
           linkPreviewOptions: registryLinkPreviewOptions,
         }),
       )

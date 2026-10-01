@@ -152,6 +152,10 @@ export const CIRE_METRICS = {
   // the two apart (only one of them spends our network on a user's URL) and
   // `result` says how it ended. Neither is per-wedding.
   registryImageSave: "cire.registry.image.save",
+  // The picker's thumbnails — one candidate fetched through the link-preview
+  // guard and re-encoded. `result` is how it ended; `cache_hit` means neither
+  // the outbound fetch nor the Images binding ran.
+  registryLinkThumb: "cire.registry.link_thumb",
   // A D1 query prepared on the raw binding because no session was on the async
   // context, so it went to the primary and skipped read replication. Gives no
   // wrong answer, so nothing else notices it. Should read zero on a deployed
@@ -436,6 +440,21 @@ export type RegistryImageSaveResult =
   | "too_large"
   | "error";
 type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryImageSaveResult };
+/** How one picker thumbnail ended. `original` is the local path with no Images
+ *  binding, where the sniffed bytes are served as they arrived; `unavailable` is
+ *  a deployed tier refusing to do that; `transform_failed` includes a spent
+ *  Images quota. A refusal is its own value, as on the preview counter. */
+export type RegistryLinkThumbResult =
+  | "ok"
+  | "cache_hit"
+  | "original"
+  | "blocked"
+  | "fetch_failed"
+  | "unsupported_type"
+  | "too_large"
+  | "transform_failed"
+  | "unavailable";
+type RegistryLinkThumbAttrs = { result: RegistryLinkThumbResult };
 /** The Worker entry point a session-routed D1 client was built for. */
 export type D1SessionEntry = "fetch" | "scheduled";
 type D1SessionMissingAttrs = { entry: D1SessionEntry };
@@ -618,6 +637,12 @@ const registryImageSave = createCounter<RegistryImageSaveAttrs>({
   name: CIRE_METRICS.registryImageSave,
   description: "Registry item image saves, by source + outcome",
   unit: "{save}",
+});
+
+const registryLinkThumb = createCounter<RegistryLinkThumbAttrs>({
+  name: CIRE_METRICS.registryLinkThumb,
+  description: "Registry link-picker thumbnails, by outcome",
+  unit: "{thumbnail}",
 });
 
 const d1SessionMissing = createCounter<D1SessionMissingAttrs>({
@@ -968,6 +993,9 @@ export const metricRegistryImageSave = (
   source: RegistryImageSource,
   result: RegistryImageSaveResult,
 ): void => registryImageSave.inc({ source, result });
+
+export const metricRegistryLinkThumb = (result: RegistryLinkThumbResult): void =>
+  registryLinkThumb.inc({ result });
 
 export const metricD1SessionMissing = (entry: D1SessionEntry): void =>
   d1SessionMissing.inc({ entry });
