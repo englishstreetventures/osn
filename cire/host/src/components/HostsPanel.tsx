@@ -91,12 +91,20 @@ interface HostsPanelProps {
    *  it is deliberately open wider than removal so the owner isn't the single
    *  person who has to bring everyone on board. */
   canAdd: boolean;
+  /** True for a co-host the dashboard admits (editor or viewer) — mirrors the
+   *  API's `weddingMember()` gate on `DELETE /hosts/me`. The owner has no seat
+   *  to leave and the API refuses them. */
+  canLeave?: boolean;
+  /** Called once the caller has left the wedding, after the confirmation
+   *  toast. The parent drops the wedding from the organiser's list, which
+   *  unmounts this panel and releases the wedding's cached rows. */
+  onLeft?: () => void;
 }
 
 /**
  * Hosts section of a wedding's dashboard. Lists the wedding's co-hosts; the
- * owner or an editor can add another organiser by OSN handle, and the owner
- * alone can change a role or remove someone.
+ * owner or an editor can add another organiser by OSN handle, the owner alone
+ * can change a role or remove someone else, and any co-host here can leave.
  *
  * The two flags are separate because the API's two gates are separate, and the
  * split is additive-versus-subtractive: an editor can grow the team (their
@@ -123,6 +131,9 @@ export default function HostsPanel(props: HostsPanelProps) {
   // has played, and the body names a person — without this it would blank
   // mid-fade. Built once, here: each call makes its own signal and effect.
   const shownPromotion = heldWhileClosing(pending);
+  // The leave confirmation: open, and whether the request is in flight.
+  const [confirmingLeave, setConfirmingLeave] = createSignal(false);
+  const [leaving, setLeaving] = createSignal(false);
   // True row count from the API; compared against what we rendered.
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
@@ -417,6 +428,45 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
       toast.error("Could not remove that host. Is the API running?");
+    }
+  }
+
+  /**
+   * Leave this wedding: delete the caller's own seat. A 403 means the seat is
+   * already gone (the owner removed it, or another tab left first). That 403
+   * has already made the dashboard ask the API for the organiser's weddings
+   * (`watchForbidden`), and the answer drops this one, so `onLeft` is not
+   * called: a local drop would throw that answer away and ask a second time.
+   */
+  async function leave() {
+    setLeaving(true);
+    try {
+      const res = await authFetch(`${endpoint()}/me`, { method: "DELETE" });
+      if (res.status === 401) return redirectToLogin();
+      if (res.status === 403) {
+        setConfirmingLeave(false);
+        toast.success("You're no longer a host of this wedding.");
+        return;
+      }
+      if (!res.ok) {
+        haptic("reject");
+        toast.error(
+          res.status === 409
+            ? "You own this wedding, so you can't leave it."
+            : "Could not leave this wedding. Please try again.",
+        );
+        return;
+      }
+      setConfirmingLeave(false);
+      haptic("commit");
+      toast.success("You've left this wedding.");
+      props.onLeft?.();
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("Could not leave this wedding. Is the API running?");
+    } finally {
+      setLeaving(false);
     }
   }
 
@@ -763,6 +813,65 @@ export default function HostsPanel(props: HostsPanelProps) {
           </ul>
         </Show>
       </Show>
+
+      <Show when={props.canLeave}>
+        <section
+          aria-labelledby="leave-wedding-heading"
+          class="border-border flex flex-col gap-3 border-t pt-6"
+        >
+          <h3 id="leave-wedding-heading" class="font-display text-text text-ui-md font-light">
+            Leave this wedding
+          </h3>
+          <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
+            Give up your seat. The wedding leaves your list and its RSVP emails stop. The owner or
+            an editor can add you back.
+          </p>
+          <Button
+            class="self-start"
+            variant="danger"
+            size="sm"
+            type="button"
+            onClick={() => setConfirmingLeave(true)}
+          >
+            Leave this wedding
+          </Button>
+        </section>
+      </Show>
+
+      <Modal
+        open={confirmingLeave()}
+        onClose={() => {
+          if (!leaving()) setConfirmingLeave(false);
+        }}
+        label="Leave this wedding"
+        class="w-full max-w-md"
+      >
+        <div class="flex flex-col gap-4">
+          <p class="font-display text-text text-ui-md font-light">Leave this wedding?</p>
+          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+            You lose access to its guests, schedule and replies straight away. To come back, ask the
+            owner or an editor to add you again.
+          </p>
+          <div class="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="quiet"
+              type="button"
+              disabled={leaving()}
+              onClick={() => setConfirmingLeave(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              type="button"
+              disabled={leaving()}
+              onClick={() => void leave()}
+            >
+              {leaving() ? "Leaving…" : "Yes, leave"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Kept mounted across the close so the exit animates; `shownPromotion`
           is what keeps the person's name on screen through it.

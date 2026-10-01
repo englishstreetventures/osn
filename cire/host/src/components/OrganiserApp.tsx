@@ -155,6 +155,8 @@ function WeddingDashboard(props: {
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
+  /** The organiser gave up their seat on this wedding. */
+  onLeft: () => void;
 }) {
   // One decision, taken once, for every surface below. The API enforces all of
   // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
@@ -175,6 +177,7 @@ function WeddingDashboard(props: {
           onModule={props.onModule}
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
+          onLeftWedding={props.onLeft}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
         />
@@ -538,6 +541,13 @@ function Dashboard() {
     setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, ...patch } : w)));
   }
 
+  /** The organiser left a wedding. Dropping it from the list is all it takes:
+   *  the route falls back to the list (the effect above), the dashboard
+   *  unmounts, and its cache scope releases the wedding's rows. */
+  function handleLeftWedding(weddingId: string) {
+    setWeddings((prev) => (prev ?? []).filter((w) => w.id !== weddingId));
+  }
+
   /**
    * Back from Stripe.
    *
@@ -719,6 +729,7 @@ function Dashboard() {
                             onModule={selectModule}
                             onSub={selectSub}
                             onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                            onLeft={() => handleLeftWedding(weddingId)}
                           />
                         );
                       }}
