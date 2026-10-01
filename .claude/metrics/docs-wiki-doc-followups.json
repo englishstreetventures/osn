@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1285,
+    "branch": "docs/wiki-doc-followups",
+    "base_sha": "f93944903ea40717fac6e414307742af61e0e064",
+    "head_sha": "91ac2f97b9f1e283270afc6521599671c7f03a6f",
+    "generated_at": "2026-09-30T09:35:10.855Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1191,
+    "type": null,
+    "labels": [
+      "product:osn-core",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-09-30T09:15:55.260Z",
+    "last_ts": "2026-09-30T09:35:08.851Z",
+    "span_seconds": 1154,
+    "active_seconds": 1183,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 9.022428099999999,
+    "tokens": {
+      "input": 318,
+      "output": 3477,
+      "thinking": 0,
+      "cache_write_5m": 435597,
+      "cache_write_1h": 0,
+      "cache_read": 16762022
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 10,
+          "output": 1969,
+          "thinking": 0,
+          "cache_write_5m": 35574,
+          "cache_write_1h": 0,
+          "cache_read": 144998
+        },
+        "usd_equivalent": 0.3441115,
+        "messages": 5
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 308,
+          "output": 1508,
+          "thinking": 0,
+          "cache_write_5m": 400023,
+          "cache_write_1h": 0,
+          "cache_read": 16617024
+        },
+        "usd_equivalent": 8.6783166,
+        "messages": 153
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 10,
+          "output": 1969,
+          "thinking": 0,
+          "cache_write_5m": 35574,
+          "cache_write_1h": 0,
+          "cache_read": 144998
+        },
+        "usd_equivalent": 0.3441115,
+        "messages": 5
+      },
+      "subagent": {
+        "tokens": {
+          "input": 308,
+          "output": 1508,
+          "thinking": 0,
+          "cache_write_5m": 400023,
+          "cache_write_1h": 0,
+          "cache_read": 16617024
+        },
+        "usd_equivalent": 8.6783166,
+        "messages": 153
+      }
+    },
+    "effort": {
+      "medium": 153
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 4,
+      "test": 0,
+      "docs": 1,
+      "config": 3,
+      "source": 5
+    },
+    "loc": {
+      "generated": {
+        "added": 35,
+        "deleted": 3
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 22,
+        "deleted": 18
+      },
+      "config": {
+        "added": 23,
+        "deleted": 4
+      },
+      "source": {
+        "added": 42,
+        "deleted": 28
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 7
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 143,
+      "Read": 8,
+      "Skill": 7,
+      "Edit": 5,
+      "Write": 2,
+      "Agent": 2,
+      "ToolSearch": 1,
+      "SubagentHandback": 1,
+      "StructuredOutput": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "wiki-doc-followups:new-feat": 1,
+      "wiki-doc-followups:stress-plan": 1,
+      "wiki-doc-followups:write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "wiki-doc-followups:prep-pr": 1,
+      "wiki-doc-followups:review-docs": 1,
+      "wiki-doc-followups:retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 1
+    }
+  }
+}
