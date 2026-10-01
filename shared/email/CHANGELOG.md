@@ -1,5 +1,11 @@
 # @shared/email
 
+## 0.12.0
+
+### Minor Changes
+
+- 2aad97e: Add the `vendor-claim-review-pending` template: a counts-only operator reminder that vendor directory claims are waiting for review.
+
 ## 0.11.0
 
 ### Minor Changes
