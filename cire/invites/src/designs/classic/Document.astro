@@ -78,14 +78,18 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
       inviteMissing={initialInvite === null}
     />
     {/* The couple's gift list — a band that links to it, not the list itself:
-        that lives at `/<slug>/registry` now, because it is the part of an
-        invitation a guest comes BACK to. Its OWN island, deliberately after
-        InvitePage, for a hydration reason rather than an auth one: `InvitePage`
-        reveals in place after a claim, and a band nested inside it would only
-        exist once that reveal had run. The band reads the same gate the rest of
-        the invitation does and renders NOTHING for a visitor with no claim (401)
-        or a wedding with no published list (404). `client:visible` because it is
-        below the fold on every invite. */}
+        that lives at `/<slug>/registry`, because it is the part of an
+        invitation a guest comes BACK to. It is its own island, mounted after
+        InvitePage, though nothing about the band requires that: its read
+        sits behind the same claim gate as the rest of the invitation, so it
+        renders NOTHING for a visitor with no claim (401) or a wedding with no
+        published list (404), and nested in InvitePage's claim-gated body it
+        would appear at the same moment it does now. What the split costs: the
+        two islands share no Solid root, so the band learns of a claim or a
+        sign-out only through `CLAIM_SESSION_EVENT` (`claim-session.ts`), and it
+        keeps an always-present wrapper element so `client:visible` has
+        something to observe (`GiftRegistryTeaser.tsx`). Moving it inside
+        InvitePage, behind the claim, would drop both. */}
     <GiftRegistryTeaser
       client:visible={{ rootMargin: "600px" }}
       apiUrl={apiUrl}

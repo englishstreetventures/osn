@@ -768,7 +768,9 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     and so is the organiser-only `inviteMessage` (`publicView` in
     `cire/api/src/services/invite.ts`).
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
-    immutable`; the URL is cache-busted by `?v=<updatedAt>`).
+    immutable`; the URL is cache-busted by `?v=`, a digest of the slot's R2 key
+    — `versionFromKey` in `cire/api/src/services/event-image.ts`; the hero's
+    also folds in its blur).
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
     a guest with no OSN token can render the invite.
 - **Organiser (authed)** — under `/api/organiser/weddings/:weddingId/invite`,
@@ -1054,8 +1056,7 @@ hero/story image URLs, so if it were itself cached (heuristically by the browser
 or at an edge) a guest's next load would read a stale body and the new hero/theme
 would never appear — the exact "saved in settings but not on the invite" symptom. The image **bytes** at
 `/api/invite/:slug/image/:slot` stay `immutable, max-age=1y`; that's safe because
-their URL carries `?v=<updatedAt>` and every upload bumps `updatedAt` + writes a
-fresh R2 key.
+every upload writes a fresh R2 key, and their URL's `?v=` is a digest of that key.
 
 The **theme** drives CSS custom properties (`--invite-accent`, `--invite-surface`,
 `--invite-heading`, `--invite-body`) set on each section wrapper's inline `style`,
@@ -1636,20 +1637,23 @@ per-change ratio, so the preset lock never "cover"-adjusts it). Save converts
 the selection-over-image bounding boxes into resolution-independent 0..1
 source fractions plus the image's natural dimensions.
 
-The modal's `<img>` **must not carry `crossOrigin`** (the root cause of the
-editor opening dead in production long after the geometry fixes above). The
-dashboard thumbnail loads the same cache-busted image URL as a plain no-cors
-`<img>` first; the API serves it `Cache-Control: immutable` with `Vary: Accept`
-only (no `Vary: Origin`), so the browser HTTP-caches the response **without**
-CORS headers. A subsequent `crossOrigin="anonymous"` load of the identical URL
-is answered from that cache entry, fails the CORS check without ever reaching
-the network, and cropperjs's `$ready` rejects — the selection is never seeded
-and the editor appears broken. The editor only reads element geometry and
-`naturalWidth`/`naturalHeight`, never canvas pixels, so it has no need for a
-CORS-mode image. If a future feature needs pixel access (e.g. client-side
-export via `$toCanvas`), the image serve endpoint must first send
-`Vary: Origin` (and ideally an unconditional ACAO for allowlisted origins) so
-cors- and no-cors-mode responses never share a cache entry.
+The modal's `<img>` **carries no `crossOrigin`**. The editor only reads element
+geometry and `naturalWidth`/`naturalHeight`, never canvas pixels, so a no-cors
+image is all it needs, and cropperjs copies `crossorigin` onto its own
+`<cropper-image>` only when the source `<img>` has it. The image URLs it loads
+are served `Cache-Control: public, max-age=31536000, immutable` (`private` for
+the closing image) with `Vary: Accept, Origin` — `imageResponseHeaders` in
+`cire/api/src/services/invite-image-transform.ts`, on the Cache API hit path as
+well. The dashboard thumbnail loads the same URL as a plain no-cors `<img>`
+first, and a no-cors request sends no `Origin`, so `Vary: Origin` stops the
+browser from answering a CORS-mode request with that cached copy: it goes back
+to the network instead of failing the CORS check. Adding `crossOrigin` would
+therefore work for the allowlisted portal origin, but it costs a second fetch on
+every switch of mode, and an anonymous CORS load sends no cookie — the closing
+image is served only to a claimed guest session, so it would 404. A future
+feature that needs pixels (e.g. client-side export via `$toCanvas`) needs a
+CORS-mode load; the API echoes `Access-Control-Allow-Origin` only for origins on
+its allowlist.
 
 **Live theme preview.** Every preview surface updates **instantly** as the
 organiser edits — colour, font, typography option or copy — so they SEE the

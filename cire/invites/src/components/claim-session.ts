@@ -46,7 +46,11 @@ export function hasClaimedHint(): boolean {
  * `Document.astro` mounts after it. They share no Solid
  * root, and a claim navigates nowhere: the reveal is an in-page animation. So
  * nothing but this event can tell the band that the code form just signed in,
- * or that the guest just signed out.
+ * or that the guest just signed out. The band does not need to be a separate
+ * island — its read is claim-gated like the rest of the invitation, so nested
+ * in `InvitePage`'s claim-gated body it would appear at the same moment — and
+ * moving it there would make this event unnecessary for it; the comment above
+ * it in each `Document.astro` says the same.
  *
  * Without it the band stays absent after a claim, and stays up after a
  * sign-out, until the guest reloads.
