@@ -386,7 +386,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.27.16",
+      "version": "0.27.17",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -459,7 +459,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.7",
+      "version": "0.24.8",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -622,7 +622,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.35",
+      "version": "0.4.36",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.12",
@@ -660,7 +660,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -813,7 +813,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.9.17",
+      "version": "0.9.18",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
