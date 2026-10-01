@@ -1,15 +1,14 @@
-import { weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
-import { dbQuery } from "../db";
+import { DbService } from "../db";
 import type { Db } from "../db";
 import { runCire } from "../observability";
-import { entitlementPresent } from "../services/entitlements";
 import type { EntitlementKey } from "../services/entitlements";
+import { hostsService } from "../services/hosts";
 import { readOsnProfileId } from "./upstream-context";
 import type { WeddingEntitlementFold } from "./wedding-member";
+import { decideCapability } from "./wedding-role";
 
 interface GateError {
   status: number;
@@ -28,66 +27,19 @@ const pass = (weddingId: string, entitlementFold: WeddingEntitlementFold | undef
   weddingGateError: undefined as GateError | undefined,
 });
 
-/** The owner lookup with no entitlement column — the query this gate runs when
- *  no route asks it to fold one. */
-function readOwner(db: Db, weddingId: string) {
-  return db
-    .select({ owner: weddings.ownerOsnProfileId })
-    .from(weddings)
-    .where(eq(weddings.id, weddingId))
-    .get();
-}
-
 /**
- * The owner lookup with an `entitled` column for `key` added to the same
- * SELECT, so a `weddingEntitlement(db, key)` after this gate has its answer
- * without a second query.
- *
- * A defect in that one SELECT falls back to {@link readOwner} and returns no
- * `entitled`, for the reason `hostsService.authorize()` does the same: a fault
- * confined to `wedding_entitlements` must cost only the entitlement half. The
- * entitlement gate then runs its own check, which fails closed to a 402 with
- * its own log line, and the owner check still answers. If the owner half is
- * what broke, the fallback throws as well and the request 500s.
- */
-function readOwnerWithEntitlement(
-  db: Db,
-  weddingId: string,
-  key: EntitlementKey,
-): Promise<{ owner: string; entitled?: boolean } | undefined> {
-  return runCire(
-    dbQuery(() =>
-      db
-        .select({ owner: weddings.ownerOsnProfileId, entitled: entitlementPresent(weddingId, key) })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .get(),
-    ).pipe(
-      Effect.map((row) => row && { owner: row.owner, entitled: Boolean(row.entitled) }),
-      Effect.catchDefect(() =>
-        Effect.logWarning(
-          "cire.wedding_owner entitlement fold failed — falling back to the plain owner query",
-        ).pipe(
-          Effect.annotateLogs({ weddingId, entitlement: key }),
-          Effect.andThen(dbQuery(() => readOwner(db, weddingId))),
-        ),
-      ),
-    ),
-  );
-}
-
-/**
- * Authz gate for /api/organiser/weddings/:weddingId/* — requires osnAuth()
- * upstream (osnProfileId derived). 404 for unknown weddings, 403 for callers
- * who aren't the owner. Derives `weddingId` on success.
+ * Authz gate for /api/organiser/weddings/:weddingId/* — admits any OWNER of the
+ * wedding, which is a caller whose seat carries the `manage` capability
+ * (`policyFor()` in `wedding-role.ts`). A wedding may have several owners and
+ * each passes alike. Requires osnAuth() upstream (osnProfileId derived). 404
+ * for unknown weddings, 403 `forbidden` for everyone else — always `forbidden`,
+ * never a role's own refusal string: a viewer's `read_only_role` tells the
+ * portal to ask for editor access, which would not open an owner-only route.
+ * Derives `weddingId` on success.
  *
  * The derive runs before osnAuth's onBeforeHandle fires, so it must tolerate
  * an unauthenticated request: it records the gate failure and the earliest
  * registered onBeforeHandle (osnAuth's 401) wins.
- *
- * The `.get()` is awaited defensively: bun-sqlite drizzle (tests) resolves
- * synchronously while D1 drizzle (production) returns a Promise — `await`
- * handles both.
  *
  * `entitlementKey` works as it does on `weddingMember()` and `weddingEditor()`:
  * it adds a presence check for that entitlement to this gate's own query and
@@ -95,6 +47,8 @@ function readOwnerWithEntitlement(
  * `weddingEntitlement(db, key)` mounted directly after it. Pass it only there.
  * On a route with no entitlement gate it would add the check's cost for
  * nothing; `tests/routes/entitlement-gate-pairing.test.ts` holds both rules.
+ * A defect confined to the entitlement half falls back to the plain role
+ * query inside `hostsService.authorize()`, so it costs only the fold.
  */
 export function weddingOwner(db: Db, entitlementKey?: EntitlementKey) {
   return new Elysia()
@@ -109,16 +63,20 @@ export function weddingOwner(db: Db, entitlementKey?: EntitlementKey) {
       if (!weddingId) return fail(400, "wedding_id_missing");
       if (!osnProfileId) return fail(401, "unauthorised");
 
-      const row: { owner: string; entitled?: boolean } | undefined = entitlementKey
-        ? await readOwnerWithEntitlement(db, weddingId, entitlementKey)
-        : await readOwner(db, weddingId);
+      const result = await runCire(
+        hostsService
+          .authorize(weddingId, osnProfileId, entitlementKey)
+          .pipe(Effect.provideService(DbService, db)),
+      );
 
-      if (!row) return fail(404, "wedding_not_found");
-      if (row.owner !== osnProfileId) return fail(403, "forbidden");
+      if (!result) return fail(404, "wedding_not_found");
+      if (!result.role || !decideCapability(result.role, "manage").allowed) {
+        return fail(403, "forbidden");
+      }
       return pass(
         weddingId,
-        entitlementKey && row.entitled !== undefined
-          ? { key: entitlementKey, entitled: row.entitled }
+        entitlementKey && result.entitled !== undefined
+          ? { key: entitlementKey, entitled: result.entitled }
           : undefined,
       );
     })

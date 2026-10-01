@@ -3,12 +3,13 @@
  *
  * The sweep deletes a wedding's guest data a year after its last event, and
  * leaves the couple an aggregate on `registry_settings`. This is the half that
- * actually reaches them: it asks osn-api for the organiser's address (cire
- * stores none of its own) and sends one email per wedding.
+ * actually reaches them: it asks osn-api for every owner's address (cire stores
+ * none of its own) and sends the wedding's summary to each of them — one email
+ * per distinct address, so two owners who share an inbox get it once.
  *
  * Everything here is fail-soft, on purpose. By the time this runs the deletes
  * have committed — the obligation is discharged and the email is a courtesy.
- * A dead mailbox, a 500 from osn-api, a Resend outage: each costs one couple
+ * A dead mailbox, a 500 from osn-api, a Resend outage: each costs one owner
  * one email and nothing else. There is no retry anywhere in this file, because
  * the caller is a cron sweep and a retry loop against a mailbox that is still
  * down would only mail the same couple again on the next run with no new data.
@@ -62,22 +63,31 @@ export function sendGiftSummaryEmails(
     // One lookup for the whole cohort, not one per wedding: the addresses are
     // all wanted at the same moment and osn-api takes a batch.
     const addresses = yield* Effect.tryPromise({
-      try: () => lookup(notices.map((n) => n.ownerOsnProfileId)),
+      try: () => lookup([...new Set(notices.flatMap((n) => n.ownerOsnProfileIds))]),
       catch: (cause) => new Error("organiser email lookup failed", { cause }),
     });
+
+    // One send per (wedding, address). An owner with no address is skipped
+    // with no error: osn-api omits ids it cannot answer for and does not say
+    // why, so there is nothing to report.
+    const sends = notices.flatMap((notice) => {
+      const recipients = new Set(
+        notice.ownerOsnProfileIds.flatMap((id) => {
+          const to = addresses.get(id);
+          return to ? [to] : [];
+        }),
+      );
+      return [...recipients].map((to) => ({ notice, to }));
+    });
+    yield* Effect.annotateCurrentSpan({ recipients: sends.length });
 
     // `Effect.forEach` with bounded concurrency rather than a for/await loop:
     // the sends are independent, `no-await-in-loop` is on for exactly this
     // case, and a cohort is however many weddings passed their year on the
     // same day — which should not become that many simultaneous sends.
     yield* Effect.forEach(
-      notices,
-      (notice) => {
-        const to = addresses.get(notice.ownerOsnProfileId);
-        // No address, no mail, no error. osn-api omits ids it cannot answer
-        // for and does not say why; there is nothing to report here.
-        if (!to) return Effect.void;
-
+      sends,
+      ({ notice, to }) => {
         const totals = notice.summary.contributions.totals;
         const primary = totals.find((t) => t.currency === notice.currency) ?? totals[0] ?? null;
 
@@ -96,8 +106,8 @@ export function sendGiftSummaryEmails(
             },
           })
           .pipe(
-            // Caught per wedding, so one bounced address does not cost the
-            // rest of the cohort their summaries.
+            // Caught per send, so one bounced address costs neither the
+            // wedding's other owners nor the rest of the cohort their summary.
             Effect.catchCause(() =>
               Effect.logWarning("[gift-summary-email] send failed — continuing").pipe(
                 Effect.annotateLogs({

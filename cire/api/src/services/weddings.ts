@@ -2,22 +2,22 @@ import { weddingHosts, weddings } from "@cire/db";
 import { asc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
-import type { HostRole } from "./hosts";
+import type { WeddingRole } from "./hosts";
 
 export type WeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
-  /** The caller's role on this wedding — `owner` (created it, full management)
-   *  or the app-layer role of their co-host seat. Lets the portal label each
-   *  wedding and gate write/management surfaces; the API gates remain the
-   *  enforcement, so a portal that does not recognise a role may mislabel it
-   *  but can never widen what it reaches. */
-  role: "owner" | HostRole;
+  /** The caller's role on this wedding — the app-layer role of their seat,
+   *  `owner` included. Lets the portal label each wedding and gate
+   *  write/management surfaces; the API gates remain the enforcement, so a
+   *  portal that does not recognise a role may mislabel it but can never widen
+   *  what it reaches. */
+  role: WeddingRole;
   /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
    *  Merged in by the route from `entitlementService.setsForWeddings` — the
    *  service itself stays free of entitlement logic. */
@@ -63,34 +63,16 @@ function mintWeddingId(): string {
 
 export const weddingsService = {
   /**
-   * Every wedding the given OSN profile can reach: the ones they OWN plus the
-   * ones they CO-HOST, oldest-owned-first then oldest-hosted. Owned rows are
-   * tagged `role: "owner"`, co-hosted rows carry the seat's stored role
-   * (`editor`/`viewer`, legacy `host` normalised to `editor`) so the portal can
-   * label them and gate write + management surfaces. A profile can't both own
-   * and co-host the same wedding (the owner is never rowed into
-   * `wedding_hosts`), so no dedupe is needed.
+   * Every wedding the given OSN profile can reach — one per seat they hold,
+   * owned or co-hosted — oldest seat first, each tagged with that seat's role
+   * (legacy `host` normalised to `editor`) so the portal can label it and gate
+   * write + management surfaces. One query: a profile holds at most one seat
+   * per wedding, so the join yields each wedding once.
    */
   listForMember(osnProfileId: string): Effect.Effect<WeddingSummary[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const owned = yield* dbQuery(() =>
-        db
-          .select({
-            id: weddings.id,
-            slug: weddings.slug,
-            displayName: weddings.displayName,
-          })
-          .from(weddings)
-          .where(eq(weddings.ownerOsnProfileId, osnProfileId))
-          .orderBy(asc(weddings.createdAt))
-          // Defensive ceiling: an organiser hosts a handful of weddings,
-          // so this never truncates real data — it just bounds the worst-case
-          // payload if a single profile ever accumulates pathologically many.
-          .limit(200)
-          .all(),
-      );
-      const hosted = yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .select({
             id: weddings.id,
@@ -102,31 +84,20 @@ export const weddingsService = {
           .innerJoin(weddings, eq(weddingHosts.weddingId, weddings.id))
           .where(eq(weddingHosts.osnProfileId, osnProfileId))
           .orderBy(asc(weddingHosts.createdAt))
+          // Defensive ceiling: an organiser holds a handful of seats, so this
+          // never truncates real data — it just bounds the worst-case payload
+          // if a single profile ever accumulates pathologically many.
           .limit(200)
           .all(),
       );
-      const summaries: WeddingSummary[] = [];
-      for (const w of owned) {
-        summaries.push({
-          id: w.id,
-          slug: w.slug,
-          displayName: w.displayName,
-          role: "owner",
-          entitlements: [],
-          guestCap: 100,
-        });
-      }
-      for (const w of hosted) {
-        summaries.push({
-          id: w.id,
-          slug: w.slug,
-          displayName: w.displayName,
-          role: normaliseHostRole(w.role),
-          entitlements: [],
-          guestCap: 100,
-        });
-      }
-      return summaries;
+      return rows.map((w) => ({
+        id: w.id,
+        slug: w.slug,
+        displayName: w.displayName,
+        role: normaliseHostRole(w.role),
+        entitlements: [],
+        guestCap: 100,
+      }));
     }).pipe(Effect.withSpan("cire.wedding.listForMember"));
   },
 
@@ -138,6 +109,10 @@ export const weddingsService = {
    * taken from the verified OSN token upstream, never from the request body; the
    * style is validated against the `["simple","secure"]` enum at the schema
    * boundary before reaching here.
+   *
+   * The wedding row and the caller's `owner` seat commit in one batch, so no
+   * wedding ever exists without an owner. The seat names its own holder as the
+   * one who added it.
    */
   createForOwner(
     osnProfileId: string,
@@ -164,20 +139,24 @@ export const weddingsService = {
         // requires a `catch`, and the failure is handled by the `catchAll`
         // below rather than at the boundary.
         const result = yield* Effect.tryPromise(() =>
-          Promise.resolve(
-            db
-              .insert(weddings)
-              .values({
-                id,
-                slug,
-                displayName: trimmed,
-                ownerOsnProfileId: osnProfileId,
-                codeStyle,
-                createdAt: now,
-                updatedAt: now,
-              })
-              .run(),
-          ),
+          commitBatch(db, [
+            db.insert(weddings).values({
+              id,
+              slug,
+              displayName: trimmed,
+              codeStyle,
+              createdAt: now,
+              updatedAt: now,
+            }),
+            db.insert(weddingHosts).values({
+              id: `whost_${crypto.randomUUID()}`,
+              weddingId: id,
+              osnProfileId,
+              addedByOsnProfileId: osnProfileId,
+              role: "owner",
+              createdAt: now,
+            }),
+          ]),
         ).pipe(
           Effect.map(() => ({
             ok: true as const,

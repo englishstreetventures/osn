@@ -1,31 +1,46 @@
 import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
-import { and, asc, count, eq } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  getTableColumns,
+  ne,
+  notExists,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitBatch, DbService, dbQuery } from "../db";
+import { commitBatchResults, DbService, dbQuery } from "../db";
 import { entitlementPresent } from "./entitlements";
 import type { EntitlementKey } from "./entitlements";
 
 /**
  * Every value the `wedding_hosts.role` column may hold, read off the column
  * itself. The app-layer vocabulary below derives from this, so the two cannot
- * drift: widening the column widens {@link HostRole}, and every exhaustive
+ * drift: widening the column widens {@link WeddingRole}, and every exhaustive
  * switch over it stops compiling until the new role is handled.
  */
 export type StoredHostRole = (typeof weddingHosts.$inferSelect)["role"];
 
 /**
- * A co-host's role in the app layer. `editor` gets full module writes (guests,
- * schedule, invite, import — a partner or hired planner); `viewer` is
- * read-only across the dashboard; `helper` is the day-of run sheet and nothing
- * else. The owner is never rowed into `wedding_hosts`, so "owner" is not a
- * stored role.
+ * The role a seat gives its holder on a wedding — every organiser, owners
+ * included, holds exactly one seat. `owner` manages the wedding itself (who
+ * helps, claim codes, settings, billing, deletion) and every owner holds all of
+ * it; `editor` gets full module writes (guests, schedule, invite, import — a
+ * partner or hired planner); `viewer` is read-only across the dashboard;
+ * `helper` is the day-of run sheet and nothing else.
  *
  * `host` is excluded: it is the legacy pre-roles value and still the column's
  * DDL DEFAULT (unchangeable without a table rebuild), but no reader treats it
  * as a role of its own — {@link normaliseHostRole} folds it into `editor`.
  */
-export type HostRole = Exclude<StoredHostRole, "host">;
+export type WeddingRole = Exclude<StoredHostRole, "host">;
+
+/** A seat below owner: the roles a co-host holds. */
+export type HostRole = Exclude<WeddingRole, "owner">;
 
 /**
  * Which stored values a route may WRITE onto a seat — one answer per value the
@@ -35,10 +50,12 @@ export type HostRole = Exclude<StoredHostRole, "host">;
  *
  * `host` is `false` and stays that way: it is the column's DDL default and its
  * pre-roles value, not a role anyone holds, and {@link normaliseHostRole} folds
- * it away before any reader sees it.
+ * it away before any reader sees it. Which of the assignable roles a given
+ * caller may grant is `assignableRolesFor()` in `../middleware/wedding-role`.
  */
 const ASSIGNABLE_HOST_ROLES = {
   host: false,
+  owner: true,
   editor: true,
   viewer: true,
   helper: true,
@@ -55,16 +72,17 @@ export type AssignableHostRole = {
 }[StoredHostRole];
 
 /**
- * Each role's privilege rank, lowest first. Exhaustive over {@link HostRole} by
- * type — a role added to the column must be ranked here before this compiles,
- * which is what makes {@link LEAST_PRIVILEGE_ROLE} true rather than merely
- * intended.
+ * Each role's privilege rank, lowest first. Exhaustive over {@link WeddingRole}
+ * by type — a role added to the column must be ranked here before this
+ * compiles, which is what makes {@link LEAST_PRIVILEGE_ROLE} true rather than
+ * merely intended.
  */
 const ROLE_PRIVILEGE_RANK = {
   helper: 0,
   viewer: 1,
   editor: 2,
-} satisfies Record<HostRole, number>;
+  owner: 3,
+} satisfies Record<WeddingRole, number>;
 
 /**
  * What an unrecognised stored role degrades to: the narrowest role there is.
@@ -72,8 +90,8 @@ const ROLE_PRIVILEGE_RANK = {
  * role below the current floor moves the floor with it instead of leaving a
  * stale literal that grants more than the newest role gets.
  */
-export const LEAST_PRIVILEGE_ROLE: HostRole = (
-  Object.keys(ROLE_PRIVILEGE_RANK) as HostRole[]
+export const LEAST_PRIVILEGE_ROLE: WeddingRole = (
+  Object.keys(ROLE_PRIVILEGE_RANK) as WeddingRole[]
 ).reduce((lowest, role) =>
   ROLE_PRIVILEGE_RANK[role] < ROLE_PRIVILEGE_RANK[lowest] ? role : lowest,
 );
@@ -114,6 +132,7 @@ export function normaliseRunSheetScope(scope: string): RunSheetScope {
  *  is one that stops matching the column the first time it is widened. */
 export const STORED_HOST_ROLES = {
   host: true,
+  owner: true,
   editor: true,
   viewer: true,
   helper: true,
@@ -124,8 +143,10 @@ function isStoredHostRole(role: string): role is StoredHostRole {
 }
 
 /** Fold a recognised stored value onto the app-layer role it means. */
-function mapStoredRole(role: StoredHostRole): HostRole {
+function mapStoredRole(role: StoredHostRole): WeddingRole {
   switch (role) {
+    case "owner":
+      return "owner";
     // Migration 0031 rewrote every legacy `host` row to `editor`; a stray one
     // is what every pre-roles co-host effectively was.
     case "host":
@@ -141,22 +162,23 @@ function mapStoredRole(role: StoredHostRole): HostRole {
 }
 
 /**
- * Map a stored role onto the app-layer {@link HostRole}. A value the column is
- * not declared to hold — corrupted, or written by something that bypassed the
- * schema — degrades to {@link LEAST_PRIVILEGE_ROLE} so the gate chain never
+ * Map a stored role onto the app-layer {@link WeddingRole}. A value the column
+ * is not declared to hold — corrupted, or written by something that bypassed
+ * the schema — degrades to {@link LEAST_PRIVILEGE_ROLE} so the gate chain never
  * fails open.
  */
-export function normaliseHostRole(role: string): HostRole {
+export function normaliseHostRole(role: string): WeddingRole {
   if (!isStoredHostRole(role)) return LEAST_PRIVILEGE_ROLE;
   return mapStoredRole(role);
 }
 
-/** A co-host row surfaced to the management panel. Never echoes the account id —
- *  only the profile id (which the organiser typed a handle for) + when it was added. */
+/** A seat surfaced to the management panel — owners and co-hosts alike. Never
+ *  echoes the account id — only the profile id (which the organiser typed a
+ *  handle for) + when it was added. */
 export interface WeddingHostRow {
   id: string;
   osnProfileId: string;
-  role: HostRole;
+  role: WeddingRole;
   createdAt: Date;
   /**
    * Who created this seat. Surfaced (not just stored) because `POST /hosts` is
@@ -169,36 +191,56 @@ export interface WeddingHostRow {
   addedByOsnProfileId: string;
 }
 
-/** The add would duplicate an existing seat, target the owner (who is already
- *  implicitly a host and can't be demoted into the join table), or push the
- *  wedding past {@link MAX_HOSTS_PER_WEDDING}. */
+/** A seat could not be added or given a role: the target already holds a seat
+ *  on this wedding (owners included), or the wedding is at
+ *  {@link MAX_HOSTS_PER_WEDDING} co-hosts or {@link MAX_OWNERS_PER_WEDDING}
+ *  owners. */
 export class HostConflict extends Data.TaggedError("HostConflict")<{
-  reason: "already_host" | "owner_is_host" | "host_cap_reached";
+  reason: "already_host" | "host_cap_reached" | "owner_cap_reached";
+}> {}
+
+/** A removal or role change would leave the wedding with no owner. Every
+ *  wedding keeps at least one; the refused write changed nothing. */
+export class LastOwner extends Data.TaggedError("LastOwner")<{
+  weddingId: string;
 }> {}
 
 /**
- * How many co-host seats one wedding may hold, and the reason there is a
- * number here at all.
+ * How many co-host seats — every seat below owner — one wedding may hold, and
+ * the reason there is a number here at all.
  *
  * `POST /hosts` is `weddingEditor()`-gated, so an editor can create seats. The
  * design's whole safety argument is that this is safe BECAUSE it is additive:
- * only the owner can remove, so every seat an editor creates is reversible by
- * the one person who can't be removed. That argument depends on the owner being
- * able to SEE every seat — and {@link LIST_CEILING} truncates the list. A
- * security review drove it: 211 seats added, 200 listed, **11 live co-hosts the
- * owner could neither see nor name in a DELETE**. Reversibility silently ran out.
+ * only an owner can remove, so every seat an editor creates is reversible by an
+ * owner. That argument depends on the owners being able to SEE every seat — and
+ * {@link LIST_CEILING} truncates the list. A security review drove it: 211
+ * seats added, 200 listed, **11 live co-hosts the owner could neither see nor
+ * name in a DELETE**. Reversibility silently ran out.
  *
  * So the cap sits well below the read ceiling, which turns "the list shows every
  * seat" from a coincidence into a structural invariant. 50 is far past any real
- * wedding (a couple, both sets of parents, a planner) and far short of 200.
+ * wedding (both sets of parents, siblings, a planner) and far short of 200.
+ * Owners are not counted here; they have their own ceiling,
+ * {@link MAX_OWNERS_PER_WEDDING}, and the two together stay under the list
+ * ceiling.
  */
 export const MAX_HOSTS_PER_WEDDING = 50;
 
 /**
- * Row ceiling on the co-host list. Kept ABOVE {@link MAX_HOSTS_PER_WEDDING} on
- * purpose: it is the defensive bound (P-I1), not the policy, and the gap is
- * what guarantees a wedding at the cap is still listed whole. Legacy weddings
- * seeded past the cap before it existed still list up to this many.
+ * How many owners one wedding may hold. A wedding is owned by a couple, and
+ * every owner holds every owner power — removing the others included — so the
+ * ceiling is small: room for both partners and a parent or two, not a
+ * committee. Owners are counted apart from co-hosts, so adding one never uses
+ * up a co-host seat.
+ */
+export const MAX_OWNERS_PER_WEDDING = 4;
+
+/**
+ * Row ceiling on the seat list. Kept ABOVE {@link MAX_HOSTS_PER_WEDDING} +
+ * {@link MAX_OWNERS_PER_WEDDING} on purpose: it is the defensive bound (P-I1),
+ * not the policy, and the gap is what guarantees a wedding at both caps is still
+ * listed whole. Legacy weddings seeded past the cap before it existed still
+ * list up to this many.
  */
 const LIST_CEILING = 200;
 
@@ -208,7 +250,7 @@ export class HostWriteError extends Data.TaggedError("HostWriteError")<{
   reason: string;
 }> {}
 
-/** A role change targeted a profile that isn't a co-host of the wedding. */
+/** A role change targeted a profile that holds no seat on the wedding. */
 export class HostNotFound extends Data.TaggedError("HostNotFound")<{
   weddingId: string;
 }> {}
@@ -224,26 +266,70 @@ export function hostConflictReason(message: string): HostConflict["reason"] | nu
   return null;
 }
 
+/** `weddingId`'s owner seats, counted inside whatever statement embeds it. */
+function ownerSeatCount(weddingId: string): SQL<number> {
+  return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner')`;
+}
+
+/**
+ * `weddingId`'s seats below owner, counted inside whatever statement embeds it.
+ * This is what {@link MAX_HOSTS_PER_WEDDING} bounds, and the count any limit on
+ * the people helping with a wedding reads: owners do not count towards it.
+ */
+export function nonOwnerSeatCount(weddingId: string): SQL<number> {
+  return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} <> 'owner')`;
+}
+
+/** The (wedding, profile) pair that names one seat. */
+const seatOf = (weddingId: string, osnProfileId: string) =>
+  and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId));
+
 type AuthorizeResult = {
-  ownerOsnProfileId: string;
   isOwner: boolean;
+  /** True for a seat below owner. */
   isHost: boolean;
-  role: "owner" | HostRole | null;
-  /** The caller's `wedding_hosts.id`, or `null` when they are the owner (never
-   *  rowed in) or a stranger. The run-sheet gate needs it to tell the caller's
-   *  own assignments from everyone else's. */
+  role: WeddingRole | null;
+  /** The caller's `wedding_hosts.id`, or `null` for a stranger. Every member,
+   *  owners included, holds one; the run-sheet gate needs it to tell the
+   *  caller's own assignments from everyone else's. */
   hostId: string | null;
   /** The caller's stored run-sheet visibility. `own` for anyone with no seat —
    *  the narrow value, so a missing row can never widen what is returned. */
   runSheetScope: RunSheetScope;
-  /** The wedding's slug, read from the same row as its owner, so a route that
-   *  names a download after the wedding does not read that row again. */
+  /** The wedding's slug, read in the same query as the caller's seat, so a
+   *  route that names a download after the wedding does not read the row again. */
   weddingSlug: string;
 };
 
+/** What the wedding row and the caller's seat on it — if any — say. */
+function resolveSeat(row: {
+  slug: string;
+  seatId: string | null;
+  role: string | null;
+  runSheetScope: string | null;
+}): AuthorizeResult {
+  const role = row.role === null ? null : normaliseHostRole(row.role);
+  return {
+    isOwner: role === "owner",
+    isHost: role !== null && role !== "owner",
+    role,
+    hostId: row.seatId,
+    runSheetScope:
+      row.runSheetScope === null
+        ? LEAST_PRIVILEGE_RUN_SHEET_SCOPE
+        : normaliseRunSheetScope(row.runSheetScope),
+    weddingSlug: row.slug,
+  };
+}
+
+/** The caller's seat joins the wedding row on (wedding, caller), so the one
+ *  query answers both "does the wedding exist" and "what is the caller on it". */
+const callerSeat = (osnProfileId: string) =>
+  and(eq(weddingHosts.weddingId, weddings.id), eq(weddingHosts.osnProfileId, osnProfileId));
+
 /**
- * The entitlement-free `authorize()`: the wedding row, then the caller's seat
- * unless they own it, with no `wedding_entitlements` column. Kept apart so both
+ * The entitlement-free `authorize()`: the wedding row and the caller's seat on
+ * it, in one query, with no `wedding_entitlements` column. Kept apart so both
  * the plain caller and {@link authorizeWithEntitlement}'s defect fallback can
  * reach it.
  */
@@ -253,55 +339,20 @@ function authorizePlain(
 ): Effect.Effect<AuthorizeResult | null, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [owner] = yield* dbQuery(() =>
-      db
-        .select({ owner: weddings.ownerOsnProfileId, slug: weddings.slug })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .all(),
-    );
-    if (!owner) return null;
-
-    const isOwner = owner.owner === osnProfileId;
-    if (isOwner) {
-      return {
-        ownerOsnProfileId: owner.owner,
-        isOwner: true,
-        isHost: false,
-        role: "owner" as const,
-        // The owner is never rowed into wedding_hosts, so there is no seat id
-        // and no stored scope; they see the whole run sheet by role.
-        hostId: null,
-        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-        weddingSlug: owner.slug,
-      };
-    }
-
-    const [host] = yield* dbQuery(() =>
+    const [row] = yield* dbQuery(() =>
       db
         .select({
-          id: weddingHosts.id,
+          slug: weddings.slug,
+          seatId: weddingHosts.id,
           role: weddingHosts.role,
           runSheetScope: weddingHosts.runSheetScope,
         })
-        .from(weddingHosts)
-        .where(
-          and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
-        )
-        .limit(1)
+        .from(weddings)
+        .leftJoin(weddingHosts, callerSeat(osnProfileId))
+        .where(eq(weddings.id, weddingId))
         .all(),
     );
-    return {
-      ownerOsnProfileId: owner.owner,
-      isOwner: false,
-      isHost: Boolean(host),
-      role: host ? normaliseHostRole(host.role) : null,
-      hostId: host?.id ?? null,
-      runSheetScope: host
-        ? normaliseRunSheetScope(host.runSheetScope)
-        : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-      weddingSlug: owner.slug,
-    };
+    return row ? resolveSeat(row) : null;
   }).pipe(Effect.withSpan("cire.host.authorize"));
 }
 
@@ -309,11 +360,10 @@ function authorizePlain(
  * The `entitlementKey`-carrying half of `authorize()` — kept as a separate
  * function rather than an inline branch so the plain path above carries no
  * entitlement column for any caller that never asks for an entitlement fold.
- * Each SELECT gains one boolean `entitled` column
- * (an `EXISTS` subquery against `wedding_entitlements`) instead of the caller
- * issuing a THIRD, separate `entitlementService.has()` round trip afterward —
- * same total query count as the plain path (one query on the owner branch,
- * two on the co-host branch), now carrying the entitlement answer too.
+ * The SELECT gains one boolean `entitled` column (an `EXISTS` subquery against
+ * `wedding_entitlements`) instead of the caller issuing a second, separate
+ * `entitlementService.has()` round trip afterward — the same single query as
+ * the plain path, now carrying the entitlement answer too.
  */
 function authorizeWithEntitlement(
   weddingId: string,
@@ -324,62 +374,27 @@ function authorizeWithEntitlement(
 
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [owner] = yield* dbQuery(() =>
+    const [row] = yield* dbQuery(() =>
       db
         .select({
-          owner: weddings.ownerOsnProfileId,
           slug: weddings.slug,
-          entitled: entitledExists,
-        })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .all(),
-    );
-    if (!owner) return null;
-
-    const isOwner = owner.owner === osnProfileId;
-    if (isOwner) {
-      return {
-        ownerOsnProfileId: owner.owner,
-        isOwner: true,
-        isHost: false,
-        role: "owner" as const,
-        hostId: null,
-        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-        weddingSlug: owner.slug,
-        entitled: Boolean(owner.entitled),
-      };
-    }
-
-    const [host] = yield* dbQuery(() =>
-      db
-        .select({
-          id: weddingHosts.id,
+          seatId: weddingHosts.id,
           role: weddingHosts.role,
           runSheetScope: weddingHosts.runSheetScope,
           entitled: entitledExists,
         })
-        .from(weddingHosts)
-        .where(
-          and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
-        )
-        .limit(1)
+        .from(weddings)
+        .leftJoin(weddingHosts, callerSeat(osnProfileId))
+        .where(eq(weddings.id, weddingId))
         .all(),
     );
+    if (!row) return null;
+    const resolved = resolveSeat(row);
     return {
-      ownerOsnProfileId: owner.owner,
-      isOwner: false,
-      isHost: Boolean(host),
-      role: host ? normaliseHostRole(host.role) : null,
-      hostId: host?.id ?? null,
-      runSheetScope: host
-        ? normaliseRunSheetScope(host.runSheetScope)
-        : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-      weddingSlug: owner.slug,
-      // No host row means neither the owner nor a co-host branch matched — the
-      // caller is a stranger, and `entitled` is meaningless (the role gate
-      // 403s before anything reads it), so `false` rather than a bogus query.
-      entitled: host ? Boolean(host.entitled) : false,
+      ...resolved,
+      // No seat means the caller is a stranger, and `entitled` is meaningless
+      // (the role gate 403s before anything reads it), so `false`.
+      entitled: resolved.role !== null && Boolean(row.entitled),
     };
   }).pipe(
     Effect.withSpan("cire.host.authorize"),
@@ -409,77 +424,75 @@ function authorizeWithEntitlement(
   );
 }
 
+/** A refused host change, logged once with the reason and the wedding. */
+const logRefusal = (message: string, weddingId: string, reason: string) =>
+  Effect.logWarning(message).pipe(Effect.annotateLogs({ weddingId, reason }));
+
 export const hostsService = {
   /**
-   * Add `osnProfileId` as a co-host of `weddingId` with the given role.
+   * Seat `osnProfileId` on `weddingId` with the given role.
    *
-   * The route has proven, via `weddingEditor()`, that the caller may add — the
-   * OWNER or an `editor` co-host. So `addedByOsnProfileId` (the actor, kept for
-   * attribution) and `ownerOsnProfileId` (the wedding's owner, read from the
-   * wedding row) are DIFFERENT ids and must stay that way: conflating them
-   * would make the owner-is-host check compare the owner against the editor,
-   * miss, and row the owner in as a co-host of their own wedding — after which
-   * a later "remove host" would appear to strip them.
+   * The route has proven, via `weddingEditor()`, that the caller may add — an
+   * owner or an `editor` co-host — and, via `assignableRolesFor()`, that the
+   * caller may grant `role`. `addedByOsnProfileId` is the caller, kept for
+   * attribution.
    *
-   * Three ways to be refused: the target is the owner (`owner_is_host`), the
-   * target already holds a seat (`already_host`, from the unique index — never
-   * a duplicate seat, and never a silent promotion of an existing `viewer`),
-   * or the wedding is at {@link MAX_HOSTS_PER_WEDDING} (`host_cap_reached`).
+   * ONE statement, so both ceilings hold under concurrent adds: the INSERT's
+   * own WHERE counts the seats it competes with — owners against
+   * {@link MAX_OWNERS_PER_WEDDING} when adding an owner, every other seat
+   * against {@link MAX_HOSTS_PER_WEDDING} otherwise — and a wedding already at
+   * its ceiling inserts nothing, which RETURNING reports as no row. A
+   * count-then-insert would let two adds at the same moment both pass.
+   *
+   * Three ways to be refused: the target already holds a seat, owners included
+   * (`already_host`, from the unique index — never a duplicate seat, and never
+   * a silent change of an existing seat's role), or the wedding is at the
+   * ceiling the new seat counts against (`owner_cap_reached` /
+   * `host_cap_reached`).
    */
   add(input: {
     weddingId: string;
     osnProfileId: string;
     addedByOsnProfileId: string;
-    ownerOsnProfileId: string;
     role: AssignableHostRole;
   }): Effect.Effect<WeddingHostRow, HostConflict | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-
-      if (input.osnProfileId === input.ownerOsnProfileId) {
-        return yield* Effect.fail(new HostConflict({ reason: "owner_is_host" }));
-      }
-
-      // Cap check before the insert. Deliberately count-then-insert rather than
-      // a constraint: SQLite can't express "at most N rows per wedding_id", and
-      // the alternative (insert then count then delete) leaves a live seat for
-      // the width of the round trip. The race — two adds passing the count at
-      // once — can overshoot by the number of concurrent writers, which is
-      // bounded by the per-user rate limiter and lands far below the list
-      // ceiling; the invariant that matters (every seat is listable, therefore
-      // removable) survives an overshoot of a handful.
-      const [seats] = yield* dbQuery(() =>
-        db
-          .select({ count: count() })
-          .from(weddingHosts)
-          .where(eq(weddingHosts.weddingId, input.weddingId))
-          .all(),
-      );
-      if ((seats?.count ?? 0) >= MAX_HOSTS_PER_WEDDING) {
-        yield* Effect.logWarning("host add refused: cap reached", {
-          weddingId: input.weddingId,
-          cap: MAX_HOSTS_PER_WEDDING,
-        });
-        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
-      }
-
       const id = `whost_${crypto.randomUUID()}`;
       const now = new Date();
+      const addingOwner = input.role === "owner";
+      const room = addingOwner
+        ? sql`${ownerSeatCount(input.weddingId)} < ${MAX_OWNERS_PER_WEDDING}`
+        : sql`${nonOwnerSeatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`;
 
-      yield* Effect.tryPromise({
+      // The SELECT lists its values in the table's column order, which is the
+      // column list drizzle writes for an INSERT … SELECT. Built off the
+      // columns themselves, so a column added later without a value here
+      // throws rather than shifting every value one place along.
+      const values = {
+        id: sql`${id}`,
+        weddingId: sql`${input.weddingId}`,
+        osnProfileId: sql`${input.osnProfileId}`,
+        addedByOsnProfileId: sql`${input.addedByOsnProfileId}`,
+        role: sql`${input.role}`,
+        runSheetScope: sql`${LEAST_PRIVILEGE_RUN_SHEET_SCOPE}`,
+        createdAt: sql`${weddingHosts.createdAt.mapToDriverValue(now)}`,
+      } satisfies Record<keyof typeof weddingHosts.$inferSelect, SQL>;
+      const selectList = Object.keys(getTableColumns(weddingHosts)).map((key) => {
+        if (!Object.hasOwn(values, key)) {
+          throw new Error(`wedding_hosts column "${key}" has no value`);
+        }
+        return values[key as keyof typeof values];
+      });
+
+      const inserted = yield* Effect.tryPromise({
         try: () =>
           Promise.resolve(
             db
               .insert(weddingHosts)
-              .values({
-                id,
-                weddingId: input.weddingId,
-                osnProfileId: input.osnProfileId,
-                addedByOsnProfileId: input.addedByOsnProfileId,
-                role: input.role,
-                createdAt: now,
-              })
-              .run(),
+              .select(sql`SELECT ${sql.join(selectList, sql`, `)} WHERE ${room}`)
+              .returning({ id: weddingHosts.id })
+              .all(),
           ),
         catch: (e) => {
           const message = String(e);
@@ -491,10 +504,16 @@ export const hostsService = {
       }).pipe(
         Effect.tapError((err) =>
           err._tag === "HostConflict"
-            ? Effect.logWarning("host add conflict", { reason: err.reason })
+            ? logRefusal("host add refused", input.weddingId, err.reason)
             : Effect.logError("host insert failed", { reason: err.reason }),
         ),
       );
+
+      if (inserted.length === 0) {
+        const reason = addingOwner ? "owner_cap_reached" : "host_cap_reached";
+        yield* logRefusal("host add refused", input.weddingId, reason);
+        return yield* Effect.fail(new HostConflict({ reason }));
+      }
 
       return {
         id,
@@ -507,13 +526,14 @@ export const hostsService = {
   },
 
   /**
-   * All co-hosts of a wedding, oldest first, plus the true row count.
+   * Every seat on a wedding — owners and co-hosts — oldest first, plus the true
+   * row count.
    *
    * `total` exists so truncation can never be silent. The list is bounded by
-   * {@link LIST_CEILING}; `MAX_HOSTS_PER_WEDDING` keeps a compliant wedding
-   * well under it, but a wedding seeded past the cap before it existed can
-   * still exceed it, and a caller that cannot tell "50 seats" from "50 of 211
-   * seats" will quietly show an owner an incomplete list of who can read their
+   * {@link LIST_CEILING}; the two seat ceilings keep a compliant wedding well
+   * under it, but a wedding seeded past the cap before it existed can still
+   * exceed it, and a caller that cannot tell "50 seats" from "50 of 211 seats"
+   * will quietly show an owner an incomplete list of who can read their
    * guests' data.
    */
   list(
@@ -555,49 +575,90 @@ export const hostsService = {
   },
 
   /**
-   * Change a co-host's role. Scoped to `(weddingId, osnProfileId)` — the
-   * route's `weddingOwner()` proved ownership, so this can't retarget another
-   * wedding's seat. Fails `HostNotFound` when the profile isn't a co-host
-   * (which also covers the owner: they're never rowed in). Setting the role a
-   * host already has succeeds (idempotent).
+   * Change a seat's role, owners' included. Scoped to `(weddingId,
+   * osnProfileId)` — the route's `weddingOwner()` proved the caller owns this
+   * wedding, so this can't retarget another wedding's seat. Setting the role a
+   * seat already has succeeds (idempotent).
+   *
+   * The guards ride in the UPDATE's own WHERE, so they hold however many owners
+   * act at once: promoting to owner needs room under
+   * {@link MAX_OWNERS_PER_WEDDING}; moving an owner down needs another owner to
+   * remain AND room under {@link MAX_HOSTS_PER_WEDDING} for the seat it becomes.
+   * A refused change writes nothing. A read of the seat and the two counts
+   * rides in the same batch, so the reason given is the one the UPDATE saw.
+   *
+   * Fails `HostNotFound` when the profile holds no seat, `LastOwner` when the
+   * seat is the wedding's only owner, and `HostConflict` when a ceiling is full.
    */
   setRole(input: {
     weddingId: string;
     osnProfileId: string;
     role: AssignableHostRole;
-  }): Effect.Effect<WeddingHostRow, HostNotFound | HostWriteError, DbService> {
+  }): Effect.Effect<
+    WeddingHostRow,
+    HostNotFound | LastOwner | HostConflict | HostWriteError,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Single round trip (P-I1): the UPDATE is scoped to the (wedding, profile)
-      // pair and RETURNING reports whether a seat existed — zero rows maps to
-      // HostNotFound with no separate existence SELECT (D1 bills per query).
-      const [updated] = yield* Effect.tryPromise({
+      const promotingToOwner = input.role === "owner";
+      const allowed = promotingToOwner
+        ? or(
+            eq(weddingHosts.role, "owner"),
+            sql`${ownerSeatCount(input.weddingId)} < ${MAX_OWNERS_PER_WEDDING}`,
+          )
+        : or(
+            ne(weddingHosts.role, "owner"),
+            and(
+              sql`${ownerSeatCount(input.weddingId)} > 1`,
+              sql`${nonOwnerSeatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`,
+            ),
+          );
+
+      const results = yield* Effect.tryPromise({
         try: () =>
-          Promise.resolve(
+          commitBatchResults(db, [
             db
               .update(weddingHosts)
               .set({ role: input.role })
-              .where(
-                and(
-                  eq(weddingHosts.weddingId, input.weddingId),
-                  eq(weddingHosts.osnProfileId, input.osnProfileId),
-                ),
-              )
+              .where(and(seatOf(input.weddingId, input.osnProfileId), allowed))
               .returning({
                 id: weddingHosts.id,
                 createdAt: weddingHosts.createdAt,
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+              }),
+            db
+              .select({
+                owners: ownerSeatCount(input.weddingId),
               })
-              .all(),
-          ),
+              .from(weddingHosts)
+              .where(seatOf(input.weddingId, input.osnProfileId)),
+          ]),
         catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) =>
           Effect.logError("host role update failed", { reason: err.reason }),
         ),
       );
+      const [updated] = results[0] as readonly {
+        id: string;
+        createdAt: Date;
+        addedByOsnProfileId: string;
+      }[];
+      const [seat] = results[1] as readonly { owners: number }[];
+
       if (!updated) {
-        return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
+        if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
+        if (promotingToOwner) {
+          yield* logRefusal("host role change refused", input.weddingId, "owner_cap_reached");
+          return yield* Effect.fail(new HostConflict({ reason: "owner_cap_reached" }));
+        }
+        if (seat.owners <= 1) {
+          yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
+          return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
+        }
+        yield* logRefusal("host role change refused", input.weddingId, "host_cap_reached");
+        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
       }
 
       return {
@@ -611,62 +672,76 @@ export const hostsService = {
   },
 
   /**
-   * Remove a co-host. Scoped to `(weddingId, osnProfileId)` so an owner can only
-   * remove a host from their own wedding (the route's `weddingOwner()` proved
-   * ownership). Idempotent: removing a host that isn't there succeeds.
+   * Remove a seat — a co-host's, another owner's, or the caller's own. Scoped to
+   * `(weddingId, osnProfileId)` so an owner can only remove a seat from their
+   * own wedding (the route's `weddingOwner()` proved ownership). Idempotent:
+   * removing a profile that holds no seat succeeds.
    *
-   * Their RSVP read marker and digest setting (`host_rsvp_notices`) go in the
-   * same batch: they belong to the seat, and a later re-add starts clean.
+   * The wedding's last owner is never removed: the seat's DELETE carries the
+   * guard in its own WHERE, so two owners removing each other at once leave
+   * one of them. Their RSVP read marker and digest setting (`host_rsvp_notices`)
+   * go in the same batch, AFTER the seat and only once it is gone — a refused
+   * removal keeps both. A read of the seat closes the batch: still there means
+   * the guard refused it, which fails `LastOwner`.
    */
   remove(input: {
     weddingId: string;
     osnProfileId: string;
-  }): Effect.Effect<void, HostWriteError, DbService> {
+  }): Effect.Effect<void, LastOwner | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* Effect.tryPromise({
+      const results = yield* Effect.tryPromise({
         try: () =>
-          commitBatch(db, [
-            db
-              .delete(hostRsvpNotices)
-              .where(
-                and(
-                  eq(hostRsvpNotices.weddingId, input.weddingId),
-                  eq(hostRsvpNotices.osnProfileId, input.osnProfileId),
-                ),
-              ),
+          commitBatchResults(db, [
             db
               .delete(weddingHosts)
               .where(
                 and(
-                  eq(weddingHosts.weddingId, input.weddingId),
-                  eq(weddingHosts.osnProfileId, input.osnProfileId),
+                  seatOf(input.weddingId, input.osnProfileId),
+                  or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
                 ),
               ),
+            db.delete(hostRsvpNotices).where(
+              and(
+                eq(hostRsvpNotices.weddingId, input.weddingId),
+                eq(hostRsvpNotices.osnProfileId, input.osnProfileId),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(weddingHosts)
+                    .where(seatOf(input.weddingId, input.osnProfileId)),
+                ),
+              ),
+            ),
+            db
+              .select({ id: weddingHosts.id })
+              .from(weddingHosts)
+              .where(seatOf(input.weddingId, input.osnProfileId)),
           ]),
         catch: (e) => new HostWriteError({ op: "delete", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("host delete failed", { reason: err.reason })),
       );
+      const remaining = results[2] as readonly { id: string }[];
+      if (remaining.length > 0) {
+        yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
+        return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
+      }
     }).pipe(Effect.withSpan("cire.host.remove"));
   },
 
   /**
-   * Is `osnProfileId` allowed to reach `weddingId`'s dashboard, and at what
-   * level? True when they own it OR co-host it. Returns the owner id too so the
-   * caller (the `weddingMember()` / `weddingEditor()` gates) can distinguish
-   * owner from co-host — and, via `role`, editor from viewer — and the
-   * wedding's slug from the same row. One query for the owner; a co-host or a
-   * stranger costs a second, for the seat. `null` result means the wedding
-   * doesn't exist (caller maps to 404); `role` is `null` when the caller is
-   * neither owner nor host.
+   * Is `osnProfileId` allowed to reach `weddingId`, and at what level? The
+   * answer is their seat's role — every organiser, owners included, holds
+   * exactly one seat — plus the wedding's slug, in ONE query: the wedding row
+   * LEFT JOINed to the caller's seat. `null` means the wedding doesn't exist
+   * (caller maps to 404); `role` is `null` when the caller holds no seat.
    *
    * `entitlementKey`, when given, folds a presence check for that entitlement
-   * into the SAME query as the owner/host lookup (an `EXISTS` column, same
-   * idiom as `directory.ts`'s `inWedding`) rather than a separate round trip —
-   * see `weddingEntitlement`. Omitted, no entitlement column is read, so a role
-   * gate on a route with no entitlement gate — which must never pass a key —
-   * pays nothing for it.
+   * into the same query (an `EXISTS` column, same idiom as `directory.ts`'s
+   * `inWedding`) rather than a separate round trip — see `weddingEntitlement`.
+   * Omitted, no entitlement column is read, so a role gate on a route with no
+   * entitlement gate — which must never pass a key — pays nothing for it.
    */
   authorize(
     weddingId: string,

@@ -1,9 +1,9 @@
-import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts } from "@cire/db";
+import { and, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
-import { createDb, seedDb } from "./db/setup";
+import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "./db/setup";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
@@ -12,20 +12,33 @@ import { createStripeClientFromEnv } from "./services/stripe";
 const db = createDb(":memory:");
 await seedDb(db);
 
-// Dev convenience: the in-memory seed gives the sample wedding the fixed local
-// dev owner (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in db/setup),
-// so the organiser dashboard lists nothing for a real signed-in account. Re-point
-// it at your OSN profile id via env so the wedding shows up. Find yours in osn.db:
-// SELECT id FROM users WHERE handle=...  (this is a post-seed override for the
-// running local server; deployed tiers never run this seed.)
+// Dev convenience: the in-memory seed gives the sample wedding's owner seat to
+// the fixed local dev id (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in
+// db/setup), so the organiser dashboard lists nothing for a real signed-in
+// account. Re-point that seat at your OSN profile id via env so the wedding
+// shows up. Find yours in osn.db: SELECT id FROM users WHERE handle=...  (this
+// is a post-seed override for the running local server; deployed tiers never
+// run this seed.)
+//
+// Any other seat the profile already holds on the sample wedding goes first: a
+// profile holds one seat per wedding, and the owner seat is the one to keep.
 const devOwner = process.env.CIRE_DEV_OWNER_PROFILE_ID;
 if (devOwner) {
-  db.update(weddings)
-    .set({ ownerOsnProfileId: devOwner })
-    .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+  db.delete(weddingHosts)
+    .where(
+      and(
+        eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID),
+        eq(weddingHosts.osnProfileId, devOwner),
+        ne(weddingHosts.id, DEV_OWNER_SEAT_ID),
+      ),
+    )
+    .run();
+  db.update(weddingHosts)
+    .set({ osnProfileId: devOwner, addedByOsnProfileId: devOwner, role: "owner" })
+    .where(eq(weddingHosts.id, DEV_OWNER_SEAT_ID))
     .run();
   runCireSync(
-    Effect.logInfo("dev: bootstrap wedding owner repointed", { ownerOsnProfileId: devOwner }),
+    Effect.logInfo("dev: bootstrap wedding owner seat repointed", { osnProfileId: devOwner }),
   );
 }
 

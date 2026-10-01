@@ -30,6 +30,7 @@ import {
 import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
+import type { WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
@@ -230,19 +231,37 @@ export type HostAddResult =
   | "handle_not_found"
   | "osn_unavailable"
   | "already_host"
-  | "owner_is_host"
+  // An editor asked to seat an owner. Only an owner may grant `owner`; a rise
+  // here is a stale portal or someone probing for the way up.
+  | "owner_role_forbidden"
   // The wedding is at MAX_HOSTS_PER_WEDDING. Worth its own label rather than
   // folding into `error`: a rise here is the signal that someone is trying to
   // create seats in bulk, which is the abuse the cap exists to bound.
   | "host_cap_reached"
+  // The wedding is at MAX_OWNERS_PER_WEDDING.
+  | "owner_cap_reached"
   | "disabled"
   | "error";
 
-/** Outcome of removing a co-host. */
-export type HostRemoveResult = "ok" | "error";
+/** Outcome of removing a seat. `last_owner` — refused, it was the wedding's
+ *  only owner. */
+export type HostRemoveResult = "ok" | "last_owner" | "error";
 
-/** Outcome of changing a co-host's role (editor ↔ viewer). */
-export type HostRoleChangeResult = "ok" | "not_found" | "error";
+/** Outcome of changing a seat's role. `last_owner` — refused, it would have
+ *  left the wedding without an owner; the two `_cap_reached` — the ceiling the
+ *  seat would move into is full. */
+export type HostRoleChangeResult =
+  | "ok"
+  | "not_found"
+  | "last_owner"
+  | "host_cap_reached"
+  | "owner_cap_reached"
+  | "error";
+
+/** The role a seat change asked for, as a metric attribute: one of the
+ *  wedding roles, or `none` before a request body named one. Bounded by the
+ *  column's enum. */
+export type HostMetricRole = WeddingRole | "none";
 
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
@@ -480,9 +499,9 @@ type FamilyDeactivatedAttrs = { action: FamilyDeactivateAction; result: FamilyDe
 type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
-type HostAddedAttrs = { result: HostAddResult };
+type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult };
-type HostRoleChangedAttrs = { result: HostRoleChangeResult };
+type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
 
@@ -820,19 +839,19 @@ const settingsOwnerOnlyRefused = createCounter<Record<string, never>>({
 
 const hostAdded = createCounter<HostAddedAttrs>({
   name: CIRE_METRICS.hostAdded,
-  description: "Co-host add-by-handle attempts, by outcome",
+  description: "Co-host add-by-handle attempts, by outcome and the role asked for",
   unit: "{host}",
 });
 
 const hostRemoved = createCounter<HostRemovedAttrs>({
   name: CIRE_METRICS.hostRemoved,
-  description: "Co-host removals, by outcome",
+  description: "Seat removals, owners' included, by outcome",
   unit: "{host}",
 });
 
 const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
   name: CIRE_METRICS.hostRoleChanged,
-  description: "Co-host role changes (editor ↔ viewer), by outcome",
+  description: "Seat role changes, by outcome and the role asked for",
   unit: "{host}",
 });
 
@@ -1085,12 +1104,15 @@ export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): 
  *  stale tab or a hand-crafted call. */
 export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefused.inc({});
 
-export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
+export const metricHostAdded = (result: HostAddResult, role: HostMetricRole = "none"): void =>
+  hostAdded.inc({ result, role });
 
 export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
 
-export const metricHostRoleChanged = (result: HostRoleChangeResult): void =>
-  hostRoleChanged.inc({ result });
+export const metricHostRoleChanged = (
+  result: HostRoleChangeResult,
+  role: HostMetricRole = "none",
+): void => hostRoleChanged.inc({ result, role });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

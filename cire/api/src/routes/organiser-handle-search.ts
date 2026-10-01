@@ -65,9 +65,9 @@ interface Suggestion {
  * A profile that appears in both is emitted once, from the connections source,
  * so `connected` is never understated.
  *
- * The caller's own profile is filtered out of both: the owner already hosts the
- * wedding (`POST /hosts` answers 409 `owner_is_host`), so suggesting themselves
- * only leads to a dead end.
+ * The caller's own profile is filtered out of both: whoever is adding already
+ * holds a seat on the wedding (`POST /hosts` answers 409 `already_host`), so
+ * suggesting themselves only leads to a dead end.
  *
  * Behaviour mirrors the host-list display path: KEY-OPTIONAL + FAIL-SOFT. With
  * no ARC resolvers (no ARC key) or an unavailable lookup, the route returns an
