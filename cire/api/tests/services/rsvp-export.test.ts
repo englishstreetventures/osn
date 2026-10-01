@@ -628,6 +628,34 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
   );
 
   it(
+    "carries who sent each reply, and whether through a linked account",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const bo = yield* guestByName(db, "Bo");
+        const catholic = yield* eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "attending");
+        rsvp(db, bo.id, catholic.id, "attending");
+        db.update(rsvps)
+          .set({ submittedByGuestId: bo.id, submittedViaLink: true })
+          .where(and(eq(rsvps.guestId, ada.id), eq(rsvps.eventId, catholic.id)))
+          .run();
+
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.guests.find((g) => g.guestId === ada.id)!.submittedBy).toEqual({
+          guestId: bo.id,
+          firstName: "Bo",
+          viaLink: true,
+        });
+        // An organiser-style write carries no submitter.
+        expect(event.guests.find((g) => g.guestId === bo.id)!.submittedBy).toBeNull();
+      }),
+    ),
+  );
+
+  it(
     "computes noResponse = invited − responded (never negative)",
     withDb(
       Effect.gen(function* () {
