@@ -1218,13 +1218,15 @@ describe("owner change notices", () => {
     expect(down.mail.recorded()).toEqual([]);
   });
 
-  it("stops mailing a wedding once its throttle is spent", async () => {
+  it("counts emails, not notices, against the budget, the person affected first", async () => {
     const { app, mail } = noticeApp({
-      ownerNoticeThrottle: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      ownerNoticeThrottle: createRateLimiter({ maxRequests: 4, windowMs: 60_000 }),
     });
     expect((await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
     expect(mail.recorded()).toHaveLength(3);
+    // One email left: the removed owner gets it, the remover does not.
     expect((await req(app, "DELETE", `${hostsPath}/${THIRD}`, OWNER)).status).toBe(200);
-    expect(mail.recorded()).toHaveLength(3);
+    expect(mail.recorded().map((m) => m.to)).toHaveLength(4);
+    expect(mail.recorded().at(-1)?.to).toBe("third@example.test");
   });
 });

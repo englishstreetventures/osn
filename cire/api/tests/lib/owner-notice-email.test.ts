@@ -85,9 +85,9 @@ describe("createOwnerNotices", () => {
     ).toEqual(["subject", "actor", "owner"]);
   });
 
-  it("counts by the acting owner too, so a new wedding does not reset the throttle", async () => {
+  it("counts by the acting owner too, so a new wedding does not reset the budget", async () => {
     const { notices, run, transport } = setup({
-      throttle: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      throttle: createRateLimiter({ maxRequests: 3, windowMs: 60_000 }),
     });
     const removeB = (weddingId: string) =>
       notices.ownerChanged({

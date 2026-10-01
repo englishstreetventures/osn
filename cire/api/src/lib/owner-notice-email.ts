@@ -17,11 +17,13 @@
  * that cannot be sent (no address, osn-api down, Resend down) is logged and
  * counted, never returned to the caller.
  *
- * A throttle keyed both by wedding and by the owner who acted bounds how much
- * mail one person can cause, so a promote/demote loop cannot spend the mail
- * provider's daily allowance, and starting a fresh wedding does not reset the
- * count. It is the in-memory limiter, so the bound holds per Worker isolate,
- * not across them.
+ * An email budget keyed both by wedding and by the owner who acted bounds how
+ * much mail one person can cause. It counts emails, not notices, because one
+ * notice reaches every owner; a promote/demote loop or a wedding stacked with
+ * owners then runs out of budget rather than spending the mail provider's
+ * daily allowance, which the platform's sign-in codes share. A fresh wedding
+ * does not reset the acting owner's budget. It is the in-memory limiter, so
+ * the bound holds per Worker isolate, not across them.
  */
 
 import { weddingHosts, weddings } from "@cire/db";
@@ -39,10 +41,11 @@ import type { HostRole } from "../services/hosts";
 import type { OsnOrganiserEmailLookup, OsnProfileDisplayResolver } from "../services/osn-bridge";
 import { getWaitUntil } from "./execution-ctx";
 
-/** Owner notices one wedding, or one acting owner, may cause per
- *  {@link OWNER_NOTICE_WINDOW_MS}. */
-export const OWNER_NOTICES_PER_WINDOW = 10;
-export const OWNER_NOTICE_WINDOW_MS = 60 * 60 * 1000;
+/** Owner-notice emails one wedding, or one acting owner, may cause per
+ *  {@link OWNER_NOTICE_WINDOW_MS}. A real ownership change mails a handful of
+ *  people; this is room for several on one day. */
+export const OWNER_NOTICE_EMAILS_PER_WINDOW = 30;
+export const OWNER_NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface OwnerNoticeDeps {
   /** osn-api's address lookup; keeps "osn-api did not answer" apart from "no address". */
@@ -52,7 +55,8 @@ export interface OwnerNoticeDeps {
   readonly emailLayer: Layer.Layer<EmailService>;
   /** The organiser portal, linked from every notice. */
   readonly portalUrl: string;
-  /** Keyed `wedding:<id>` and `actor:<profile id>`; a notice needs both. */
+  /** One check per email, keyed `wedding:<id>` and `actor:<profile id>`; an
+   *  email needs both. */
   readonly throttle: RateLimiterBackend;
 }
 
@@ -164,8 +168,8 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
     }).pipe(Effect.provide(deps.emailLayer));
 
   /**
-   * The shared tail: throttle, look up, build one email per distinct address
-   * (first recipient listed wins), send, count. Never fails.
+   * The shared tail: look up, build one email per distinct address (first
+   * recipient listed wins), spend the email budget, send, count. Never fails.
    */
   const deliver = (
     kind: OwnerNoticeKind,
@@ -178,13 +182,6 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
     >,
   ): Effect.Effect<void, never, DbService> =>
     Effect.gen(function* () {
-      const allowed = yield* Effect.promise(
-        async () =>
-          (await deps.throttle.check(`wedding:${weddingId}`)) &&
-          (await deps.throttle.check(`actor:${actorOsnProfileId}`)),
-      );
-      if (!allowed) return "throttled" as const;
-
       const plan = yield* build();
       if (!plan || plan.recipients.length === 0) return "no_recipients" as const;
 
@@ -203,9 +200,32 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
         inputs.push(plan.render(recipient, to, displays));
       }
       if (inputs.length === 0) return "no_recipients" as const;
-      yield* Effect.annotateCurrentSpan({ recipients: inputs.length });
 
-      yield* sendAll(inputs);
+      // Each email spends one unit of the wedding's budget and one of the
+      // acting owner's, in recipient order, so the person affected is mailed
+      // first and the budget runs out on the owners at the end of the list.
+      const allowance = async (): Promise<boolean> =>
+        (await deps.throttle.check(`wedding:${weddingId}`)) &&
+        (await deps.throttle.check(`actor:${actorOsnProfileId}`));
+      // Chained, not gathered: each check spends the budget the next one reads.
+      const budgeted = yield* Effect.promise(() =>
+        inputs.reduce<Promise<{ kept: SendEmailInput[]; open: boolean }>>(
+          (chain, input) =>
+            chain.then(async (acc) =>
+              acc.open && (await allowance())
+                ? { kept: [...acc.kept, input], open: true }
+                : { kept: acc.kept, open: false },
+            ),
+          Promise.resolve({ kept: [], open: true }),
+        ),
+      ).pipe(Effect.map(({ kept }) => kept));
+      if (budgeted.length === 0) return "throttled" as const;
+      yield* Effect.annotateCurrentSpan({
+        recipients: budgeted.length,
+        over_budget: inputs.length - budgeted.length,
+      });
+
+      yield* sendAll(budgeted);
       return "sent" as const;
     }).pipe(
       Effect.catchCause(() => Effect.succeed("failed" as const)),
