@@ -185,6 +185,7 @@ export const createRegistryGuestImageRoutes = (
             // the same bytes — `serveTransformedImage` folds `visibility` into
             // the response header, not into the cache key.
             cacheSlot: `${params.slug}:registry:${params.name}`,
+            logSlot: "registry",
             variant,
             format,
             // Public, and the one part of the gift surface that still is —
@@ -482,13 +483,13 @@ export interface RegistryGuestClaimDeps {
  *   POST   /api/invite/:slug/registry/items/:itemId/claim   (sessionAuth + limiter)
  *   DELETE /api/invite/:slug/registry/items/:itemId/claim   (sessionAuth + limiter)
  *
- * Gate order: `sessionAuth` (401) → limiter (429). The limiter is LAST of the
- * two so an anonymous caller cannot spend a household's budget by hammering the
- * route. The visible-registry gate necessarily runs inside the handler — it
- * needs a slug→wedding read the middleware chain has no place for — so an
- * authenticated guest of an unpublished wedding does spend their OWN per-IP
- * budget on a 404. That is the intended shape: the budget is per-IP, so the only
- * caller they can exhaust is themselves.
+ * Gate order: limiter (429) → `sessionAuth` (401). The limiter is FIRST so a
+ * refused request never reaches the session lookup on D1; the budget is per-IP,
+ * so a caller hammering the route without a cookie spends only their own
+ * address's budget. The visible-registry gate necessarily runs inside the
+ * handler — it needs a slug→wedding read the middleware chain has no place
+ * for — so an authenticated guest of an unpublished wedding does spend their
+ * OWN per-IP budget on a 404.
  *
  * Per-IP, unlike the organiser registry writes, which are per-user: a guest has
  * no user. Sized for a household deciding on gifts, not for a form submit.
@@ -520,8 +521,8 @@ export interface RegistryGuestClaimDeps {
  */
 export const createRegistryGuestClaimRoutes = (db: Db, deps: RegistryGuestClaimDeps) =>
   new Elysia({ prefix: "/api/invite" })
-    .use(sessionAuth(db))
     .use(rateLimitMiddleware(deps.limiter))
+    .use(sessionAuth(db))
     .post(
       "/:slug/registry/items/:itemId/claim",
       async ({ params, familyId, request, set }) => {

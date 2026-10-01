@@ -7,6 +7,13 @@
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com https:; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
   Content-Security-Policy-Report-Only: img-src 'self' data: blob: https://api.cireweddings.com; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
+# The dashboard holds the signed-in account's data. `no-store` keeps it out of
+# the HTTP cache and, in most browsers, out of the back/forward cache, so Back
+# after sign-out cannot show it again; `lib/bfcache.ts` reloads it where a
+# browser restores it anyway.
+/
+  Cache-Control: no-store
+
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
 # files (Schibsted Grotesk, Cormorant Garamond) included. Every path under
 # /_astro/ carries a content hash in the filename, so a year-long cache is

@@ -22,6 +22,7 @@ import {
   type ImageTransformHandle,
   type OutputFormat,
 } from "../../src/services/invite-image-transform";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
 describe("resolveVariant", () => {
@@ -337,6 +338,7 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
         key: KEY,
         version: "1718000000",
         cacheSlot: "registry:wed_1",
+        logSlot: "registry",
         variant: "thumb",
         format: "image/jpeg",
         visibility,
@@ -442,6 +444,41 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     const res = await serve("private");
     expect(res.status).toBe(200);
   });
+
+  it("logs the slot kind, never the wedding slug, when the transform and the put both fail", async () => {
+    // The public routes build `cacheSlot` from the slug, which is the couple's
+    // names. Both warnings on this path must name the slot kind instead.
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        match: () => Promise.resolve(undefined),
+        put: () => Promise.reject(new Error("Cache put: Response body is unbuffered")),
+      },
+    };
+    const assets = createAssetsStub();
+    await assets.put(KEY, new Uint8Array([1, 2, 3]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const logs = await captureLogs(() =>
+      Effect.runPromise(
+        serveTransformedImage({
+          request: new Request("https://api.example/invite/anna-and-ben/image/story"),
+          key: KEY,
+          version: "1718000000",
+          cacheSlot: "anna-and-ben:story",
+          logSlot: "story",
+          variant: "thumb",
+          format: "image/webp",
+          images: createImagesStub({ throwOn: "output" }),
+        }).pipe(Effect.provideService(AssetsR2Service, assets)),
+      ),
+    );
+
+    expect(logs).toContain("invite image transform failed; serving original");
+    expect(logs).toContain("image cache put failed");
+    // Both warnings carry the slot kind as a field.
+    expect(logs.match(/"?slot"?[:=] ?"?story/g)?.length ?? 0).toBe(2);
+    expect(logs).not.toContain("anna-and-ben");
+  });
 });
 
 describe("serveTransformedImage — revalidating a revocable image", () => {
@@ -524,6 +561,7 @@ describe("serveTransformedImage — revalidating a revocable image", () => {
         key: KEY,
         version: VERSION,
         cacheSlot: "s:registry:registry-abc",
+        logSlot: "registry",
         variant: "thumb",
         format: "image/jpeg",
         visibility: "public",

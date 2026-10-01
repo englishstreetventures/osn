@@ -16,6 +16,7 @@ import {
   clearedHalves,
   commitClaimStatement,
   committedRevision,
+  createSourceFor,
   currentEventsAsParsed,
   decodeChangeBody,
   headRevision,
@@ -173,17 +174,18 @@ function staleDraft(set: { status?: number | string }) {
 /**
  * The 409 for a change that could not take the wedding (`claimChanges`). The
  * two causes want different remedies: a head that moved means the preview is
- * out of date, while another change still writing means the same preview can
- * be confirmed again in a moment.
+ * out of date (`head_moved`, the reason apply's own head check gives too, so
+ * an editor can offer to reload with its edits kept), while another change
+ * still writing means the same preview can be confirmed again in a moment.
  */
-function claimRefused(set: { status?: number | string }, e: ChangeConflict, retry: string) {
+export function claimRefused(set: { status?: number | string }, e: ChangeConflict, retry: string) {
   set.status = 409;
   return e.reason === "in_progress"
     ? {
         error: "Another change is being saved — try again in a moment",
         reason: "change_in_progress" as const,
       }
-    : { error: retry };
+    : { error: retry, reason: "head_moved" as const };
 }
 
 /**
@@ -395,6 +397,7 @@ export const createOrganiserChangeRoutes = (
                     removeManual: decoded.removeManual,
                     scope: decoded.scope,
                     matchByName: decoded.matchByName,
+                    createSource: decoded.createSource,
                   },
                 );
 
@@ -556,6 +559,7 @@ export const createOrganiserChangeRoutes = (
                   set.status = 409;
                   return {
                     error: "State changed — re-preview",
+                    reason: "head_moved" as const,
                     baseRevision,
                     currentRevision: currentHead,
                   };
@@ -612,6 +616,9 @@ export const createOrganiserChangeRoutes = (
                       Schema.decodeUnknownOption(Schema.Boolean)(stored.matchByName),
                       () => row.kind !== "editor",
                     ),
+                    // From the column, as the preview's was from the body:
+                    // an editor save's new rows are `'manual'`.
+                    createSource: createSourceFor(row.kind),
                   },
                 );
 
