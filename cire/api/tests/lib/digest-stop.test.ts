@@ -46,4 +46,27 @@ describe("digest stop tokens", () => {
     expect(url.origin + url.pathname).toBe("https://api.example.test/api/rsvp-digest/stop");
     expect(await verifyDigestStopToken(key, url.searchParams.get("t") ?? "")).toEqual(target);
   });
+
+  /** Tokens whose MAC verifies but whose payload is not one this build signs. */
+  it.each([
+    ["another version", "v2\nwed_1\nusr_ama"],
+    ["a missing profile id", "v1\nwed_1\n"],
+    ["an extra field", "v1\nwed_1\nusr_ama\nextra"],
+  ])("refuse a correctly signed payload with %s", async (_label, payload) => {
+    const key = await deriveDigestStopKey("client-secret");
+    const bytes = new TextEncoder().encode(payload);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, bytes));
+    const b64 = (b: Uint8Array) =>
+      btoa(String.fromCharCode(...b))
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "");
+    expect(await verifyDigestStopToken(key, `${b64(bytes)}.${b64(mac)}`)).toBeNull();
+  });
+
+  it("never verify an id that holds a line break as someone else", async () => {
+    const key = await deriveDigestStopKey("client-secret");
+    const token = await signDigestStopToken(key, { weddingId: "wed_1", osnProfileId: "usr_a\nx" });
+    expect(await verifyDigestStopToken(key, token)).toBeNull();
+  });
 });

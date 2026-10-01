@@ -9,7 +9,6 @@ import { Effect, Layer } from "effect";
 import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
-import { deriveDigestStopKey } from "./lib/digest-stop";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
@@ -726,12 +725,13 @@ const handler: ExportedHandler<Env> = {
     if (organiserEmailLookup && resendApiKey) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       // Each email's one-click stop link points at this Worker's own origin
-      // and is signed with the key the stop route verifies with. Either value
-      // missing ⇒ the emails go without a stop link or unsubscribe header.
+      // and is signed with a key derived from the secret the stop route
+      // verifies with. Either value missing ⇒ the emails go without a stop
+      // link or unsubscribe header.
       const apiOrigin = env.CIRE_API_ORIGIN?.replace(/\/+$/, "");
       const stopLinks =
         apiOrigin && env.CIRE_OIDC_CLIENT_SECRET
-          ? { apiOrigin, key: await deriveDigestStopKey(env.CIRE_OIDC_CLIENT_SECRET) }
+          ? { apiOrigin, secret: env.CIRE_OIDC_CLIENT_SECRET }
           : undefined;
       runSweep(() =>
         Effect.runPromise(

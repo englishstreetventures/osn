@@ -38,8 +38,8 @@ import { rsvpDigestService } from "../services/rsvp-digest";
  */
 
 export interface RsvpDigestStopRouteOptions {
-  /** The stop-link MAC key, or `null` when stop links are off. */
-  key: Promise<CryptoKey> | null;
+  /** The stop-link MAC key, derived on first use, or `null` when stop links are off. */
+  key: (() => Promise<CryptoKey>) | null;
   /** Per-IP limiter. Generous: a real person clicks once. */
   limiter: RateLimiterBackend;
 }
@@ -104,7 +104,7 @@ export const createRsvpDigestStopRoutes = (db: Db, { key, limiter }: RsvpDigestS
     .get(PATH, async ({ query }) => {
       if (!key) return html(UNAVAILABLE, 503);
       const token = typeof query.t === "string" ? query.t : "";
-      const target = await verifyDigestStopToken(await key, token);
+      const target = await verifyDigestStopToken(await key(), token);
       if (!target) {
         await logOutcome("invalid");
         return html(INVALID, 400);
@@ -116,7 +116,7 @@ export const createRsvpDigestStopRoutes = (db: Db, { key, limiter }: RsvpDigestS
       async ({ query }) => {
         if (!key) return html(UNAVAILABLE, 503);
         const token = typeof query.t === "string" ? query.t : "";
-        const target = await verifyDigestStopToken(await key, token);
+        const target = await verifyDigestStopToken(await key(), token);
         if (!target) {
           await logOutcome("invalid");
           return html(INVALID, 400);

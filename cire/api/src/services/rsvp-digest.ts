@@ -41,7 +41,7 @@ import { Data, Effect } from "effect";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { digestStopUrl, type DigestStopTarget } from "../lib/digest-stop";
+import { deriveDigestStopKey, digestStopUrl, type DigestStopTarget } from "../lib/digest-stop";
 import { metricRsvpDigestEmails, type RsvpDigestOutcome } from "../metrics";
 import { decideCapability, type WeddingRole } from "../middleware/wedding-role";
 import { normaliseHostRole } from "./hosts";
@@ -77,11 +77,12 @@ export interface RsvpDigestOptions {
   now?: Date;
   maxEmails?: number;
   /**
-   * Where each email's one-click stop link points, and the key that signs it
-   * (`lib/digest-stop.ts`). Absent ⇒ the emails carry no stop link and no
-   * `List-Unsubscribe` header; the Overview switch is then the only way out.
+   * Where each email's one-click stop link points, and the secret its key is
+   * derived from (`lib/digest-stop.ts`) — derived only once a run has someone
+   * to mail. Absent ⇒ the emails carry no stop link and no `List-Unsubscribe`
+   * header; the Overview switch is then the only way out.
    */
-  stopLinks?: { apiOrigin: string; key: CryptoKey };
+  stopLinks?: { apiOrigin: string; secret: string };
 }
 
 /** What a stop link did. `no_seat` — the person no longer holds a seat that
@@ -505,32 +506,27 @@ export const rsvpDigestService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, osnProfileId } = target;
-      const [[wedding], [seat]] = yield* Effect.all(
-        [
-          read(() =>
-            db
-              .select({ owner: weddings.ownerOsnProfileId })
-              .from(weddings)
-              .where(eq(weddings.id, weddingId))
-              .all(),
-          ),
-          read(() =>
-            db
-              .select({ role: weddingHosts.role })
-              .from(weddingHosts)
-              .where(
-                and(
-                  eq(weddingHosts.weddingId, weddingId),
-                  eq(weddingHosts.osnProfileId, osnProfileId),
-                ),
-              )
-              .all(),
-          ),
-        ],
-        { concurrency: "unbounded" },
+      // One statement: the wedding's owner and this person's seat on it, if any.
+      const [row] = yield* read(() =>
+        db
+          .select({ owner: weddings.ownerOsnProfileId, seatRole: weddingHosts.role })
+          .from(weddings)
+          .leftJoin(
+            weddingHosts,
+            and(
+              eq(weddingHosts.weddingId, weddings.id),
+              eq(weddingHosts.osnProfileId, osnProfileId),
+            ),
+          )
+          .where(eq(weddings.id, weddingId))
+          .all(),
       );
       const role: WeddingRole | null =
-        wedding?.owner === osnProfileId ? "owner" : seat ? normaliseHostRole(seat.role) : null;
+        row?.owner === osnProfileId
+          ? "owner"
+          : row?.seatRole
+            ? normaliseHostRole(row.seatRole)
+            : null;
       if (role === null || !receivesDigest(role)) return "no_seat";
       yield* rsvpChangeService.setDigest(weddingId, osnProfileId, false);
       return "stopped";
@@ -544,17 +540,18 @@ function signStopLinks(
   recipients: readonly Recipient[],
 ): Effect.Effect<Map<string, string>> {
   if (!stopLinks || recipients.length === 0) return Effect.succeed(new Map());
-  return Effect.tryPromise(() =>
-    Promise.all(
+  return Effect.tryPromise(async () => {
+    const key = await deriveDigestStopKey(stopLinks.secret);
+    return Promise.all(
       recipients.map(
         async (r) =>
           [
             noticeKey(r.weddingId, r.osnProfileId),
-            await digestStopUrl(stopLinks.apiOrigin, stopLinks.key, r),
+            await digestStopUrl(stopLinks.apiOrigin, key, r),
           ] as const,
       ),
-    ),
-  ).pipe(
+    );
+  }).pipe(
     Effect.map((pairs) => new Map(pairs)),
     Effect.catch(() =>
       Effect.logWarning("rsvp digest: stop links not signed — sending without them").pipe(

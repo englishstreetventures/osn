@@ -303,6 +303,13 @@ const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, window
  */
 const defaultDigestStopLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 
+/** Derives the stop-link key on the first stop request and keeps it for the
+ *  isolate, so no other route pays for the derivation. */
+function digestStopKeyOnce(secret: string): () => Promise<CryptoKey> {
+  let key: Promise<CryptoKey> | undefined;
+  return () => (key ??= deriveDigestStopKey(secret));
+}
+
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
@@ -780,7 +787,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // form posts from this API's own origin. A signed token authorises it.
       .use(
         createRsvpDigestStopRoutes(db, {
-          key: digestStopSecret ? deriveDigestStopKey(digestStopSecret) : null,
+          key: digestStopSecret ? digestStopKeyOnce(digestStopSecret) : null,
           limiter: digestStopLimiter,
         }),
       )

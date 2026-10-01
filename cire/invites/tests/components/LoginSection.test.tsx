@@ -536,11 +536,28 @@ describe("LoginSection claim", () => {
    * restore warms that chunk only for a household that uses it. A page that
    * takes no plus-one changes never draws the prompt, whatever the payload.
    */
+  const allowed = () => [{ ...member("Chidi"), plusOneAllowed: true, plusOneOf: null }];
   it.each([
     { label: "shows the prompt", onPlusOneChange: noop, hint: "cire_claimed=plus-one" },
     { label: "takes no plus-one changes", onPlusOneChange: undefined, hint: "cire_claimed=1" },
+    {
+      label: "offers nobody a plus-one",
+      onPlusOneChange: noop,
+      members: () => [member("Chidi")],
+      hint: "cire_claimed=1",
+    },
+    {
+      label: "shows an already named plus-one",
+      onPlusOneChange: noop,
+      members: () => [member("Chidi"), { ...member("Sam"), plusOneOf: member("Chidi").guestId }],
+      hint: "cire_claimed=plus-one",
+    },
+    { label: "is a host preview", onPlusOneChange: noop, preview: true, hint: "cire_claimed=1" },
   ])("records whether the claim showed the plus-one prompt when the page $label", async (c) => {
-    const claimed = result([{ ...member("Chidi"), plusOneAllowed: true, plusOneOf: null }]);
+    const claimed: ClaimResult = {
+      ...result((c.members ?? allowed)()),
+      preview: c.preview === true,
+    };
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify(claimed), {
         status: 200,

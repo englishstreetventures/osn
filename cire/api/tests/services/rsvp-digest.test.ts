@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -129,7 +129,7 @@ async function run(
   opts: {
     maxEmails?: number;
     now?: Date;
-    stopLinks?: { apiOrigin: string; key: CryptoKey };
+    stopLinks?: { apiOrigin: string; secret: string };
   } = {},
 ): Promise<RsvpDigestResult> {
   return Effect.runPromise(
@@ -191,7 +191,7 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     const key = await deriveDigestStopKey("test-secret");
     const { sent, layer } = transport();
     await run(db, layer, lookupOf(ADDRESSES).lookup, {
-      stopLinks: { apiOrigin: "https://api.example.test", key },
+      stopLinks: { apiOrigin: "https://api.example.test", secret: "test-secret" },
     });
     expect(sent).toHaveLength(3);
     const byAddress = Object.fromEntries(Object.entries(ADDRESSES).map(([id, to]) => [to, id]));
@@ -203,6 +203,25 @@ describe("rsvpDigestService.sendDailyDigests", () => {
         weddingId: BOOTSTRAP_WEDDING_ID,
         osnProfileId: byAddress[email.to]!,
       });
+    }
+  });
+
+  it("still sends every email, without a stop link, when signing fails", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const sign = spyOn(crypto.subtle, "sign").mockRejectedValue(new Error("no signing today"));
+    try {
+      const { sent, layer } = transport();
+      const result = await run(db, layer, lookupOf(ADDRESSES).lookup, {
+        stopLinks: { apiOrigin: "https://api.example.test", secret: "test-secret" },
+      });
+      expect(result.sent).toBe(3);
+      for (const email of sent) {
+        if (email.template !== "rsvp-change-digest") throw new Error("unexpected template");
+        expect(email.data.stopUrl).toBeUndefined();
+      }
+    } finally {
+      sign.mockRestore();
     }
   });
 

@@ -104,6 +104,23 @@ describe("dietary presets in the RSVP bodies", () => {
   });
 });
 
+describe("OrganiserRsvpBody.dietaryAttestation", () => {
+  const organiser = { status: "attending" } as const;
+  it("defaults to an empty string, so a status-only reply needs none", () => {
+    const r = dec(OrganiserRsvpBody, organiser);
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.dietaryAttestation).toBe("");
+  });
+  it("accepts 64 characters and refuses 65", () => {
+    expect(dec(OrganiserRsvpBody, { ...organiser, dietaryAttestation: "x".repeat(64) })._tag).toBe(
+      "Success",
+    );
+    expect(dec(OrganiserRsvpBody, { ...organiser, dietaryAttestation: "x".repeat(65) })._tag).toBe(
+      "Failure",
+    );
+  });
+});
+
 /**
  * `@cire/db` cannot import these constants, so its seed holds copies. A copy
  * that drifts seeds rows the live write path can no longer produce.

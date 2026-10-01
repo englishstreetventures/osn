@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, hostRsvpNotices, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -16,7 +16,7 @@ const EDITOR = "usr_editor";
 const VIEWER = "usr_viewer";
 const STRANGER = "usr_stranger";
 
-function build(options: { secret?: string | null } = {}) {
+function build(options: { secret?: string | null; maxRequests?: number } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -39,7 +39,10 @@ function build(options: { secret?: string | null } = {}) {
     // A non-empty allowlist, so the CSRF origin guard is live for this app.
     allowedOrigins: ["https://cireweddings.test"],
     digestStopSecret: options.secret === undefined ? SECRET : options.secret,
-    digestStopLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    digestStopLimiter: createRateLimiter({
+      maxRequests: options.maxRequests ?? 1_000,
+      windowMs: 60_000,
+    }),
   });
   return { db, app };
 }
@@ -148,10 +151,26 @@ describe("POST /api/rsvp-digest/stop", () => {
     expect(digestSetting(db, OWNER)).toBeUndefined();
   });
 
-  it("answers 503 when stop links are off", async () => {
+  it.each(["GET", "POST"] as const)("answers %s with 503 when stop links are off", async (m) => {
     const { db, app } = build({ secret: null });
-    const res = await call(app, "POST", await tokenFor(OWNER));
+    const res = await call(app, m, await tokenFor(OWNER));
     expect(res.status).toBe(503);
     expect(digestSetting(db, OWNER)).toBeUndefined();
+  });
+
+  it("says it did not stop anything when the write fails", async () => {
+    const { db, app } = build();
+    db.run(sql`DROP TABLE host_rsvp_notices`);
+    const res = await call(app, "POST", await tokenFor(OWNER));
+    expect(res.status).toBe(500);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.text()).toContain("was not stopped");
+  });
+
+  it("is rate-limited per IP", async () => {
+    const { app } = build({ maxRequests: 1 });
+    const token = await tokenFor(OWNER);
+    expect((await call(app, "POST", token)).status).toBe(200);
+    expect((await call(app, "POST", token)).status).toBe(429);
   });
 });
