@@ -17,7 +17,8 @@ import {
  * hides one the organiser paid for.
  */
 describe("TIERS", () => {
-  it("ranks the tiers lowest first, in the API's order", () => {
+  it("ranks the tiers lowest first", () => {
+    // The API's own list is compared in `tiers.contract.test.ts`.
     expect([...TIERS]).toEqual(["ivory", "gold", "crimson"]);
   });
 

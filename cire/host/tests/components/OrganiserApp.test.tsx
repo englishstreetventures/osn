@@ -401,6 +401,29 @@ describe("OrganiserApp Dashboard", () => {
     toastSuccess.mockReset();
   });
 
+  it("says the upgrade is complete without naming a tier this build does not know", async () => {
+    // A purchase the API reports in a tier this portal has no name for comes
+    // back with no tier at all; the toast must not try to name one.
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    let listReads = 0;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        return new Response(
+          JSON.stringify({ purchase: { status: "succeeded", tier: "platinum" } }),
+          { status: 200 },
+        );
+      }
+      listReads += 1;
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "gold" }]);
+    });
+    render(() => <OrganiserApp />);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete."));
+    expect(listReads).toBe(2);
+    expect(window.location.search).toBe("");
+    toastSuccess.mockReset();
+  });
+
   it("auto-opens a freshly created wedding's dashboard", async () => {
     authFetchMock.mockResolvedValue(listResponse([]));
     render(() => <OrganiserApp />);

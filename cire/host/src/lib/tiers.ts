@@ -5,7 +5,8 @@
  * tier gate answers 402 for a module the wedding's tier does not include — and
  * the portal reads the same rule here only so that it never offers a module
  * the API would refuse. `cire/api/src/services/tiers.ts` is the authority; this
- * is its mirror, and the two lists must name the same tiers in the same order.
+ * is its mirror, and the two lists must name the same tiers in the same order —
+ * `tests/lib/tiers.contract.test.ts` reads both and fails when they differ.
  *
  * - `ivory` — free: the invite, the guest list, RSVPs and import.
  * - `gold` — adds the budget, the checklist and the gift registry.

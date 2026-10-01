@@ -407,6 +407,23 @@ describe("the guest registry is one 404, whatever the reason", () => {
 });
 
 describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
+  it("opens on Crimson as on Gold: a tier above Gold includes the registry", async () => {
+    // The guest gate ranks the tier rather than matching one value, so the
+    // top tier's couples publish a list their guests can read and claim from.
+    const { app, assets } = buildApp({ tier: "crimson" });
+    const cookie = await guestCookie(app);
+    const body = await listView(app, cookie);
+    expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    expect((await mine(app, cookie)).claims).toEqual([]);
+    expect((await claim(app, cookie, { quantity: 1 })).status).toBe(200);
+
+    assets._store.set(`assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`, {
+      bytes: PNG.buffer.slice(0) as ArrayBuffer,
+      contentType: "image/png",
+    });
+    expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
+  });
+
   it("returns the couple's copy and the list in sort order, to a household of this wedding", async () => {
     const { app } = buildApp();
     const body = await listView(app, await guestCookie(app));

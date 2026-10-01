@@ -206,6 +206,18 @@ describe("who may give", () => {
     expect(await jsonBody(res)).toEqual({ url: "https://checkout.stripe.test/pay/cs_1" });
   });
 
+  it("hands a claimed guest a checkout URL on Crimson too, which includes the registry", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const cookie = await guestCookie(app);
+
+    const res = await contribute(app, cookie, { amountMinor: 5000 });
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ url: "https://checkout.stripe.test/pay/cs_1" });
+  });
+
   it("refuses a visitor with no claim", async () => {
     const { app } = buildApp();
     expect((await contribute(app, null, { amountMinor: 5000 })).status).toBe(401);

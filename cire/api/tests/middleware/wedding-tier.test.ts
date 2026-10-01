@@ -206,6 +206,34 @@ describe("weddingTier behind a role gate costs no query of its own", () => {
   });
 });
 
+describe("weddingTier fails closed on what it cannot trust", () => {
+  it("refuses with 402 when the route carries no wedding id, reading nothing", async () => {
+    const { db, selectCount } = countingDb(buildDb("crimson"));
+    const app = new Elysia({ aot: false })
+      .use(weddingTier(db, "gold"))
+      .get("/no-wedding", () => ({ ok: true }));
+    const res = await appRequest(app, "/no-wedding");
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toEqual(paymentRequired("gold"));
+    expect(selectCount()).toBe(0);
+  });
+
+  it("ignores a parked tier it does not recognise and reads the wedding's own", async () => {
+    // Something upstream parked a value that is not a tier. The gate must not
+    // take it as one: it reads the wedding's tier itself, and Ivory is refused.
+    const { db, selectCount } = countingDb(buildDb("ivory"));
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ weddingTier: "platinum" }))
+      .group("/w/:weddingId", (g) =>
+        g.use(weddingTier(db, "gold")).get("/thing", () => ({ ok: true })),
+      );
+    const res = await appRequest(app, path);
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toEqual(paymentRequired("gold"));
+    expect(selectCount()).toBe(1);
+  });
+});
+
 describe("the role gate's refusal wins over the tier gate's", () => {
   it("refuses a co-host on an owner route with 403, on an Ivory wedding, reading nothing more", async () => {
     const { db, selectCount } = countingDb(buildDb("ivory"));

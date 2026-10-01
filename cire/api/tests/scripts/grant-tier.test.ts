@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 
 import { buildTierChange, tierChangeToSql } from "../../scripts/grant-tier";
 import { DDL } from "../../src/db/setup";
@@ -189,5 +190,62 @@ describe("--lower and the wedding's purchases", () => {
     const db = withPurchases("ivory");
     db.exec(tierChangeToSql(buildTierChange("wed_a", "gold", "ops")));
     expect(Object.values(statuses(db))).not.toContain("refunded");
+  });
+});
+
+/**
+ * The script as an operator runs it. The only code between their arguments and
+ * the validated builder is the argument parsing: `--lower` read in the wrong
+ * place prints a raise-only statement for a refund — the wedding silently
+ * stays on the tier it was refunded from.
+ */
+describe("the command line", () => {
+  const SCRIPT = join(import.meta.dir, "..", "..", "scripts", "grant-tier.ts");
+  const runScript = (...args: string[]) => {
+    const result = Bun.spawnSync([process.execPath, SCRIPT, ...args]);
+    return {
+      code: result.exitCode,
+      stdout: result.stdout.toString(),
+      stderr: result.stderr.toString(),
+    };
+  };
+
+  it("reads --lower after the arguments and prints the lowering SQL", () => {
+    const out = runScript("wed_x", "ivory", "alice", "--lower");
+    expect(out.code).toBe(0);
+    expect(out.stdout).toBe(
+      `${tierChangeToSql(buildTierChange("wed_x", "ivory", "alice", true))}\n`,
+    );
+    expect(out.stdout).toContain(
+      "UPDATE weddings SET tier = 'ivory', tier_source = 'comp', tier_granted_by = 'script:alice' WHERE id = 'wed_x';",
+    );
+  });
+
+  it("reads --lower before the arguments the same way", () => {
+    expect(runScript("--lower", "wed_x", "ivory", "alice").stdout).toBe(
+      runScript("wed_x", "ivory", "alice", "--lower").stdout,
+    );
+  });
+
+  it("prints the raise-only statement without --lower", () => {
+    const out = runScript("wed_x", "gold", "alice");
+    expect(out.code).toBe(0);
+    expect(out.stdout).toBe(`${tierChangeToSql(buildTierChange("wed_x", "gold", "alice"))}\n`);
+    expect(out.stdout).toContain("AND tier IN ('ivory');");
+  });
+
+  it("exits 1 with the usage line when an argument is missing", () => {
+    const out = runScript("wed_x", "gold");
+    expect(out.code).toBe(1);
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain(
+      "usage: grant-tier.ts <weddingId> <ivory|gold|crimson> <operator> [--lower]",
+    );
+  });
+
+  it("does not take --lower as the operator when an argument is missing", () => {
+    const out = runScript("wed_x", "ivory", "--lower");
+    expect(out.code).toBe(1);
+    expect(out.stdout).toBe("");
   });
 });
