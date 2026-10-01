@@ -92,6 +92,23 @@ export interface ZapChatClient {
   ): Promise<ChatMessagePage>;
 }
 
+/**
+ * zap-api refused a call on one chat for good: the chat is gone (404, 410), is
+ * not a c2b chat (409), or the caller is not a member (403). Retrying the same
+ * chat cannot succeed. Every other failure is a plain `Error`.
+ */
+export class ZapChatRejected extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ZapChatRejected";
+  }
+}
+
+const CHAT_REJECTED_STATUSES = new Set([403, 404, 409, 410]);
+
 // ---------------------------------------------------------------------------
 // Wire parsing
 // ---------------------------------------------------------------------------
@@ -202,6 +219,7 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
     path: string,
     parse: (raw: unknown) => T,
     body?: unknown,
+    chatScoped = false,
   ): Promise<T> {
     const token = await mint();
     const headers = new Headers({ authorization: `ARC ${token}` });
@@ -212,7 +230,11 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`zap-api ${method} ${path} returned ${res.status}`);
+      const message = `zap-api ${method} ${path} returned ${res.status}`;
+      if (chatScoped && CHAT_REJECTED_STATUSES.has(res.status)) {
+        throw new ZapChatRejected(res.status, message);
+      }
+      throw new Error(message);
     }
     const payload: unknown = await res.json();
     return parse(payload);
@@ -236,6 +258,7 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
         `/internal/chats/${encodeURIComponent(chatId)}/messages`,
         parseSentMessage,
         { senderProfileId: input.senderProfileId, body: input.body },
+        true,
       );
     },
 
@@ -246,7 +269,7 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
       const qs = params.toString();
       const path = `/internal/chats/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ""}`;
       // zap wires each `createdAt` as an ISO string — the parser normalizes it.
-      return send("GET", path, parseChatMessagePage);
+      return send("GET", path, parseChatMessagePage, undefined, true);
     },
   };
 }

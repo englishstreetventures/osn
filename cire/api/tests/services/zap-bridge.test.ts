@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import { generateKeyPair } from "jose";
 
-import { createZapChatClient } from "../../src/services/zap-bridge";
+import { createZapChatClient, ZapChatRejected } from "../../src/services/zap-bridge";
 
 async function testKey() {
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
@@ -114,5 +114,35 @@ describe("zap-bridge createZapChatClient", () => {
     await expect(
       client.provisionC2bChat({ memberProfileIds: ["a", "b"], createdByProfileId: "a" }),
     ).rejects.toThrow();
+  });
+
+  it("marks a chat zap refuses for good as ZapChatRejected, and nothing else", async () => {
+    const client = async (status: number) =>
+      createZapChatClient({
+        zapApiUrl: "https://zap.example",
+        arcPrivateKey: await testKey(),
+        arcKeyId: "kid_test",
+        fetchImpl: fakeFetch(status, { error: "x" }).impl,
+      });
+    for (const status of [403, 404, 409, 410]) {
+      const c = await client(status);
+      await expect(c.listC2bMessages("cht_1", { limit: 1 })).rejects.toBeInstanceOf(
+        ZapChatRejected,
+      );
+      await expect(
+        c.sendC2bMessage("cht_1", { senderProfileId: "a", body: "hi" }),
+      ).rejects.toBeInstanceOf(ZapChatRejected);
+    }
+    const down = await client(503);
+    const err = await down.listC2bMessages("cht_1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ZapChatRejected);
+    // Provisioning is not about one chat, so a 404 there is a plain failure.
+    const prov = await (
+      await client(404)
+    )
+      .provisionC2bChat({ memberProfileIds: ["a", "b"], createdByProfileId: "a" })
+      .catch((e: unknown) => e);
+    expect(prov).not.toBeInstanceOf(ZapChatRejected);
   });
 });

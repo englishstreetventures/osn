@@ -123,6 +123,7 @@ describe("renderTemplate", () => {
       claimUrl: "https://example.test/claim/abc",
       vendorName: "Bloom & Co",
     },
+    "vendor-claim-review-pending": { pending: 2, oldestWaitingDays: 3, env: "production" },
   } satisfies { [K in EmailTemplate]: EmailTemplateData<K> };
 
   it("renders every declared template without throwing", () => {

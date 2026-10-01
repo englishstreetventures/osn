@@ -9,6 +9,7 @@ import { Effect, Layer } from "effect";
 import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
+import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
@@ -16,7 +17,7 @@ import { organiserOriginFrom } from "./lib/organiser-origin";
 import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
-import { claimReviewService } from "./services/claim-review";
+import { claimReviewService, type PendingClaimsSummary } from "./services/claim-review";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
@@ -174,6 +175,11 @@ export interface Env {
   // falls back to LogEmailLive (emails captured in-memory / logged). Fail-soft:
   // never throws on boot, just degrades gracefully.
   RESEND_API_KEY?: string;
+  // Where the daily "vendor claims are waiting" reminder goes. A secret, not a
+  // var: the repo is public and the address is a person's. Unset, or with no
+  // RESEND_API_KEY, no reminder is sent and the cron's log line is the only
+  // signal.
+  CIRE_OPS_EMAIL?: string;
   // GrowthBook feature flags (KEY-OPTIONAL). GROWTHBOOK_CLIENT_KEY unset ⇒ the
   // provider serves every flag's coded default with zero network (state before
   // a GrowthBook account exists); set it (via `[vars]` or
@@ -576,7 +582,8 @@ const handler: ExportedHandler<Env> = {
   //  5. Expired vendor-claim tokens + 6. abandoned `preview` change rows (with
   //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
   //  7. Vendor claims held for an operator: hand-off of confirmed listings'
-  //     buffered enquiries, and a daily count of those still waiting —
+  //     buffered enquiries, and a daily count of those still waiting, emailed
+  //     to CIRE_OPS_EMAIL when that and Resend are configured —
   //     services/claim-review.ts.
   //  8. RSVP change-log rows past their 90-day window — services/rsvp-changes.ts.
   //  9. The daily RSVP digest email to each wedding's owner and editors, sent
@@ -713,9 +720,29 @@ const handler: ExportedHandler<Env> = {
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
+    // The operator reminder needs an address, a real transport and a deployed
+    // tier; without them it is skipped and the sweep's log line stays the
+    // signal.
+    const alertTarget = claimReviewAlertTarget({
+      CIRE_OPS_EMAIL: env.CIRE_OPS_EMAIL,
+      RESEND_API_KEY: resendApiKey,
+      tier: parseDeploymentEnvironment(env.OSN_ENV),
+    });
+    const alertOperator =
+      alertTarget && resendApiKey
+        ? (summary: PendingClaimsSummary) =>
+            sendClaimReviewAlert({ ...alertTarget, summary }).pipe(
+              Effect.provide(
+                makeResendEmailLive({
+                  apiKey: resendApiKey,
+                  fromAddress: "hello@cireweddings.com",
+                }),
+              ),
+            )
+        : undefined;
     runSweep(() =>
       Effect.runPromise(
-        claimReviewService.sweep(handoffZap).pipe(
+        claimReviewService.sweep(handoffZap, alertOperator ? { alertOperator } : {}).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled vendor claim review sweep failed", {
               reason: err.reason,
