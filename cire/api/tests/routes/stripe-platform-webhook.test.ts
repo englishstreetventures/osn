@@ -256,3 +256,19 @@ describe("mounting", () => {
     expect(entitlements(db)).toEqual([]);
   });
 });
+
+describe("a soft-deleted wedding's upgrade", () => {
+  it("is still granted and its sale recorded, so a restore finds both", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    db.$client
+      .query("UPDATE weddings SET deleted_at = unixepoch() WHERE id = ?")
+      .run(BOOTSTRAP_WEDDING_ID);
+
+    const res = await deliver(app, completed());
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
+    expect(entitlements(db)).toHaveLength(1);
+    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 1 });
+  });
+});

@@ -375,7 +375,11 @@ describe("the guest registry is one 404, whatever the reason", () => {
     const cookie = await guestCookie(app);
     const statements = recordStatements(db);
     await listView(app, cookie);
-    const registryReads = statements.filter((s) => /"registry_|"weddings"/.test(s.sql));
+    // The session read joins `weddings` for its live-wedding check; it is
+    // sessionAuth's, not the registry gate's, so it is left out of the count.
+    const registryReads = statements.filter(
+      (s) => /"registry_|"weddings"/.test(s.sql) && !/from "sessions"/.test(s.sql),
+    );
     expect(registryReads).toHaveLength(3);
     expect(registryReads[0]!.sql).toContain('"families"');
     const householdOnly = statements.filter(

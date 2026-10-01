@@ -149,6 +149,28 @@ async function run(
 
 const recipients = (sent: readonly SendEmailInput[]) => sent.map((s) => s.to).toSorted();
 
+describe("rsvpDigestService — a soft-deleted wedding", () => {
+  it("mails nobody about it, and mails as before once it is restored", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    db.update(weddings)
+      .set({ deletedAt: new Date(NOW.getTime() - 60_000), deletedByOsnProfileId: OWNER })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const deleted = transport();
+    await run(db, deleted.layer, lookupOf(ADDRESSES).lookup);
+    expect(deleted.sent).toEqual([]);
+
+    db.update(weddings)
+      .set({ deletedAt: null, deletedByOsnProfileId: null })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const restored = transport();
+    await run(db, restored.layer, lookupOf(ADDRESSES).lookup);
+    expect(recipients(restored.sent)).toContain(ADDRESSES[OWNER]);
+  });
+});
+
 const unanswered: OsnOrganiserEmailLookup = async () => ({ answered: false, emails: new Map() });
 
 describe("rsvpDigestService.sendDailyDigests", () => {

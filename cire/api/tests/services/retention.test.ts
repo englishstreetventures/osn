@@ -958,6 +958,59 @@ describe("the parting gift summary", () => {
   );
 
   it(
+    "writes a soft-deleted wedding's summary but mails none of its owners",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId } = yield* makeWedding({ eventDates: ["2025-05-10"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: `rct_${crypto.randomUUID()}`,
+            weddingId,
+            itemId: null,
+            familyId,
+            status: "succeeded",
+            amountMinor: 5_000,
+            currency: "AUD",
+            stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+        db.update(weddings)
+          .set({
+            deletedAt: new Date("2026-06-15T00:00:00.000Z"),
+            deletedByOsnProfileId: "usr_test",
+          })
+          .where(eq(weddings.id, weddingId))
+          .run();
+
+        const seen: GiftSummaryNotice[][] = [];
+        yield* retentionService.sweepExpiredGuestData(now, {}, (notices) =>
+          Effect.sync(() => void seen.push([...notices])),
+        );
+
+        // Nobody is mailed about a wedding its owners deleted...
+        expect(seen.flat()).toEqual([]);
+        // ...and the summary is still written, so a restore finds it.
+        const [settings] = yield* dbQuery(() =>
+          db
+            .select({ summary: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, weddingId))
+            .all(),
+        );
+        expect(settings?.summary).not.toBeNull();
+      }),
+    ),
+  );
+
+  it(
     "names every owner of a swept wedding on its notice, oldest seat first, and no co-host",
     withDb(
       Effect.gen(function* () {

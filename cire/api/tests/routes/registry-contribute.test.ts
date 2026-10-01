@@ -472,7 +472,11 @@ describe("what reaches Stripe, and what does not", () => {
       200,
     );
 
-    const gate = statements.filter((s) => s.sql.includes('"weddings"'));
+    // The session read joins `weddings` for its live-wedding check; it is
+    // sessionAuth's, not the registry gate's.
+    const gate = statements.filter(
+      (s) => s.sql.includes('"weddings"') && !/from "sessions"/.test(s.sql),
+    );
     expect(gate).toHaveLength(1);
     expect(gate[0]!.sql).toContain('"families"');
     expect(gate[0]!.sql).toContain('"registry_items"');

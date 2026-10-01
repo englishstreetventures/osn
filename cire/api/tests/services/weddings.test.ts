@@ -138,14 +138,14 @@ describe("weddingsService.listForMember", () => {
       owners: ["usr_someone_else"],
     });
 
-    const list = await run(db, weddingsService.listForMember("usr_owner"));
+    const list = (await run(db, weddingsService.listForMember("usr_owner"))).weddings;
     expect(list.map((w) => w.id)).toEqual(["wed_first", "wed_mid", "wed_last"]);
     expect(list.every((w) => w.role === "owner")).toBe(true);
   });
 
   it("returns an empty list for an owner with no weddings", async () => {
     const db = createDb(":memory:");
-    const list = await run(db, weddingsService.listForMember("usr_nobody"));
+    const list = (await run(db, weddingsService.listForMember("usr_nobody"))).weddings;
     expect(list).toEqual([]);
   });
 
@@ -180,7 +180,7 @@ describe("weddingsService.listForMember", () => {
       })
       .run();
 
-    const list = await run(db, weddingsService.listForMember("usr_member"));
+    const list = (await run(db, weddingsService.listForMember("usr_member"))).weddings;
     expect(list.map((w) => [w.id, w.role])).toEqual([
       ["wed_owned", "owner"],
       // The seed omitted `role` → legacy DDL default 'host' → normalised.
@@ -197,7 +197,7 @@ describe("weddingsService.listForMember", () => {
       owners: ["usr_ada", "usr_bo"],
     });
     for (const owner of ["usr_ada", "usr_bo"]) {
-      const list = await run(db, weddingsService.listForMember(owner));
+      const list = (await run(db, weddingsService.listForMember(owner))).weddings;
       expect(list.map((w) => [w.id, w.role])).toEqual([["wed_shared", "owner"]]);
     }
   });
@@ -223,7 +223,66 @@ describe("weddingsService.listForMember", () => {
         createdAt: new Date(now),
       })
       .run();
-    const list = await run(db, weddingsService.listForMember("usr_member"));
+    const list = (await run(db, weddingsService.listForMember("usr_member"))).weddings;
     expect(list.map((w) => [w.id, w.role])).toEqual([["wed_viewed", "viewer"]]);
+  });
+
+  describe("a soft-deleted wedding", () => {
+    const DAY_S = 24 * 60 * 60;
+    const NOW = new Date("2026-10-01T12:00:00Z");
+    const deletedDaysAgo = (days: number) => new Date(NOW.getTime() - days * DAY_S * 1000);
+
+    function seed(deletedAt: Date) {
+      const db = createDb(":memory:");
+      insertWedding(db, {
+        id: "wed_gone",
+        slug: "gone",
+        displayName: "Gone",
+        owners: ["usr_owner"],
+      });
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_ed",
+          weddingId: "wed_gone",
+          osnProfileId: "usr_editor",
+          addedByOsnProfileId: "usr_owner",
+          role: "editor",
+          createdAt: NOW,
+        })
+        .run();
+      db.update(weddings)
+        .set({ deletedAt, deletedByOsnProfileId: "usr_owner" })
+        .where(eq(weddings.id, "wed_gone"))
+        .run();
+      return db;
+    }
+
+    it("is never in `weddings`, and only an owner gets it back, to restore", async () => {
+      const db = seed(deletedDaysAgo(2));
+      const owner = await run(db, weddingsService.listForMember("usr_owner", NOW));
+      expect(owner.weddings).toEqual([]);
+      expect(owner.deleted).toEqual([
+        {
+          id: "wed_gone",
+          slug: "gone",
+          displayName: "Gone",
+          deletedAt: new Date(Math.floor(deletedDaysAgo(2).getTime() / 1000) * 1000),
+          restoreUntil: new Date(
+            Math.floor(deletedDaysAgo(2).getTime() / 1000) * 1000 + 7 * DAY_S * 1000,
+          ),
+        },
+      ]);
+
+      const editor = await run(db, weddingsService.listForMember("usr_editor", NOW));
+      expect(editor).toEqual({ weddings: [], deleted: [] });
+    });
+
+    it("drops out of the owner's list once the restore window has closed", async () => {
+      const db = seed(deletedDaysAgo(8));
+      expect(await run(db, weddingsService.listForMember("usr_owner", NOW))).toEqual({
+        weddings: [],
+        deleted: [],
+      });
+    });
   });
 });

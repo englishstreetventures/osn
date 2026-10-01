@@ -867,8 +867,11 @@ describe("POST /api/rsvp — RSVP deadline", () => {
         });
 
         try {
+          // The session read joins the wedding (its live-wedding check), so
+          // the guest's session itself is refused before the route's own
+          // deny branch is reached. Either way the answer is a refusal.
           const res = yield* rsvpOnce(cookie);
-          expect(res.status).toBe(403);
+          expect(res.status).toBe(401);
           const data = yield* Effect.promise(() => res.json<{ error: string }>());
           expect(data.error).toBe("Unauthorized");
         } finally {

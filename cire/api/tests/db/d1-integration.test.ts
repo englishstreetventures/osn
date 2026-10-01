@@ -58,6 +58,7 @@ import { hostsService, MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
+import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import {
@@ -70,6 +71,12 @@ import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
 import { tasksService } from "../../src/services/tasks";
+import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
+import {
+  fullWeddingKeys,
+  fullWeddingStatements,
+  WEDDING_CHILD_TABLES,
+} from "../test-helpers/full-wedding";
 import { ownerSeat } from "../test-helpers/wedding";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
@@ -2296,6 +2303,113 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect((await digest()).sent).toBe(0);
       const [notice] = await db.select().from(hostRsvpNotices);
       expect(notice).toMatchObject({ osnProfileId: "usr_test", digestEnabled: true, seenSeq: 0 });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "soft-deletes and restores through one guarded D1 batch each, refusals included",
+    async () => {
+      const id = "wed_d1_life";
+      for (const statement of fullWeddingStatements(id, { owner: "usr_d1_owner" })) {
+        await db.run(statement);
+      }
+      // A gift checkout from an hour ago can still settle: the batch's refusal
+      // read names it, and nothing is written.
+      await db.run(
+        sql`UPDATE registry_contributions SET status = 'pending', created_at = ${Math.floor(Date.now() / 1000) - 3600} WHERE wedding_id = ${id}`,
+      );
+      const refused = await Effect.runPromiseExit(
+        weddingLifecycleService
+          .softDelete({ weddingId: id, osnProfileId: "usr_d1_owner", confirmSlug: `slug-${id}` })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(JSON.stringify(refused)).toContain('"reason":"gift_in_flight"');
+      const [live] = await db
+        .select({ deletedAt: weddings.deletedAt })
+        .from(weddings)
+        .where(eq(weddings.id, id));
+      expect(live!.deletedAt).toBeNull();
+
+      await db.run(
+        sql`UPDATE registry_contributions SET status = 'succeeded' WHERE wedding_id = ${id}`,
+      );
+      const deleted = await run(
+        weddingLifecycleService.softDelete({
+          weddingId: id,
+          osnProfileId: "usr_d1_owner",
+          confirmSlug: `slug-${id}`,
+        }),
+      );
+      expect(deleted.weddingId).toBe(id);
+      expect(
+        await run(weddingLifecycleService.restore({ weddingId: id, osnProfileId: "usr_d1_owner" })),
+      ).toEqual({
+        weddingId: id,
+      });
+      const [back] = await db
+        .select({ deletedAt: weddings.deletedAt })
+        .from(weddings)
+        .where(eq(weddings.id, id));
+      expect(back!.deletedAt).toBeNull();
+      await db.run(sql`DELETE FROM platform_sales WHERE purchase_id = ${`upg_${id}`}`);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "purges a past-window wedding on D1: the real key reads, the cascade, and the R2 reap",
+    async () => {
+      // The key reads run against real D1, which allows at most five terms in
+      // a compound SELECT; the purge reads each table once instead.
+      const gone = "wed_d1_gone";
+      const live = "wed_d1_live";
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      for (const statement of [
+        ...fullWeddingStatements(gone, { deletedAt: eightDaysAgo }),
+        ...fullWeddingStatements(live),
+      ]) {
+        await db.run(statement);
+      }
+      const reaped: string[] = [];
+      const bucket = { delete: (keys: string | string[]) => void reaped.push(...[keys].flat()) };
+
+      const result = await run(
+        maintenanceSweeps.purgeDeletedWeddings(new Date(), { sheets: bucket, assets: bucket }),
+      );
+      expect(result.purged).toBe(1);
+      expect(result.errors).toBe(0);
+
+      const keys = fullWeddingKeys(gone);
+      expect(reaped.toSorted()).toEqual([...keys.sheets, ...keys.assets].toSorted());
+      const remaining = await db
+        .select({ id: weddings.id })
+        .from(weddings)
+        .where(eq(weddings.id, gone));
+      expect(remaining).toEqual([]);
+      // The cascade ran on D1's enforced foreign keys: no table keeps a row
+      // naming the purged wedding, and the live one is whole.
+      for (const table of WEDDING_CHILD_TABLES) {
+        const direct = ["guests", "guest_events", "rsvps", "sessions", "payments"].includes(table);
+        if (direct) continue;
+        const [row] = await db.all<{ n: number }>(
+          sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${gone}'`),
+        );
+        expect({ table, n: row!.n }).toEqual({ table, n: 0 });
+        const [kept] = await db.all<{ n: number }>(
+          sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${live}'`),
+        );
+        expect({ table, n: kept!.n }).toEqual({ table, n: 1 });
+      }
+      const [orphans] = await db.all<{ n: number }>(
+        sql.raw(`SELECT count(*) AS n FROM guests WHERE family_id = 'fam_${gone}'`),
+      );
+      expect(orphans!.n).toBe(0);
+      const [sales] = await db.all<{ n: number }>(
+        sql.raw("SELECT count(*) AS n FROM platform_sales"),
+      );
+      expect(sales!.n).toBe(2);
+      await db.run(sql`DELETE FROM platform_sales`);
     },
     MF_TIMEOUT_MS,
   );
