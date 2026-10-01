@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.24.8
+
+### Patch Changes
+
+- Updated dependencies [b02b9be]
+  - @shared/rp-auth@0.2.5
+  - @pulse/api@0.27.17
+
 ## 0.24.7
 
 ### Patch Changes
