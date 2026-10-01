@@ -36,4 +36,9 @@
 # is 28. Deliberate: a budget tight enough to trip on one ordinary feature
 # migration (0057_registry was 15 schema writes on its own) would be raised on
 # sight every few pull requests, which is the failure the second rule names.
-cire/db/migrations 3700
+# Raised to 4050 (150 schema writes) when the equal-owners and wedding
+# soft-delete work added migrations 0075-0077, the last being four child-key
+# indexes the wedding purge's cascade needs. The chain stood at 140 writes.
+# The next breach is the cue to squash the chain into a fresh baseline rather
+# than raise this line again.
+cire/db/migrations 4050
