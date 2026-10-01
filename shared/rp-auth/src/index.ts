@@ -76,12 +76,15 @@ const doFetch = (config: RpAuthConfig): typeof fetch => config.fetch ?? fetch;
 
 export interface SignInOptions {
   /**
-   * Ask the issuer to lead with the sign-up screen rather than the sign-in
-   * one — "Initiating User Registration via OpenID Connect 1.0". Only
-   * `create` is passed through; the API rejects anything else, so an app
-   * cannot smuggle `none` (silent authentication) through this seam.
+   * `create` asks the issuer to lead with the sign-up screen rather than the
+   * sign-in one — "Initiating User Registration via OpenID Connect 1.0".
+   * `select_account` asks it to always show which account is signed in, with
+   * a way to use another, even when consent is on file — so a sign-in on a
+   * shared browser never comes back silently as the last person to use it.
+   * Only these two are passed through; the API drops anything else, so an
+   * app cannot smuggle `none` (silent authentication) through this seam.
    */
-  prompt?: "create";
+  prompt?: "create" | "select_account";
 }
 
 /**

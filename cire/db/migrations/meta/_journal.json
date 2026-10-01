@@ -127,6 +127,13 @@
       "when": 1790840616518,
       "tag": "0074_directory_vendor_claim_review",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1790854131538,
+      "tag": "0075_household_member_identity",
+      "breakpoints": true
     }
   ]
 }

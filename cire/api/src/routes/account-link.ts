@@ -1,12 +1,12 @@
 import type { FeatureFlags } from "@shared/feature-flags";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { ACCOUNT_LINKING_FLAG } from "../lib/account-linking";
-import { buildSessionCookie, parseSessionToken } from "../lib/cookie";
+import { buildSessionCookie, parseOrganiserSessionToken, parseSessionToken } from "../lib/cookie";
 import {
   measureAccountLinkResolve,
   metricAccountLinkRequest,
@@ -17,7 +17,6 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
-import { LinkAccountBody } from "../schemas/account-link";
 import { accountLinkService } from "../services/account-link";
 import type { OsnAccountResolver } from "../services/osn-bridge";
 import { sessionService } from "../services/session";
@@ -45,23 +44,49 @@ class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
  * Both instances share a per-IP `limiter` so a session can't drive unbounded
  * membership probes or unlink churn.
  */
-export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
+export const createAccountLinkRoutes = (
+  db: Db,
+  limiter: RateLimiterBackend,
+  resolveOsnAccountId?: OsnAccountResolver,
+) =>
   new Elysia({ prefix: PREFIX })
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
-    // DELETE /api/account/link/:guestId — remove an invitee's link, scoped to
-    // the caller's household. Idempotent.
-    .delete("/:guestId", ({ familyId, params, set }) => {
+    // DELETE /api/account/link/:guestId — remove a link. Only the account a
+    // seat is bound to may release it: the seat must be the member this
+    // session chose, and a live link must match this browser's musubi
+    // sign-in. Otherwise anyone holding the household code could unlink a
+    // member and relink the seat to their own account, which would make
+    // `rsvps.submitted_via_link` claim "signed in as" for the wrong person.
+    // Idempotent: a seat with no link answers 200.
+    .delete("/:guestId", ({ familyId, memberGuestId, params, request, set }) => {
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
       }
       const guestId = params.guestId;
+      if (guestId !== memberGuestId) {
+        metricAccountLinkUnlink("error");
+        set.status = 403;
+        return { error: "not_your_seat" };
+      }
       return runCire(
-        accountLinkService.unlink({ familyId, guestId }).pipe(
+        Effect.gen(function* () {
+          const { result } = yield* accountLinkService.memberMatch(
+            guestId,
+            parseOrganiserSessionToken(request.headers.get("cookie")),
+            resolveOsnAccountId,
+          );
+          if (result !== "match" && result !== "unlinked") {
+            yield* Effect.sync(() => metricAccountLinkUnlink("error"));
+            set.status = 403;
+            return { error: "not_linked_account" };
+          }
+          yield* accountLinkService.unlink({ familyId, guestId });
+          yield* Effect.sync(() => metricAccountLinkUnlink("ok"));
+          return { linked: false, guestId };
+        }).pipe(
           Effect.provideService(DbService, db),
-          Effect.tap(() => Effect.sync(() => metricAccountLinkUnlink("ok"))),
-          Effect.as({ linked: false, guestId }),
           Effect.catchTag("AccountLinkWriteError", () =>
             Effect.sync(() => {
               metricAccountLinkUnlink("error");
@@ -74,7 +99,10 @@ export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
     });
 
 /**
- * POST /api/account/link — attach an invitee to the caller's OSN account.
+ * POST /api/account/link — attach the session's household member to the
+ * caller's OSN account. No body: the member is the one this session chose
+ * (`POST /api/claim/member`, or the server's choice for a one-member
+ * household); with none chosen it answers 409 `member_required`.
  *
  * The one deliberate dual-credential route: the guest session cookie (derives
  * `familyId`) proves the household; the OSN access token (derives
@@ -104,7 +132,7 @@ export const createAccountLinkPostRoute = (
     .use(osnAuth(osnAuthOptions))
     .post(
       "/",
-      async ({ request, familyId, osnProfileId, set }) => {
+      async ({ request, familyId, memberGuestId, osnProfileId, set }) => {
         // Both plugins gate this route; the guards are runtime safety nets.
         if (!familyId || !osnProfileId) {
           set.status = 401;
@@ -129,15 +157,19 @@ export const createAccountLinkPostRoute = (
           set.status = 503;
           return { error: "Account linking is not available" };
         }
+        // The link binds the member this session chose ("Who are you?"),
+        // never a seat named in the request.
+        if (memberGuestId === null) {
+          metricAccountLinkRequest("error");
+          set.status = 409;
+          return { error: "member_required" };
+        }
+        const guestId = memberGuestId;
         const resolveAccount = resolveOsnAccountId;
         const profileId = osnProfileId;
 
-        const raw: unknown = await request.json().catch(() => null);
-
         return runCire(
           Effect.gen(function* () {
-            const body = yield* Schema.decodeUnknownEffect(LinkAccountBody)(raw);
-
             const resolution = yield* Effect.tryPromise({
               try: () => resolveAccount(profileId),
               catch: (cause) => new OsnAccountLookupError({ reason: String(cause) }),
@@ -152,7 +184,7 @@ export const createAccountLinkPostRoute = (
 
             const link = yield* accountLinkService.link({
               familyId,
-              guestId: body.guestId,
+              guestId,
               osnAccountId: resolution.accountId,
               osnProfileId: profileId,
             });
@@ -183,12 +215,6 @@ export const createAccountLinkPostRoute = (
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTags({
-              SchemaError: () =>
-                Effect.sync(() => {
-                  metricAccountLinkRequest("error");
-                  set.status = 400;
-                  return { error: "Missing or invalid fields" };
-                }),
               GuestNotInFamily: () =>
                 Effect.sync(() => {
                   metricAccountLinkRequest("error");
@@ -227,7 +253,7 @@ export const createAccountLinkPostRoute = (
           ),
         );
       },
-      // Sentinel parse hook: stops Elysia consuming the body so the handler
-      // parses it by hand — malformed JSON degrades to the schema's 400.
+      // The request has no body to read; the hook keeps Elysia from parsing
+      // whatever a caller sends.
       { parse: () => ({}) },
     );

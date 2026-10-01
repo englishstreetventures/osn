@@ -8,8 +8,9 @@ import { runCire } from "../observability";
 import { sessionService } from "../services/session";
 
 /**
- * Elysia plugin that requires a valid session cookie. Resolves `familyId`
- * for downstream handlers. Returns 401 (no body details — generic
+ * Elysia plugin that requires a valid session cookie. Resolves `familyId`,
+ * and `memberGuestId` (the household member the session chose, or null), for
+ * downstream handlers. Returns 401 (no body details — generic
  * `Unauthorized` to avoid leaking session-state information).
  *
  * The lookup is a `resolve`, not a `derive`: it runs in the before-handle
@@ -26,7 +27,12 @@ export function sessionAuth(db: Db) {
       // osn-auth-client Elysia adapter.
       .resolve({ as: "scoped" }, async ({ request }) => {
         const token = parseSessionToken(request.headers.get("cookie"));
-        if (!token) return { familyId: undefined as string | undefined };
+        if (!token) {
+          return {
+            familyId: undefined as string | undefined,
+            memberGuestId: null as string | null,
+          };
+        }
 
         const session = await runCire(
           sessionService.validate(token).pipe(
@@ -37,7 +43,7 @@ export function sessionAuth(db: Db) {
             }),
           ),
         );
-        return { familyId: session?.familyId };
+        return { familyId: session?.familyId, memberGuestId: session?.memberGuestId ?? null };
       })
       .onBeforeHandle({ as: "scoped" }, ({ familyId, set }) => {
         if (!familyId) {

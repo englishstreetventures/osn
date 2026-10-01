@@ -5,6 +5,7 @@ import {
   isValidClaimResponse,
   isValidRsvpSaveResponse,
   readAccountLink,
+  readMember,
 } from "../../src/components/utils";
 
 describe("isValidClaimResponse", () => {
@@ -471,5 +472,57 @@ describe("formatNames", () => {
 
   it("gives nothing for nobody", () => {
     expect(formatNames([])).toBe("");
+  });
+});
+
+describe("readMember", () => {
+  const base = { publicId: "X", familyName: "Y", members: [], events: [], rsvps: [] };
+
+  it("reads no member step when the field is absent or malformed", () => {
+    expect(readMember(base)).toBeNull();
+    expect(readMember({ ...base, member: { guestId: 7 } })).toBeNull();
+    expect(readMember({ ...base, member: "g-1" })).toBeNull();
+  });
+
+  it("reads the chosen member, or none yet", () => {
+    expect(readMember({ ...base, member: null })).toEqual({ guestId: null });
+    expect(readMember({ ...base, member: { guestId: "g-1" } })).toEqual({ guestId: "g-1" });
+  });
+});
+
+describe("readAccountLink account", () => {
+  const state = { enabled: true, signedIn: true, linkedGuestIds: [] };
+  const account = { displayName: "Ada", handle: "ada", avatarUrl: null, matchesMember: false };
+
+  it("keeps a well-formed account", () => {
+    expect(readAccountLink({ ...state, account })).toEqual({
+      signedIn: true,
+      linkedGuestIds: [],
+      account,
+    });
+  });
+
+  it("drops a malformed account and keeps the box", () => {
+    expect(readAccountLink({ ...state, account: { ...account, matchesMember: "yes" } })).toEqual({
+      signedIn: true,
+      linkedGuestIds: [],
+    });
+  });
+});
+
+describe("isValidRsvpSaveResponse submittedBy", () => {
+  const row = { guestId: "g", eventId: "e", status: "attending", dietary: "" };
+
+  it("admits a sender, a null one, or none", () => {
+    for (const submittedBy of [{ guestId: "g", firstName: "Ada" }, null]) {
+      expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, submittedBy }] })).toBe(true);
+    }
+    expect(isValidRsvpSaveResponse({ rsvps: [row] })).toBe(true);
+  });
+
+  it("refuses a malformed sender", () => {
+    expect(isValidRsvpSaveResponse({ rsvps: [{ ...row, submittedBy: { guestId: 1 } }] })).toBe(
+      false,
+    );
   });
 });

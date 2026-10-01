@@ -164,6 +164,7 @@ describe("buildRecordStatement", () => {
           { guestId: ada.id, eventId: HINDU, kind: "reply_new" },
           { guestId: ada.id, eventId: null, kind: "plus_one_added" },
         ],
+        actorGuestId: ada.id,
       },
       at,
     );
@@ -179,6 +180,7 @@ describe("buildRecordStatement", () => {
         eventId: HINDU,
         kind: "reply_new",
         createdAt: new Date("2026-09-20T10:00:00Z"),
+        actorGuestId: ada.id,
       },
       {
         seq: rows[0]!.seq + 1,
@@ -188,6 +190,7 @@ describe("buildRecordStatement", () => {
         eventId: null,
         kind: "plus_one_added",
         createdAt: new Date("2026-09-20T10:00:00Z"),
+        actorGuestId: ada.id,
       },
     ]);
   });
