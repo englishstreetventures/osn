@@ -43,6 +43,10 @@ import {
   renderTotpEnrolled,
 } from "./security";
 import { renderVendorClaimInvite, type VendorClaimInviteData } from "./vendor-claim";
+import {
+  renderVendorClaimReviewPending,
+  type VendorClaimReviewPendingData,
+} from "./vendor-claim-review";
 
 /** Canonical list of templates. Keep sorted; one per outbound auth email. */
 export type EmailTemplate =
@@ -63,7 +67,8 @@ export type EmailTemplate =
   | "cross-device-login"
   | "registry-gift-summary"
   | "rsvp-change-digest"
-  | "vendor-claim-invite";
+  | "vendor-claim-invite"
+  | "vendor-claim-review-pending";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
@@ -85,6 +90,7 @@ export interface EmailTemplateDataMap {
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
+  "vendor-claim-review-pending": VendorClaimReviewPendingData;
 }
 
 export type EmailTemplateData<T extends EmailTemplate> = EmailTemplateDataMap[T];
@@ -148,6 +154,10 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderRsvpChangeDigest(data as EmailTemplateData<"rsvp-change-digest">);
     case "vendor-claim-invite":
       return renderVendorClaimInvite(data as EmailTemplateData<"vendor-claim-invite">);
+    case "vendor-claim-review-pending":
+      return renderVendorClaimReviewPending(
+        data as EmailTemplateData<"vendor-claim-review-pending">,
+      );
   }
   // Exhaustive — compile error if a template is added without a branch.
   const _exhaustive: never = template;
@@ -173,6 +183,7 @@ export {
   renderRegistryGiftSummary,
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
+  renderVendorClaimReviewPending,
 };
 
 export type {
@@ -183,4 +194,5 @@ export type {
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
   VendorClaimInviteData,
+  VendorClaimReviewPendingData,
 };
