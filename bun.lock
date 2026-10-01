@@ -679,7 +679,7 @@
     },
     "shared/sortable": {
       "name": "@shared/sortable",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
