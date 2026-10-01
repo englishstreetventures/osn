@@ -241,7 +241,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -436,7 +436,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -857,6 +857,9 @@
         "wrangler": "^4.127.1",
       },
     },
+  },
+  "patchedDependencies": {
+    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch",
   },
   "overrides": {
     "@babel/core": "^7.29.7",

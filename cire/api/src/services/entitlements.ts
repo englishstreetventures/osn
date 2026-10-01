@@ -1,8 +1,8 @@
 import { families, guests, weddingEntitlements } from "@cire/db";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { type AnyColumn, and, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { type Db, DbService, dbQuery } from "../db";
+import { type Db, DbService, dbQuery, outerColumn } from "../db";
 
 export const ENTITLEMENT_KEYS = [
   "premium_templates",
@@ -43,11 +43,38 @@ export class CapacityExceeded extends Data.TaggedError("CapacityExceeded")<{
  */
 export const BASE_GUEST_CAP = 100;
 
+/** The ceiling each capacity entitlement lifts a wedding to, largest first.
+ *  Both {@link deriveCap} and {@link roomForOneMoreGuest} read it, so the cap
+ *  checked in a read and the cap checked inside a write cannot differ. */
+const CAPACITY_CEILINGS = [
+  ["capacity_1000", 1000],
+  ["capacity_500", 500],
+] as const satisfies readonly (readonly [(typeof CAPACITY_ENTITLEMENT_KEYS)[number], number])[];
+
 /** Effective guest ceiling from the entitlement set. Pure. */
 function deriveCap(keys: readonly string[]): number {
-  if (keys.includes("capacity_1000")) return 1000;
-  if (keys.includes("capacity_500")) return 500;
+  for (const [key, ceiling] of CAPACITY_CEILINGS) if (keys.includes(key)) return ceiling;
   return BASE_GUEST_CAP;
+}
+
+/**
+ * "The wedding has room for one more guest", as a SQL condition: its real
+ * guests (the host-preview family excluded, as {@link countGuests} counts them)
+ * number fewer than the cap its capacity entitlements give it now. For a write
+ * that adds a guest and must check the cap in the same statement, so two writes
+ * in flight at once cannot each see the last place free: D1 runs them one after
+ * the other, and the second sees the first's row.
+ *
+ * Raw `sql` over `guests` and `families` by their own names, so it reads the
+ * same tables whatever alias the statement around it gives them. Use it in a
+ * WHERE: in a select list Drizzle writes its columns without their table, and
+ * `id` then names both tables.
+ */
+export function roomForOneMoreGuest(weddingId: string): SQL {
+  const ceilings = CAPACITY_CEILINGS.map(
+    ([key, ceiling]) => sql`WHEN ${entitlementPresent(weddingId, key)} THEN ${ceiling}`,
+  );
+  return sql`(SELECT count(*) FROM ${guests} INNER JOIN ${families} ON ${guests.familyId} = ${families.id} WHERE ${families.weddingId} = ${weddingId} AND ${families.kind} <> 'host') < (CASE ${sql.join(ceilings, sql` `)} ELSE ${BASE_GUEST_CAP} END)`;
 }
 
 /** Count real guests on a wedding, EXCLUDING the synthetic host-preview family. */
@@ -89,16 +116,22 @@ function grantStatement(
 }
 
 /**
- * A column that is 1 when `weddingId` holds `key` and 0 when it does not, for a
- * role gate to add to the query it already runs instead of making a second
- * round trip. `hostsService.authorize()` and `weddingOwner()` both use it, so
- * the two folds cannot disagree about what "holds" means.
+ * A column that is 1 when the wedding holds `key` and 0 when it does not, for a
+ * gate to add to the query it already runs instead of making a second round
+ * trip. `hostsService.authorize()`, `weddingOwner()` and the guest registry gate
+ * all use it, so the folds cannot disagree about what "holds" means.
+ *
+ * The wedding is either an id already in hand, or a column of the outer query —
+ * `weddings.id` when the gate resolves the wedding from its slug in the same
+ * statement. A column is correlated through {@link outerColumn}, so it names
+ * the outer row whatever shape the outer select has.
  *
  * It stays a raw `sql` fragment on purpose. Built from `db.select()` it would
  * read as a second query to anything counting builder calls, and the query
  * count is the reason the fold exists.
  */
-export function entitlementPresent(weddingId: string, key: EntitlementKey) {
+export function entitlementPresent(wedding: string | AnyColumn, key: EntitlementKey) {
+  const weddingId = typeof wedding === "string" ? wedding : outerColumn(wedding);
   return sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = ${key})`;
 }
 

@@ -101,6 +101,18 @@ describe("guest-event-validation rules", () => {
     expect(parseDressCodePalette("nocolon|Blue:#00f")).toEqual([{ name: "Blue", color: "#00f" }]);
   });
 
+  it("parseDressCodePalette skips a pair whose colour is not on the colour allow-list", () => {
+    // A CSS `url(...)` is fetched by any renderer that paints the swatch with
+    // the `background` shorthand, so it must never be stored as a colour.
+    expect(parseDressCodePalette("Blue:url(https://attacker.example/p.gif)|Sage:#b2ac88")).toEqual([
+      { name: "Sage", color: "#b2ac88" },
+    ]);
+    expect(parseDressCodePalette("Gold:gold")).toEqual([]);
+    expect(parseDressCodePalette("Rose:rgb(255, 0, 0)")).toEqual([
+      { name: "Rose", color: "rgb(255, 0, 0)" },
+    ]);
+  });
+
   it("isBlank is true only for the empty string", () => {
     expect(isBlank("")).toBe(true);
     expect(isBlank("a")).toBe(false);

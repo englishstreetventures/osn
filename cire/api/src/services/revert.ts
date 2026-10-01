@@ -1,5 +1,5 @@
-import { families, guests, imports } from "@cire/db";
-import { and, desc, eq, lt, ne } from "drizzle-orm";
+import { events, families, guests, imports, weddings } from "@cire/db";
+import { and, asc, desc, eq, lt, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, Option, Schema } from "effect";
 
@@ -8,13 +8,19 @@ import { EVENT_ID_HEADER } from "../lib/sheet-headers";
 import { metricImportReverted } from "../metrics";
 import { ChangeScope } from "../schemas/import";
 import type {
+  DesiredFamily,
   EventLink,
   ImportPlan,
   ImportSummary,
   ParsedEvent,
-  ParsedFamily,
 } from "../schemas/import";
-import { currentEventsAsParsed } from "./changes";
+import {
+  ChangeConflict,
+  claimChanges,
+  commitClaimStatement,
+  currentEventsAsParsed,
+  underClaim,
+} from "./changes";
 import { CapacityExceeded } from "./entitlements";
 import { normaliseName, nullableString } from "./guest-event-validation";
 import { applyImport, diffAgainstDb, ImportError } from "./import";
@@ -39,6 +45,7 @@ export class ChangeNotApplied extends Data.TaggedError("ChangeNotApplied")<{
 }> {}
 
 export type RevertError =
+  | ChangeConflict
   | ChangeNotApplied
   | NoPriorImport
   | R2Error
@@ -109,11 +116,11 @@ function reconcileToSnapshot(
     // columns; take it from live state, as the guests-only apply path does.
     // `currentEventsAsParsed` reads DB rows directly and cannot fail, so only the
     // parse branch needs the error mapping.
-    const events = hasEvents
+    const desiredEvents = hasEvents
       ? yield* parseEventsCsv(eventsCsv).pipe(Effect.mapError(parseFailed("events")))
       : yield* currentEventsAsParsed(weddingId);
     const desiredFamilies = hasGuests
-      ? yield* parseGuestsCsv(guestsCsv, events).pipe(Effect.mapError(parseFailed("guests")))
+      ? yield* parseGuestsCsv(guestsCsv, desiredEvents).pipe(Effect.mapError(parseFailed("guests")))
       : [];
 
     // Revert always reconciles by NAME (`matchByName` defaults on), so the diff's
@@ -122,7 +129,7 @@ function reconcileToSnapshot(
     // re-attaches rows that were removed and re-created since. `orDie` states
     // that: if it ever fires it is a bug in the diff, not a revert the caller
     // could handle.
-    const plan = yield* diffAgainstDb(events, desiredFamilies as ParsedFamily[], weddingId, {
+    const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies, weddingId, {
       scope,
     }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
@@ -130,6 +137,15 @@ function reconcileToSnapshot(
 }
 
 // ── Before-image restore ────────────────────────────────────────────────────
+
+/**
+ * A before-image restore resets each half it covers to the snapshot, so it
+ * manages every household and guest, whatever its `source`: a row an editor
+ * save added since the checkpoint is `'manual'`, and reverting that save must
+ * still remove it. The legacy replay (`reconcileToSnapshot`) keeps the upload
+ * default instead, as re-uploading that sheet would.
+ */
+const RESTORE_MANAGES_MANUAL = true;
 
 /** One row of a before-image's events sheet: its name and its stored id. */
 interface SnapshotEventKey {
@@ -172,7 +188,7 @@ function readSnapshotEventKeys(
 
 /** A before-image's households with attendance renamed to the live schedule. */
 interface TranslatedAttendance {
-  readonly families: ParsedFamily[];
+  readonly families: DesiredFamily[];
   /** Every live event some snapshot event resolved to. */
   readonly knownEventIds: ReadonlySet<string>;
 }
@@ -196,7 +212,7 @@ interface TranslatedAttendance {
  * "nobody was invited".
  */
 export function translateAttendance(
-  snapshotFamilies: readonly ParsedFamily[],
+  snapshotFamilies: readonly DesiredFamily[],
   snapshotEvents: readonly SnapshotEventKey[],
   liveEvents: readonly { readonly id: string; readonly name: string }[],
 ): TranslatedAttendance {
@@ -363,27 +379,42 @@ function restoreBeforeImage(
       const snapshotFamilies = yield* parseGuestsCsv(guestsCsv, snapshotEvents, {
         snapshot: true,
       }).pipe(Effect.mapError(parseFailed("guests")));
-      const liveEvents = yield* currentEventsAsParsed(weddingId);
+      // One read of the live schedule serves both the attendance translation
+      // and the diff. Ordered as the schedule is, because `translateAttendance`
+      // resolves a name shared by two events to the first one it meets.
+      const db = yield* DbService;
+      const liveEvents = yield* dbQuery(() =>
+        db
+          .select({ id: events.id, name: events.name })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .orderBy(asc(events.sortOrder), asc(events.name))
+          .all(),
+      );
       const { families: desired, knownEventIds } = translateAttendance(
         snapshotFamilies,
         snapshotEvents,
-        liveEvents.flatMap((e) => (e.id === undefined ? [] : [{ id: e.id, name: e.name }])),
+        liveEvents,
       );
+      // No desired events: a `guests` diff with name matching never reads them.
       // See `diffAgainstDb` in reconcileToSnapshot for why `orDie` is right.
-      const diffed = yield* diffAgainstDb(liveEvents, desired, weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      const diffed = yield* diffAgainstDb([], desired, weddingId, {
+        scope,
+        existingEvents: liveEvents,
+        removeManual: RESTORE_MANAGES_MANUAL,
+      }).pipe(Effect.orDie);
       plan = {
         ...diffed,
         eventLinkRemoves: diffed.eventLinkRemoves.filter((link) => knownEventIds.has(link.eventId)),
       };
     } else if (scope === "events") {
-      const snapshotEvents = yield* parseEventsCsv(yield* fetchUpload(keys.events)).pipe(
-        Effect.mapError(parseFailed("events")),
-      );
-      const diffed = yield* diffAgainstDb(snapshotEvents, [], weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      const snapshotEvents = yield* parseEventsCsv(yield* fetchUpload(keys.events), {
+        snapshot: true,
+      }).pipe(Effect.mapError(parseFailed("events")));
+      const diffed = yield* diffAgainstDb(snapshotEvents, [], weddingId, {
+        scope,
+        removeManual: RESTORE_MANAGES_MANUAL,
+      }).pipe(Effect.orDie);
       const reinvites = yield* reinviteToRecreatedEvents(
         diffed,
         snapshotEvents,
@@ -396,15 +427,16 @@ function restoreBeforeImage(
         [fetchUpload(keys.events), fetchUpload(keys.guests)],
         { concurrency: 2 },
       );
-      const snapshotEvents = yield* parseEventsCsv(eventsCsv).pipe(
+      const snapshotEvents = yield* parseEventsCsv(eventsCsv, { snapshot: true }).pipe(
         Effect.mapError(parseFailed("events")),
       );
       const snapshotFamilies = yield* parseGuestsCsv(guestsCsv, snapshotEvents, {
         snapshot: true,
       }).pipe(Effect.mapError(parseFailed("guests")));
-      plan = yield* diffAgainstDb(snapshotEvents, snapshotFamilies, weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      plan = yield* diffAgainstDb(snapshotEvents, snapshotFamilies, weddingId, {
+        scope,
+        removeManual: RESTORE_MANAGES_MANUAL,
+      }).pipe(Effect.orDie);
     }
     return yield* applyImport(changeId, plan, weddingId, finalize);
   });
@@ -446,16 +478,22 @@ export function revertImport(
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    const [current] = yield* dbQuery(() =>
+    // The head is read in the same statement as the row, so both come from
+    // one snapshot: a revert of this change that commits after this read moves
+    // the head, and the claim below refuses this one even though the row it
+    // read still said `applied`.
+    const [found] = yield* dbQuery(() =>
       db
-        .select()
+        .select({ change: imports, head: weddings.changeRev })
         .from(imports)
+        .innerJoin(weddings, eq(weddings.id, imports.weddingId))
         .where(and(eq(imports.id, importId), eq(imports.weddingId, weddingId)))
         .all(),
     );
-    if (!current) {
+    if (!found) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
+    const current = found.change;
     // Only an applied change has anything to undo. A preview row has no
     // before-image, so it would fall through to the legacy path and reset the
     // wedding to an older import; a reverted row would be restored twice.
@@ -464,30 +502,35 @@ export function revertImport(
     }
     const scope = storedRevertScope(current.summary);
 
-    // The status flip rides in the reconcile's FINAL batch (applyImport
-    // `finalize`), mirroring the apply route: a crash can't leave the wedding
-    // reconciled while the row still reads `applied` (which would invite a
-    // second, now-wrong revert against the already-restored state).
+    // Take the wedding before diffing, so the state the restore is computed
+    // against is the state it writes over: no apply or revert commits in
+    // between. The claim's commit and the status flip ride in the reconcile's
+    // FINAL batch (applyImport `finalize`), mirroring the apply route: a crash
+    // can't leave the wedding reconciled while the row still reads `applied`
+    // (which would invite a second, now-wrong revert against the
+    // already-restored state).
+    const claim = yield* claimChanges(weddingId, String(found.head));
     const markReverted = [
+      commitClaimStatement(db, claim),
       db
         .update(imports)
         .set({ status: "reverted", revertedAt: Date.now() })
         .where(and(eq(imports.id, current.id), eq(imports.status, "applied"))),
     ];
 
-    let summary: ImportSummary;
     const hasBeforeImage = Boolean(current.beforeEventsR2Key && current.beforeGuestsR2Key);
+    const restore = Effect.gen(function* () {
+      if (current.beforeEventsR2Key && current.beforeGuestsR2Key) {
+        // ── Before-image path ──────────────────────────────────────────────────
+        return yield* restoreBeforeImage(
+          current.id,
+          weddingId,
+          scope,
+          { events: current.beforeEventsR2Key, guests: current.beforeGuestsR2Key },
+          markReverted,
+        );
+      }
 
-    if (current.beforeEventsR2Key && current.beforeGuestsR2Key) {
-      // ── Before-image path ──────────────────────────────────────────────────
-      summary = yield* restoreBeforeImage(
-        current.id,
-        weddingId,
-        scope,
-        { events: current.beforeEventsR2Key, guests: current.beforeGuestsR2Key },
-        markReverted,
-      );
-    } else {
       // ── Legacy fallback ────────────────────────────────────────────────────
       // No before-image: re-apply the most-recent-earlier applied import's
       // uploaded sheets against current DB state. The predicate + ORDER BY +
@@ -538,8 +581,11 @@ export function revertImport(
       if (scopedHalf !== null && scopedHalf.trim().length === 0) {
         return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
       }
-      summary = yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv, markReverted);
-    }
+      return yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv, markReverted);
+    });
+    // Everything but a failed commit is raised before any data statement is
+    // sent, so only an ImportError (or a defect) moves the head on release.
+    const summary = yield* underClaim(claim, restore, (e) => e._tag !== "ImportError");
 
     yield* Effect.logInfo("change reverted", {
       scope,

@@ -702,6 +702,74 @@ describe("GuestsEditor", () => {
       expect(posted.map((p) => p.baseRevision)).toEqual(["rev_1", "rev_2"]);
     });
 
+    it("builds the next draft on the head the apply returned, without reading it again", async () => {
+      const posted: Record<string, unknown>[] = [];
+      let headReads = 0;
+      authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          headReads += 1;
+          return Promise.resolve(json({ revision: "rev_1" }));
+        }
+        if (u.endsWith("/changes/preview")) {
+          posted.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(previewResponse());
+        }
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(json({ summary: { changeId: "chg_1" }, revision: "rev_2" }));
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+
+      fireEvent.input(await waitFor(() => screen.getByDisplayValue("Ada")), {
+        target: { value: "Ada B" },
+      });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(posted).toHaveLength(2));
+      expect(posted.map((p) => p.baseRevision)).toEqual(["rev_1", "rev_2"]);
+      expect(headReads).toBe(1);
+    });
+
+    it("says another save is under way when the apply is refused for that", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(
+            json(
+              {
+                error: "Another change is being saved — try again in a moment",
+                reason: "change_in_progress",
+              },
+              409,
+            ),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      await waitFor(() => expect(screen.getByText(/Another change is being saved/i)).toBeTruthy());
+      expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
+    });
+
     it("shows a load error, not a draft, when the head cannot be read", async () => {
       authFetchMock.mockImplementation((url: string) => {
         if (String(url).endsWith("/changes/head")) {
@@ -714,7 +782,7 @@ describe("GuestsEditor", () => {
       expect(screen.queryByLabelText("Household name")).toBeNull();
     });
 
-    it("says to reload when the draft is older than the head", async () => {
+    it("says someone else changed the list when the draft is older than the head", async () => {
       primeLoad();
       render(() => <GuestsEditor weddingId="wed_a" />);
       await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
@@ -729,8 +797,219 @@ describe("GuestsEditor", () => {
         return Promise.resolve(fallback(url));
       });
       fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
-      await waitFor(() => expect(screen.getByText(/reload the editor/i)).toBeTruthy());
+      await waitFor(() =>
+        expect(screen.getByText(/Someone else changed the guest list/i)).toBeTruthy(),
+      );
+      expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
       expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  /**
+   * A co-host's save makes this draft stale. Reloading with the edits kept
+   * reads the new head and rows, and puts the organiser's unsaved edits back
+   * on top, so nothing has to be redone and the next save is not refused.
+   */
+  describe("reload and keep my edits", () => {
+    const PATEL = {
+      guestId: "g_9",
+      familyId: "fam_p",
+      publicId: "PATEL-CODE-0009",
+      familyName: "Patel",
+      firstName: "Raj",
+      lastName: "Patel",
+      nickname: null,
+      events: ["evt_1"],
+      codeSharedAt: null,
+      firstOpenedAt: null,
+      deactivatedAt: null,
+    };
+    const PATEL_HOUSEHOLD = {
+      familyId: "fam_p",
+      publicId: "PATEL-CODE-0009",
+      familyName: "Patel",
+      guestCount: 1,
+      codeSharedAt: null,
+      firstOpenedAt: null,
+      deactivatedAt: null,
+    };
+
+    /** Loads at rev_1; after the refusal the server holds Patel at rev_2. */
+    function coHostSaves(refusal: "preview" | "apply") {
+      let head = "rev_1";
+      let rows = { guests: GUESTS, households: HOUSEHOLDS };
+      const posted: Record<string, unknown>[] = [];
+      authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: head }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(rows.guests));
+        if (u.endsWith("/households")) return Promise.resolve(json(rows.households));
+        if (u.endsWith("/changes/preview")) {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          posted.push(body);
+          if (refusal === "preview" && body.baseRevision === "rev_1") {
+            head = "rev_2";
+            rows = { guests: [...GUESTS, PATEL], households: [...HOUSEHOLDS, PATEL_HOUSEHOLD] };
+            return Promise.resolve(
+              json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+            );
+          }
+          return Promise.resolve(previewResponse());
+        }
+        if (u.endsWith("/changes/apply") && refusal === "apply" && head === "rev_1") {
+          head = "rev_2";
+          rows = { guests: [...GUESTS, PATEL], households: [...HOUSEHOLDS, PATEL_HOUSEHOLD] };
+          return Promise.resolve(
+            json({ error: "State changed — re-preview", reason: "head_moved" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      return posted;
+    }
+
+    it("reloads the new rows with the organiser's rename still in place, and saves on the new head", async () => {
+      const posted = coHostSaves("preview");
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+
+      // The co-host's household is there, and so is the organiser's rename.
+      await waitFor(() => expect(screen.getByDisplayValue("Raj")).toBeTruthy());
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      // Still dirty: the rename is unsaved.
+      expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+      await waitFor(() => expect(posted).toHaveLength(2));
+      expect(posted[1]!.baseRevision).toBe("rev_2");
+      const wire = posted[1]!.desiredState as DesiredStateWire;
+      expect(wire.families.map((f) => f.familyName)).toEqual(["Sharma", "Patel"]);
+      expect(wire.families[0]!.guests[0]).toMatchObject({ id: "g_1", firstName: "Adaeze" });
+      expect(wire.families[1]!.guests[0]).toMatchObject({ id: "g_9", firstName: "Raj" });
+    });
+
+    it("offers the same reload when the apply finds the head has moved", async () => {
+      const posted = coHostSaves("apply");
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+      await waitFor(() => expect(screen.getByDisplayValue("Raj")).toBeTruthy());
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+      await waitFor(() => expect(posted).toHaveLength(2));
+      expect(posted[1]!.baseRevision).toBe("rev_2");
+    });
+
+    it("keeps the button and the edit when the reload fails", async () => {
+      let failReload = false;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          return Promise.resolve(
+            failReload ? json({ error: "Internal error" }, 500) : json({ revision: "rev_1" }),
+          );
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        if (u.endsWith("/changes/preview")) {
+          failReload = true;
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByText(/Could not reload the guest list/i)).toBeTruthy(),
+      );
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+    });
+
+    it("sends an expired session to sign in when the reload finds it", async () => {
+      let expire = false;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) {
+          return Promise.resolve(
+            expire ? json({ error: "unauthenticated" }, 401) : json({ revision: "rev_1" }),
+          );
+        }
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        if (u.endsWith("/changes/preview")) {
+          expire = true;
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    });
+
+    it("names an edit it could not keep", async () => {
+      // The co-host deleted Ada's household while the organiser renamed her.
+      let head = "rev_1";
+      let rows = { guests: GUESTS, households: HOUSEHOLDS };
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: head }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(rows.guests));
+        if (u.endsWith("/households")) return Promise.resolve(json(rows.households));
+        if (u.endsWith("/changes/preview")) {
+          head = "rev_2";
+          rows = { guests: [PATEL], households: [PATEL_HOUSEHOLD] };
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      fireEvent.click(
+        await waitFor(() => screen.getByRole("button", { name: /Reload and keep my edits/i })),
+      );
+      await waitFor(() => expect(screen.getByText(/“Sharma” was removed elsewhere/)).toBeTruthy());
+      expect(screen.queryByDisplayValue("Adaeze")).toBeNull();
+      expect(screen.getByDisplayValue("Raj")).toBeTruthy();
     });
   });
 

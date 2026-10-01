@@ -21,6 +21,7 @@ const fail = (status: number, error: string) => ({
   weddingIsOwner: false,
   weddingRole: undefined as WeddingRole | undefined,
   weddingOwnerOsnProfileId: undefined as string | undefined,
+  weddingSlug: undefined as string | undefined,
   weddingEntitlementFold: undefined as WeddingEntitlementFold | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
@@ -29,6 +30,7 @@ const pass = (
   weddingId: string,
   role: WeddingRole,
   ownerOsnProfileId: string,
+  slug: string,
   entitlementFold: WeddingEntitlementFold | undefined,
 ) => ({
   weddingId: weddingId as string | undefined,
@@ -40,6 +42,10 @@ const pass = (
   // owner as a host, and under `weddingOwner()` that check could lean on the
   // caller's own id. `authorize()` already reads the column, so it is free.
   weddingOwnerOsnProfileId: ownerOsnProfileId as string | undefined,
+  // Read in the same query that found the owner. The invite writes and image
+  // uploads build their public URLs from it, so they need not read the wedding
+  // row a second time.
+  weddingSlug: slug as string | undefined,
   weddingEntitlementFold: entitlementFold,
   weddingGateError: undefined as GateError | undefined,
 });
@@ -55,9 +61,9 @@ const pass = (
  * 404 for unknown weddings, 403 `forbidden` for non-members — the same contract
  * as the member gate.
  *
- * Derives `weddingOwnerOsnProfileId` alongside the role, which the other two
- * gates do not: this is the gate whose caller is not necessarily the owner but
- * may still need to name them.
+ * Derives `weddingOwnerOsnProfileId` alongside the role, which the owner gate
+ * does not: this is a gate whose caller is not necessarily the owner but may
+ * still need to name them. Also derives `weddingSlug` from the same read.
  *
  * Mirrors `weddingMember()`'s lifecycle: the derive runs before osnAuth's
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
@@ -95,6 +101,7 @@ export function weddingEditor(db: Db, entitlementKey?: EntitlementKey) {
         weddingId,
         result.role,
         result.ownerOsnProfileId,
+        result.weddingSlug,
         entitlementKey && result.entitled !== undefined
           ? { key: entitlementKey, entitled: result.entitled }
           : undefined,

@@ -69,5 +69,8 @@
     "vite": "^8.2.2",
     "ws": "^8.21.0",
     "yaml": "^2.9.0"
+  },
+  "patchedDependencies": {
+    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch"
   }
 }

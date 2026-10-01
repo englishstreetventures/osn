@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS weddings (
   rsvp_deadline TEXT,
   rsvp_deadline_timezone TEXT,
   updated_by_osn_profile_id TEXT,
+  change_rev INTEGER NOT NULL DEFAULT 0,
+  change_claim TEXT,
+  change_claimed_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -442,6 +445,7 @@ CREATE TABLE IF NOT EXISTS registry_items (
   CONSTRAINT registry_items_kind_ck CHECK (kind in ('product','cash_fund'))
 );
 CREATE INDEX IF NOT EXISTS registry_items_wedding_sort_idx ON registry_items(wedding_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS registry_items_wedding_image_idx ON registry_items(wedding_id, image_key);
 CREATE TABLE IF NOT EXISTS registry_claims (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

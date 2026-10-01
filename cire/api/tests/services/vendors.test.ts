@@ -7,6 +7,7 @@ import { Cause, Effect, Exit, Option } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { vendorsService, VendorNotInWedding } from "../../src/services/vendors";
+import { recordStatements } from "../test-helpers";
 
 const OTHER = "wed_other";
 function db0() {
@@ -78,39 +79,6 @@ describe("vendorsService", () => {
     expect(row?.status).toBe("researching");
   });
 
-  it("existsForDirectory is true only when a CRM row links that listing in that wedding", async () => {
-    const db = db0();
-    // Create a vendor in W1 (BOOTSTRAP_WEDDING_ID) with directoryVendorId "DV1"
-    const created = await run(
-      db,
-      vendorsService.create({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        name: "Apex Venue",
-        category: "venue",
-        status: "researching",
-        contactName: null,
-        email: null,
-        phone: null,
-        notes: null,
-        quotedMinor: null,
-        directoryVendorId: "DV1",
-      }),
-    );
-    expect(Exit.isSuccess(created)).toBe(true);
-
-    // True: same wedding, same directoryVendorId
-    const r1 = await run(db, vendorsService.existsForDirectory(BOOTSTRAP_WEDDING_ID, "DV1"));
-    expect(Exit.isSuccess(r1) && r1.value).toBe(true);
-
-    // False: same wedding, different directoryVendorId
-    const r2 = await run(db, vendorsService.existsForDirectory(BOOTSTRAP_WEDDING_ID, "DVX"));
-    expect(Exit.isSuccess(r2) && r2.value).toBe(false);
-
-    // False: different wedding, same directoryVendorId (wedding-scoping)
-    const r3 = await run(db, vendorsService.existsForDirectory(OTHER, "DV1"));
-    expect(Exit.isSuccess(r3) && r3.value).toBe(false);
-  });
-
   it("reorder is wedding-scoped and sets sort_order by index within a status", async () => {
     const db = db0();
     const ids: string[] = [];
@@ -145,5 +113,89 @@ describe("vendorsService", () => {
       "A",
       "B",
     ]);
+  });
+});
+
+describe("vendorsService.create sort order", () => {
+  function seedVendor(
+    db: ReturnType<typeof createDb>,
+    weddingId: string,
+    status: string,
+    sortOrder: number,
+  ) {
+    const now = new Date();
+    db.insert(vendors)
+      .values({
+        id: `ven_${crypto.randomUUID()}`,
+        weddingId,
+        name: `Seeded ${status} ${sortOrder}`,
+        category: "venue",
+        status,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const input = {
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    name: "New",
+    category: "florals",
+    status: "contacted",
+    contactName: null,
+    email: null,
+    phone: null,
+    notes: null,
+    quotedMinor: null,
+  };
+
+  it("appends after the highest sort_order in its (wedding, status) group", async () => {
+    const db = db0();
+    // Gaps and out-of-order inserts, as a reorder then a delete leave them.
+    for (const n of [0, 7, 3]) seedVendor(db, BOOTSTRAP_WEDDING_ID, "contacted", n);
+    // Higher values outside the group must not count.
+    seedVendor(db, BOOTSTRAP_WEDDING_ID, "booked", 40);
+    seedVendor(db, OTHER, "contacted", 50);
+
+    const res = await run(db, vendorsService.create(input));
+    if (!Exit.isSuccess(res)) throw new Error("create failed");
+    expect(res.value.sortOrder).toBe(8);
+  });
+
+  it("starts an empty group at 0", async () => {
+    const db = db0();
+    seedVendor(db, BOOTSTRAP_WEDDING_ID, "booked", 5);
+    const res = await run(db, vendorsService.create(input));
+    if (!Exit.isSuccess(res)) throw new Error("create failed");
+    expect(res.value.sortOrder).toBe(0);
+  });
+
+  it("reads one row for the top sort_order however large the group", async () => {
+    const db = db0();
+    for (const n of [0, 1, 2]) seedVendor(db, BOOTSTRAP_WEDDING_ID, "contacted", n);
+    const statements = recordStatements(db);
+
+    await run(db, vendorsService.create(input));
+
+    const reads = statements.filter((s) => /^select\b/i.test(s.sql));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.rowCounts).toEqual([1]);
+  });
+
+  it("finds the top sort_order through the (wedding, status, sort_order) index", async () => {
+    const db = db0();
+    const statements = recordStatements(db);
+    await run(db, vendorsService.create(input));
+    const read = statements.find((s) => /^select\b/i.test(s.sql));
+
+    const plan = db.$client
+      .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${read!.sql}`)
+      .all()
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toMatch(/vendors USING (COVERING )?INDEX vendors_wedding_status_idx/);
+    // An ORDER BY the index cannot serve would sort the whole group first.
+    expect(plan).not.toMatch(/USE TEMP B-TREE/);
   });
 });

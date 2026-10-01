@@ -485,6 +485,19 @@ function publicView(full: InviteCustomisation): PublicInviteCustomisation {
   };
 }
 
+/**
+ * The customisation a write answers with, built from the row its RETURNING
+ * clause handed back — so a write never reads the row again. No row means the
+ * wedding has no customisation yet, which reads as the defaults.
+ */
+function fromWritten(
+  slug: string,
+  rows: readonly (typeof weddingInviteCustomisations.$inferSelect)[],
+): InviteCustomisation {
+  const [row] = rows;
+  return row ? toCustomisation(slug, row) : EMPTY;
+}
+
 export const inviteService = {
   /** Customisation for an organiser-owned wedding (weddingId already authorised). */
   getForWedding(
@@ -502,18 +515,6 @@ export const inviteService = {
       );
       return row ? toCustomisation(slug, row) : EMPTY;
     }).pipe(Effect.withSpan("cire.invite.getForWedding"));
-  },
-
-  /** Slug for an organiser-owned wedding (weddingOwner already proved it exists). */
-  weddingSlug(weddingId: string): Effect.Effect<string, WeddingNotFound, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const [row] = yield* dbQuery(() =>
-        db.select({ slug: weddings.slug }).from(weddings).where(eq(weddings.id, weddingId)).all(),
-      );
-      if (!row) return yield* Effect.fail(new WeddingNotFound({}));
-      return row.slug;
-    });
   },
 
   /**
@@ -714,8 +715,15 @@ export const inviteService = {
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 
-  /** Upsert the text overrides for a wedding. Empty/whitespace clears to default. */
-  upsertText(weddingId: string, fields: InviteTextBody): Effect.Effect<void, never, DbService> {
+  /**
+   * Upsert the text overrides for a wedding. Empty/whitespace clears to default.
+   * Answers with the customisation as written; `slug` builds its image URLs.
+   */
+  upsertText(
+    weddingId: string,
+    slug: string,
+    fields: InviteTextBody,
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const values = {
@@ -730,7 +738,7 @@ export const inviteService = {
         footerMessage: normaliseCopy(fields.footerMessage),
         inviteMessage: normaliseCopy(fields.inviteMessage),
       };
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
           .values({ weddingId, ...values, updatedAt: new Date() })
@@ -738,10 +746,12 @@ export const inviteService = {
             target: weddingInviteCustomisations.weddingId,
             set: { ...values, updatedAt: new Date() },
           })
-          .run(),
+          .returning()
+          .all(),
       );
       yield* Effect.logInfo("invite text customisation saved", { weddingId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.upsertText"));
   },
 
@@ -750,9 +760,14 @@ export const inviteService = {
    * key and the per-section tones. The body has already been schema-validated
    * (fonts/tones/preset ∈ closed enums, seeds ∈ the CSS-colour allow-list) at
    * the route boundary, so by the time it reaches here every value is safe to
-   * persist; a `null` clears that field back to the built-in default.
+   * persist; a `null` clears that field back to the built-in default. Answers
+   * with the customisation as written; `slug` builds its image URLs.
    */
-  upsertTheme(weddingId: string, fields: InviteThemeBody): Effect.Effect<void, never, DbService> {
+  upsertTheme(
+    weddingId: string,
+    slug: string,
+    fields: InviteThemeBody,
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
@@ -798,7 +813,7 @@ export const inviteService = {
       // Conditional image-version bump — see heroBlurChanged above.
       const values: typeof themeValues & { imagesUpdatedAt?: Date } = themeValues;
       if (heroBlurChanged) values.imagesUpdatedAt = new Date();
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
           .values({ weddingId, ...values, updatedAt: new Date() })
@@ -806,10 +821,12 @@ export const inviteService = {
             target: weddingInviteCustomisations.weddingId,
             set: { ...values, updatedAt: new Date() },
           })
-          .run(),
+          .returning()
+          .all(),
       );
       yield* Effect.logInfo("invite theme customisation saved", { weddingId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.upsertTheme"));
   },
 
@@ -818,13 +835,17 @@ export const inviteService = {
    * passed catalog + entitlement checks at the route boundary. Bumps
    * `updatedAt` only — NEVER `imagesUpdatedAt` — a design switch changes no
    * stored image bytes, so the guest image transform caches stay warm
-   * (WT-P-I1).
+   * (WT-P-I1). Answers with the customisation as written.
    */
-  setDesign(weddingId: string, designId: string): Effect.Effect<void, never, DbService> {
+  setDesign(
+    weddingId: string,
+    slug: string,
+    designId: string,
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
           .values({ weddingId, designId, updatedAt: now })
@@ -832,10 +853,12 @@ export const inviteService = {
             target: weddingInviteCustomisations.weddingId,
             set: { designId, updatedAt: now },
           })
-          .run(),
+          .returning()
+          .all(),
       );
       yield* Effect.logInfo("invite design saved", { weddingId, designId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.setDesign"));
   },
 
@@ -846,11 +869,13 @@ export const inviteService = {
    * back on restores it as it was. Bumps `updatedAt` only — NEVER
    * `imagesUpdatedAt`: a switch changes no stored image bytes, and bumping the
    * image version would make every guest re-fetch images that have not changed.
+   * Answers with the customisation as written.
    */
   setVisibility(
     weddingId: string,
+    slug: string,
     body: InviteVisibilityBody,
-  ): Effect.Effect<void, never, DbService> {
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const switches: Partial<
@@ -861,7 +886,7 @@ export const inviteService = {
         if (value !== undefined) switches[SECTION_VISIBILITY_COLUMNS[section]] = value;
       }
       const now = new Date();
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
           .values({ weddingId, ...switches, updatedAt: now })
@@ -869,10 +894,12 @@ export const inviteService = {
             target: weddingInviteCustomisations.weddingId,
             set: { ...switches, updatedAt: now },
           })
-          .run(),
+          .returning()
+          .all(),
       );
       yield* Effect.logInfo("invite visibility saved", { weddingId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.setVisibility"));
   },
 
@@ -943,11 +970,15 @@ export const inviteService = {
     );
   },
 
-  /** Clear a slot's image (reset to default) and delete the object best-effort. */
+  /**
+   * Clear a slot's image (reset to default) and delete the object best-effort.
+   * Answers with the customisation as written.
+   */
   removeImage(
     weddingId: string,
+    slug: string,
     slot: InviteImageSlot,
-  ): Effect.Effect<void, never, DbService | AssetsR2Service> {
+  ): Effect.Effect<InviteCustomisation, never, DbService | AssetsR2Service> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const keyColumn = SLOT_COLUMNS[slot].key;
@@ -962,7 +993,7 @@ export const inviteService = {
           .all(),
       );
 
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           // Clear the crop(s) alongside the key — the slot is back to its default,
           // so a later re-upload starts full-frame, not with a stale crop.
@@ -974,7 +1005,8 @@ export const inviteService = {
             imagesUpdatedAt: new Date(),
           })
           .where(eq(weddingInviteCustomisations.weddingId, weddingId))
-          .run(),
+          .returning()
+          .all(),
       );
 
       if (existing?.key) {
@@ -985,6 +1017,7 @@ export const inviteService = {
         );
       }
       yield* Effect.logInfo("invite image removed", { weddingId });
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.removeImage"));
   },
 
@@ -1000,13 +1033,16 @@ export const inviteService = {
    * `desktop` (the default — every pre-0046 caller) writes `heroImageCrop`,
    * `mobile` writes `heroImageCropMobile`. The route has already rejected
    * `mobile` for the story slot, so the story mapping ignores it.
+   *
+   * Answers with the customisation as written.
    */
   setCrop(
     weddingId: string,
+    slug: string,
     slot: InviteImageSlot,
     crop: ImageCrop | null,
     screen: CropScreen = "desktop",
-  ): Effect.Effect<void, never, DbService> {
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const cols = SLOT_COLUMNS[slot];
@@ -1015,7 +1051,7 @@ export const inviteService = {
       const keyColumn = screen === "mobile" ? (cols.cropMobile ?? cols.crop) : cols.crop;
       const encoded = crop ? JSON.stringify(crop) : null;
       const now = new Date();
-      yield* dbQuery(() =>
+      const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
           .values({ weddingId, [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now })
@@ -1023,9 +1059,11 @@ export const inviteService = {
             target: weddingInviteCustomisations.weddingId,
             set: { [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now },
           })
-          .run(),
+          .returning()
+          .all(),
       );
       yield* Effect.logInfo("invite image crop saved", { weddingId });
+      return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.setCrop"));
   },
 };
