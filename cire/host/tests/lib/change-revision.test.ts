@@ -5,7 +5,12 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
-import { isChangeInProgress, loadHeadRevision, revisionOf } from "../../src/lib/change-revision";
+import {
+  isChangeInProgress,
+  isHeadMoved,
+  loadHeadRevision,
+  revisionOf,
+} from "../../src/lib/change-revision";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 const jsonRes = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
@@ -73,5 +78,15 @@ describe("isChangeInProgress", () => {
     expect(isChangeInProgress({ reason: "stale_draft" })).toBe(false);
     expect(isChangeInProgress({})).toBe(false);
     expect(isChangeInProgress(null)).toBe(false);
+  });
+});
+
+describe("isHeadMoved", () => {
+  it("is true only for the head-moved refusal", () => {
+    expect(isHeadMoved({ reason: "head_moved" })).toBe(true);
+    expect(isHeadMoved({ reason: "change_in_progress" })).toBe(false);
+    expect(isHeadMoved({ reason: "stale_draft" })).toBe(false);
+    expect(isHeadMoved({})).toBe(false);
+    expect(isHeadMoved(null)).toBe(false);
   });
 });

@@ -8,11 +8,11 @@ import { EVENT_ID_HEADER } from "../lib/sheet-headers";
 import { metricImportReverted } from "../metrics";
 import { ChangeScope } from "../schemas/import";
 import type {
+  DesiredFamily,
   EventLink,
   ImportPlan,
   ImportSummary,
   ParsedEvent,
-  ParsedFamily,
 } from "../schemas/import";
 import {
   ChangeConflict,
@@ -129,7 +129,7 @@ function reconcileToSnapshot(
     // re-attaches rows that were removed and re-created since. `orDie` states
     // that: if it ever fires it is a bug in the diff, not a revert the caller
     // could handle.
-    const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies as ParsedFamily[], weddingId, {
+    const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies, weddingId, {
       scope,
     }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
@@ -137,6 +137,15 @@ function reconcileToSnapshot(
 }
 
 // ── Before-image restore ────────────────────────────────────────────────────
+
+/**
+ * A before-image restore resets each half it covers to the snapshot, so it
+ * manages every household and guest, whatever its `source`: a row an editor
+ * save added since the checkpoint is `'manual'`, and reverting that save must
+ * still remove it. The legacy replay (`reconcileToSnapshot`) keeps the upload
+ * default instead, as re-uploading that sheet would.
+ */
+const RESTORE_MANAGES_MANUAL = true;
 
 /** One row of a before-image's events sheet: its name and its stored id. */
 interface SnapshotEventKey {
@@ -179,7 +188,7 @@ function readSnapshotEventKeys(
 
 /** A before-image's households with attendance renamed to the live schedule. */
 interface TranslatedAttendance {
-  readonly families: ParsedFamily[];
+  readonly families: DesiredFamily[];
   /** Every live event some snapshot event resolved to. */
   readonly knownEventIds: ReadonlySet<string>;
 }
@@ -203,7 +212,7 @@ interface TranslatedAttendance {
  * "nobody was invited".
  */
 export function translateAttendance(
-  snapshotFamilies: readonly ParsedFamily[],
+  snapshotFamilies: readonly DesiredFamily[],
   snapshotEvents: readonly SnapshotEventKey[],
   liveEvents: readonly { readonly id: string; readonly name: string }[],
 ): TranslatedAttendance {
@@ -392,18 +401,20 @@ function restoreBeforeImage(
       const diffed = yield* diffAgainstDb([], desired, weddingId, {
         scope,
         existingEvents: liveEvents,
+        removeManual: RESTORE_MANAGES_MANUAL,
       }).pipe(Effect.orDie);
       plan = {
         ...diffed,
         eventLinkRemoves: diffed.eventLinkRemoves.filter((link) => knownEventIds.has(link.eventId)),
       };
     } else if (scope === "events") {
-      const snapshotEvents = yield* parseEventsCsv(yield* fetchUpload(keys.events)).pipe(
-        Effect.mapError(parseFailed("events")),
-      );
-      const diffed = yield* diffAgainstDb(snapshotEvents, [], weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      const snapshotEvents = yield* parseEventsCsv(yield* fetchUpload(keys.events), {
+        snapshot: true,
+      }).pipe(Effect.mapError(parseFailed("events")));
+      const diffed = yield* diffAgainstDb(snapshotEvents, [], weddingId, {
+        scope,
+        removeManual: RESTORE_MANAGES_MANUAL,
+      }).pipe(Effect.orDie);
       const reinvites = yield* reinviteToRecreatedEvents(
         diffed,
         snapshotEvents,
@@ -416,15 +427,16 @@ function restoreBeforeImage(
         [fetchUpload(keys.events), fetchUpload(keys.guests)],
         { concurrency: 2 },
       );
-      const snapshotEvents = yield* parseEventsCsv(eventsCsv).pipe(
+      const snapshotEvents = yield* parseEventsCsv(eventsCsv, { snapshot: true }).pipe(
         Effect.mapError(parseFailed("events")),
       );
       const snapshotFamilies = yield* parseGuestsCsv(guestsCsv, snapshotEvents, {
         snapshot: true,
       }).pipe(Effect.mapError(parseFailed("guests")));
-      plan = yield* diffAgainstDb(snapshotEvents, snapshotFamilies, weddingId, { scope }).pipe(
-        Effect.orDie,
-      );
+      plan = yield* diffAgainstDb(snapshotEvents, snapshotFamilies, weddingId, {
+        scope,
+        removeManual: RESTORE_MANAGES_MANUAL,
+      }).pipe(Effect.orDie);
     }
     return yield* applyImport(changeId, plan, weddingId, finalize);
   });

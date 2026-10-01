@@ -5,7 +5,12 @@ import type { EventRow } from "../../src/lib/events-store";
 import {
   createGuestEventDraft,
   type DesiredStateWire,
+  type DraftEvent,
+  type DraftFamily,
+  type DraftGuest,
+  type DraftState,
   draftWarnings,
+  replayDraft,
   toDesiredState,
   validateDraft,
 } from "../../src/lib/guest-event-draft";
@@ -761,5 +766,331 @@ describe("createGuestEventDraft — plus-ones", () => {
       expect(store.dirty()).toBe(false);
       dispose();
     });
+  });
+});
+
+// ── replayDraft ───────────────────────────────────────────────────────────────
+
+describe("replayDraft — keeping unsaved edits across a reload", () => {
+  function evt(key: string, id: string | null, name: string, sortOrder: number): DraftEvent {
+    return {
+      key,
+      id,
+      name,
+      startAt: "2026-11-14T15:00:00+11:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder,
+    };
+  }
+  function guest(key: string, id: string | null, firstName: string, eventKeys: string[] = []) {
+    return { key, id, firstName, lastName: "", nickname: null, eventKeys } satisfies DraftGuest;
+  }
+  function fam(key: string, id: string | null, familyName: string, guests: DraftGuest[]) {
+    return {
+      key,
+      id,
+      publicId: id ? `${id}-CODE` : null,
+      familyName,
+      guests,
+    } satisfies DraftFamily;
+  }
+
+  /** The loaded draft: events A, B; household Sharma with Ada (at A). */
+  function baseline(): DraftState {
+    return {
+      events: [evt("e1", "evt_a", "A", 0), evt("e2", "evt_b", "B", 1)],
+      families: [fam("f1", "fam_s", "Sharma", [guest("g1", "g_ada", "Ada", ["e1"])])],
+    };
+  }
+  /** The same rows as the server now sends them, under fresh keys. */
+  function freshOf(state: DraftState): DraftState {
+    const keyOf = new Map(state.events.map((e) => [e.key, `x${e.key}`]));
+    return {
+      events: state.events.map((e) => ({ ...e, key: `x${e.key}` })),
+      families: state.families.map((f) => ({
+        ...f,
+        key: `x${f.key}`,
+        guests: f.guests.map((g) => ({
+          ...g,
+          key: `x${g.key}`,
+          eventKeys: g.eventKeys.map((k) => keyOf.get(k)!),
+        })),
+      })),
+    };
+  }
+
+  it("keeps the organiser's field edits and the other change's edits to other fields", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.firstName = "Adaeze";
+    current.events[0]!.address = "St Mary's";
+    const fresh = freshOf(base);
+    fresh.families[0]!.guests[0]!.lastName = "Sharma";
+    fresh.events[0]!.name = "A renamed";
+
+    const { draft, notes } = replayDraft(base, current, fresh);
+    expect(draft.families[0]!.guests[0]).toMatchObject({ firstName: "Adaeze", lastName: "Sharma" });
+    expect(draft.events[0]).toMatchObject({ name: "A renamed", address: "St Mary's" });
+    expect(notes).toEqual([]);
+  });
+
+  it("the organiser's value wins on a field both changed", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.families[0]!.familyName = "Sharma-Patel";
+    const fresh = freshOf(base);
+    fresh.families[0]!.familyName = "Sharmas";
+    expect(replayDraft(base, current, fresh).draft.families[0]!.familyName).toBe("Sharma-Patel");
+  });
+
+  it("replays removals and additions next to rows the other change added", () => {
+    const base = baseline();
+    base.families[0]!.guests.push(guest("g2", "g_ben", "Ben"));
+    const current = structuredClone(base);
+    current.families[0]!.guests.splice(1, 1); // remove Ben
+    current.families[0]!.guests.push(guest("n1", null, "Cy"));
+    current.families.push(fam("n2", null, "Nguyen", [guest("n3", null, "Di", ["e2"])]));
+    const fresh = freshOf(base);
+    fresh.families[0]!.guests.push(guest("xg9", "g_raj", "Raj"));
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(draft.families[0]!.guests.map((g) => [g.id, g.firstName])).toEqual([
+      ["g_ada", "Ada"],
+      ["g_raj", "Raj"],
+      [null, "Cy"],
+    ]);
+    // The new household stays new, and its tick points at the reloaded B.
+    expect(draft.families[1]).toMatchObject({ id: null, familyName: "Nguyen" });
+    expect(draft.families[1]!.guests[0]!.eventKeys).toEqual(["xe2"]);
+  });
+
+  it("replays ticks and unticks, and keeps the other change's tick on the same guest", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.eventKeys = ["e2"]; // untick A, tick B
+    const fresh = freshOf(base);
+    fresh.events.push(evt("xe3", "evt_c", "C", 2));
+    fresh.families[0]!.guests[0]!.eventKeys = ["xe1", "xe3"]; // co-host ticked C
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(draft.families[0]!.guests[0]!.eventKeys.toSorted()).toEqual(["xe2", "xe3"]);
+  });
+
+  it("names an edit to a row deleted elsewhere, and a tick on an event deleted elsewhere", () => {
+    const base = baseline();
+    base.families.push(fam("f2", "fam_p", "Patel", [guest("g3", "g_raj", "Raj")]));
+    const current = structuredClone(base);
+    current.families[1]!.familyName = "Patels";
+    current.families[0]!.guests[0]!.eventKeys = ["e1", "e2"];
+    current.events[0]!.address = "Somewhere";
+    const fresh = freshOf(base);
+    fresh.families.splice(1, 1); // Patel deleted elsewhere
+    fresh.events.splice(1, 1); // B deleted elsewhere
+    fresh.events.splice(0, 1); // A deleted elsewhere
+
+    const { draft, notes } = replayDraft(base, current, fresh);
+    expect(draft.families.map((f) => f.familyName)).toEqual(["Sharma"]);
+    expect(draft.events).toEqual([]);
+    expect(notes).toEqual([
+      "“A” was deleted elsewhere, so your changes to it were not kept.",
+      "“Ada” was invited to “B”, which was deleted elsewhere.",
+      "“Patels” was removed elsewhere, so your changes to it were not kept.",
+    ]);
+  });
+
+  it("flags a new household whose name was also added elsewhere as a possible duplicate", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.families.push(fam("n1", null, "Nguyen", []));
+    const fresh = freshOf(base);
+    fresh.families.push(fam("xf9", "fam_n", "nguyen ", []));
+
+    const { draft, notes } = replayDraft(base, current, fresh);
+    // Kept — the organiser decides — but named.
+    expect(draft.families).toHaveLength(3);
+    expect(notes).toEqual([
+      "A household called “Nguyen” was also added elsewhere — check for a duplicate.",
+    ]);
+  });
+
+  it("says when a household the organiser removed has gained guests elsewhere", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.families.splice(0, 1);
+    const fresh = freshOf(base);
+    fresh.families[0]!.guests.push(guest("xg9", "g_raj", "Raj"));
+
+    const { draft, notes } = replayDraft(base, current, fresh);
+    expect(draft.families).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/“Sharma” gained guests elsewhere/);
+  });
+
+  it("replays a reorder as the order of shared events, with events added elsewhere last", () => {
+    const base = baseline();
+    const current = structuredClone(base);
+    current.events.reverse();
+    current.events.forEach((e, i) => (e.sortOrder = i));
+    const fresh = freshOf(base);
+    fresh.events.push(evt("xe3", "evt_c", "C", 2));
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(draft.events.map((e) => [e.name, e.sortOrder])).toEqual([
+      ["B", 0],
+      ["A", 1],
+      ["C", 2],
+    ]);
+  });
+
+  it("keeps the fresh order when the organiser only removed an event", () => {
+    const base: DraftState = {
+      events: [evt("e1", "evt_a", "A", 0), evt("e2", "evt_b", "B", 1), evt("e3", "evt_c", "C", 2)],
+      families: [],
+    };
+    const current = structuredClone(base);
+    current.events.splice(0, 1); // remove A; B and C renumber to 0, 1
+    current.events.forEach((e, i) => (e.sortOrder = i));
+    const fresh = freshOf(base);
+    // The other change swapped B and C.
+    fresh.events = [fresh.events[0]!, fresh.events[2]!, fresh.events[1]!];
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(draft.events.map((e) => [e.name, e.sortOrder])).toEqual([
+      ["C", 0],
+      ["B", 1],
+    ]);
+  });
+});
+
+describe("createGuestEventDraft — rebase", () => {
+  it("re-seeds on the new head with the edit kept, still dirty, with no undo into the old rows", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.updateGuest(store.draft.families[0]!.guests[0]!.key, { firstName: "Adaeze" });
+      expect(store.canUndo()).toBe(true);
+
+      const raj = { ...GUESTS[1]!, guestId: "g_3", firstName: "Raj", nickname: null };
+      const notes = store.rebase(EVENTS, [...GUESTS, raj], [], "rev_next");
+
+      expect(notes).toEqual([]);
+      expect(store.baseRevision()).toBe("rev_next");
+      expect(store.canUndo()).toBe(false);
+      expect(store.dirty()).toBe(true);
+      expect(store.draft.families[0]!.guests.map((g) => g.firstName)).toEqual([
+        "Adaeze",
+        "Ben",
+        "Raj",
+      ]);
+      // Discard goes back to the rows loaded at the new head, not the old ones.
+      store.discard();
+      expect(store.draft.families[0]!.guests.map((g) => g.firstName)).toEqual([
+        "Ada",
+        "Ben",
+        "Raj",
+      ]);
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+});
+
+describe("replayDraft — edge branches", () => {
+  function evt(key: string, id: string | null, name: string, sortOrder: number): DraftEvent {
+    return {
+      key,
+      id,
+      name,
+      startAt: "2026-11-14T15:00:00+11:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder,
+    };
+  }
+  const guest = (key: string, id: string | null, firstName: string, eventKeys: string[] = []) =>
+    ({ key, id, firstName, lastName: "", nickname: null, eventKeys }) satisfies DraftGuest;
+  const base = (): DraftState => ({
+    events: [evt("e1", "evt_a", "A", 0), evt("e2", "evt_b", "B", 1)],
+    families: [
+      {
+        key: "f1",
+        id: "fam_s",
+        publicId: "S-CODE",
+        familyName: "Sharma",
+        guests: [guest("g1", "g_ada", "Ada", ["e1"]), guest("g2", "g_ben", "Ben")],
+      },
+    ],
+  });
+  /** The same rows under fresh keys (`x` + key). */
+  const fresh = (state: DraftState): DraftState => ({
+    events: state.events.map((e) => ({ ...e, key: `x${e.key}` })),
+    families: state.families.map((f) => ({
+      ...f,
+      key: `x${f.key}`,
+      guests: f.guests.map((g) => ({
+        ...g,
+        key: `x${g.key}`,
+        eventKeys: g.eventKeys.map((k) => `x${k}`),
+      })),
+    })),
+  });
+
+  it("keeps an existing guest's tick on an event the organiser added", () => {
+    const b = base();
+    const cur = structuredClone(b);
+    cur.events.push(evt("n1", null, "C", 2));
+    cur.families[0]!.guests[0]!.eventKeys.push("n1");
+    const { draft, notes } = replayDraft(b, cur, fresh(b));
+    expect(draft.families[0]!.guests[0]!.eventKeys).toEqual(["xe1", "n1"]);
+    expect(notes).toEqual([]);
+  });
+
+  it("notes a new event or guest whose name was also added elsewhere", () => {
+    const b = base();
+    const cur = structuredClone(b);
+    cur.events.push(evt("n1", null, "C", 2));
+    cur.families[0]!.guests.push(guest("n2", null, "Cy"));
+    const f = fresh(b);
+    f.events.push(evt("xe9", "evt_c", "c", 2));
+    f.families[0]!.guests.push(guest("xg9", "g_cy", "cy"));
+    expect(replayDraft(b, cur, f).notes).toEqual([
+      "An event called “C” was also added elsewhere — check for a duplicate.",
+      "“Cy” was also added to “Sharma” elsewhere — check for a duplicate.",
+    ]);
+  });
+
+  it("notes an edit to a guest removed elsewhere", () => {
+    const b = base();
+    const cur = structuredClone(b);
+    cur.families[0]!.guests[1]!.lastName = "Sharma";
+    const f = fresh(b);
+    f.families[0]!.guests.splice(1, 1);
+    const { draft, notes } = replayDraft(b, cur, f);
+    expect(draft.families[0]!.guests.map((g) => g.firstName)).toEqual(["Ada"]);
+    expect(notes).toEqual(["“Ben” was removed elsewhere, so your changes to them were not kept."]);
+  });
+
+  it("places an added event where the organiser put it when they also reordered", () => {
+    const b = base();
+    const cur = structuredClone(b);
+    cur.events = [evt("n1", null, "New", 0), cur.events[1]!, cur.events[0]!];
+    const f = fresh(b);
+    f.events.push(evt("xe9", "evt_c", "Theirs", 2));
+    expect(replayDraft(b, cur, f).draft.events.map((e) => [e.name, e.sortOrder])).toEqual([
+      ["New", 0],
+      ["B", 1],
+      ["A", 2],
+      ["Theirs", 3],
+    ]);
   });
 });
