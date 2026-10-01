@@ -396,9 +396,9 @@ describe("return visit: the account the box may show", () => {
   });
 
   it("aborts the lookup's request once the wait is over", async () => {
-    let signal: AbortSignal | undefined;
+    const seen: { signal?: AbortSignal } = {};
     const stalled = buildApp(true, (_profileId, options) => {
-      signal = options?.signal;
+      seen.signal = options?.signal;
       return new Promise(() => {});
     });
     const a = await claim(stalled.app, SAMPLETON);
@@ -407,9 +407,8 @@ describe("return visit: the account the box may show", () => {
     });
     linkRow(stalled.db, guestId(stalled.db, "Bo"), "usr_bob");
     const org = await signIn(stalled.db, "usr_alice");
-    signal = undefined;
     await linkState(stalled.app, `${a.cookie}; ${org}`);
-    expect(signal?.aborted).toBe(true);
+    expect(seen.signal?.aborted).toBe(true);
   });
 
   it("shows no account when signed out", async () => {
