@@ -24,7 +24,7 @@ import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { accountLinkService } from "../services/account-link";
-import { rsvpService } from "../services/rsvp";
+import { rsvpService, withoutSubmitter } from "../services/rsvp";
 import type { RsvpInput } from "../services/rsvp";
 import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
@@ -413,9 +413,7 @@ export const createRsvpRoutes = (
             // "Answered by" rides the member step: off, the rows keep the
             // shape they had before it.
             return {
-              rsvps: memberStep
-                ? updatedRsvps
-                : updatedRsvps.map(({ submittedBy: _, ...row }) => row),
+              rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter),
             };
           }).pipe(
             Effect.provideService(DbService, db),

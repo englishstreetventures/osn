@@ -170,6 +170,17 @@ function buildRsvpUpsertStatements(
 }
 
 /**
+ * A reply without its "Answered by" — the shape it has while the member step
+ * is off for the household.
+ */
+export function withoutSubmitter<T extends { submittedBy?: unknown }>(
+  row: T,
+): Omit<T, "submittedBy"> {
+  const { submittedBy: _submittedBy, ...rest } = row;
+  return rest;
+}
+
+/**
  * The stored row, before {@link toRsvpRecord} widens it.
  *
  * `dietary_presets` is one comma-separated string in the column and an array in

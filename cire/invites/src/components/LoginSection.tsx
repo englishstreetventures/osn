@@ -275,7 +275,7 @@ export function LoginSection(props: LoginSectionProps) {
   // The member step ("Who are you?"): on when the payload carries `member`
   // and the page can take its changes.
   const memberStep = () => props.onMemberChange !== undefined && hasMemberStep(props.result);
-  const member = () => chosenMember(props.result);
+  const chosen = () => chosenMember(props.result);
   const [choosing, setChoosing] = createSignal(false);
   const [memberError, setMemberError] = createSignal<string | null>(null);
 
@@ -597,15 +597,12 @@ export function LoginSection(props: LoginSectionProps) {
             to them. */}
         <Show when={memberStep()}>
           <Show
-            when={member()}
+            when={chosen()}
             fallback={
-              <div class={`mb-8 ${layout().measure}`} role="group" aria-labelledby="member-heading">
-                <p
-                  id="member-heading"
-                  class="font-display text-gold-ink text-ui-lg mb-3 leading-tight font-light italic"
-                >
+              <fieldset class={`mb-8 border-0 p-0 ${layout().measure}`}>
+                <legend class="font-display text-gold-ink text-ui-lg mx-auto mb-3 leading-tight font-light italic">
                   Who are you?
-                </p>
+                </legend>
                 <div class="flex flex-wrap justify-center gap-2">
                   <For each={invited()}>
                     {(m) => (
@@ -625,7 +622,7 @@ export function LoginSection(props: LoginSectionProps) {
                     {memberError()}
                   </p>
                 </Show>
-              </div>
+              </fieldset>
             }
           >
             {(m) => (
@@ -643,7 +640,7 @@ export function LoginSection(props: LoginSectionProps) {
         </Show>
         <Show when={memberStep() && accountLink() ? accountLink() : null}>
           {(state) => (
-            <Show when={member()}>
+            <Show when={chosen()}>
               {(m) => (
                 <Suspense fallback={null}>
                   <PulseAccountLink

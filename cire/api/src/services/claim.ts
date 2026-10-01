@@ -34,7 +34,7 @@ import { accountLinkService } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
-import { isDietaryConsentCurrent } from "./rsvp";
+import { isDietaryConsentCurrent, withoutSubmitter } from "./rsvp";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -261,7 +261,7 @@ function buildClaimResponse(
         if (!linkState.enabled || !gate) {
           return {
             ...invite,
-            rsvps: invite.rsvps.map(({ submittedBy: _, ...row }) => row),
+            rsvps: invite.rsvps.map(withoutSubmitter),
             accountLink: linkState,
           };
         }
