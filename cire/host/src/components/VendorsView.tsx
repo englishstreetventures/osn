@@ -8,9 +8,6 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
-// The portal's single clipboard choke point — it carries the fallback path for
-// non-secure contexts and the copy haptic, neither of which a bare
-// `navigator.clipboard.writeText` gets.
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import {
@@ -71,7 +68,7 @@ export default function VendorsView(props: VendorsViewProps) {
   const [listEmail, setListEmail] = createSignal("");
   const [listCategories, setListCategories] = createSignal<string[]>([]);
   // The address the claim invite went to, and whether the email was sent. The
-  // claim link itself never reaches the organiser.
+  // response does not carry the claim link.
   const [invite, setInvite] = createSignal<{ email: string; sent: boolean } | null>(null);
   const [listingLoading, setListingLoading] = createSignal(false);
 
@@ -471,15 +468,15 @@ export default function VendorsView(props: VendorsViewProps) {
                               <Show
                                 when={invite()?.sent}
                                 fallback={
-                                  <Notice tone="warn">
+                                  <Notice tone="warn" alert>
                                     Listed, but the claim invite to {invite()?.email} did not send.
                                   </Notice>
                                 }
                               >
-                                <p class="text-text text-ui-sm">
+                                <output class="text-text text-ui-sm block">
                                   Listed! We emailed {v.name} a link to claim it at{" "}
                                   {invite()?.email}.
-                                </p>
+                                </output>
                               </Show>
                               <Button
                                 variant="quiet"

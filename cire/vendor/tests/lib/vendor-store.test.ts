@@ -104,6 +104,14 @@ describe("vendor-store", () => {
     await expect(consumeClaim(authFetch, "tok", "o1")).rejects.toBeInstanceOf(OrgHasListingError);
   });
 
+  it("consumeClaim keeps the server's message on any other 409", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "other" }, 409));
+    const err = await consumeClaim(authFetch, "tok", "o1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(OrgHasListingError);
+    expect((err as Error).message).toBe("other");
+  });
+
   it("putListing throws with the server error message on non-2xx", async () => {
     const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "not_org_member" }, 403));
     await expect(putListing(authFetch, "o1", { name: "x", categories: ["venue"] })).rejects.toThrow(

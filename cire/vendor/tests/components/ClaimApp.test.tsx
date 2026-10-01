@@ -139,6 +139,29 @@ describe("ClaimApp", () => {
     expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument();
   });
 
+  it("after an org-has-listing refusal, picking again clears the notice and claims", async () => {
+    const { OrgHasListingError } = await import("../../src/lib/vendor-store");
+    let calls = 0;
+    mockConsumeClaim = () =>
+      ++calls === 1
+        ? Promise.reject(new OrgHasListingError())
+        : Promise.resolve({ id: "l1", ownerOrgId: "org1", name: "N", categories: [] });
+
+    renderClaim("valid-token");
+    await waitFor(() => expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument());
+    screen.getByTestId("mock-org-picker").click();
+    await waitFor(() =>
+      expect(screen.getByText(/already has a directory listing/i)).toBeInTheDocument(),
+    );
+
+    screen.getByTestId("mock-org-picker").click();
+    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() =>
+      expect(screen.queryByText(/already has a directory listing/i)).not.toBeInTheDocument(),
+    );
+    expect(sessionStorage.getItem("cire.vendor.claim-token")).toBeNull();
+  });
+
   it("consumeClaim error → shows generic message, does NOT leak raw error text", async () => {
     // consumeClaim rejects with a sensitive-looking error.
     mockConsumeClaim = () => Promise.reject(new Error("token abc123 already consumed"));

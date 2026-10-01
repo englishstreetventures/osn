@@ -1,10 +1,10 @@
 /**
  * Fail-soft vendor claim-invite email.
  *
- * When an organiser seeds a directory listing for a vendor, cire emails the
- * vendor a link so they can claim their listing. The email is the only place
- * the link goes — the organiser never sees it — but a broken or absent
- * transport must still never fail the caller.
+ * When an organiser seeds a directory listing for a vendor, cire emails a link
+ * to claim the listing to the address the organiser entered. The email is the
+ * only place the link goes, and a broken or absent transport must still never
+ * fail the caller.
  *
  * Error channel is `never`: any `EmailError` or defect is caught, a warning
  * is logged, and the effect resolves to `false`.

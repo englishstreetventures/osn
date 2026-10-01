@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
-import { makeLogEmailLive } from "@shared/email";
-import type { LogEmailTransport } from "@shared/email";
+import { EmailError, EmailService, makeLogEmailLive, type LogEmailTransport } from "@shared/email";
+import { Effect, Layer } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -25,7 +25,10 @@ beforeAll(async () => {
 /** The email transport of the most recent `buildApp`, for asserting on sends. */
 let lastEmail: LogEmailTransport;
 
-function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
+function buildApp({
+  grantVendors = true,
+  emailLayer,
+}: { grantVendors?: boolean; emailLayer?: Layer.Layer<EmailService> } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -97,7 +100,7 @@ function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
   return createApp(db, {
     osnTestKey: auth.key,
     directoryService,
-    emailLayer: logEmailLayer,
+    emailLayer: emailLayer ?? logEmailLayer,
   });
 }
 type App = ReturnType<typeof buildApp>;
@@ -244,6 +247,31 @@ describe("vendor CRM routes", () => {
     const { vendors } = (await list.json()) as { vendors: VendorDto[] };
     const linked = vendors.find((v) => v.id === vendor.id);
     expect(linked?.directoryVendorId).toBe(result.directoryVendorId);
+  });
+
+  it("list-in-directory answers invited:false, and still no link, when the email fails", async () => {
+    const failing = Layer.succeed(EmailService, {
+      send: () =>
+        Effect.fail(new EmailError({ reason: "api_unreachable", cause: new Error("down") })),
+    });
+    const app = buildApp({ emailLayer: failing });
+    const created = await req(app, "POST", base, EDITOR, VENDOR);
+    const { vendor } = (await created.json()) as { vendor: VendorDto };
+
+    const seedRes = await req(app, "POST", `${base}/${vendor.id}/list-in-directory`, EDITOR, {
+      name: "Hillside Flowers",
+      email: "contact@hillside.com",
+      categories: ["florals"],
+      description: null,
+      phone: null,
+      website: null,
+      instagram: null,
+      locationText: null,
+    });
+    expect(seedRes.status).toBe(200);
+    const result = (await seedRes.json()) as { directoryVendorId: string; invited: boolean };
+    expect(result).toEqual({ directoryVendorId: expect.any(String), invited: false });
+    expect(JSON.stringify(result)).not.toContain("token=");
   });
 
   it("list-in-directory with unknown vendor id → 404 vendor_not_found", async () => {

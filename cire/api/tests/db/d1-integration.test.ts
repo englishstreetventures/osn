@@ -1190,7 +1190,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(vendorClaims.directoryVendorId, "dv_open"));
       expect(open?.consumedAt).toBeNull();
 
-      // Migration 0071's index, as D1 applies it: a second owned row fails.
+      // The unique owner index, on D1's own SQLite: a second owned row fails.
+      // ddl-lockstep.test.ts checks that migration 0071 builds the same index.
       await expect(
         db
           .insert(directoryVendors)

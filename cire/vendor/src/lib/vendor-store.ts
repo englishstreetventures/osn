@@ -143,7 +143,8 @@ export async function consumeClaim(
     body: JSON.stringify({ orgId }),
   });
   if (res.status === 409) {
-    const body = await safeJson<{ error?: string }>(res);
+    // Read the body from a copy, so `ensureOk` can still read the original.
+    const body = await safeJson<{ error?: string }>(res.clone());
     if (body?.error === "org_has_listing") throw new OrgHasListingError();
   }
   await ensureOk(res);

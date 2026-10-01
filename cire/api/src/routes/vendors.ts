@@ -95,10 +95,11 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
  * literal wins over the param.
  *
  * The list-in-directory handler sends the claim link by email only, via
- * `sendClaimInviteEmail` (error channel is `never`). The link never reaches the
- * organiser: holding it would let them claim the vendor's listing. The route
- * returns `{ directoryVendorId, invited }`, where `invited` says whether the
- * email was handed to the transport.
+ * `sendClaimInviteEmail` (error channel is `never`), to the address in the
+ * request body. The response never carries the link. Nothing checks that the
+ * address belongs to the vendor: a claim proves control of that inbox and no
+ * more. The route returns `{ directoryVendorId, invited }`, where `invited`
+ * says whether the email was handed to the transport.
  */
 export const createVendorWriteRoutes = (
   db: Db,

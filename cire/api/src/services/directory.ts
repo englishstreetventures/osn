@@ -21,7 +21,7 @@
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { likeContains } from "@shared/db-utils/search";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
@@ -641,45 +641,32 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         const db = yield* DbService;
         const tokenHash = yield* hashToken(token);
 
-        const [claim] = yield* dbQuery(() =>
-          db.select().from(vendorClaims).where(eq(vendorClaims.tokenHash, tokenHash)).all(),
+        // One read answers every pre-check: the token, its listing's owner,
+        // and whether `orgId` already owns a listing. None of them fails by
+        // burning the token. The listing check runs before the org check, so a
+        // token for a claimed listing reads as invalid, not as an org conflict.
+        const [found] = yield* dbQuery(() =>
+          db
+            .select({
+              claim: vendorClaims,
+              listingId: directoryVendors.id,
+              listingOwner: directoryVendors.ownerOrgId,
+              orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId})`,
+            })
+            .from(vendorClaims)
+            .leftJoin(directoryVendors, eq(directoryVendors.id, vendorClaims.directoryVendorId))
+            .where(eq(vendorClaims.tokenHash, tokenHash))
+            .all(),
         );
-        if (!claim) return yield* Effect.fail(new ClaimInvalid());
-
-        const claimRow = claim as {
-          id: string;
-          directoryVendorId: string;
-          tokenHash: string;
-          email: string;
-          createdAt: Date;
-          expiresAt: Date;
-          consumedAt: Date | null;
-        };
+        if (!found) return yield* Effect.fail(new ClaimInvalid());
+        const claimRow = found.claim;
 
         if (claimRow.consumedAt !== null) return yield* Effect.fail(new ClaimInvalid());
         if (claimRow.expiresAt.getTime() < Date.now())
           return yield* Effect.fail(new ClaimInvalid());
-
-        // One read answers both pre-checks: the target listing's owner, and
-        // whether `orgId` already owns a listing. Neither fails by burning the
-        // token. The listing check runs first, so a token for a claimed listing
-        // reads as invalid rather than as an org conflict.
-        const owners = (yield* dbQuery(() =>
-          db
-            .select({ id: directoryVendors.id, ownerOrgId: directoryVendors.ownerOrgId })
-            .from(directoryVendors)
-            .where(
-              or(
-                eq(directoryVendors.id, claimRow.directoryVendorId),
-                eq(directoryVendors.ownerOrgId, orgId),
-              ),
-            )
-            .all(),
-        )) as { id: string; ownerOrgId: string | null }[];
-        const target = owners.find((r) => r.id === claimRow.directoryVendorId);
-        if (!target || target.ownerOrgId !== null) return yield* Effect.fail(new ClaimInvalid());
-        if (owners.some((r) => r.ownerOrgId === orgId))
-          return yield* Effect.fail(new OrgAlreadyHasListing());
+        if (found.listingId === null || found.listingOwner !== null)
+          return yield* Effect.fail(new ClaimInvalid());
+        if (found.orgHasListing) return yield* Effect.fail(new OrgAlreadyHasListing());
 
         const now = new Date();
 

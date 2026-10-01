@@ -876,18 +876,16 @@ describe("directoryService.consumeClaim", () => {
     if (!Exit.isSuccess(res)) throw new Error("consume failed");
 
     const sqls = statements.map((s) => s.sql);
-    const owners = sqls.findIndex((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"'));
     const burn = sqls.findIndex((s) => /^update "vendor_claims"/i.test(s));
     const bind = sqls.findIndex((s) => /^update "directory_vendors"/i.test(s));
     const burnOthers = sqls.findLastIndex((s) => /^update "vendor_claims"/i.test(s));
-    expect(owners).toBeGreaterThan(-1);
-    expect(burn).toBeGreaterThan(owners);
+    expect(burn).toBeGreaterThan(0);
     expect(bind).toBeGreaterThan(burn);
     expect(burnOthers).toBeGreaterThan(bind);
-    // Claim read, owner pre-check, burn, bind, burn of the other tokens,
-    // categories — the bound row comes back from the bind itself, not from a
-    // second read of the listing.
-    expect(sqls).toHaveLength(6);
+    // Claim read (carrying the owner pre-checks), burn, bind, burn of the
+    // other tokens, categories — the bound row comes back from the bind
+    // itself, not from a second read of the listing.
+    expect(sqls).toHaveLength(5);
     expect(
       sqls.filter((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"')),
     ).toHaveLength(1);
@@ -1061,6 +1059,20 @@ describe("directoryService.consumeClaim", () => {
     expect(listingOf(db, directoryVendorId).ownerOrgId).toBeNull();
     // The bind failed first, so the listing's other tokens stay live.
     expect((await claimOf(db, second))!.consumedAt).toBeNull();
+  });
+
+  it("a bind failure that is not an owner conflict stays a defect, with the token burned", async () => {
+    const db = db0();
+    const { claimToken } = await seedVendorAndClaim(db);
+    interceptBeforeBind(db, () => {
+      throw new Error("disk I/O error");
+    });
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_none", "usr_none"));
+    expect(Exit.isFailure(res)).toBe(true);
+    if (!Exit.isFailure(res)) throw new Error("expected failure");
+    expect(Option.isNone(Cause.findErrorOption(res.cause))).toBe(true);
+    expect((await claimOf(db, claimToken))!.consumedAt).not.toBeNull();
   });
 
   it("the unique owner index refuses a second listing for one org and allows many unowned", () => {
