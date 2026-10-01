@@ -209,6 +209,12 @@ export const rsvpExportService = {
         eq(guests.plusOneOfGuestId, inviter.id),
         eq(inviter.familyId, guests.familyId),
       );
+      // The member who answered, held to the same household for the same
+      // reason: a stray id never pulls in a name from another family.
+      const submitterOf = and(
+        eq(submitter.id, rsvps.submittedByGuestId),
+        eq(submitter.familyId, guests.familyId),
+      );
 
       // All four reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts
@@ -256,7 +262,7 @@ export const rsvpExportService = {
               .innerJoin(guests, eq(rsvps.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
               .leftJoin(inviter, inviterOf)
-              .leftJoin(submitter, eq(submitter.id, rsvps.submittedByGuestId))
+              .leftJoin(submitter, submitterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),

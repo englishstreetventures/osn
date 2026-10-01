@@ -635,21 +635,55 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
         const ada = yield* guestByName(db, "Ada");
         const bo = yield* guestByName(db, "Bo");
         const catholic = yield* eventBySlug(db, "catholic");
+        const [adaRow] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ familyId: guests.familyId })
+              .from(guests)
+              .where(eq(guests.id, ada.id))
+              .all(),
+          ),
+        );
+        if (!adaRow) throw new Error("missing guest");
+        const [boRow] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select({ familyId: guests.familyId }).from(guests).where(eq(guests.id, bo.id)).all(),
+          ),
+        );
+        if (!boRow) throw new Error("missing guest");
+        expect(boRow.familyId).not.toBe(adaRow.familyId);
+        // A second member of Ada's household, who answers for her.
+        const cyId = crypto.randomUUID();
+        db.insert(guests)
+          .values({
+            id: cyId,
+            familyId: adaRow.familyId,
+            firstName: "Cy",
+            lastName: "Testfamily",
+            sortOrder: 99,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .run();
         rsvp(db, ada.id, catholic.id, "attending");
         rsvp(db, bo.id, catholic.id, "attending");
         db.update(rsvps)
-          .set({ submittedByGuestId: bo.id, submittedViaLink: true })
+          .set({ submittedByGuestId: cyId, submittedViaLink: true })
           .where(and(eq(rsvps.guestId, ada.id), eq(rsvps.eventId, catholic.id)))
+          .run();
+        // A submitter id from another household never surfaces a name.
+        db.update(rsvps)
+          .set({ submittedByGuestId: ada.id, submittedViaLink: false })
+          .where(and(eq(rsvps.guestId, bo.id), eq(rsvps.eventId, catholic.id)))
           .run();
 
         const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
         const event = view.events.find((e) => e.id === catholic.id)!;
         expect(event.guests.find((g) => g.guestId === ada.id)!.submittedBy).toEqual({
-          guestId: bo.id,
-          firstName: "Bo",
+          guestId: cyId,
+          firstName: "Cy",
           viaLink: true,
         });
-        // An organiser-style write carries no submitter.
         expect(event.guests.find((g) => g.guestId === bo.id)!.submittedBy).toBeNull();
       }),
     ),
