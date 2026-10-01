@@ -163,7 +163,13 @@ describe("signOut", () => {
 
   it("swallows a network failure — the UI still has to end up signed out", async () => {
     const fetchFn = (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch;
-    await expect(signOut(config({ fetch: fetchFn }))).resolves.toBeUndefined();
+    await expect(signOut(config({ fetch: fetchFn }))).resolves.toBe(false);
+  });
+
+  it("says whether the server confirmed it", async () => {
+    expect(await signOut(config({ fetch: stubFetch(json({ ok: true })).fetch }))).toBe(true);
+    const refused = stubFetch(new Response("no", { status: 503 }));
+    expect(await signOut(config({ fetch: refused.fetch }))).toBe(false);
   });
 });
 

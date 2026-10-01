@@ -420,7 +420,8 @@ export function linkStateFor(
 /**
  * Compare a member's link with a live sign-in. A match is the same profile, or
  * failing that a profile that resolves over ARC to the link's account — one
- * call, bounded by {@link MEMBER_MATCH_RESOLVE_WAIT}. With no resolver, a
+ * call, bounded by {@link MEMBER_MATCH_RESOLVE_WAIT}, which also aborts its
+ * fetch. With no resolver, a
  * failed call or a timeout the answer is `mismatch`.
  */
 function compareSignIn(
@@ -433,7 +434,9 @@ function compareSignIn(
   if (session.osnProfileId === link.osnProfileId) return Effect.succeed("match");
   if (!resolveAccountId) return Effect.succeed("mismatch");
   const profileId = session.osnProfileId;
-  return Effect.tryPromise(() => resolveAccountId(profileId)).pipe(
+  // The signal aborts when the wait below interrupts this call, so a stalled
+  // osn-api does not hold the request's connection open past it.
+  return Effect.tryPromise((signal) => resolveAccountId(profileId, { signal })).pipe(
     Effect.map((resolution): AccountLinkMatchResult =>
       resolution.ok && resolution.accountId === link.osnAccountId ? "match" : "mismatch",
     ),

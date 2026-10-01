@@ -5,6 +5,7 @@ import {
   chosenMember,
   hasMemberStep,
   memberRequired,
+  notYou,
   withChosenMember,
   withoutMember,
 } from "../../src/components/household-member";
@@ -80,5 +81,42 @@ describe("the member step", () => {
       vi.fn(() => Promise.reject(new TypeError("offline"))),
     );
     expect(await chooseMember("https://api.test", "g-Ada")).toBeNull();
+  });
+});
+
+describe("Not you?", () => {
+  /** Answers the member DELETE and the musubi sign-out with the given statuses. */
+  function answering(memberStatus: number, signout: number) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        calls.push(`${init?.method} ${url}`);
+        const status = url.endsWith("/api/claim/member") ? memberStatus : signout;
+        return Promise.resolve(new Response(null, { status }));
+      }),
+    );
+    return calls;
+  }
+
+  it("is done when the server cleared the member and the sign-in", async () => {
+    const calls = answering(204, 200);
+    expect(await notYou("https://api.test")).toBe(true);
+    expect(calls.toSorted()).toEqual([
+      "DELETE https://api.test/api/claim/member",
+      "POST https://api.test/api/auth/signout",
+    ]);
+  });
+
+  it("is not done when either request failed", async () => {
+    answering(503, 200);
+    expect(await notYou("https://api.test")).toBe(false);
+    answering(204, 500);
+    expect(await notYou("https://api.test")).toBe(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("offline"))),
+    );
+    expect(await notYou("https://api.test")).toBe(false);
   });
 });

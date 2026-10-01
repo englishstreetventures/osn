@@ -13,7 +13,7 @@ import type { ClaimResult, FamilyMember } from "../../src/components/types";
  * sign-in.
  */
 
-const signOutMock = vi.fn(() => Promise.resolve());
+const signOutMock = vi.fn(() => Promise.resolve(true));
 vi.mock("@shared/rp-auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@shared/rp-auth")>()),
   signOut: (...args: unknown[]) => signOutMock(...(args as [])),
@@ -118,11 +118,67 @@ it("'Not you?' clears the member and ends the musubi sign-in", async () => {
   const { view, result } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
 
   fireEvent.click(view.getByRole("button", { name: "Not you?" }));
-  expect(view.getByText("Who are you?")).toBeTruthy();
+  expect(await view.findByText("Who are you?")).toBeTruthy();
   expect(result().member).toBeNull();
   expect(result().accountLink).toEqual({ enabled: true, signedIn: false, linkedGuestIds: [] });
   const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
   expect(url).toBe("https://api.test/api/claim/member");
   expect(init.method).toBe("DELETE");
   await waitFor(() => expect(signOutMock).toHaveBeenCalledWith({ apiBase: "https://api.test" }));
+});
+
+it("'Not you?' keeps the member and asks again when the server did not clear it", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(new Response(null, { status: 503 }))),
+  );
+  const { view, result } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
+
+  fireEvent.click(view.getByRole("button", { name: "Not you?" }));
+  expect((await view.findByRole("alert")).textContent).toBe(
+    "Couldn't sign you out. Please try again.",
+  );
+  expect(view.getByText(/Answering as Chidi/)).toBeTruthy();
+  expect(view.queryByText("Who are you?")).toBeNull();
+  expect(result().member).toEqual({ guestId: "g-Chidi" });
+  expect(result().accountLink).toEqual({ enabled: true, signedIn: true, linkedGuestIds: [] });
+});
+
+it("'Not you?' keeps the member when the musubi sign-out fails", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+  );
+  signOutMock.mockResolvedValueOnce(false);
+  const { view, result } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
+
+  fireEvent.click(view.getByRole("button", { name: "Not you?" }));
+  expect(await view.findByRole("alert")).toBeTruthy();
+  expect(result().member).toEqual({ guestId: "g-Chidi" });
+});
+
+it("'Not you?' sends one request while one is in flight, and a retry clears the error", async () => {
+  let release: (res: Response) => void = () => {};
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        release = resolve;
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const { view } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
+  const button = view.getByRole("button", { name: "Not you?" }) as HTMLButtonElement;
+
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await waitFor(() => expect(button.disabled).toBe(true));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  release(new Response(null, { status: 503 }));
+  expect(await view.findByRole("alert")).toBeTruthy();
+  expect(button.disabled).toBe(false);
+
+  fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+  fireEvent.click(button);
+  expect(await view.findByText("Who are you?")).toBeTruthy();
+  expect(view.queryByRole("alert")).toBeNull();
 });

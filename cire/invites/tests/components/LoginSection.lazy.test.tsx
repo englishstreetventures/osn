@@ -44,7 +44,7 @@ vi.mock("@shared/rp-auth/solid", () => {
 // The auth client's core, which sign-out imports to end the OSN sign-in.
 vi.mock("@shared/rp-auth", () => {
   loads.authCore++;
-  return { signOut: () => Promise.resolve() };
+  return { signOut: () => Promise.resolve(true) };
 });
 
 afterEach(() => {
