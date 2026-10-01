@@ -1,4 +1,8 @@
-import { formatDietaryCell, ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
+import {
+  formatDietaryCell,
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+} from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -78,8 +82,24 @@ interface EditTarget {
   dietary: string;
   /** May hold a key this build does not know; see `RsvpFilterGuest`. */
   dietaryPresets: readonly string[];
-  /** A plus-one's reply: the organiser route stores no dietary data on it. */
+  /** A plus-one's reply: dietary data on it is attested in the plus-one's
+   *  wording, for the name the form showed. */
   plusOne: boolean;
+}
+
+/** API refusals that mean the page was built or loaded against other copy or
+ *  another plus-one, so a reload is the fix. */
+const STALE_PAGE_ERRORS = new Set([
+  "dietary_attestation_outdated",
+  "dietary_attestation_mismatch",
+  "plus_one_dietary_unavailable",
+  "plus_one_changed",
+]);
+
+/** The attestation the organiser makes for this reply: the plus-one's own
+ *  wording on a plus-one's reply, the guest's on anyone else's. */
+function attestationFor(target: EditTarget) {
+  return target.plusOne ? ORGANISER_PLUS_ONE_DIETARY_ATTESTATION : ORGANISER_DIETARY_ATTESTATION;
 }
 
 /**
@@ -93,9 +113,11 @@ interface EditTarget {
  * Editors get a "Record / Edit" button in each row to enter a phone/paper RSVP
  * on a guest's behalf — the API stamps such rows
  * `consent_source='organiser_attested'` and they VISIBLY OVERWRITE a prior
- * guest reply (platform-plan §3.3). For a plus-one it records the status only,
- * since the API refuses dietary data on that path. Viewers see the same list,
- * read-only.
+ * guest reply (platform-plan §3.3). A save that leaves the dietary fields as
+ * they were sends the status only, and the API keeps the stored dietary answer
+ * and whoever gave it. The attestation box opens unticked and appears only once
+ * the dietary answer is edited; on a plus-one's reply it speaks of the
+ * plus-one. Viewers see the same list, read-only.
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
@@ -195,12 +217,9 @@ export default function RsvpView(props: RsvpViewProps) {
     setFormStatus(existing?.status ?? "attending");
     setFormDietary(existing?.dietary ?? "");
     setFormPresets(existing?.dietaryPresets ?? []);
-    // Prefill consent when editing a row that already carries dietary data —
-    // presets or free text, since both are what consent authorises. Mirrors the
-    // guest form.
-    setFormConsent(
-      (existing?.dietary.trim().length ?? 0) > 0 || (existing?.dietaryPresets.length ?? 0) > 0,
-    );
+    // Never ticked on opening: a box that opens ticked is no attestation, and
+    // a save that leaves the dietary answer alone needs none.
+    setFormConsent(false);
     setEdit({
       eventId,
       guestId: guest.guestId,
@@ -224,6 +243,15 @@ export default function RsvpView(props: RsvpViewProps) {
       return;
     }
     openEditor(eventId, row);
+  };
+
+  /** Whether the form's dietary answer differs from the stored one. Presets
+   *  compare as sets: the picker may hold them in another order. */
+  const dietaryEdited = (target: EditTarget): boolean => {
+    if (formDietary().trim() !== target.dietary.trim()) return true;
+    const stored = new Set(target.dietaryPresets);
+    const now = new Set(formPresets());
+    return stored.size !== now.size || [...now].some((key) => !stored.has(key));
   };
 
   const closeEditor = () => {
@@ -263,17 +291,19 @@ export default function RsvpView(props: RsvpViewProps) {
   const save = async () => {
     const target = edit();
     if (!target) return;
-    // A plus-one's reply is status-only: the API keeps the dietary answer the
-    // household gave, and refuses dietary data on this path; the form shows no
-    // fields for it.
-    const dietary = target.plusOne ? "" : formDietary().trim();
-    const dietaryPresets = target.plusOne ? [] : formPresets();
+    const dietary = formDietary().trim();
+    const dietaryPresets = formPresets();
+    // Unedited, the save is status-only and the API keeps the stored answer
+    // with its consent record; nothing is attested.
+    const edited = dietaryEdited(target);
     // Presets are special-category exactly as the free text is, so either one
     // being present is what the attestation has to cover.
     const hasDietaryData = dietary.length > 0 || dietaryPresets.length > 0;
-    if (hasDietaryData && !formConsent()) {
+    if (edited && hasDietaryData && !formConsent()) {
       haptic("reject");
-      setFormError("Confirm the guest consented before storing dietary requirements.");
+      setFormError(
+        `Confirm ${target.plusOne ? "the plus-one" : "the guest"} consented before storing dietary requirements.`,
+      );
       return;
     }
     setSaving(true);
@@ -290,18 +320,21 @@ export default function RsvpView(props: RsvpViewProps) {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            target.plusOne
-              ? { status: formStatus() }
-              : {
+            edited
+              ? {
                   status: formStatus(),
                   dietary,
                   dietaryPresets,
                   dietaryConsent: hasDietaryData ? formConsent() : false,
-                  // The version of the words beside the box. The API refuses dietary
-                  // data unless it is the version it stamps, so a stale portal
-                  // cannot store evidence of copy it did not show.
-                  dietaryAttestation: hasDietaryData ? ORGANISER_DIETARY_ATTESTATION.version : "",
-                },
+                  // The version of the words beside the box, and for a plus-one
+                  // the name it was shown for. The API refuses dietary data
+                  // unless the version is the one it stamps for this person
+                  // and the name is the row's, so a stale portal cannot store
+                  // evidence of copy it did not show.
+                  dietaryAttestation: hasDietaryData ? attestationFor(target).version : "",
+                  dietaryAttestedName: target.plusOne && hasDietaryData ? target.guestName : "",
+                }
+              : { status: formStatus() },
           ),
         },
       );
@@ -316,7 +349,7 @@ export default function RsvpView(props: RsvpViewProps) {
         haptic("reject");
         const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
         setFormError(
-          body?.error === "dietary_attestation_outdated"
+          typeof body?.error === "string" && STALE_PAGE_ERRORS.has(body.error)
             ? "This page is out of date. Reload it and try again."
             : "Could not save this RSVP. Please try again.",
         );
@@ -344,7 +377,7 @@ export default function RsvpView(props: RsvpViewProps) {
         title="Replies at a glance"
         description={
           props.canEdit
-            ? "Who's coming to each event, with dietary notes and who still owes a reply. Search or filter to find a guest, then record a phone or paper reply on their behalf — it overwrites any earlier answer and is marked as host-entered."
+            ? "Who's coming to each event, with dietary notes and who still owes a reply. Search or filter to find a guest, then record a phone or paper reply on their behalf. Changing only the status keeps the dietary requirements already given; new dietary requirements replace them and are marked as host-entered."
             : "Who's coming to each event, with dietary notes and who still owes a reply — updated as guests reply. Read-only; download the full sheet from the Guests tab."
         }
       />
@@ -609,15 +642,12 @@ export default function RsvpView(props: RsvpViewProps) {
   /** The editor form body. `guest` names whoever the reply is being recorded
    *  for — the form reads the same whether or not they answered before. */
   function renderEditorForm(guest: { firstName: string; lastName: string }, target: EditTarget) {
-    /** What the household gave for a plus-one, which a save here keeps. */
-    const storedDietary = () =>
-      target.plusOne ? formatDietaryCell(target.dietaryPresets, target.dietary) : "";
+    /** The stored dietary answer, which a save that leaves the fields alone keeps. */
+    const storedDietary = formatDietaryCell(target.dietaryPresets, target.dietary);
     // Read with Save, so a keyboard or screen-reader user hears what a save
-    // does to a plus-one's reply where they decide, not only a sighted one.
-    const noDietaryId = createUniqueId();
+    // keeps where they decide, not only a sighted one.
     const keepsId = createUniqueId();
-    const saveDescribedBy = () =>
-      target.plusOne ? [noDietaryId, ...(storedDietary() ? [keepsId] : [])].join(" ") : undefined;
+    const keeps = () => storedDietary !== "" && !dietaryEdited(target);
     return (
       <form
         class="border-gold/30 bg-surface/60 flex flex-col gap-3 rounded-sm border p-4"
@@ -647,59 +677,50 @@ export default function RsvpView(props: RsvpViewProps) {
           </select>
         </label>
 
-        {/* A plus-one's dietary answers are the household's to give, on the
-            invite; the organiser route refuses them. Where the household has
-            given some, a save here changes the status only, so say what stays. */}
-        <Show when={target.plusOne}>
-          <p id={noDietaryId} class="font-body text-text-muted text-ui-sm">
-            Dietary requirements can't be recorded here for a plus-one.
-          </p>
-          <Show when={storedDietary()}>
-            {(stored) => (
-              <p id={keepsId} class="font-body text-text-muted text-ui-sm">
-                Saving changes the status only. The dietary requirements their household gave stay:{" "}
-                {stored()}.
-              </p>
-            )}
-          </Show>
-        </Show>
-
-        <Show when={!target.plusOne}>
-          <div class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1.5 uppercase">
-            Dietary requirements (optional)
-            <div class="normal-case">
-              <DietaryPresets
-                value={formPresets()}
-                onChange={setFormPresets}
-                disabled={saving()}
-                label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
-              />
-            </div>
-          </div>
-
-          {/* Free text for whatever the vocabulary has no key for. Always shown
-              here rather than behind an "Other" tick: an organiser is copying
-              down a reply someone gave on the phone, so the box has to be ready
-              for words they are already hearing. */}
-          <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
-            Anything else
-            <textarea
-              class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
-              rows={2}
-              maxlength={500}
-              value={formDietary()}
-              onInput={(e) => setFormDietary(e.currentTarget.value)}
+        <div class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1.5 uppercase">
+          Dietary requirements (optional)
+          <div class="normal-case">
+            <DietaryPresets
+              value={formPresets()}
+              onChange={setFormPresets}
               disabled={saving()}
+              label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
             />
-          </label>
+          </div>
+        </div>
+
+        {/* Free text for whatever the vocabulary has no key for. Always shown
+            here rather than behind an "Other" tick: an organiser is copying
+            down a reply someone gave on the phone, so the box has to be ready
+            for words they are already hearing. */}
+        <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
+          Anything else
+          <textarea
+            class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
+            rows={2}
+            maxlength={500}
+            value={formDietary()}
+            onInput={(e) => setFormDietary(e.currentTarget.value)}
+            disabled={saving()}
+          />
+        </label>
+
+        <Show when={keeps()}>
+          <p id={keepsId} class="font-body text-text-muted text-ui-sm">
+            Saving without changing these keeps the dietary requirements already given:{" "}
+            {storedDietary}.
+          </p>
         </Show>
 
         {/* Gated on the SAME condition the submit gate and the payload use.
             Gating visibility on the free text alone left a preset-only reply
-            attested with no control on screen, and re-stamped that attestation
-            on every save. */}
+            attested with no control on screen. Shown only once the answer is
+            edited: an unedited one is kept as it was given, and needs no new
+            attestation. */}
         <Show
-          when={!target.plusOne && (formDietary().trim().length > 0 || formPresets().length > 0)}
+          when={
+            dietaryEdited(target) && (formDietary().trim().length > 0 || formPresets().length > 0)
+          }
         >
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
@@ -709,7 +730,7 @@ export default function RsvpView(props: RsvpViewProps) {
               onChange={(e) => setFormConsent(e.currentTarget.checked)}
               disabled={saving()}
             />
-            <span>{ORGANISER_DIETARY_ATTESTATION.text}</span>
+            <span>{attestationFor(target).text}</span>
           </label>
         </Show>
 
@@ -725,7 +746,7 @@ export default function RsvpView(props: RsvpViewProps) {
             variant="primary"
             type="submit"
             disabled={saving()}
-            aria-describedby={saveDescribedBy()}
+            aria-describedby={keeps() ? keepsId : undefined}
           >
             {saving() ? "Saving…" : "Save reply"}
           </Button>
