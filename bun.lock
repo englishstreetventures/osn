@@ -264,7 +264,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.17.6",
+      "version": "0.18.0",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
