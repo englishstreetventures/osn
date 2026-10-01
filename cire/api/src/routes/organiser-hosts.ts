@@ -18,6 +18,7 @@ import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { mayAssignRole } from "../middleware/wedding-role";
+import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
@@ -78,10 +79,10 @@ class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
 /**
  * Seat LISTING — every member (weddingMember). Owners and co-hosts come back in
  * one list, each with their role, so an owner is shown the same way whether
- * they created the wedding or were invited to own it. Only an owner can take a
- * seat away or change one (the write instances below say who may do what).
- * Split from the mutating routes so the read isn't behind the per-IP add
- * limiter.
+ * they created the wedding or were invited to own it. Changing the list is the
+ * write instance below (add: owner or editor; remove or re-role someone: owner
+ * only; leave: any seat holder, for their own seat). Split from the mutating
+ * routes so the read isn't behind the per-user host-management limiter.
  */
 export const createOrganiserHostsReadRoutes = (
   db: Db,
@@ -154,17 +155,18 @@ export const createOrganiserHostsReadRoutes = (
     );
 
 /**
- * Seat ADD / REMOVE / ROLE CHANGE. Split into its own instance so the per-IP
- * rate limiter gates the ARC-sign + S2S handle-resolve amplifier on the add (and
+ * Seat ADD / REMOVE / ROLE CHANGE / LEAVE. Split into its own instance so the
+ * per-user rate limiter gates the ARC-sign + S2S handle-resolve amplifier on the add (and
  * the host-management churn on remove) without touching the dashboard reads. The
  * handle is resolved to a profile id server-to-server over ARC; when the bridge
  * is unconfigured the add fails closed with 503 (the same degradation as
  * account-linking).
  *
- * **The three routes do NOT share a gate.** Adding is `weddingEditor()` — an
+ * **The routes do NOT share a gate.** Adding is `weddingEditor()` — an
  * editor co-host can grow the team, which is what stops the owners being the
- * only people who can hand out claim codes. Removing and role-changing stay
- * `weddingOwner()`. The split is deliberate and the line is
+ * only people who can hand out claim codes. Removing and role-changing someone
+ * else stay `weddingOwner()`. Leaving (`DELETE /hosts/me`) is `weddingSeat()`:
+ * any seat holder, a `helper` too. The split is deliberate and the line is
  * additive-versus-subtractive:
  *
  *   - An editor's ceiling is `editor` (`assignableRolesFor()`): adding a peer
@@ -172,9 +174,14 @@ export const createOrganiserHostsReadRoutes = (
  *     Seating an OWNER is refused to them with 403 `owner_role_forbidden`, since
  *     an owner can remove every other seat and so would undo the reversal the
  *     next point rests on.
- *   - An editor cannot remove or demote ANYONE, so they cannot evict anyone,
- *     cannot demote a rival, and cannot take the wedding over. Owners keep
- *     `DELETE`, so every addition an editor makes is reversible by an owner.
+ *   - An editor cannot remove or demote anyone else, so they cannot evict
+ *     anyone, cannot demote a rival, and cannot take the wedding over. Owners
+ *     keep `DELETE /hosts/:osnProfileId`, so every addition an editor makes is
+ *     reversible by an owner.
+ *   - Leaving is subtractive only over the caller's own seat: the route takes
+ *     no profile id, so it cannot reach anyone else's. An owner may leave while
+ *     another owner remains; the last owner is refused (409 `last_owner`) by the
+ *     same guarded statement every removal runs.
  *
  * That asymmetry is the whole safety argument: the worst an editor can do is add
  * someone unwanted, and an owner can always undo it. Same shape as the
@@ -417,20 +424,66 @@ export const createOrganiserHostsWriteRoutes = (
           return runCire(
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
-              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok"))),
+              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
               Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
               Effect.catchTags({
                 LastOwner: () =>
                   Effect.sync(() => {
-                    metricHostRemoved("last_owner");
+                    metricHostRemoved("last_owner", "owner");
                     set.status = 409;
                     return { error: "last_owner" };
                   }),
                 HostWriteError: () =>
                   Effect.sync(() => {
-                    metricHostRemoved("error");
+                    metricHostRemoved("error", "owner");
                     set.status = 500;
                     return { error: "Could not remove host" };
+                  }),
+              }),
+              Effect.catchDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    )
+    // LEAVE — any seat holder, `helper` included, for their own seat only. A
+    // third group because it is a third gate. The static `/hosts/me` path is
+    // matched ahead of the owner group's `/hosts/:osnProfileId`, and each
+    // group's gate runs only for its own routes, so the owner gate never sees
+    // this request.
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingSeat(db))
+        .use(rateLimitMiddlewareByUser(limiter))
+        .delete("/hosts/me", ({ weddingId, osnProfileId, set }) => {
+          if (!weddingId || !osnProfileId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          // The same guarded removal as an owner's: an owner may leave while
+          // another owner remains, and the last owner is refused 409
+          // `last_owner` — promote someone first, or delete the wedding.
+          return runCire(
+            hostsService.remove({ weddingId, osnProfileId }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
+              Effect.as({ left: true }),
+              Effect.catchTags({
+                LastOwner: () =>
+                  Effect.sync(() => {
+                    metricHostRemoved("last_owner", "self");
+                    set.status = 409;
+                    return { error: "last_owner" };
+                  }),
+                HostWriteError: () =>
+                  Effect.sync(() => {
+                    metricHostRemoved("error", "self");
+                    set.status = 500;
+                    return { error: "Could not leave this wedding" };
                   }),
               }),
               Effect.catchDefect(() =>

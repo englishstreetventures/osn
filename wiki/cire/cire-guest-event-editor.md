@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[d1-read-replication]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-01
 ---
 # Guest + Event Editor — plan
 
@@ -139,8 +139,8 @@ Gated `weddingEditor()` (owner or `editor` co-host; a `viewer` gets 403 `read_on
 |---|---|
 | `GET .../changes/head` | `{revision}` — the head the editor reads before loading its rows (§3.2, §6). `no-store`. |
 | `POST .../changes/preview` | Body: an editor draft `{desiredState, scope?, removeManual: true, baseRevision}` — `scope` is `'events' \| 'guests' \| 'both'`, defaulting to `both`; `removeManual` must be stated and must be `true`; `baseRevision` is the head read at load, and a draft whose head has moved gets 409 `stale_draft` — **or** a spreadsheet upload carrying `eventsCsv`, `guestsCsv`, or both (§3.1 — either sheet may be omitted). A body carrying both a `desiredState` and a CSV slot is refused with 400: the two doors apply opposite `removeManual`/`matchByName` options, so there is no safe reading. Returns `{changeId, plan, warnings, baseRevision, scope, clears}` (`clears` is `null` on the spreadsheet door). |
-| `POST .../changes/apply` | `{changeId, confirmClears?}` — re-diff, 409 on a moved head, 400/409 on an unconfirmed or changed `clears` (§3.2), take the change claim (409 `change_in_progress` while another change writes), checkpoint, apply. Returns `{summary, revision}`: `revision` is the head after this change, which the editors seed their reloaded draft with instead of reading `/head` again. |
-| `POST .../changes/revert` | `{changeId}` — before-image restore of the halves the change saved (§4), under the change claim (§6). 409 unless the change is `applied`, and 409 when another change holds the wedding or the head moved while it started: a preview changed nothing, and a reverted change has already been undone. 402 `payment_required` when a guests revert would re-create guests past a cap that has shrunk since. |
+| `POST .../changes/apply` | `{changeId, confirmClears?}` — re-diff, 409 on a moved head, 400/409 on an unconfirmed or changed `clears` (§3.2), take the change claim (409 `change_in_progress` while another change writes), checkpoint, apply. Returns `{summary, revision}`: `revision` is the head after this change, which the editors seed their reloaded draft with instead of reading `/head` again. 402 `payment_required` when the change would take the wedding past its tier's guest cap; the body names `tier`, the lowest tier that would hold it, or `null` when none would ([[cire-entitlements]]). |
+| `POST .../changes/revert` | `{changeId}` — before-image restore of the halves the change saved (§4), under the change claim (§6). 409 unless the change is `applied`, and 409 when another change holds the wedding or the head moved while it started: a preview changed nothing, and a reverted change has already been undone. 402 `payment_required`, with the same body, when a guests revert would re-create guests past a cap that has shrunk since — a tier's cap shrinks only when an operator lowers the tier. |
 | `GET .../changes/list` | Paginated history (imports + editor saves), keyset-paginated on `uploadedAt`. Each row carries `scope` — the halves its revert restores, decoded by the revert's own rule (`storedRevertScope`). |
 | `GET .../export/{events,guests}.csv` | Round-trip export (§5), `?fidelity=full` optional. |
 | `GET .../households` | Household-shaped roster read (`weddingMember()`) — one row per family INCLUDING guest-less ones, which the guest-shaped `/guests` cannot represent. `GuestsEditor` loads it so a code-only household survives a draft save (§3.2). |

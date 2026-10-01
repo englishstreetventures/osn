@@ -17,7 +17,7 @@ import { jsonBody } from "../test-helpers";
  *     not open this one — that is the whole reason there are two endpoints
  *     rather than one route with a second branch;
  *   - an event carrying `event.account` grants nothing, however well signed:
- *     a connected account naming itself must never move a platform entitlement;
+ *     a connected account naming itself must never move a wedding's tier;
  *   - Stripe redelivers, so a duplicate is the ordinary case;
  *   - it carries no Origin, so the CSRF guard must let it through — the
  *     failure that makes every other assertion here vacuous.
@@ -45,6 +45,7 @@ function stripeStub(): StripeClient {
     createPlatformCheckoutSession: () =>
       Effect.succeed({ id: "cs_1", url: "https://pay.test/cs_1" }),
     retrievePlatformCheckoutSession: () => Effect.succeed({ status: "expired" as const }),
+    expirePlatformCheckoutSession: () => Effect.void,
   } as unknown as StripeClient;
 }
 
@@ -61,23 +62,35 @@ function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
     stripe: stripeStub(),
     stripePlatformWebhookSecret: platformSecret,
     stripeWebhookSecret: CONNECT_SECRET,
-    upgradePrices: { vendors: "price_v" },
+    upgradePrices: { crimson: "price_c" },
     upgradeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
   });
   return { app, db };
 }
 type App = ReturnType<typeof buildApp>["app"];
 
-/** A pending purchase, as `startPurchase` would have left one. */
-function seedPurchase(db: ReturnType<typeof createDb>, id = "upg_1") {
+/**
+ * A pending purchase, as `startPurchase` would have left one. A tier purchase
+ * records the Price it opened at; a legacy per-module product predates that.
+ */
+function seedPurchase(
+  db: ReturnType<typeof createDb>,
+  product: (typeof weddingUpgradePurchases.$inferInsert)["entitlement"] = "crimson",
+  id = "upg_1",
+) {
   const now = new Date();
+  const tierProduct = product === "gold" || product === "crimson";
   db.insert(weddingUpgradePurchases)
     .values({
       id,
       weddingId: BOOTSTRAP_WEDDING_ID,
-      entitlement: "vendors",
+      entitlement: product,
+      fromTier: "ivory",
       status: "pending",
       checkoutSessionId: "cs_1",
+      priceId: tierProduct ? "price_c" : null,
+      priceAmountMinor: tierProduct ? 4900 : null,
+      priceCurrency: tierProduct ? "AUD" : null,
       createdByOsnProfileId: "usr_dev_bootstrap_owner",
       createdAt: now,
       updatedAt: now,
@@ -123,21 +136,50 @@ const completed = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-const entitlements = (db: ReturnType<typeof createDb>) =>
-  db.$client.query("SELECT entitlement, source, granted_by FROM wedding_entitlements").all();
+const tierOf = (db: ReturnType<typeof createDb>) =>
+  db.$client
+    .query("SELECT tier, tier_source, tier_granted_by FROM weddings WHERE id = ?")
+    .get(BOOTSTRAP_WEDDING_ID);
+const IVORY = { tier: "ivory", tier_source: null, tier_granted_by: null };
 
 describe("granting from a verified delivery", () => {
-  it("grants the entitlement and records the sale", async () => {
+  it("moves the wedding to the tier bought and records the sale", async () => {
     const { app, db } = buildApp();
     seedPurchase(db);
 
     const res = await deliver(app, completed());
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
-    expect(entitlements(db)).toEqual([
-      { entitlement: "vendors", source: "purchase", granted_by: "usr_dev_bootstrap_owner" },
-    ]);
+    expect(tierOf(db)).toEqual({
+      tier: "crimson",
+      tier_source: "purchase",
+      tier_granted_by: "stripe:upg_1",
+    });
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 1 });
+  });
+
+  it("settles a legacy per-module purchase into the tier that replaced it", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db, "registry");
+
+    const res = await deliver(app, completed());
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
+    expect(tierOf(db)).toMatchObject({ tier: "gold" });
+  });
+
+  /**
+   * Money taken for a product that names no tier. A 2xx would end Stripe's
+   * retries — the only thing still saying a customer paid for nothing — so
+   * the endpoint answers 500 and grants nothing.
+   */
+  it("answers 500, so Stripe retries, when the purchase names no tier", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db, "ai");
+
+    const res = await deliver(app, completed());
+    expect(res.status).toBe(500);
+    expect(tierOf(db)).toEqual(IVORY);
+    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
   });
 
   it("is idempotent across redeliveries", async () => {
@@ -159,7 +201,7 @@ describe("granting from a verified delivery", () => {
       type: "checkout.session.expired",
     });
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "closed" });
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
   });
 });
 
@@ -176,18 +218,18 @@ describe("what must never grant", () => {
     const res = await deliver(app, completed(), { secret: CONNECT_SECRET });
     expect(res.status).toBe(400);
     expect(await jsonBody(res)).toEqual({ error: "invalid_signature", reason: "no-match" });
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
   });
 
   it("grants nothing for an event carrying a connected account", async () => {
     // Belt and braces behind the separate secret: an account naming itself
-    // must not be able to move a platform entitlement.
+    // must not be able to move a wedding's tier.
     const { app, db } = buildApp();
     seedPurchase(db);
 
     const res = await deliver(app, completed({ account: "acct_someone" }));
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "not_platform" });
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
   });
 
   it("grants nothing for a session that names no purchase of ours", async () => {
@@ -203,7 +245,47 @@ describe("what must never grant", () => {
       data: { object: { id: "cs_other", payment_status: "paid" } },
     });
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
+  });
+
+  /**
+   * The purchase id rides in `client_reference_id`, which any payment on this
+   * Stripe account can carry. A payment of another amount is acknowledged —
+   * a retry cannot change what was paid — and grants nothing.
+   */
+  it("answers 200 and grants nothing when the amount paid is not the Price's", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    const event = completed();
+    (event.data.object as Record<string, unknown>).amount_total = 100;
+
+    const res = await deliver(app, event);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "mismatch" });
+    expect(tierOf(db)).toEqual(IVORY);
+    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
+  });
+
+  it("answers 200 and grants nothing for a purchase an operator refunded", async () => {
+    // A resend from the Stripe dashboard, or a retry after a 500, of a payment
+    // that was later refunded and the wedding lowered.
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    await deliver(app, completed());
+    db.$client.exec(
+      "UPDATE wedding_upgrade_purchases SET status = 'refunded' WHERE id = 'upg_1';" +
+        " UPDATE weddings SET tier = 'ivory', tier_source = 'comp', tier_granted_by = 'script:ops'" +
+        ` WHERE id = '${BOOTSTRAP_WEDDING_ID}';`,
+    );
+
+    const res = await deliver(app, completed());
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "refunded" });
+    expect(tierOf(db)).toEqual({
+      tier: "ivory",
+      tier_source: "comp",
+      tier_granted_by: "script:ops",
+    });
   });
 
   it("grants nothing on an unsigned delivery", async () => {
@@ -217,7 +299,7 @@ describe("what must never grant", () => {
       }),
     );
     expect(res.status).toBe(400);
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
   });
 
   it("refuses a body past the size bound", async () => {
@@ -253,7 +335,7 @@ describe("mounting", () => {
       path: "/api/stripe/webhook",
     });
     expect(res.status).toBe(200);
-    expect(entitlements(db)).toEqual([]);
+    expect(tierOf(db)).toEqual(IVORY);
   });
 });
 
@@ -268,7 +350,7 @@ describe("a soft-deleted wedding's upgrade", () => {
     const res = await deliver(app, completed());
 
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
-    expect(entitlements(db)).toHaveLength(1);
+    expect(tierOf(db)).toMatchObject({ tier: "crimson", tier_source: "purchase" });
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 1 });
   });
 });

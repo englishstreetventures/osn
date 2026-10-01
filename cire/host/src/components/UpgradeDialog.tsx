@@ -4,8 +4,10 @@ import { createEffect, createSignal, Match, Show, Switch } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { navigateTo, redirectToLogin } from "../lib/api";
+import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
+import { type PaidTier, TIER_LABEL, tierAtLeast } from "../lib/tiers";
 import {
   type CatalogueEntry,
   fetchCatalogue,
@@ -15,21 +17,26 @@ import {
 import { catalogueAccessor, setCatalogue } from "../lib/upgrade-store";
 
 /**
- * Buying a locked module.
+ * Buying the tier that opens a locked module.
  *
  * NOTHING HERE UNLOCKS ANYTHING. Pressing the button asks the API for a Stripe
- * page and sends the organiser to it; only a signature-verified webhook grants
- * the entitlement. The portal finds out when it comes back and polls.
+ * page and sends the organiser to it; only a signature-verified webhook raises
+ * the wedding's tier. The portal finds out when it comes back and polls.
  *
  * An empty catalogue is not an error. A deployment with no Stripe configured
  * has no upgrade routes at all, and the honest thing to show there is "not
- * available" rather than a button that 404s.
+ * available" rather than a button that 404s. The same goes for a tier the
+ * catalogue does not offer this wedding — Crimson to a wedding on Gold, where
+ * the deployment has no upgrade-from-Gold price.
  */
 export interface UpgradeDialogProps {
   open: boolean;
   weddingId: string;
-  /** The entitlement key this dialog is offering — `vendors`, `registry`. */
-  entitlement: string;
+  /** The tier this dialog sells: the lowest one that includes the module the
+   *  organiser asked for. */
+  tier: PaidTier;
+  /** The module the organiser asked for. Stripe sends them back to it. */
+  module: Module;
   /** Fallback copy, from the nav row, shown until the catalogue lands. */
   title: string;
   blurb: string;
@@ -55,7 +62,25 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
 
   /** This dialog's entry, once prices are in. */
   const entry = (): CatalogueEntry | null =>
-    catalogue()?.find((e) => e.entitlement === props.entitlement) ?? null;
+    catalogue()?.upgrades.find((e) => e.tier === props.tier) ?? null;
+
+  /**
+   * Whether the wedding is already on this tier or above, by the catalogue's
+   * own read of it. The nav row locks by the wedding list and this by the
+   * catalogue; they can disagree for one render after a purchase settles, and
+   * saying so beats offering a second sale.
+   */
+  const held = (): boolean => {
+    const current = catalogue()?.tier;
+    return current != null && tierAtLeast(current, props.tier);
+  };
+
+  /** "Upgrade from Gold" when the price is the move from a paid tier, so the
+   *  smaller figure reads as what it is rather than as Crimson's full price. */
+  const eyebrow = (): string => {
+    const from = entry()?.fromTier;
+    return from && from !== "ivory" ? `Upgrade from ${TIER_LABEL[from]}` : "Upgrade";
+  };
 
   // Priced on open rather than on mount: every locked nav row renders one of
   // these, and pricing them all up front would spend a request per row on a
@@ -66,7 +91,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
     setLoading(true);
     setFailed(false);
     void fetchCatalogue(authFetch, props.weddingId)
-      .then((entries) => setCatalogue(props.weddingId, entries))
+      .then((found) => setCatalogue(props.weddingId, found))
       .catch((err: unknown) => {
         if (err instanceof UpgradeApiError && err.status === 401) {
           redirectToLogin();
@@ -89,7 +114,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
     if (submitting()) return;
     setSubmitting(true);
     try {
-      const { url } = await startUpgrade(authFetch, props.weddingId, props.entitlement);
+      const { url } = await startUpgrade(authFetch, props.weddingId, props.tier, props.module);
       haptic("commit");
       // Leaving the app entirely, so no toast: it would render for one frame
       // and vanish with the page.
@@ -104,7 +129,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
         toast.info("Your previous payment is still being confirmed. This can take a moment.");
         props.onClose();
       } else if (err instanceof UpgradeApiError && err.code === "already_held") {
-        toast.success("You already have this. Refresh to see it.");
+        toast.success(`This wedding is already on ${TIER_LABEL[props.tier]}. Refresh to see it.`);
         props.onClose();
       } else {
         toast.error("Could not start checkout. Please try again.");
@@ -137,7 +162,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
             class="border-border bg-bg flex w-full max-w-md flex-col gap-4 rounded-sm border p-6"
           >
             <header class="flex flex-col gap-1">
-              <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">Upgrade</p>
+              <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">{eyebrow()}</p>
               <h3 class="font-display text-text text-ui-lg font-light">
                 {entry()?.title ?? props.title}
               </h3>
@@ -153,11 +178,10 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
                   Could not load the price just now. Please try again.
                 </p>
               </Match>
-              <Match when={entry()?.held === true}>
-                {/* The nav row is driven by the wedding's entitlements and this
-                    by the catalogue; they can disagree for one render after a
-                    purchase settles. Saying so beats offering a second sale. */}
-                <p class="text-text-muted text-ui-sm">You already have this. Refresh to open it.</p>
+              <Match when={held()}>
+                <p class="text-text-muted text-ui-sm">
+                  This wedding is already on {TIER_LABEL[props.tier]}. Refresh to open it.
+                </p>
               </Match>
               <Match when={entry()}>
                 {(priced) => (
@@ -170,8 +194,9 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
                 )}
               </Match>
               <Match when={catalogue() !== null}>
-                {/* Catalogue loaded and this key is not in it: no Stripe Price
-                    configured in this deployment, or no Stripe at all. */}
+                {/* Catalogue loaded and this tier is not in it: no Stripe Price
+                    configured in this deployment for the move from the
+                    wedding's tier, or no Stripe at all. */}
                 <p class="text-text-muted text-ui-sm">
                   Upgrades are not available on this site yet.
                 </p>
@@ -181,7 +206,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
             <div class="flex items-center gap-3">
               <button
                 type="button"
-                disabled={submitting() || entry() === null || entry()?.held === true}
+                disabled={submitting() || entry() === null || held()}
                 onClick={() => void handleBuy()}
                 class="bg-gold text-bg tracking-ui-wider text-ui-sm rounded-sm px-4 py-1.5 uppercase disabled:opacity-60"
               >

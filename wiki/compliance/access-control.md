@@ -166,7 +166,9 @@ grant in the matrix above. Expectations:
 - **Co-host roles are least-privilege in-product grants.** A wedding's owner —
   **or, since 2026-08-01, an `editor` co-host** — may seat other OSN accounts as
   `editor` (module writes) or `viewer` (read-only) co-hosts
-  (`wedding_hosts.role`). Only the OWNER may change a role or revoke a seat, and
+  (`wedding_hosts.role`). Only the OWNER may change a role or revoke someone
+  else's seat; any co-host, a `helper` included, may give up their own
+  (`DELETE /hosts/me`, which takes no profile id and so reaches no other seat), and
   an unknown/corrupted stored role degrades to `viewer`, never upward. Three
   controls bound the widened grant: `editor` is the ceiling anyone can grant, so
   no seat outranks its creator; seats are capped per wedding below the list's

@@ -86,7 +86,7 @@ export function fullWeddingStatements(
   const vendor = `ven_${id}`;
   const purchase = `upg_${id}`;
   return [
-    sql`INSERT INTO weddings (id, slug, display_name, created_at, updated_at, deleted_at, deleted_by_osn_profile_id) VALUES (${id}, ${`slug-${id}`}, ${`Wedding ${id}`}, ${s}, ${s}, ${deletedAt}, ${deletedBy})`,
+    sql`INSERT INTO weddings (id, slug, display_name, tier, created_at, updated_at, deleted_at, deleted_by_osn_profile_id) VALUES (${id}, ${`slug-${id}`}, ${`Wedding ${id}`}, 'crimson', ${s}, ${s}, ${deletedAt}, ${deletedBy})`,
     sql`INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES (${`whost_${id}`}, ${id}, ${owner}, ${owner}, 'owner', ${s})`,
     sql`INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES (${fam}, ${id}, ${fullWeddingCode(id)}, 'Family', ${s}, ${s})`,
     sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s})`,

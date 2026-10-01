@@ -118,12 +118,16 @@ export interface Env {
   CLAIM_SESSION_RATE_LIMITER?: WorkersRateLimitBinding;
   // Native Workers Rate Limiting bindings for the organiser registry amplifier
   // routes — the link preview (fetches a URL the caller typed) and the image
-  // copy (that fetch plus an R2 write). Both are authenticated, entitlement-
+  // copy (that fetch plus an R2 write). Both are authenticated, tier-
   // gated organiser routes, so an absent binding degrades to the per-isolate
   // in-memory default in `createApp` rather than failing closed: the budget
   // exists to protect the third party being fetched, not to stop a brute force.
   REGISTRY_PREVIEW_RATE_LIMITER?: WorkersRateLimitBinding;
   REGISTRY_IMAGE_RATE_LIMITER?: WorkersRateLimitBinding;
+  // The link picker's thumbnails: one outbound fetch and one Images transform
+  // per call, six per preview, so its own namespace sized at 60/min. Absent ⇒
+  // the per-isolate in-memory default, as for the two above.
+  REGISTRY_THUMB_RATE_LIMITER?: WorkersRateLimitBinding;
   // The guest registry write limiter — claiming and releasing a gift. Its own
   // namespace because guests are a different population from organisers: a
   // guest party working through a gift list must not spend the budget the
@@ -150,13 +154,16 @@ export interface Env {
   // hears about the platform's own charges. Absent ⇒ that route does not exist,
   // and a purchase could be paid but never granted.
   STRIPE_PLATFORM_WEBHOOK_SECRET?: string;
-  // Stripe Price ids for the self-serve upgrades (KEY-OPTIONAL, per key). A key
-  // with no Price id here is not for sale in this deployment: it never appears
-  // in the catalogue and the checkout route 404s for it. NOT secrets — they are
-  // `[vars]` in wrangler.toml, and named envs inherit none, so each tier
-  // declares its own. The AMOUNT lives at Stripe, never in this repository.
-  STRIPE_UPGRADE_PRICE_VENDORS?: string;
-  STRIPE_UPGRADE_PRICE_REGISTRY?: string;
+  // Stripe Price ids for the plan tiers (KEY-OPTIONAL, per Price). A tier with
+  // no Price id here is not for sale in this deployment: it never appears in
+  // the catalogue and the checkout route 404s for it. `CRIMSON_FROM_GOLD` is a
+  // second Price on the Crimson product, charged to a wedding already on Gold;
+  // unset, Crimson is not offered to a Gold wedding at all. NOT secrets — they
+  // are `[vars]` in wrangler.toml, and named envs inherit none, so each
+  // deployment declares its own. The AMOUNT lives at Stripe, never here.
+  STRIPE_UPGRADE_PRICE_GOLD?: string;
+  STRIPE_UPGRADE_PRICE_CRIMSON?: string;
+  STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD?: string;
   // Two-letter country for a NEW connected account (`AU` unless set). Stripe
   // fixes an account's country at creation, so this is a per-deployment default
   // and not something a couple can change afterwards.
@@ -390,6 +397,9 @@ const handler: ExportedHandler<Env> = {
       const registryImageEdgeLimiter = env.REGISTRY_IMAGE_RATE_LIMITER
         ? createWorkersRateLimiter(env.REGISTRY_IMAGE_RATE_LIMITER)
         : undefined;
+      const registryThumbEdgeLimiter = env.REGISTRY_THUMB_RATE_LIMITER
+        ? createWorkersRateLimiter(env.REGISTRY_THUMB_RATE_LIMITER)
+        : undefined;
       // The guest claim/release writes. Own namespace, not the two above: those
       // budgets belong to the couple building the list, this one to every guest
       // of every wedding, and a guest party working through the list must not
@@ -450,6 +460,9 @@ const handler: ExportedHandler<Env> = {
         r2: env.SHEETS,
         assets: env.ASSETS,
         images: env.IMAGES,
+        // A deployed tier never serves a shop's bytes un-encoded: with no
+        // Images binding the thumbnail route answers 503 instead.
+        registryThumbRequireTransform: isDeployedTier(env),
         osnJwksUrl: env.OSN_JWKS_URL,
         osnIssuerUrl: env.OSN_ISSUER_URL,
         osnAudience: env.OSN_AUDIENCE,
@@ -472,8 +485,9 @@ const handler: ExportedHandler<Env> = {
         stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? null,
         stripePlatformWebhookSecret: env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
         upgradePrices: {
-          vendors: env.STRIPE_UPGRADE_PRICE_VENDORS,
-          registry: env.STRIPE_UPGRADE_PRICE_REGISTRY,
+          gold: env.STRIPE_UPGRADE_PRICE_GOLD,
+          crimson: env.STRIPE_UPGRADE_PRICE_CRIMSON,
+          crimsonFromGold: env.STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD,
         },
         stripeAccountCountry: env.STRIPE_ACCOUNT_COUNTRY,
         flags,
@@ -501,6 +515,7 @@ const handler: ExportedHandler<Env> = {
       if (registryPreviewEdgeLimiter)
         appOptions.registryPreviewLimiter = registryPreviewEdgeLimiter;
       if (registryImageEdgeLimiter) appOptions.registryImageLimiter = registryImageEdgeLimiter;
+      if (registryThumbEdgeLimiter) appOptions.registryThumbLimiter = registryThumbEdgeLimiter;
       if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
       cached = {
         dbBinding: env.DB,

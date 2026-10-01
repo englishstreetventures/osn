@@ -52,8 +52,6 @@ describe("hostsService.authorize", () => {
     setDeleted(db, true);
     const gone = await run(db, hostsService.authorize(WID, OWNER));
     expect(Exit.isSuccess(gone) && gone.value).toBeNull();
-    const withFold = await run(db, hostsService.authorize(WID, OWNER, "registry"));
-    expect(Exit.isSuccess(withFold) && withFold.value).toBeNull();
   });
 
   it("is seen by the restore-only variant, with when it was deleted", async () => {

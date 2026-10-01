@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Data proof for migration 0071, which moves ownership off
+// Data proof for migration 0074, which moves ownership off
 // `weddings.owner_osn_profile_id` and onto `wedding_hosts` as `owner` seats.
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is the
 // one thing a structural diff cannot see — what becomes of the weddings, seats
@@ -13,7 +13,7 @@ import { join } from "node:path";
 // same file is in d1-integration.test.ts.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 
-const MIG_0071 = "0071_wedding_owners.sql";
+const MIG_0074 = "0074_wedding_owners.sql";
 
 const numberOf = (file: string): number => Number(file.slice(0, 4));
 
@@ -50,7 +50,7 @@ const seats = (db: Database): Seat[] =>
     .all() as Seat[];
 
 /**
- * The database as 0071 finds it, under enforced foreign keys: two weddings,
+ * The database as 0074 finds it, under enforced foreign keys: two weddings,
  * one with a co-host and a household that has replied, and one whose owner
  * also holds a seat on it — which no API path writes, but nothing in the schema
  * forbids either.
@@ -58,7 +58,7 @@ const seats = (db: Database): Seat[] =>
 function beforeMigration(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 71)) apply(db, file);
+  for (const file of chain(1, 74)) apply(db, file);
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)
       VALUES ('wed_1', 'w1', 'W1', 'usr_owner1', 1000, 2000),
@@ -83,10 +83,10 @@ function beforeMigration(): Database {
 
 const UUID_SEAT_ID = /^whost_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-describe("migration 0071 — wedding owners become seats", () => {
+describe("migration 0074 — wedding owners become seats", () => {
   it("gives every wedding's owner an owner seat dated from the wedding, attributed to themselves", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     const owner = seats(db).find((s) => s.osn_profile_id === "usr_owner1");
     expect(owner).toMatchObject({
@@ -103,7 +103,7 @@ describe("migration 0071 — wedding owners become seats", () => {
   it("mints a different seat id for each wedding", () => {
     const db = new Database(":memory:");
     db.exec("PRAGMA foreign_keys = ON;");
-    for (const file of chain(1, 71)) apply(db, file);
+    for (const file of chain(1, 74)) apply(db, file);
     const values = Array.from(
       { length: 20 },
       (_, i) => `('wed_${i}', 'w${i}', 'W', 'usr_${i}', 0, 0)`,
@@ -111,7 +111,7 @@ describe("migration 0071 — wedding owners become seats", () => {
     db.exec(
       `INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at) VALUES ${values};`,
     );
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     const ids = seats(db).map((s) => s.id);
     expect(ids).toHaveLength(20);
@@ -122,7 +122,7 @@ describe("migration 0071 — wedding owners become seats", () => {
 
   it("makes an owner's existing seat on their own wedding the owner seat, keeping its id and history", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     const onWed2 = seats(db).filter((s) => s.wedding_id === "wed_2");
     expect(onWed2).toEqual([
@@ -141,7 +141,7 @@ describe("migration 0071 — wedding owners become seats", () => {
 
   it("leaves every other seat as it was", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     expect(seats(db).find((s) => s.id === "whost_ed")).toEqual({
       id: "whost_ed",
@@ -157,7 +157,7 @@ describe("migration 0071 — wedding owners become seats", () => {
 
   it("keeps every wedding and all of its guest data — the column drop cascades nothing", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     expect(count(db, "weddings")).toBe(2);
     expect(count(db, "families")).toBe(1);
@@ -177,7 +177,7 @@ describe("migration 0071 — wedding owners become seats", () => {
 
   it("drops the owner column and its index", () => {
     const db = beforeMigration();
-    apply(db, MIG_0071);
+    apply(db, MIG_0074);
 
     const columns = (db.query("PRAGMA table_info(weddings)").all() as { name: string }[]).map(
       (c) => c.name,
@@ -194,7 +194,7 @@ describe("migration 0071 — wedding owners become seats", () => {
   });
 
   it("holds one statement per breakpoint chunk, as D1's prepare needs, and never rebuilds weddings", () => {
-    const text = readFileSync(join(MIGRATIONS_DIR, MIG_0071), "utf8");
+    const text = readFileSync(join(MIGRATIONS_DIR, MIG_0074), "utf8");
     const chunks = text
       .split("--> statement-breakpoint")
       .map((chunk) =>

@@ -1,6 +1,7 @@
 import { createSignal, type JSX } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
+import { type Tier, TIERS } from "../lib/tiers";
 import ModuleSidebar from "./ModuleSidebar";
 
 /**
@@ -13,8 +14,8 @@ import ModuleSidebar from "./ModuleSidebar";
  * at the DOM: that a timer fired, that a class is on an element, that a handler
  * did not run. What it cannot reach is whether the thing behaves — whether the
  * card lands beside the rail or over it, whether a three-second dwell reads as
- * deliberate intent or as a broken button, and whether toggling an entitlement
- * actually flips the row. The last of those is not hypothetical: it is how the
+ * deliberate intent or as a broken button, and whether changing the tier
+ * actually flips the rows. The last of those is not hypothetical: it is how the
  * `Show`-instead-of-a-ternary defect in `ModuleSidebar.tsx` was found, having
  * passed every test in the suite.
  *
@@ -78,46 +79,42 @@ function Guidance(props: { children: JSX.Element }) {
 }
 
 interface Args {
-  /** Hold the `vendors` entitlement — unlocks that row. */
-  vendors: boolean;
-  /** Hold the `registry` entitlement — unlocks that row. */
-  registry: boolean;
+  /** The wedding's plan tier. Gold unlocks Checklist, Budget and Registry;
+   *  Crimson unlocks Vendors as well. */
+  tier: Tier;
 }
 
-function entitlementsFrom(args: Args): string[] {
-  const held: string[] = [];
-  if (args.vendors) held.push("vendors");
-  if (args.registry) held.push("registry");
-  return held;
-}
+/** A select rather than free text: a tier the portal does not know is not a
+ *  state the sidebar can be in. */
+const controls = { tier: { kind: "select", options: TIERS } } as const;
 
 /**
- * The wide surface. Both gated rows start locked, which is what a wedding on
- * the free tier sees.
+ * The wide surface. Every gated row starts locked, which is what a wedding on
+ * Ivory, the free tier, sees.
  *
- * Rest a pointer on Vendors or Registry for three seconds, or tab to it and
- * hold focus for the same delay, or click it. All three open the same card;
- * the click path is the only one a touch device has, because the hover card
- * ignores touch pointers outright.
+ * Rest a pointer on a locked row for three seconds, or tab to it and hold
+ * focus for the same delay, or click it. All three open the same card, which
+ * names the tier that includes the module; the click path is the only one a
+ * touch device has, because the hover card ignores touch pointers outright.
  */
 export const Rail = {
-  args: { vendors: false, registry: false },
+  args: { tier: "ivory" } satisfies Args,
+  controls,
   render: (args: Args) => {
     const [active, setActive] = createSignal<Module>("overview");
     return (
       <div class="flex flex-col gap-5">
         <Guidance>
-          Dwell three seconds on Vendors or Registry, or click either. Clicking navigates nowhere
-          and clicking again closes the card — that is the whole response. Turn an entitlement on in
-          the panel and the row goes back to being an ordinary nav button. The rows will not look
-          faded here: the lab does not resolve the portal's colour ramp, so judge the fade in the
-          portal itself.
+          Dwell three seconds on a locked row, or click it. Clicking navigates nowhere and clicking
+          again closes the card — that is the whole response. Raise the tier in the panel and the
+          rows it includes go back to being ordinary nav buttons. The rows will not look faded here:
+          the lab does not resolve the portal's colour ramp, so judge the fade in the portal itself.
         </Guidance>
         <Shell width="60rem" wide>
           <ModuleSidebar
             weddingId="wed_test"
             active={active()}
-            entitlements={entitlementsFrom(args)}
+            tier={args.tier}
             onSelect={setActive}
           />
           <div class="border-border text-text-muted font-body text-ui-sm tracking-ui-wider flex min-h-64 flex-1 items-center justify-center rounded-sm border border-dashed uppercase">
@@ -139,22 +136,23 @@ export const Rail = {
  * an in-flow one would be clipped by the row's own container.
  */
 export const Sheet = {
-  args: { vendors: false, registry: true },
+  args: { tier: "gold" } satisfies Args,
+  controls,
   render: (args: Args) => {
     const [active, setActive] = createSignal<Module>("overview");
     return (
       <div class="flex flex-col gap-5">
         <Guidance>
-          Open Modules, then tap the locked Vendors row. With `registry` held for contrast, the two
-          rows sit next to each other — one navigates and closes the sheet, the other offers the
-          upgrade and leaves it open. Stories are not framed, so the sheet's fixed panel lands over
-          the lab's own chrome — use <strong>open</strong> for the clean view.
+          Open Modules, then tap the locked Vendors row. On Gold, Registry beside it is open for
+          contrast — one navigates and closes the sheet, the other offers Crimson and leaves it
+          open. Stories are not framed, so the sheet's fixed panel lands over the lab's own chrome —
+          use <strong>open</strong> for the clean view.
         </Guidance>
         <Shell width="22rem">
           <ModuleSidebar
             weddingId="wed_test"
             active={active()}
-            entitlements={entitlementsFrom(args)}
+            tier={args.tier}
             onSelect={setActive}
           />
         </Shell>

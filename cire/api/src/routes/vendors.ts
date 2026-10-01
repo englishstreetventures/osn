@@ -8,8 +8,8 @@ import { sendClaimInviteEmail } from "../lib/vendor-email";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
-import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
   CreateVendorBody,
@@ -65,8 +65,8 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db, "vendors"))
-        .use(weddingEntitlement(db, "vendors"))
+        .use(weddingMember(db))
+        .use(weddingTier(db, "crimson"))
         .get("/vendors", async ({ weddingId, set }) => {
           if (!weddingId) return internalSync(set);
           return runCire(
@@ -94,9 +94,12 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
  * NOTE `/vendors/reorder` is registered BEFORE `/vendors/:vendorId` so the
  * literal wins over the param.
  *
- * The list-in-directory handler fires a best-effort claim-invite email via
- * `sendClaimInviteEmail` (error channel is `never`). The route ALWAYS returns
- * `{ directoryVendorId, claimUrl }` regardless of email delivery.
+ * The list-in-directory handler sends the claim link by email only, via
+ * `sendClaimInviteEmail` (error channel is `never`), to the address in the
+ * request body. The response never carries the link. Nothing checks that the
+ * address belongs to the vendor: a claim proves control of that inbox and no
+ * more. The route returns `{ directoryVendorId, invited }`, where `invited`
+ * says whether the email was handed to the transport.
  */
 export const createVendorWriteRoutes = (
   db: Db,
@@ -109,8 +112,8 @@ export const createVendorWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db, "vendors"))
-        .use(weddingEntitlement(db, "vendors"))
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "crimson"))
         .post(
           "/vendors",
           async ({ weddingId, request, set }) => {
@@ -221,17 +224,15 @@ export const createVendorWriteRoutes = (
                   priceMaxMinor: null,
                   categories: [...body.categories],
                 });
-                // Best-effort claim invite email — error channel is `never`,
-                // so providing the layer and running cannot fail the response.
-                yield* sendClaimInviteEmail({
+                // The claim invite email is the only carrier of the link. Its
+                // error channel is `never`, so a failed send cannot fail the
+                // response; `invited` reports it instead.
+                const invited = yield* sendClaimInviteEmail({
                   to: body.email,
                   claimUrl: result.claimUrl,
                   vendorName: body.name,
                 }).pipe(Effect.provide(emailLayer));
-                return {
-                  directoryVendorId: result.directoryVendorId,
-                  claimUrl: result.claimUrl,
-                };
+                return { directoryVendorId: result.directoryVendorId, invited };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),

@@ -4,7 +4,6 @@ import {
   BOOTSTRAP_WEDDING_ID,
   directoryVendorCategories,
   directoryVendors,
-  weddingEntitlements,
   weddingHosts,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
@@ -12,7 +11,8 @@ import { makeLogEmailLive } from "@shared/email";
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createDirectoryService } from "../../src/services/directory";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import type { Tier } from "../../src/services/tiers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -33,7 +33,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
+function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -108,33 +108,11 @@ function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
     })
     .run();
 
-  // Grant the `vendors` entitlement so the route gate passes (unless opted out
-  // for an explicit 402-test that must exercise the un-entitled path).
-  if (grantVendors) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-    // Also grant for wed_other (usr_bob's wedding) so cross-tenant tests pass.
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: "wed_other",
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: "usr_bob",
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  // The directory is a Crimson module: put the wedding on it so the route gate
+  // passes (unless a 402 test asks for a lower tier), and usr_bob's wedding
+  // too, for the cross-tenant tests.
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+  setTier(db, "wed_other", "crimson");
 
   const { layer: logEmailLayer } = makeLogEmailLive();
   const directoryService = createDirectoryService({
@@ -265,21 +243,19 @@ describe("vendor directory browse route", () => {
     expect(body.total).toBeGreaterThan(0);
   });
 
-  // ── Entitlement gate (Task 4) ──────────────────────────────────────────────
+  // ── Tier gate ──────────────────────────────────────────────────────────────
 
-  it("GET /directory → 402 payment_required when wedding lacks `vendors`", async () => {
-    // No entitlement granted — editor passes the role gate but hits 402.
-    const app = buildApp({ grantVendors: false });
-    const res = await req(app, base, OWNER);
-    expect(res.status).toBe(402);
-    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
+  it("GET /directory → 402 naming Crimson on an Ivory wedding, and on a Gold one", async () => {
+    for (const tier of ["ivory", "gold"] as const) {
+      const res = await req(buildApp({ tier }), base, OWNER);
+      expect(res.status, tier).toBe(402);
+      expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "crimson" });
+    }
   });
 
-  it("with the `vendors` entitlement granted, GET /directory passes the gate (not 402)", async () => {
-    // buildApp() grants `vendors` by default — just verify the route is accessible.
-    const app = buildApp();
-    const res = await req(app, base, OWNER);
-    expect(res.status).not.toBe(402);
+  it("on Crimson, GET /directory passes the gate", async () => {
+    const res = await req(buildApp(), base, OWNER);
+    expect(res.status).toBe(200);
   });
 });
 
@@ -291,7 +267,7 @@ describe("vendor directory browse route", () => {
  *  - LA: live listing with categories [venue, catering] + a contact email/phone
  *  - LD: draft listing (rejected by add route)
  */
-function buildWriteFixture({ grantVendors = true }: { grantVendors?: boolean } = {}) {
+function buildWriteFixture({ tier = "crimson" }: { tier?: Tier } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -346,21 +322,8 @@ function buildWriteFixture({ grantVendors = true }: { grantVendors?: boolean } =
     })
     .run();
 
-  // Grant the `vendors` entitlement so write-route gate passes (unless opted out
-  // for an explicit 402-test that must exercise the un-entitled path).
-  if (grantVendors) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  // Crimson, so the write-route gate passes (unless a 402 test asks lower).
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
 
   const { layer: logEmailLayer } = makeLogEmailLive();
   const directoryService = createDirectoryService({
@@ -375,7 +338,7 @@ function buildWriteFixture({ grantVendors = true }: { grantVendors?: boolean } =
   return { app, db };
 }
 
-function buildWriteApp(options: { grantVendors?: boolean } = {}) {
+function buildWriteApp(options: { tier?: Tier } = {}) {
   return buildWriteFixture(options).app;
 }
 
@@ -518,20 +481,20 @@ describe("vendor directory write routes (add-from-directory)", () => {
     expect(body.error).toBe("read_only_role");
   });
 
-  // ── Entitlement gate (Task 4) ──────────────────────────────────────────────
+  // ── Tier gate ──────────────────────────────────────────────────────────────
 
-  it("POST /directory/:id/add → 402 when wedding lacks `vendors`", async () => {
-    // Editor passes the role gate but no entitlement → 402.
-    const app = buildWriteApp({ grantVendors: false });
+  it("POST /directory/:id/add → 402 naming Crimson on a Gold wedding", async () => {
+    // Editor passes the role gate, and Gold is not enough → 402.
+    const app = buildWriteApp({ tier: "gold" });
     const res = await postAdd(app, LA, { category: "venue" }, EDITOR);
     expect(res.status).toBe(402);
-    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "crimson" });
   });
 
   it("a VIEWER still gets 403 (role wins over 402) on the write route", async () => {
-    // Viewer is stopped by weddingEditor (403) before reaching the entitlement gate.
-    // Use no-entitlement app to confirm role gate wins regardless of entitlement state.
-    const app = buildWriteApp({ grantVendors: false });
+    // Viewer is stopped by weddingEditor (403) before reaching the tier gate,
+    // on a wedding the tier gate would refuse.
+    const app = buildWriteApp({ tier: "ivory" });
     const res = await postAdd(app, LA, { category: "venue" }, VIEWER);
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };

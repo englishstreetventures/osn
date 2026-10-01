@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";
 import { MODULE_NAV } from "../../src/lib/module-nav";
+import type { Tier } from "../../src/lib/tiers";
 
 // The Upgrade button mounts a dialog, and the dialog reads `useAuth()` and
 // prices itself. Neither is what this file is about — the nav's job is to OPEN
@@ -18,16 +19,17 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-/** Every gated entitlement, so the nav's structural tests are about the nav
- *  rather than about the lock. The locked shape has its own describe below. */
-const ENTITLED = ["vendors", "registry"];
+/** The top tier, which opens every module, so the nav's structural tests are
+ *  about the nav rather than about the lock. The locked shape has its own
+ *  describe below. */
+const TOP: Tier = "crimson";
 
 /**
  * ModuleSidebar is the IA shell's primary nav — a keyboard-accessible <nav> of
  * module buttons with aria-current on the active one. It's presentational: it
  * renders every module and reports selections up. Write gating lives inside
- * each module; entitlement gating fades the row and offers an upgrade rather
- * than hiding it.
+ * each module; tier gating fades the row and offers an upgrade rather than
+ * hiding it.
  */
 describe("ModuleSidebar", () => {
   afterEach(() => cleanup());
@@ -49,12 +51,7 @@ describe("ModuleSidebar", () => {
 
   it("inks the rail's selected label for reading and leaves its icon gold", () => {
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="guests"
-        entitlements={ENTITLED}
-        onSelect={vi.fn()}
-      />
+      <ModuleSidebar weddingId="wed_test" active="guests" tier={TOP} onSelect={vi.fn()} />
     ));
     for (const row of within(rail()).getAllByRole("button")) {
       const active = row.getAttribute("aria-current") === "page";
@@ -73,12 +70,7 @@ describe("ModuleSidebar", () => {
 
   it("inks the sheet's selected label for reading and leaves its icon gold", async () => {
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="guests"
-        entitlements={ENTITLED}
-        onSelect={vi.fn()}
-      />
+      <ModuleSidebar weddingId="wed_test" active="guests" tier={TOP} onSelect={vi.fn()} />
     ));
     fireEvent.click(
       screen.getByRole("button", { name: /Open wedding navigation, currently Guests/ }),
@@ -95,12 +87,7 @@ describe("ModuleSidebar", () => {
 
   it("renders every module in workflow order", () => {
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="overview"
-        entitlements={ENTITLED}
-        onSelect={vi.fn()}
-      />
+      <ModuleSidebar weddingId="wed_test" active="overview" tier={TOP} onSelect={vi.fn()} />
     ));
     const labels = within(rail())
       .getAllByRole("button")
@@ -120,9 +107,9 @@ describe("ModuleSidebar", () => {
 
   it("leads every row with one icon at the shared size, hidden from assistive tech", () => {
     render(() => (
-      <ModuleSidebar weddingId="wed_test" active="overview" entitlements={[]} onSelect={vi.fn()} />
+      <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
     ));
-    // Locked rows too: an organiser without the entitlement still sees the mark.
+    // Locked rows too: an organiser whose tier lacks the module still sees the mark.
     for (const row of within(rail()).getAllByRole("button")) {
       const icons = row.querySelectorAll("svg");
       expect(icons).toHaveLength(1);
@@ -135,12 +122,7 @@ describe("ModuleSidebar", () => {
 
   it("marks the active module with aria-current and no others", () => {
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="invite"
-        entitlements={ENTITLED}
-        onSelect={vi.fn()}
-      />
+      <ModuleSidebar weddingId="wed_test" active="invite" tier={TOP} onSelect={vi.fn()} />
     ));
     const marked = within(rail())
       .getAllByRole("button")
@@ -152,12 +134,7 @@ describe("ModuleSidebar", () => {
   it("opens a sheet listing every module and closes it on a selection", async () => {
     const onSelect = vi.fn();
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="overview"
-        entitlements={ENTITLED}
-        onSelect={onSelect}
-      />
+      <ModuleSidebar weddingId="wed_test" active="overview" tier={TOP} onSelect={onSelect} />
     ));
 
     // The narrow-container surface: a trigger naming the current module, so a
@@ -205,12 +182,7 @@ describe("ModuleSidebar", () => {
   it("reports the selected module up via onSelect", () => {
     const onSelect = vi.fn();
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="overview"
-        entitlements={ENTITLED}
-        onSelect={onSelect}
-      />
+      <ModuleSidebar weddingId="wed_test" active="overview" tier={TOP} onSelect={onSelect} />
     ));
     fireEvent.click(within(rail()).getByRole("button", { name: /Settings/ }));
     expect(onSelect).toHaveBeenCalledWith("settings");
@@ -218,19 +190,14 @@ describe("ModuleSidebar", () => {
 
   it("is a labelled navigation landmark", () => {
     render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        active="overview"
-        entitlements={ENTITLED}
-        onSelect={vi.fn()}
-      />
+      <ModuleSidebar weddingId="wed_test" active="overview" tier={TOP} onSelect={vi.fn()} />
     ));
     expect(rail().tagName).toBe("NAV");
     expect(rail().getAttribute("aria-label")).toBe("Wedding modules");
   });
 
   /**
-   * A module the wedding is not entitled to.
+   * A module the wedding's tier does not include.
    *
    * The row stays in the nav, faded and inert, and offers the upgrade three
    * ways: a three-second pointer dwell, the same delay on keyboard focus, and a
@@ -262,19 +229,15 @@ describe("ModuleSidebar", () => {
 
     const lockedRow = () => within(rail()).getByRole("button", { name: /Registry/ });
 
-    it("fades the row, names the lock, and drops its native tooltip", () => {
+    it("fades the row, names the lock and its tier, and drops its native tooltip", () => {
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       const row = lockedRow();
-      // The lock is in the accessible name, so it reaches a screen reader while
-      // tabbing rather than only after a three-second dwell.
-      expect(row.getAttribute("aria-label")).toBe("Registry — locked. Upgrade to unlock.");
+      // The lock, and the tier that lifts it, are in the accessible name, so
+      // they reach a screen reader while tabbing rather than only after a
+      // three-second dwell.
+      expect(row.getAttribute("aria-label")).toBe("Registry — locked. Included with Gold.");
       // Never `disabled`: Kobalte's trigger drops its pointer and focus
       // handlers on a disabled trigger, so the card could never open.
       expect(row.hasAttribute("disabled")).toBe(false);
@@ -292,12 +255,7 @@ describe("ModuleSidebar", () => {
 
     it("reports the card's state on the trigger", () => {
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       expect(lockedRow().getAttribute("aria-expanded")).toBe("false");
       fireEvent.click(lockedRow());
@@ -307,12 +265,7 @@ describe("ModuleSidebar", () => {
     it("navigates nowhere when clicked, and offers the upgrade instead", async () => {
       const onSelect = vi.fn();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={onSelect}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={onSelect} />
       ));
       fireEvent.click(lockedRow());
       expect(onSelect).not.toHaveBeenCalled();
@@ -321,15 +274,32 @@ describe("ModuleSidebar", () => {
       expect(screen.getByText(/List the gifts you'd like/)).toBeTruthy();
     });
 
+    it("names the tier that includes the module in the card", async () => {
+      render(() => (
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
+      ));
+      fireEvent.click(lockedRow());
+      expect(await screen.findByText("Included with Gold")).toBeTruthy();
+    });
+
+    it("names Crimson on the Vendors card, the one module Gold does not open", async () => {
+      render(() => (
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="gold" onSelect={vi.fn()} />
+      ));
+      const vendors = within(rail()).getByRole("button", { name: /Vendors/ });
+      expect(vendors.getAttribute("aria-label")).toBe("Vendors — locked. Included with Crimson.");
+      fireEvent.click(vendors);
+      expect(await screen.findByText("Included with Crimson")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: /^upgrade to crimson$/i }));
+      // The dialog sells the tier the lock names.
+      expect(await screen.findByRole("dialog", { name: /upgrade: crimson/i })).toBeTruthy();
+    });
+
     it("opens nothing until the pointer has rested for three seconds", async () => {
       vi.useFakeTimers();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       fireEvent.pointerEnter(lockedRow(), { pointerType: "mouse" });
 
@@ -344,24 +314,18 @@ describe("ModuleSidebar", () => {
 
     it("offers a live Upgrade button that opens the purchase dialog", async () => {
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       fireEvent.click(lockedRow());
       await screen.findByText("Gift registry");
-      // Not `/Upgrade/` alone: the locked row's own accessible name says
-      // "Upgrade to unlock", so that pattern matches the trigger too.
-      const upgrade = screen.getByRole("button", { name: /^upgrade$/i });
+      // Anchored: the locked row's own accessible name names the tier too.
+      const upgrade = screen.getByRole("button", { name: /^upgrade to gold$/i });
       expect((upgrade as HTMLButtonElement).disabled).toBe(false);
 
       fireEvent.click(upgrade);
       // The popover is anchored to a row the dialog is about to cover, so it
-      // closes on the way — what survives is the dialog.
-      const dialog = await screen.findByRole("dialog", { name: /upgrade: gift registry/i });
+      // closes on the way — what survives is the dialog, selling the tier.
+      const dialog = await screen.findByRole("dialog", { name: /upgrade: gold/i });
       expect(dialog).toBeTruthy();
     });
 
@@ -372,12 +336,7 @@ describe("ModuleSidebar", () => {
       // the tab order and drop the handler with it.
       vi.useFakeTimers();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       fireEvent.focus(lockedRow());
 
@@ -396,12 +355,7 @@ describe("ModuleSidebar", () => {
       // pointer has moved on.
       vi.useFakeTimers();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       const row = lockedRow();
       fireEvent.pointerEnter(row, { pointerType: "mouse" });
@@ -417,12 +371,7 @@ describe("ModuleSidebar", () => {
       // click path from being read as redundant and quietly removed.
       vi.useFakeTimers();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       fireEvent.pointerEnter(lockedRow(), { pointerType: "touch" });
 
@@ -436,12 +385,7 @@ describe("ModuleSidebar", () => {
       // no pointer-leave, so without this the first tap opens a card that never
       // goes away, and on the sheet that card sits over the nav.
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={vi.fn()} />
       ));
       fireEvent.click(lockedRow());
       await screen.findByText("Gift registry");
@@ -460,12 +404,7 @@ describe("ModuleSidebar", () => {
       // still passes while the phone loses its only way in.
       const onSelect = vi.fn();
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={[]}
-          onSelect={onSelect}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier="ivory" onSelect={onSelect} />
       ));
       fireEvent.click(
         screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
@@ -473,7 +412,7 @@ describe("ModuleSidebar", () => {
       const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
 
       const row = within(sheet).getByRole("button", { name: /Registry/ });
-      expect(row.getAttribute("aria-label")).toBe("Registry — locked. Upgrade to unlock.");
+      expect(row.getAttribute("aria-label")).toBe("Registry — locked. Included with Gold.");
       expect(row.getAttribute("class")).toContain("text-text-faint");
 
       fireEvent.click(row);
@@ -484,42 +423,38 @@ describe("ModuleSidebar", () => {
       expect(screen.getByRole("dialog", { name: /Wedding modules/i })).toBeTruthy();
     });
 
-    it("unlocks the row when the entitlement arrives, without a remount", () => {
+    it("unlocks the row when the tier rises, without a remount", () => {
       // `MODULE_NAV` never changes, so `For` runs its callback once per module.
       // A ternary between the locked row and the plain button would be resolved
       // then and never revisited, leaving the previous wedding's locks on screen
-      // after a wedding switch or a mid-session grant.
-      const [held, setHeld] = createSignal<string[]>([]);
+      // after a wedding switch or a mid-session upgrade.
+      const [tier, setTier] = createSignal<Tier>("ivory");
       render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={held()}
-          onSelect={vi.fn()}
-        />
+        <ModuleSidebar weddingId="wed_test" active="overview" tier={tier()} onSelect={vi.fn()} />
       ));
       expect(lockedRow().getAttribute("aria-label")).toContain("locked");
 
-      setHeld(["registry"]);
+      setTier("gold");
       const row = within(rail()).getByRole("button", { name: /Registry/ });
       expect(row.getAttribute("aria-label")).toBeNull();
       expect(row.getAttribute("title")).toBe("Your gift list and what has arrived");
     });
 
-    it("locks only the modules whose entitlement is missing", () => {
-      render(() => (
-        <ModuleSidebar
-          weddingId="wed_test"
-          active="overview"
-          entitlements={["registry"]}
-          onSelect={vi.fn()}
-        />
-      ));
-      const locked = within(rail())
-        .getAllByRole("button")
-        .filter((b) => (b.getAttribute("aria-label") ?? "").includes("locked"))
-        .map((b) => b.textContent);
-      expect(locked).toEqual(["Vendors"]);
+    it("locks only the modules the tier does not include", () => {
+      const lockedOn = (tier: Tier) => {
+        const { unmount } = render(() => (
+          <ModuleSidebar weddingId="wed_test" active="overview" tier={tier} onSelect={vi.fn()} />
+        ));
+        const locked = within(rail())
+          .getAllByRole("button")
+          .filter((b) => (b.getAttribute("aria-label") ?? "").includes("locked"))
+          .map((b) => b.textContent);
+        unmount();
+        return locked;
+      };
+      expect(lockedOn("ivory")).toEqual(["Checklist", "Budget", "Vendors", "Registry"]);
+      expect(lockedOn("gold")).toEqual(["Vendors"]);
+      expect(lockedOn("crimson")).toEqual([]);
     });
   });
 });

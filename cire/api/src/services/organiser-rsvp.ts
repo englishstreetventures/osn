@@ -8,9 +8,14 @@
  * and its dietary consent is recorded as organiser-attested, not guest-given
  * (Art. 9(2)(a); see [[wiki/compliance/dpia/cire-guest-data]] → C-H2).
  *
- * One exception: a status-only recording for a plus-one sets the status and
- * keeps the dietary answer the household gave, with its consent record and
- * its `consent_source` (`rsvpService.recordStatus`).
+ * One exception: a status-only recording (no dietary answer sent) sets the
+ * status and keeps the stored dietary answer, with its consent record and its
+ * `consent_source`, whoever gave it (`rsvpService.recordStatus`).
+ *
+ * The organiser's attestation names whom it is about. A guest's dietary data
+ * is stored under `ORGANISER_DIETARY_ATTESTATION`; a plus-one's only under
+ * `ORGANISER_PLUS_ONE_DIETARY_ATTESTATION`, for the name the plus-one's row
+ * carries now.
  *
  * TENANCY: the route gate (`weddingEditor()`) proves the caller may write
  * `weddingId`. This service ADDITIONALLY re-validates, in wedding scope, that:
@@ -25,8 +30,12 @@
  */
 
 import { events, families, guestEvents, guests } from "@cire/db";
-import type { DietaryPreset } from "@cire/dietary";
-import { and, eq } from "drizzle-orm";
+import {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+  type DietaryPreset,
+} from "@cire/dietary";
+import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -45,11 +54,21 @@ export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
  *  `guest_events` row) — an organiser must not RSVP them to it. 409/4xx-class. */
 export class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToEvent") {}
 
-/** Dietary data on a plus-one's reply, which this path refuses. The
- *  organiser's attestation speaks of "the guest"; a plus-one never sees the
- *  invite, and their dietary answers are the household's to give, on the
- *  invite, under the household's own attestation. 422-class. */
+/** Dietary data on a plus-one's reply without the organiser's plus-one
+ *  attestation (`ORGANISER_PLUS_ONE_DIETARY_ATTESTATION`). The guest
+ *  attestation speaks of "the guest", so a tick against it is no evidence the
+ *  plus-one consented. 422-class. */
 export class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
+
+/** Dietary data on a plus-one's reply attested for a name the row no longer
+ *  carries: the portal showed the box for someone the household has since
+ *  renamed. 409-class, so the portal reloads rather than attest for someone
+ *  else. */
+export class PlusOneChanged extends Data.TaggedError("PlusOneChanged") {}
+
+/** Dietary data on a guest's reply attested with the plus-one wording, which
+ *  speaks of someone else. 422-class. */
+export class DietaryAttestationMismatch extends Data.TaggedError("DietaryAttestationMismatch") {}
 
 export interface OrganiserRsvpInput {
   weddingId: string;
@@ -58,14 +77,20 @@ export interface OrganiserRsvpInput {
   status: "attending" | "declined" | "maybe";
   /** The dietary answer as recorded by the organiser from a phone or paper
    *  reply: free text and picks from the closed vocabulary. `null` when the
-   *  organiser recorded a status only — for a plus-one that keeps the
-   *  household's answer; for any other guest it records none. */
+   *  organiser recorded a status only, which keeps the stored answer. */
   dietary: { text: string; presets: readonly DietaryPreset[] } | null;
   /** Whether the organiser attests the guest consented to storing their dietary
    *  requirements. Only meaningful when there IS dietary data — presets or free
    *  text, both special-category (the route collapses those); stamps the
    *  Art. 9(2)(a) consent record as organiser-attested. */
   dietaryConsent: boolean;
+  /** The version of the attestation wording the portal showed. Checked only
+   *  when there is dietary data; the route has already refused any version
+   *  that is neither organiser attestation's. */
+  dietaryAttestation: string;
+  /** The full name the portal showed a plus-one's box for. Checked only on a
+   *  plus-one's dietary data. */
+  dietaryAttestedName: string;
 }
 
 export interface OrganiserRsvpResult {
@@ -82,7 +107,12 @@ export const organiserRsvpService = {
     input: OrganiserRsvpInput,
   ): Effect.Effect<
     OrganiserRsvpResult,
-    GuestNotInWedding | EventNotInWedding | GuestNotInvitedToEvent | PlusOneDietaryUnavailable,
+    | GuestNotInWedding
+    | EventNotInWedding
+    | GuestNotInvitedToEvent
+    | PlusOneDietaryUnavailable
+    | PlusOneChanged
+    | DietaryAttestationMismatch,
     DbService
   > {
     const { weddingId, guestId, eventId, status } = input;
@@ -93,18 +123,32 @@ export const organiserRsvpService = {
     // dietary data to authorise — presets or free text (mirrors the guest
     // path — clearing the whole answer clears it).
     const consentSource: ConsentSource = "organiser_attested";
-    const dietaryConsent =
-      (dietary.length > 0 || dietaryPresets.length > 0) && input.dietaryConsent;
+    const hasDietaryData = dietary.length > 0 || dietaryPresets.length > 0;
+    const dietaryConsent = hasDietaryData && input.dietaryConsent;
 
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // (1) Guest ∈ this wedding's guest families. The join to `families`
-      // scopes the lookup to `weddingId` AND excludes host-preview families, so
-      // a cross-tenant guest id or the organiser's own preview can't be written.
+      // One statement answers all three tenancy checks, each scoped to
+      // `weddingId`:
+      //   - the row exists only when the guest belongs to one of this
+      //     wedding's guest families (the join to `families` also excludes
+      //     host-preview families, so a cross-tenant guest id or the
+      //     organiser's own preview can't be written);
+      //   - `eventInWedding`: the event belongs to this wedding, so a foreign
+      //     or unknown event id fails without saying whether it exists in
+      //     another wedding;
+      //   - `invited`: the pair is a real invitation, so an organiser can't
+      //     RSVP a guest to an event they aren't on the list for.
       const [guestRow] = yield* dbQuery(() =>
         db
-          .select({ id: guests.id, plusOneOf: guests.plusOneOfGuestId })
+          .select({
+            plusOneOf: guests.plusOneOfGuestId,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            eventInWedding: sql<number>`EXISTS (SELECT 1 FROM ${events} WHERE ${events.id} = ${eventId} AND ${events.weddingId} = ${weddingId})`,
+            invited: sql<number>`EXISTS (SELECT 1 FROM ${guestEvents} WHERE ${guestEvents.guestId} = ${guestId} AND ${guestEvents.eventId} = ${eventId})`,
+          })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
           .where(
@@ -117,36 +161,34 @@ export const organiserRsvpService = {
           .all(),
       );
       if (!guestRow) return yield* Effect.fail(new GuestNotInWedding());
-      if (guestRow.plusOneOf !== null && (dietary.length > 0 || dietaryPresets.length > 0)) {
-        return yield* Effect.fail(new PlusOneDietaryUnavailable());
+      if (!guestRow.eventInWedding) return yield* Effect.fail(new EventNotInWedding());
+      if (!guestRow.invited) return yield* Effect.fail(new GuestNotInvitedToEvent());
+
+      const isPlusOne = guestRow.plusOneOf !== null;
+      // The attestation must speak of the person the row is about: the
+      // plus-one wording, for the name the row carries now, on a plus-one's
+      // reply; the guest wording on anyone else's.
+      if (hasDietaryData && isPlusOne) {
+        if (input.dietaryAttestation !== ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version) {
+          return yield* Effect.fail(new PlusOneDietaryUnavailable());
+        }
+        const currentName = `${guestRow.firstName} ${guestRow.lastName}`.trim();
+        if (input.dietaryAttestedName.trim() !== currentName) {
+          return yield* Effect.fail(new PlusOneChanged());
+        }
+      }
+      if (
+        hasDietaryData &&
+        !isPlusOne &&
+        input.dietaryAttestation !== ORGANISER_DIETARY_ATTESTATION.version
+      ) {
+        return yield* Effect.fail(new DietaryAttestationMismatch());
       }
 
-      // (2) Event ∈ this wedding. A foreign or unknown event id fails here
-      // rather than leaking whether it exists in another wedding.
-      const [eventRow] = yield* dbQuery(() =>
-        db
-          .select({ id: events.id })
-          .from(events)
-          .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
-          .all(),
-      );
-      if (!eventRow) return yield* Effect.fail(new EventNotInWedding());
-
-      // (3) The pair is a real invitation — don't let an organiser RSVP a guest
-      // to an event they aren't on the list for.
-      const [invite] = yield* dbQuery(() =>
-        db
-          .select({ guestId: guestEvents.guestId })
-          .from(guestEvents)
-          .where(and(eq(guestEvents.guestId, guestId), eq(guestEvents.eventId, eventId)))
-          .all(),
-      );
-      if (!invite) return yield* Effect.fail(new GuestNotInvitedToEvent());
-
-      // A status-only reply for a plus-one: their dietary answer is the
-      // household's, given on the invite under its own attestation, so it
+      // A status-only reply: the stored dietary answer was given under its
+      // own consent or attestation, which this save does not repeat, so it
       // stays, with its consent record and source.
-      if (guestRow.plusOneOf !== null && input.dietary === null) {
+      if (input.dietary === null) {
         const stored = yield* rsvpService.recordStatus({ guestId, eventId, status });
         return { guestId, eventId, ...stored };
       }
@@ -162,6 +204,7 @@ export const organiserRsvpService = {
         dietaryPresets,
         dietaryConsent,
         consentSource,
+        plusOne: isPlusOne,
       });
 
       return { guestId, eventId, status, dietary, dietaryPresets, consentSource };

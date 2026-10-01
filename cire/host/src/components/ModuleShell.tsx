@@ -15,6 +15,7 @@ import { peekCachedBudget } from "../lib/budget-store";
 import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
+import type { Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
@@ -52,18 +53,18 @@ const loadGuestsEditor = () => import("./GuestsEditor");
 const loadInviteBuilder = () => import("./InviteBuilder");
 
 /**
- * The two entitlement-gated modules, split out for a different reason than the
+ * The registry and vendors modules, split out for a different reason than the
  * three above.
  *
  * They are read views, so by the rule above they would stay eager. They don't,
- * because the shell now coerces a locked module to Overview: an organiser
- * without the key does not merely see an upsell in the module's place, they
- * cannot reach the module at all. Eager-loading the registry's tree and money
- * formatting, or the vendors module's three panels and its enquiry dialogs, for
- * an organiser who provably cannot open either is paying for a view that will
- * not be shown. Where the key is held the cost lands on the rail click that
- * opens the module, warmed by the hover on the sub-tab through `PANEL_LOADERS`
- * below.
+ * because the shell coerces a locked module to Overview: an organiser whose
+ * tier does not include one does not merely see an upsell in the module's
+ * place, they cannot reach the module at all. Eager-loading the registry's tree
+ * and money formatting, or the vendors module's three panels and its enquiry
+ * dialogs, for an organiser who provably cannot open either is paying for a
+ * view that will not be shown. Where the tier includes them the cost lands on
+ * the rail click that opens the module, warmed by the hover on the sub-tab
+ * through `PANEL_LOADERS` below.
  *
  * A chunk per surface rather than per module, because the sub-tabs of both are
  * different things an organiser rarely wants at once. Vendors is a CRM table, a
@@ -176,13 +177,18 @@ interface ModuleShellProps {
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
   /** An owner deleted the wedding from Settings (restorable until the ISO date). */
   onWeddingDeleted?: (restoreUntil: string) => void;
-  /** Entitlement keys active on this wedding (from the API list response).
-   *  A module whose key is absent is locked: its nav row fades and offers the
-   *  upgrade, and the module itself never renders — the shell coerces it to
-   *  Overview. */
+  /** The organiser left this wedding from the co-host panel. */
+  onLeftWedding?: () => void;
+  /** The wedding's plan tier (from the API list response). A module the tier
+   *  does not include is locked: its nav row fades and offers the upgrade, and
+   *  the module itself never renders — the shell coerces it to Overview. */
+  tier: Tier;
+  /** Entitlement keys on this wedding, from the same response. The invite
+   *  builder reads `premium_templates` from them to lock premium designs;
+   *  nothing else here does. */
   entitlements: string[];
-  /** Effective guest ceiling derived from the entitlement set. Surfaced for
-   *  informational display (e.g. Overview) — enforcement is server-side. */
+  /** The tier's guest ceiling. Surfaced for informational display —
+   *  enforcement is server-side. */
   guestCap: number;
 }
 
@@ -281,7 +287,7 @@ export default function ModuleShell(props: ModuleShellProps) {
   // `resolveSub`, so a sub-tab click would otherwise re-derive the same answer
   // dozens of times and wake every one of those `Show` conditions with it.
   const module = createMemo<Module>(() =>
-    isModuleLocked(props.module, props.entitlements) ? DEFAULT_MODULE : props.module,
+    isModuleLocked(props.module, props.tier) ? DEFAULT_MODULE : props.module,
   );
 
   // The visible sub-tabs for the current module, filtered by role. Overview and
@@ -410,7 +416,7 @@ export default function ModuleShell(props: ModuleShellProps) {
         <ModuleSidebar
           active={module()}
           weddingId={props.weddingId}
-          entitlements={props.entitlements}
+          tier={props.tier}
           onSelect={props.onModule}
         />
 
@@ -509,7 +515,7 @@ export default function ModuleShell(props: ModuleShellProps) {
               <Show when={module() === "overview"}>
                 <Overview
                   weddingId={props.weddingId}
-                  entitlements={props.entitlements}
+                  tier={props.tier}
                   onNavigate={props.onModule}
                 />
               </Show>
@@ -694,8 +700,14 @@ export default function ModuleShell(props: ModuleShellProps) {
                   {/* The role itself, not the flags: the panel needs both of
                   the API's gates here (adding a co-host is `weddingEditor()`,
                   changing or removing one `weddingOwner()`) and what the
-                  caller may grant, which only the role says. */}
-                  <HostsPanel weddingId={props.weddingId} callerRole={props.callerRole} />
+                  caller may grant, which only the role says. Every seat may
+                  leave; the API refuses the last owner. */}
+                  <HostsPanel
+                    weddingId={props.weddingId}
+                    callerRole={props.callerRole}
+                    canLeave
+                    onLeft={props.onLeftWedding}
+                  />
                 </Show>
               </Show>
             </div>

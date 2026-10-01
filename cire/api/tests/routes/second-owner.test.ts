@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, weddingEntitlements, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import type { StripeClient } from "../../src/services/stripe";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -77,23 +77,14 @@ function buildApp() {
       })
       .run();
   }
-  db.insert(weddingEntitlements)
-    .values({
-      weddingId: BOOTSTRAP_WEDDING_ID,
-      entitlement: "registry",
-      source: "comp",
-      grantedAt: now,
-      grantedBy: CREATOR,
-      providerRef: null,
-    })
-    .onConflictDoNothing()
-    .run();
+  // Gold reaches the budget and the registry; Crimson is still for sale.
+  setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
   const limiter = () => createRateLimiter({ maxRequests: 1000, windowMs: 60_000 });
   const app = createApp(db, {
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
     stripe,
-    upgradePrices: { vendors: "price_v" },
+    upgradePrices: { crimsonFromGold: "price_cg" },
     upgradeLimiter: limiter(),
     registryStripeLimiter: limiter(),
     hostLimiter: limiter(),
@@ -182,7 +173,7 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     name: "start an upgrade checkout",
     method: "POST",
     path: () => "/upgrade/session",
-    body: { entitlement: "vendors" },
+    body: { tier: "crimson" },
     ok: 200,
   },
   {

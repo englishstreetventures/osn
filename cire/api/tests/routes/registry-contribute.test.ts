@@ -6,7 +6,6 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
-  weddingEntitlements,
   weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -20,7 +19,7 @@ import {
   type CreateCheckoutSessionInput,
   type StripeClient,
 } from "../../src/services/stripe";
-import { appRequest, jsonBody, recordStatements, TEST_ORIGIN } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier, TEST_ORIGIN } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /**
@@ -71,6 +70,7 @@ function stripeStub(
     createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePlatformCheckoutSession: () =>
       Effect.fail(new StripeError({ reason: "not used here" })),
+    expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     createCheckoutSession(input) {
       sessions.push(input);
@@ -131,19 +131,9 @@ function buildApp({
       updatedAt: now,
     })
     .run();
-  // The registry module is entitlement-gated; without this every route here
-  // answers the same 404 an unpublished list does.
-  db.insert(weddingEntitlements)
-    .values({
-      weddingId: BOOTSTRAP_WEDDING_ID,
-      entitlement: "registry",
-      source: "comp",
-      grantedAt: now,
-      grantedBy: "usr_dev_bootstrap_owner",
-      providerRef: null,
-    })
-    .onConflictDoNothing()
-    .run();
+  // The registry is a Gold module; below it every route here answers the same
+  // 404 an unpublished list does.
+  setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
   db.insert(registrySettings)
     .values({
       weddingId: BOOTSTRAP_WEDDING_ID,
@@ -207,6 +197,18 @@ describe("who may give", () => {
   it("hands a claimed guest a hosted checkout URL", async () => {
     const stripe = stripeStub();
     const { app } = buildApp({ stripe: stripe.client });
+    const cookie = await guestCookie(app);
+
+    const res = await contribute(app, cookie, { amountMinor: 5000 });
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ url: "https://checkout.stripe.test/pay/cs_1" });
+  });
+
+  it("hands a claimed guest a checkout URL on Crimson too, which includes the registry", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
     const cookie = await guestCookie(app);
 
     const res = await contribute(app, cookie, { amountMinor: 5000 });

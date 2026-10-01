@@ -146,7 +146,7 @@ export interface InviteCustomisation {
   // default contract as `details` / `story`, and public for the same reason:
   // it is section furniture on the invite shell, not household-addressed prose
   // like the closing note. Whether the section RENDERS at all is decided by the
-  // registry's own endpoint (entitlement + `published`), never by this copy —
+  // registry's own endpoint (Gold tier + `published`), never by this copy —
   // so a wedding that never opened a registry may still carry a heading here,
   // and no guest ever sees it.
   registry: {

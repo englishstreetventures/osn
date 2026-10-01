@@ -15,8 +15,8 @@ import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
-import { entitlementPresent } from "./entitlements";
-import type { EntitlementKey } from "./entitlements";
+import { normaliseTier } from "./tiers";
+import type { Tier } from "./tiers";
 
 /**
  * Every value the `wedding_hosts.role` column may hold, read off the column
@@ -300,11 +300,15 @@ type AuthorizeResult = {
   /** The wedding's slug, read in the same query as the caller's seat, so a
    *  route that names a download after the wedding does not read the row again. */
   weddingSlug: string;
+  /** The wedding's plan tier, from the same row, so a tier gate mounted after
+   *  the role gate needs no query of its own. */
+  weddingTier: Tier;
 };
 
 /** What the wedding row and the caller's seat on it — if any — say. */
 function resolveSeat(row: {
   slug: string;
+  tier: string;
   seatId: string | null;
   role: string | null;
   runSheetScope: string | null;
@@ -320,6 +324,7 @@ function resolveSeat(row: {
         ? LEAST_PRIVILEGE_RUN_SHEET_SCOPE
         : normaliseRunSheetScope(row.runSheetScope),
     weddingSlug: row.slug,
+    weddingTier: normaliseTier(row.tier),
   };
 }
 
@@ -329,13 +334,12 @@ const callerSeat = (osnProfileId: string) =>
   and(eq(weddingHosts.weddingId, weddings.id), eq(weddingHosts.osnProfileId, osnProfileId));
 
 /**
- * The entitlement-free `authorize()`: the wedding row and the caller's seat on
- * it, in one query, with no `wedding_entitlements` column. Kept apart so both
- * the plain caller and {@link authorizeWithEntitlement}'s defect fallback can
- * reach it. A soft-deleted wedding matches no row, so every gate answers it
- * as unknown.
+ * `authorize()`: the wedding row and the caller's seat on it, in one query.
+ * The wedding row carries the slug and the tier, so neither costs a query of
+ * its own. A soft-deleted wedding matches no row, so every gate answers it as
+ * unknown.
  */
-function authorizePlain(
+function authorizeCaller(
   weddingId: string,
   osnProfileId: string,
 ): Effect.Effect<AuthorizeResult | null, never, DbService> {
@@ -345,6 +349,7 @@ function authorizePlain(
       db
         .select({
           slug: weddings.slug,
+          tier: weddings.tier,
           seatId: weddingHosts.id,
           role: weddingHosts.role,
           runSheetScope: weddingHosts.runSheetScope,
@@ -356,74 +361,6 @@ function authorizePlain(
     );
     return row ? resolveSeat(row) : null;
   }).pipe(Effect.withSpan("cire.host.authorize"));
-}
-
-/**
- * The `entitlementKey`-carrying half of `authorize()` — kept as a separate
- * function rather than an inline branch so the plain path above carries no
- * entitlement column for any caller that never asks for an entitlement fold.
- * The SELECT gains one boolean `entitled` column (an `EXISTS` subquery against
- * `wedding_entitlements`) instead of the caller issuing a second, separate
- * `entitlementService.has()` round trip afterward — the same single query as
- * the plain path, now carrying the entitlement answer too.
- */
-function authorizeWithEntitlement(
-  weddingId: string,
-  osnProfileId: string,
-  entitlementKey: EntitlementKey,
-): Effect.Effect<(AuthorizeResult & { entitled?: boolean }) | null, never, DbService> {
-  const entitledExists = entitlementPresent(weddingId, entitlementKey);
-
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
-      db
-        .select({
-          slug: weddings.slug,
-          seatId: weddingHosts.id,
-          role: weddingHosts.role,
-          runSheetScope: weddingHosts.runSheetScope,
-          entitled: entitledExists,
-        })
-        .from(weddings)
-        .leftJoin(weddingHosts, callerSeat(osnProfileId))
-        .where(and(eq(weddings.id, weddingId), weddingIsLive))
-        .all(),
-    );
-    if (!row) return null;
-    const resolved = resolveSeat(row);
-    return {
-      ...resolved,
-      // No seat means the caller is a stranger, and `entitled` is meaningless
-      // (the role gate 403s before anything reads it), so `false`.
-      entitled: resolved.role !== null && Boolean(row.entitled),
-    };
-  }).pipe(
-    Effect.withSpan("cire.host.authorize"),
-    // Folding the entitlement probe into the role query folds their failure
-    // modes together too. A defect confined to `wedding_entitlements` — a bad
-    // row, a lock, an index problem — must deny only the entitlement half (a
-    // scoped 402, with a log line naming the wedding and the key) while the
-    // role check still answers. Left alone, that defect would throw out of the
-    // gate's derive and 500 every gated route, with a generic log nobody can
-    // triage from.
-    //
-    // So fall back to the plain role query. It answers the role on its own
-    // and returns no `entitled`, so no fold reaches the context and
-    // `weddingEntitlement` runs its own `has()`, still wrapped in its own
-    // defect-to-false-with-log: the two checks fail independently, each with
-    // its own scoped outcome. If the role half is what defected,
-    // `authorizePlain` defects too and the request 500s.
-    Effect.catchDefect((defect) =>
-      Effect.logWarning(
-        "cire.host.authorize entitlement fold failed — falling back to the plain role query",
-      ).pipe(
-        Effect.annotateLogs({ weddingId, entitlement: entitlementKey }),
-        Effect.andThen(Effect.logDebug(String(defect))),
-        Effect.andThen(authorizePlain(weddingId, osnProfileId)),
-      ),
-    ),
-  );
 }
 
 /** A refused host change, logged once with the reason and the wedding. */
@@ -682,9 +619,10 @@ export const hostsService = {
    * The wedding's last owner is never removed: the seat's DELETE carries the
    * guard in its own WHERE, so two owners removing each other at once leave
    * one of them. Their RSVP read marker and digest setting (`host_rsvp_notices`)
-   * go in the same batch, AFTER the seat and only once it is gone — a refused
-   * removal keeps both. A read of the seat closes the batch: still there means
-   * the guard refused it, which fails `LastOwner`.
+   * go in the same batch, ahead of the seat and under the same guard, so a
+   * refused removal keeps both and a batch that fails part-way never leaves a
+   * seat without its notice row. A read of the seat closes the batch: still
+   * there means the guard refused it, which fails `LastOwner`.
    */
   remove(input: {
     weddingId: string;
@@ -695,14 +633,6 @@ export const hostsService = {
       const results = yield* Effect.tryPromise({
         try: () =>
           commitBatchResults(db, [
-            db
-              .delete(weddingHosts)
-              .where(
-                and(
-                  seatOf(input.weddingId, input.osnProfileId),
-                  or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
-                ),
-              ),
             db.delete(hostRsvpNotices).where(
               and(
                 eq(hostRsvpNotices.weddingId, input.weddingId),
@@ -711,10 +641,24 @@ export const hostsService = {
                   db
                     .select({ one: sql`1` })
                     .from(weddingHosts)
-                    .where(seatOf(input.weddingId, input.osnProfileId)),
+                    .where(
+                      and(
+                        seatOf(input.weddingId, input.osnProfileId),
+                        eq(weddingHosts.role, "owner"),
+                        sql`${ownerSeatCount(input.weddingId)} <= 1`,
+                      ),
+                    ),
                 ),
               ),
             ),
+            db
+              .delete(weddingHosts)
+              .where(
+                and(
+                  seatOf(input.weddingId, input.osnProfileId),
+                  or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
+                ),
+              ),
             db
               .select({ id: weddingHosts.id })
               .from(weddingHosts)
@@ -735,33 +679,16 @@ export const hostsService = {
   /**
    * Is `osnProfileId` allowed to reach `weddingId`, and at what level? The
    * answer is their seat's role — every organiser, owners included, holds
-   * exactly one seat — plus the wedding's slug, in ONE query: the wedding row
-   * LEFT JOINed to the caller's seat. `null` means the wedding doesn't exist
-   * (caller maps to 404); `role` is `null` when the caller holds no seat.
-   *
-   * `entitlementKey`, when given, folds a presence check for that entitlement
-   * into the same query (an `EXISTS` column, same idiom as `directory.ts`'s
-   * `inWedding`) rather than a separate round trip — see `weddingEntitlement`.
-   * Omitted, no entitlement column is read, so a role gate on a route with no
-   * entitlement gate — which must never pass a key — pays nothing for it.
+   * exactly one seat — plus the wedding's slug and tier, in ONE query: the
+   * wedding row LEFT JOINed to the caller's seat. `null` means the wedding
+   * doesn't exist or is soft-deleted (caller maps to 404); `role` is `null`
+   * when the caller holds no seat.
    */
   authorize(
     weddingId: string,
     osnProfileId: string,
-    entitlementKey?: EntitlementKey,
-  ): Effect.Effect<
-    | (AuthorizeResult & {
-        /** Only present when `entitlementKey` was passed. */
-        entitled?: boolean;
-      })
-    | null,
-    never,
-    DbService
-  > {
-    if (entitlementKey) {
-      return authorizeWithEntitlement(weddingId, osnProfileId, entitlementKey);
-    }
-    return authorizePlain(weddingId, osnProfileId);
+  ): Effect.Effect<AuthorizeResult | null, never, DbService> {
+    return authorizeCaller(weddingId, osnProfileId);
   },
 
   /**
@@ -780,6 +707,7 @@ export const hostsService = {
         db
           .select({
             slug: weddings.slug,
+            tier: weddings.tier,
             seatId: weddingHosts.id,
             role: weddingHosts.role,
             runSheetScope: weddingHosts.runSheetScope,

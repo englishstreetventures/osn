@@ -21,6 +21,7 @@ import {
   surfacesFor,
   type WeddingRole,
 } from "../lib/wedding-roles";
+import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
@@ -116,12 +117,21 @@ interface HostsPanelProps {
    *  or removing a seat (owners only — `weddingOwner()`). Not named `role`: on
    *  a JSX element that reads as an ARIA role. */
   callerRole: WeddingRole;
+  /** True for every seat holder (`weddingSeat()` on `DELETE /hosts/me`). An
+   *  owner may leave too while another owner remains; the API refuses the last
+   *  owner with 409 `last_owner`. */
+  canLeave?: boolean;
+  /** Called once the caller has left the wedding, after the confirmation
+   *  toast. The parent drops the wedding from the organiser's list, which
+   *  unmounts this panel and releases the wedding's cached rows. */
+  onLeft?: () => void;
 }
 
 /**
  * Hosts section of a wedding's dashboard. Lists everyone seated on the wedding,
  * owners first; an owner or an editor can add another organiser by OSN handle,
- * and owners alone can change a role or remove someone.
+ * owners alone can change a role or remove someone, and anyone seated here can
+ * leave.
  *
  * The split is additive-versus-subtractive, as the API's two gates are: an
  * editor can grow the team (their ceiling is `editor` — `assignableRolesFor()`),
@@ -785,6 +795,10 @@ export default function HostsPanel(props: HostsPanelProps) {
             }
           />
         </Show>
+      </Show>
+
+      <Show when={props.canLeave}>
+        <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
       </Show>
 
       {/* Kept mounted across the close so the exit animates; `shownPromotion`

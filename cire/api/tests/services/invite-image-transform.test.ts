@@ -451,7 +451,8 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     (globalThis as { caches?: unknown }).caches = {
       default: {
         match: () => Promise.resolve(undefined),
-        put: () => Promise.reject(new Error("Cache put: Response body is unbuffered")),
+        // A workerd refusal could echo the key (a URL holding the slug) in its message.
+        put: () => Promise.reject(new Error("Cache put: refused anna-and-ben")),
       },
     };
     const assets = createAssetsStub();
@@ -478,6 +479,7 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
     // Both warnings carry the slot kind as a field.
     expect(logs.match(/"?slot"?[:=] ?"?story/g)?.length ?? 0).toBe(2);
     expect(logs).not.toContain("anna-and-ben");
+    expect(logs).not.toContain("Cache put: refused");
   });
 });
 

@@ -21,12 +21,12 @@ import {
   currentEventsAsParsed,
   underClaim,
 } from "./changes";
-import { CapacityExceeded } from "./entitlements";
 import { normaliseName, nullableString } from "./guest-event-validation";
 import { applyImport, diffAgainstDb, ImportError } from "./import";
 import { R2Service, fetchUpload, R2Error } from "./r2-imports";
 import { parseCsv, parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 import type { SheetKind, SpreadsheetParseError } from "./spreadsheet";
+import { CapacityExceeded } from "./tiers";
 
 export class NoPriorImport extends Data.TaggedError("NoPriorImport")<{
   readonly currentImportId: string;

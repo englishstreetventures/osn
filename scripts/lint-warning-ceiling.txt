@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-983   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — comments rewritten for the wedding soft delete (cire/api/src/services/retention.ts among them) drop four warnings. No rule was disabled and nothing was suppressed.
+972   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — after merging main at 972: the merged tree measures the same. No rule was disabled and nothing was suppressed.

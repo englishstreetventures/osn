@@ -74,6 +74,7 @@ import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { MODULE_NAV } from "../../src/lib/module-nav";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
+import type { Tier } from "../../src/lib/tiers";
 import { __resetVendorsCache } from "../../src/lib/vendors-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
@@ -108,7 +109,7 @@ function resetAll() {
   __resetVendorsCache();
 }
 
-async function renderShell(module: Module, entitlements: string[] = []) {
+async function renderShell(module: Module, tier: Tier = "ivory") {
   const utils = render(() => (
     <ModuleShell
       weddingId="wed_1"
@@ -121,7 +122,8 @@ async function renderShell(module: Module, entitlements: string[] = []) {
       sub={defaultSub(module)}
       onModule={() => {}}
       onSub={() => {}}
-      entitlements={entitlements}
+      tier={tier}
+      entitlements={[]}
       guestCap={100}
     />
   ));
@@ -177,9 +179,9 @@ describe("Overview header", () => {
     // leaves this green.
     for (const mod of MODULE_NAV) {
       routeEmpty();
-      // A module the wedding is not entitled to is coerced to Overview by the
-      // shell, so the two locked ones are rendered holding their entitlement.
-      await renderShell(mod.id, mod.lock ? [mod.lock.entitlement] : []);
+      // A module the wedding's tier does not include is coerced to Overview by
+      // the shell, so each locked one is rendered on the tier its lock names.
+      await renderShell(mod.id, mod.lock?.tier ?? "ivory");
 
       expect(namesOutsideNav(mod.label)).toHaveLength(1);
       expect(screen.queryAllByText(mod.hint)).toHaveLength(1);

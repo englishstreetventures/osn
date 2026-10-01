@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0e127171-ce63-43d5-a956-d6a79ac3dbe4",
+  "id": "88b2813d-fc1a-4225-9494-6c79c2971250",
   "prevId": "767cb12e-be48-4a6d-abae-d3cc81bfd65e",
   "tables": {
     "budget_items": {
@@ -301,12 +301,12 @@
         }
       },
       "indexes": {
-        "directory_vendors_owner_idx": {
-          "name": "directory_vendors_owner_idx",
+        "directory_vendors_owner_uniq": {
+          "name": "directory_vendors_owner_uniq",
           "columns": [
             "owner_org_id"
           ],
-          "isUnique": false
+          "isUnique": true
         },
         "directory_vendors_listed_name_idx": {
           "name": "directory_vendors_listed_name_idx",
@@ -3747,6 +3747,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "owner_osn_profile_id": {
+          "name": "owner_osn_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "code_style": {
           "name": "code_style",
           "type": "text",
@@ -3849,6 +3856,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "weddings_owner_idx": {
+          "name": "weddings_owner_idx",
+          "columns": [
+            "owner_osn_profile_id"
+          ],
+          "isUnique": false
         },
         "weddings_created_at_idx": {
           "name": "weddings_created_at_idx",

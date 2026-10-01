@@ -60,6 +60,7 @@ import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
   createRegistryLinkPreviewRoutes,
+  createRegistryLinkThumbRoutes,
   createRegistryReadRoutes,
   createRegistryWriteRoutes,
 } from "./routes/registry";
@@ -233,6 +234,13 @@ const defaultRegistryPreviewLimiter = createRateLimiter({ maxRequests: 10, windo
  * organiser has to preview before they can pick.
  */
 const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the link picker's thumbnails. Its own budget,
+ * not the preview's: one preview offers up to six candidates and the picker
+ * asks for a thumbnail of each, so 60/min is six for every preview the
+ * preview's own 10/min allows.
+ */
+const defaultRegistryThumbLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the two GUEST registry writes (claim / release).
  *
@@ -523,6 +531,14 @@ export interface AppOptions {
   registryPreviewLimiter?: RateLimiterBackend;
   /** Override the registry image-save rate limiter (useful for testing). */
   registryImageLimiter?: RateLimiterBackend;
+  /** Override the link-picker thumbnail rate limiter (useful for testing). */
+  registryThumbLimiter?: RateLimiterBackend;
+  /**
+   * True in a deployed tier. The link-picker thumbnail route then refuses (503)
+   * when there is no Images binding, rather than serve a shop's bytes as they
+   * arrived. False (the default) is the local path, which has no binding.
+   */
+  registryThumbRequireTransform?: boolean;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
   /** Override the guest RSVP write rate limiter (useful for testing). */
@@ -557,10 +573,10 @@ export interface AppOptions {
   /** Country for a newly created connected account (`AU` unless overridden). */
   stripeAccountCountry?: string;
   /**
-   * Stripe Price ids for the self-serve upgrades, one per purchasable
-   * entitlement. A key absent here is not for sale in this deployment: it never
-   * appears in the catalogue and the checkout route 404s for it. No money
-   * amount is held in this repository — the price is read back from Stripe.
+   * Stripe Price ids for the self-serve tier upgrades. A tier with no Price
+   * here is not for sale in this deployment: it never appears in the catalogue
+   * and the checkout route 404s for it. No money amount is held in this
+   * repository — the price is read back from Stripe.
    */
   upgradePrices?: UpgradePriceConfig;
   /** Override the upgrade purchase limiter (useful for testing). */
@@ -572,8 +588,8 @@ export interface AppOptions {
    * service, so its route tests reach no network. Production passes nothing and
    * the service uses global `fetch` + Cloudflare DoH.
    *
-   * The image save-from-url leg takes the SAME options, so one seam covers both
-   * halves of paste-link → pick → copy.
+   * The image save-from-url leg and the picker's thumbnails take the SAME
+   * options, so one seam covers paste-link → show → pick → copy.
    */
   registryLinkPreviewOptions?: LinkPreviewOptions;
   /**
@@ -639,6 +655,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     enquiryLimiter = defaultEnquiryLimiter,
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
+    registryThumbLimiter = defaultRegistryThumbLimiter,
+    registryThumbRequireTransform = false,
     registryGuestLimiter = defaultRegistryGuestLimiter,
     rsvpLimiter = defaultRsvpLimiter,
     plusOneLimiter = defaultPlusOneLimiter,
@@ -862,10 +880,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // over the reads. Same no-Turnstile argument as RSVP above — the cookie
       // came from a Turnstile-gated `/api/claim`.
       //
-      // Every route here is invisible without the `registry` entitlement, which
-      // NO wedding holds: they answer 404 `registry_not_found`, not 402, because
-      // no caller — anonymous, or holding a cookie for some other wedding —
-      // may learn which weddings have bought which features.
+      // Every route here is invisible for a wedding below Gold: they answer
+      // 404 `registry_not_found`, not 402, because no caller — anonymous, or
+      // holding a cookie for some other wedding — may learn which weddings
+      // have bought which tier.
       .use(createRegistryGuestImageRoutes(db, { assets, images }))
       .use(createRegistryGuestListRoutes(db))
       .use(createRegistryGuestMineRoutes(db))
@@ -916,7 +934,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
-      // `consent_source='organiser_attested'`. weddingEditor()-gated.
+      // `consent_source='organiser_attested'` unless the save is status-only,
+      // which keeps the stored dietary answer's source. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
       // Guest-side RSVP changes since each organiser last looked, their read
       // marker, and their daily digest switch. Feed + marker admit every role
@@ -935,13 +954,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createTaskWriteRoutes(db, osnAuthOptions))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
-      // Gift registry. Same read/write gate split as the modules above, plus an
-      // entitlement gate: a wedding without the `registry` key gets 402
-      // `payment_required` from every route here, and the portal fades that
-      // module's nav row and offers the upgrade rather than opening it. Mounting
-      // it unconditionally is deliberate — the lock is the entitlement, not the
-      // absence of a route, so turning the feature on for one wedding is a single
-      // row and needs no deploy.
+      // Gift registry. Same read/write gate split as the modules above, and the
+      // same Gold tier gate: a wedding below Gold gets 402 `payment_required`
+      // from every route here, and the portal fades that module's nav row and
+      // offers the upgrade rather than opening it. Mounting it unconditionally
+      // is deliberate — the lock is the tier, not the absence of a route, so
+      // moving one wedding to Gold opens it with no deploy.
       .use(createRegistryReadRoutes(db, osnAuthOptions))
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
@@ -967,6 +985,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(
         createRegistryLinkPreviewRoutes(db, osnAuthOptions, {
           limiter: registryPreviewLimiter,
+          linkPreviewOptions: registryLinkPreviewOptions,
+        }),
+      )
+      // The picker's thumbnails are their own sibling for the same reason: an
+      // outbound fetch per call, and a budget sized for six per preview.
+      .use(
+        createRegistryLinkThumbRoutes(db, osnAuthOptions, {
+          limiter: registryThumbLimiter,
+          images,
+          requireTransform: registryThumbRequireTransform,
           linkPreviewOptions: registryLinkPreviewOptions,
         }),
       )

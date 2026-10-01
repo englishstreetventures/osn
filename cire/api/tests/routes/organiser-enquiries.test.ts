@@ -7,7 +7,6 @@ import {
   families,
   guests,
   vendorEnquiries,
-  weddingEntitlements,
   weddingHosts,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
@@ -17,8 +16,9 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import type { Tier } from "../../src/services/tiers";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -194,9 +194,9 @@ function seedListings(db: Db) {
 interface BuildOpts {
   zap?: ZapChatClient | null;
   enquiryLimiter?: ReturnType<typeof createRateLimiter>;
-  /** Grant the bootstrap wedding `vendors`, which every enquiry route needs.
-   *  Off only for the tests of the entitlement gate itself. */
-  grantVendors?: boolean;
+  /** The bootstrap wedding's tier. Every enquiry route needs Crimson; only the
+   *  tests of the tier gate itself ask for less. */
+  tier?: Tier;
 }
 
 function buildApp(opts: BuildOpts = {}) {
@@ -204,18 +204,7 @@ function buildApp(opts: BuildOpts = {}) {
   seedDb(db);
   seedOtherWedding(db);
   seedListings(db);
-  if (opts.grantVendors ?? true) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: new Date(),
-        grantedBy: BOOTSTRAP_OWNER,
-        providerRef: null,
-      })
-      .run();
-  }
+  setTier(db, BOOTSTRAP_WEDDING_ID, opts.tier ?? "crimson");
   const email = makeLogEmailLive();
   const fake = makeFakeZap();
   const zap = opts.zap === undefined ? fake.client : opts.zap;
@@ -605,30 +594,31 @@ describe("POST enquiries is rate-limited per user", () => {
   });
 });
 
-describe("vendors entitlement gate", () => {
-  // Enquiries belong to the vendors pack, so a wedding without `vendors`
-  // gets the same 402 its sibling vendor and directory routes give. The portal
-  // never shows these routes to such a wedding; this is the answer to a direct
-  // API call. The gate runs before the handler, so any enquiry id will do.
-  const paymentRequired = { error: "payment_required", entitlement: "vendors" };
+describe("Crimson tier gate", () => {
+  // Enquiries belong to the vendors module, so a wedding below Crimson gets the
+  // same 402 its sibling vendor and directory routes give — Gold included. The
+  // portal never shows these routes to such a wedding; this is the answer to a
+  // direct API call. The gate runs before the handler, so any enquiry id will
+  // do.
+  const paymentRequired = { error: "payment_required", tier: "crimson" };
   const threadPath = `${enquiriesPath}/enq_any/messages`;
 
-  it("GET /enquiries → 402 for the owner of a wedding without `vendors`", async () => {
-    const { app } = buildApp({ grantVendors: false });
+  it("GET /enquiries → 402 for the owner of a Gold wedding", async () => {
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, enquiriesPath, { profileId: BOOTSTRAP_OWNER });
     expect(res.status).toBe(402);
     expect(await jsonBody(res)).toEqual(paymentRequired);
   });
 
-  it("GET /enquiries/:id/messages → 402 for the owner of a wedding without `vendors`", async () => {
-    const { app } = buildApp({ grantVendors: false });
+  it("GET /enquiries/:id/messages → 402 for the owner of a Gold wedding", async () => {
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, threadPath, { profileId: BOOTSTRAP_OWNER });
     expect(res.status).toBe(402);
     expect(await jsonBody(res)).toEqual(paymentRequired);
   });
 
   it("POST /enquiries → 402, and sends no vendor email and opens no chat", async () => {
-    const { app, email, fakeZap } = buildApp({ grantVendors: false });
+    const { app, email, fakeZap } = buildApp({ tier: "gold" });
     const res = await req(app, enquiriesPath, {
       method: "POST",
       profileId: BOOTSTRAP_OWNER,
@@ -644,8 +634,8 @@ describe("vendors entitlement gate", () => {
     expect(fakeZap.messagesByChat.size).toBe(0);
   });
 
-  it("POST /enquiries/:id/messages → 402 for the owner of a wedding without `vendors`", async () => {
-    const { app } = buildApp({ grantVendors: false });
+  it("POST /enquiries/:id/messages → 402 for the owner of a Gold wedding", async () => {
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, threadPath, {
       method: "POST",
       profileId: BOOTSTRAP_OWNER,
@@ -655,8 +645,8 @@ describe("vendors entitlement gate", () => {
     expect(await jsonBody(res)).toEqual(paymentRequired);
   });
 
-  it("POST /enquiries/:id/add-to-budget → 402 for the owner of a wedding without `vendors`", async () => {
-    const { app } = buildApp({ grantVendors: false });
+  it("POST /enquiries/:id/add-to-budget → 402 for the owner of a Gold wedding", async () => {
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, `${enquiriesPath}/enq_any/add-to-budget`, {
       method: "POST",
       profileId: BOOTSTRAP_OWNER,
@@ -666,7 +656,7 @@ describe("vendors entitlement gate", () => {
   });
 
   it("the role gate answers first: a viewer on a write route gets 403, not 402", async () => {
-    const { app, db } = buildApp({ grantVendors: false });
+    const { app, db } = buildApp({ tier: "gold" });
     db.insert(weddingHosts)
       .values({
         id: "whost_enq_viewer_unentitled",
@@ -692,21 +682,21 @@ describe("vendors entitlement gate", () => {
 
   it("the role gate answers first on reads too: a stranger gets 403, not 402", async () => {
     // A 402 here would tell a stranger which weddings have paid for vendors.
-    const { app } = buildApp({ grantVendors: false });
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, enquiriesPath, { profileId: OTHER_OWNER });
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 
   it("authentication answers first: no token is 401, not 402", async () => {
-    const { app } = buildApp({ grantVendors: false });
+    const { app } = buildApp({ tier: "gold" });
     const res = await req(app, enquiriesPath);
     expect(res.status).toBe(401);
   });
 
-  it("the limiter sits after the gate, so an unentitled wedding never spends its budget", async () => {
+  it("the limiter sits after the gate, so a wedding below Crimson never spends its budget", async () => {
     const { app } = buildApp({
-      grantVendors: false,
+      tier: "gold",
       enquiryLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
     const open = () =>

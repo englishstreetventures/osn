@@ -12,7 +12,11 @@ import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
-import { createDirectoryService, ClaimInvalid } from "../../src/services/directory";
+import {
+  createDirectoryService,
+  ClaimInvalid,
+  OrgAlreadyHasListing,
+} from "../../src/services/directory";
 import { VendorNotInWedding } from "../../src/services/vendors";
 import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -560,6 +564,25 @@ describe("directoryService.getClaimPreview", () => {
     expect("email" in previewRes.value!).toBe(false);
   });
 
+  it("returns null for a live token whose listing is already claimed", async () => {
+    const db = db0();
+    const dvId = "dv_claimed_preview";
+    db.insert(directoryVendors)
+      .values({
+        id: dvId,
+        ownerOrgId: "org_owner",
+        name: "Claimed Listing",
+        listed: "live",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    const token = await mintToken(db, dvId);
+
+    const res = await run(db, directoryService.getClaimPreview(token));
+    expect(Exit.isSuccess(res) && res.value).toBeNull();
+  });
+
   it("returns null for an unknown token", async () => {
     const db = db0();
     const res = await run(db, directoryService.getClaimPreview("totally-made-up-token"));
@@ -568,6 +591,82 @@ describe("directoryService.getClaimPreview", () => {
     expect(res.value).toBeNull();
   });
 });
+
+// ── consumeClaim helpers ──────────────────────────────────────────────────────
+
+const LISTING_BODY = {
+  name: "Own Listing",
+  description: null,
+  email: "own@vendor.com",
+  phone: null,
+  website: null,
+  instagram: null,
+  locationText: null,
+  priceBand: null,
+  priceMinMinor: null,
+  priceMaxMinor: null,
+  categories: [],
+};
+
+function failedWith(
+  exit: Exit.Exit<unknown, unknown>,
+  cls: typeof ClaimInvalid | typeof OrgAlreadyHasListing,
+): boolean {
+  return (
+    Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof cls
+  );
+}
+
+async function tokenHash(token: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function claimOf(db: ReturnType<typeof createDb>, token: string) {
+  const hash = await tokenHash(token);
+  return db.select().from(vendorClaims).where(eq(vendorClaims.tokenHash, hash)).get();
+}
+
+function listingOf(db: ReturnType<typeof createDb>, id: string) {
+  return db.select().from(directoryVendors).where(eq(directoryVendors.id, id)).get()!;
+}
+
+/** A second live claim token for `directoryVendorId`, inserted directly. */
+async function mintToken(db: ReturnType<typeof createDb>, directoryVendorId: string) {
+  const token = `tok_${crypto.randomUUID()}`;
+  const hash = await tokenHash(token);
+  db.insert(vendorClaims)
+    .values({
+      id: `clm_${crypto.randomUUID()}`,
+      directoryVendorId,
+      tokenHash: hash,
+      email: "claim@vendor.com",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+    })
+    .run();
+  return token;
+}
+
+/** Run `effect` once, just before the claim's bind statement is prepared. */
+function interceptBeforeBind(db: ReturnType<typeof createDb>, effect: () => unknown) {
+  const client = db.$client;
+  const prepare = client.prepare.bind(client);
+  let fired = false;
+  Object.defineProperty(client, "prepare", {
+    configurable: true,
+    value: (sql: string) => {
+      if (!fired && /^update "directory_vendors"/i.test(sql)) {
+        fired = true;
+        effect();
+      }
+      return prepare(sql);
+    },
+  });
+}
 
 describe("directoryService.consumeClaim", () => {
   async function seedVendorAndClaim(db: ReturnType<typeof createDb>) {
@@ -777,12 +876,17 @@ describe("directoryService.consumeClaim", () => {
     const sqls = statements.map((s) => s.sql);
     const burn = sqls.findIndex((s) => /^update "vendor_claims"/i.test(s));
     const bind = sqls.findIndex((s) => /^update "directory_vendors"/i.test(s));
-    expect(burn).toBeGreaterThan(-1);
+    const burnOthers = sqls.findLastIndex((s) => /^update "vendor_claims"/i.test(s));
+    expect(burn).toBeGreaterThan(0);
     expect(bind).toBeGreaterThan(burn);
-    // Claim read, burn, bind, categories — the bound row comes back from the
-    // bind itself, not from a second read of the listing.
-    expect(sqls).toHaveLength(4);
-    expect(sqls.some((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"'))).toBe(false);
+    expect(burnOthers).toBeGreaterThan(bind);
+    // Claim read (carrying the owner pre-checks), burn, bind, burn of the
+    // other tokens, categories — the bound row comes back from the bind
+    // itself, not from a second read of the listing.
+    expect(sqls).toHaveLength(5);
+    expect(
+      sqls.filter((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"')),
+    ).toHaveLength(1);
 
     expect(res.value.id).toBe(directoryVendorId);
     expect(res.value.ownerOrgId).toBe("org_order");
@@ -831,15 +935,15 @@ describe("directoryService.consumeClaim", () => {
   it("fails ClaimInvalid, with the token burned, when the listing is gone at bind", async () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    // The listing goes after the pre-check and the burn, as the bind starts.
     // The claim's foreign key cascades, so this state needs the check off.
     db.$client.exec("PRAGMA foreign_keys = OFF;");
-    db.delete(directoryVendors).where(eq(directoryVendors.id, directoryVendorId)).run();
+    interceptBeforeBind(db, () =>
+      db.$client.prepare("DELETE FROM directory_vendors WHERE id = ?1").run(directoryVendorId),
+    );
 
     const res = await run(db, directoryService.consumeClaim(claimToken, "org_gone", "usr_gone"));
-    expect(
-      Exit.isFailure(res) &&
-        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
-    ).toBe(true);
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
 
     const claimRow = db
       .select()
@@ -847,6 +951,145 @@ describe("directoryService.consumeClaim", () => {
       .where(eq(vendorClaims.directoryVendorId, directoryVendorId))
       .get();
     expect(claimRow!.consumedAt).not.toBeNull();
+  });
+
+  it("fails ClaimInvalid without burning the token when the listing is already gone", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    db.$client.exec("PRAGMA foreign_keys = OFF;");
+    db.delete(directoryVendors).where(eq(directoryVendors.id, directoryVendorId)).run();
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_gone", "usr_gone"));
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
+    expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+  });
+
+  it("a second live token cannot move a claimed listing to another org", async () => {
+    const db = db0();
+    const { claimToken: first, directoryVendorId } = await seedVendorAndClaim(db);
+    const second = await mintToken(db, directoryVendorId);
+
+    const won = await run(db, directoryService.consumeClaim(second, "org_vendor", "usr_vendor"));
+    expect(Exit.isSuccess(won)).toBe(true);
+
+    const res = await run(db, directoryService.consumeClaim(first, "org_other", "usr_other"));
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
+    const dv = listingOf(db, directoryVendorId);
+    expect(dv.ownerOrgId).toBe("org_vendor");
+    expect(dv.claimedByProfileId).toBe("usr_vendor");
+  });
+
+  it("burns every other live token for the listing on a successful claim", async () => {
+    const db = db0();
+    const { claimToken: first, directoryVendorId } = await seedVendorAndClaim(db);
+    const second = await mintToken(db, directoryVendorId);
+    // A token for another listing is left alone.
+    const elsewhere = await seedVendorAndClaim(db);
+
+    const res = await run(db, directoryService.consumeClaim(second, "org_vendor", "usr_vendor"));
+    expect(Exit.isSuccess(res)).toBe(true);
+
+    expect((await claimOf(db, first))!.consumedAt).not.toBeNull();
+    expect((await claimOf(db, second))!.consumedAt).not.toBeNull();
+    expect((await claimOf(db, elsewhere.claimToken))!.consumedAt).toBeNull();
+  });
+
+  it("a live token for a claimed listing fails ClaimInvalid and is not burned", async () => {
+    const db = db0();
+    const { directoryVendorId } = await seedVendorAndClaim(db);
+    db.update(directoryVendors)
+      .set({ ownerOrgId: "org_vendor", claimedByProfileId: "usr_vendor" })
+      .where(eq(directoryVendors.id, directoryVendorId))
+      .run();
+    const stray = await mintToken(db, directoryVendorId);
+
+    // The org check would also refuse here; the listing check answers first.
+    const res = await run(db, directoryService.consumeClaim(stray, "org_vendor", "usr_x"));
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
+    expect((await claimOf(db, stray))!.consumedAt).toBeNull();
+    expect(listingOf(db, directoryVendorId).claimedByProfileId).toBe("usr_vendor");
+  });
+
+  it("binds nothing when the listing is claimed between the pre-check and the bind", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    interceptBeforeBind(db, () =>
+      db.$client
+        .prepare("UPDATE directory_vendors SET owner_org_id = 'org_first' WHERE id = ?1")
+        .run(directoryVendorId),
+    );
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_late", "usr_late"));
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
+    expect(listingOf(db, directoryVendorId).ownerOrgId).toBe("org_first");
+    expect(listingOf(db, directoryVendorId).claimedByProfileId).toBeNull();
+  });
+
+  it("fails OrgAlreadyHasListing, leaving the token live, when the org owns a listing", async () => {
+    const db = db0();
+    await run(db, directoryService.upsertListingForOrg("org_has", LISTING_BODY));
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+    expect(failedWith(res, OrgAlreadyHasListing)).toBe(true);
+    expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+    expect(listingOf(db, directoryVendorId).ownerOrgId).toBeNull();
+
+    // The same token still claims into an org with no listing.
+    const ok = await run(db, directoryService.consumeClaim(claimToken, "org_free", "usr_has"));
+    expect(Exit.isSuccess(ok)).toBe(true);
+  });
+
+  it("fails OrgAlreadyHasListing when the org gains a listing between the pre-check and the bind", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+    const second = await mintToken(db, directoryVendorId);
+    interceptBeforeBind(db, () =>
+      db.$client
+        .prepare(
+          "INSERT INTO directory_vendors (id, owner_org_id, name, listed, created_at, updated_at) VALUES ('dv_raced', 'org_race', 'Raced', 'live', 0, 0)",
+        )
+        .run(),
+    );
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_race", "usr_race"));
+    expect(failedWith(res, OrgAlreadyHasListing)).toBe(true);
+    expect(listingOf(db, directoryVendorId).ownerOrgId).toBeNull();
+    // The bind failed first, so the listing's other tokens stay live.
+    expect((await claimOf(db, second))!.consumedAt).toBeNull();
+  });
+
+  it("a bind failure that is not an owner conflict stays a defect, with the token burned", async () => {
+    const db = db0();
+    const { claimToken } = await seedVendorAndClaim(db);
+    interceptBeforeBind(db, () => {
+      throw new Error("disk I/O error");
+    });
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_none", "usr_none"));
+    expect(Exit.isFailure(res)).toBe(true);
+    if (!Exit.isFailure(res)) throw new Error("expected failure");
+    expect(Option.isNone(Cause.findErrorOption(res.cause))).toBe(true);
+    expect((await claimOf(db, claimToken))!.consumedAt).not.toBeNull();
+  });
+
+  it("the unique owner index refuses a second listing for one org and allows many unowned", () => {
+    const db = db0();
+    const row = (id: string, ownerOrgId: string | null) => ({
+      id,
+      ownerOrgId,
+      name: id,
+      listed: "draft",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    db.insert(directoryVendors)
+      .values([row("dv_n1", null), row("dv_n2", null)])
+      .run();
+    db.insert(directoryVendors).values(row("dv_o1", "org_one")).run();
+    expect(() => db.insert(directoryVendors).values(row("dv_o2", "org_one")).run()).toThrow(
+      /UNIQUE constraint failed/,
+    );
   });
 });
 

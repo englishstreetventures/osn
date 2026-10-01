@@ -107,15 +107,20 @@ function weddingBlock(): string {
 -- The profile columns (date, guest estimate, currency, budget, RSVP deadline)
 -- are set rather than left NULL: an organiser fills them in early, and every
 -- planning surface reads as "not started" without them.
+--
+-- The tier is \`${bootstrapWedding.tier}\`, comped: on Ivory every paid module
+-- sits locked, and a dev tier has no payment provider to buy one with.
 INSERT OR IGNORE INTO weddings (
   id, slug, display_name, code_style,
   wedding_date, guest_count_estimate, currency, budget_total_minor,
   rsvp_deadline, rsvp_deadline_timezone,
+  tier, tier_source, tier_granted_by,
   created_at, updated_at
 ) VALUES (
   ${sql(bootstrapWedding.id)}, ${sql(bootstrapWedding.slug)}, ${sql(bootstrapWedding.displayName)}, ${sql(bootstrapWedding.codeStyle)},
   ${sql(bootstrapWedding.weddingDate)}, ${bootstrapWedding.guestCountEstimate}, ${sql(bootstrapWedding.currency)}, ${bootstrapWedding.budgetTotalMinor},
   ${sql(bootstrapWedding.rsvpDeadline)}, ${sql(bootstrapWedding.rsvpDeadlineTimezone)},
+  ${sql(bootstrapWedding.tier)}, ${sql(bootstrapWedding.tierSource)}, ${sql(bootstrapWedding.tierGrantedBy)},
   unixepoch(), unixepoch()
 );`,
   );
@@ -228,8 +233,9 @@ function entitlementsBlock(): string {
   );
   return section(
     `Entitlements (${rows.length})`,
-    `-- All \`comp\`: no payment provider is wired up on a dev tier, and without
--- these the premium surfaces (vendors, AI, the 1000-guest cap) never render.
+    `-- All \`comp\`: no payment provider is wired up on a dev tier. The tier above
+-- already includes premium templates; the row is here so a tester who lowers
+-- the tier by hand still has one to find.
 INSERT OR IGNORE INTO wedding_entitlements (wedding_id, entitlement, source, granted_at, granted_by, provider_ref) VALUES
 ${rows.join(",\n")};`,
   );
@@ -500,8 +506,8 @@ function registrySettingsBlock(): string {
   return section(
     "Registry settings — one row, and the guest-side publish gate",
     `-- \`published\` is the SECOND gate on the guest registry: the guest read needs
--- both this flag AND the wedding's \`registry\` entitlement (comped above), so a
--- dev tier with the entitlement and no row still 404s the guest page.
+-- both this flag AND a wedding on Gold or above (the comped tier above), so a
+-- wedding on a paid tier with no row still 404s the guest page.
 --
 -- Cash gifts stay off. They need a Stripe Connect account per wedding, and a
 -- registry is fully usable as an honour-system list without one.

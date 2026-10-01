@@ -10,13 +10,14 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
-import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
   CreateRegistryItemBody,
   GiftKindSchema,
   RegistryLinkPreviewBody,
+  RegistryLinkThumbBody,
   RegistrySaveImageFromUrlBody,
   ReorderRegistryItemsBody,
   SetNoteHiddenBody,
@@ -35,6 +36,7 @@ import {
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { linkPreviewService } from "../services/link-preview";
 import type { LinkPreviewOptions } from "../services/link-preview";
+import { linkThumbnailService } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
@@ -156,8 +158,8 @@ function parseOffset(raw: unknown): number {
 /**
  * Gift registry — READ surface (platform Phase 4, [[registry]]):
  *
- *   GET /api/organiser/weddings/:weddingId/registry         (weddingMember + entitlement)
- *   GET /api/organiser/weddings/:weddingId/registry/gifts   (weddingMember + entitlement)
+ *   GET /api/organiser/weddings/:weddingId/registry         (weddingMember + Gold)
+ *   GET /api/organiser/weddings/:weddingId/registry/gifts   (weddingMember + Gold)
  *
  * `/registry` is the whole snapshot with page one of the gift log.
  * `/registry/gifts?offset=` is every further page, and nothing else: the portal
@@ -167,11 +169,9 @@ function parseOffset(raw: unknown): number {
  * Split from the write factory so the read gate (weddingMember) never
  * cross-contaminates the write gates — mirrors createBudgetReadRoutes.
  *
- * LOCKED: `weddingEntitlement(db, "registry")` sits after the role gate, so a
- * wedding without that entitlement gets 402 `payment_required` from every route
- * here. That is the whole mechanism by which the feature ships built but
- * unreachable — in the portal the module's nav row fades and offers the upgrade
- * rather than opening.
+ * LOCKED: `weddingTier(db, "gold")` sits after the role gate, so a wedding
+ * below Gold gets 402 `payment_required` from every route here. In the portal
+ * the module's nav row fades and offers the upgrade rather than opening.
  *
  * Both reads carry guest-written notes and gift amounts against named
  * households, so both say `no-store` themselves — the same rule `gifts.csv` and
@@ -183,8 +183,8 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
+        .use(weddingMember(db))
+        .use(weddingTier(db, "gold"))
         .get("/registry", async ({ weddingId, set }) => {
           if (!weddingId) return internalSync(set);
           set.headers["cache-control"] = "no-store";
@@ -224,7 +224,7 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
  *   POST   /registry/gifts/:kind/:giftId/thanked     (weddingEditor)
  *   POST   /registry/gifts/:kind/:giftId/note-hidden (weddingEditor)
  *
- * A viewer gets 403 `read_only_role`; a wedding without the entitlement gets 402.
+ * A viewer gets 403 `read_only_role`; a wedding below Gold gets 402.
  * The service re-scopes every write by wedding_id, so a cross-tenant id 404s.
  *
  * NOTE `/registry/items/reorder` is registered BEFORE `/registry/items/:itemId`
@@ -253,8 +253,8 @@ export const createRegistryWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
         .put(
           "/registry/settings",
           async ({ weddingId, request, set }) => {
@@ -466,7 +466,7 @@ export interface RegistryLinkPreviewDeps {
 /**
  * Gift registry — LINK PREVIEW:
  *
- *   POST /registry/link-preview   (weddingEditor + registry entitlement + limiter)
+ *   POST /registry/link-preview   (weddingEditor + Gold + limiter)
  *
  * Mounted as its own factory rather than folded into the write routes above,
  * for one reason: it is the only registry endpoint that spends OUR network on a
@@ -476,9 +476,9 @@ export interface RegistryLinkPreviewDeps {
  * reason, as `routes/organiser-enquiries.ts`.
  *
  * Gate order is the sibling write routes' order with the limiter appended:
- * `osnAuth` (401) → `weddingEditor` (403 `read_only_role`) → `weddingEntitlement`
+ * `osnAuth` (401) → `weddingEditor` (403 `read_only_role`) → `weddingTier`
  * (402 `payment_required`) → limiter (429). The limiter goes LAST so a wedding
- * without the entitlement is turned away before it can spend anyone's budget.
+ * below Gold is turned away before it can spend anyone's budget.
  *
  * Error mapping — every one of these is the caller's or the internet's problem,
  * never ours, so none of them is a 500:
@@ -503,8 +503,8 @@ export const createRegistryLinkPreviewRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post(
           "/registry/link-preview",
@@ -570,6 +570,106 @@ export const createRegistryLinkPreviewRoutes = (
         ),
     );
 
+/** Options for {@link createRegistryLinkThumbRoutes}. */
+export interface RegistryLinkThumbDeps {
+  /** Per-organiser limiter, its own budget — a picker paints six at once. */
+  readonly limiter: RateLimiterBackend;
+  /** The Images binding. Absent locally and in unit tests. */
+  readonly images?: ImagesBindingLike;
+  /** True in a deployed tier: no binding ⇒ 503, never the shop's raw bytes. */
+  readonly requireTransform: boolean;
+  /** Test seam: injectable fetch + DNS resolver, shared with the preview. */
+  readonly linkPreviewOptions?: LinkPreviewOptions;
+}
+
+/**
+ * Gift registry — LINK-PICKER THUMBNAILS:
+ *
+ *   POST /registry/link-preview/image   (weddingEditor + Gold + limiter)
+ *
+ * Takes `{ url }`, one candidate the preview offered, and answers a 320px
+ * re-encoded image (`services/link-thumbnail.ts`). The portal reads it through
+ * `authFetch` into an object URL, so the browser never loads a shop's host and
+ * the portal's CSP `img-src` admits no https origin but cire-api's.
+ *
+ * POST, not GET, for two reasons. The URL travels in the body, so it never
+ * reaches a request log — a registry link names something the couple is
+ * buying. And `originGuard` checks the `Origin` of every POST: organiser auth is
+ * a `SameSite=Lax` cookie, so a GET would let any same-site page's `<img>` spend
+ * an editor's budget and our outbound fetches on a URL of its choosing.
+ *
+ * Its own factory and its own limiter, same reason as the preview: an Elysia
+ * guard applies to every route in its group, and this budget is sized for six
+ * thumbnails per preview. Gate order: `osnAuth` (401) → `weddingEditor` (403)
+ * → `weddingTier` (402 below Gold) → limiter (429).
+ *
+ *   LinkThumbBlocked          → 400 `blocked_url` (no reason, as on the preview)
+ *   LinkThumbFetchFailed      → 502 `thumbnail_fetch_failed`
+ *   LinkThumbTooLarge         → 413 `image_too_large`
+ *   LinkThumbUnsupportedType  → 415 `unsupported_image_type`
+ *   LinkThumbTransformFailed  → 502 `thumbnail_failed`
+ *   LinkThumbUnavailable      → 503 `thumbnail_unavailable`
+ *   LinkThumbBudgetSpent      → 429 `thumbnail_budget_spent` (this month's
+ *                               share of the Images quota; see the service)
+ */
+export const createRegistryLinkThumbRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  deps: RegistryLinkThumbDeps,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
+        .use(rateLimitMiddlewareByUser(deps.limiter))
+        .post(
+          "/registry/link-preview/image",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            const status = (code: number, error: string) =>
+              Effect.sync(() => {
+                set.status = code;
+                return { error };
+              });
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(RegistryLinkThumbBody)(raw);
+                return yield* linkThumbnailService.thumbnail({
+                  request,
+                  rawUrl: body.url,
+                  format: negotiateFormat(request.headers.get("accept")),
+                  images: deps.images,
+                  requireTransform: deps.requireTransform,
+                  options: deps.linkPreviewOptions,
+                });
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
+                Effect.catchTag("LinkThumbBlocked", () => status(400, "blocked_url")),
+                Effect.catchTag("LinkThumbFetchFailed", () =>
+                  status(502, "thumbnail_fetch_failed"),
+                ),
+                Effect.catchTag("LinkThumbTooLarge", () => status(413, "image_too_large")),
+                Effect.catchTag("LinkThumbUnsupportedType", () =>
+                  status(415, "unsupported_image_type"),
+                ),
+                Effect.catchTag("LinkThumbTransformFailed", () => status(502, "thumbnail_failed")),
+                Effect.catchTag("LinkThumbUnavailable", () => status(503, "thumbnail_unavailable")),
+                Effect.catchTag("LinkThumbBudgetSpent", () =>
+                  status(429, "thumbnail_budget_spent"),
+                ),
+                Effect.tapDefect(logDefect(weddingId)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        ),
+    );
+
 /** Options for {@link createRegistryImageRoutes}. */
 export interface RegistryImageDeps {
   /** Per-organiser limiter. Required — the from-url leg makes an outbound fetch. */
@@ -583,8 +683,8 @@ export interface RegistryImageDeps {
 /**
  * Gift registry — IMAGE SAVES:
  *
- *   POST /registry/image           (weddingEditor + entitlement + limiter)
- *   POST /registry/image/from-url  (weddingEditor + entitlement + limiter)
+ *   POST /registry/image           (weddingEditor + Gold + limiter)
+ *   POST /registry/image/from-url  (weddingEditor + Gold + limiter)
  *
  * Both end with bytes in R2 and answer with the key the caller then puts in an
  * item's `imageKey` (on create, or on a later patch). They are deliberately NOT
@@ -602,7 +702,7 @@ export interface RegistryImageDeps {
  * limiter the other registry writes must not share, and an Elysia guard applies
  * to every route in its group. Gate order copies the sibling writes with the
  * limiter appended: `osnAuth` (401) → `weddingEditor` (403 `read_only_role`) →
- * `weddingEntitlement` (402) → limiter (429).
+ * `weddingTier` (402) → limiter (429).
  *
  * Error mapping mirrors the preview route, including its silence about WHY a URL
  * was blocked — naming the rule would make this a network scanner with a clean
@@ -622,8 +722,8 @@ export const createRegistryImageRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
+        .use(weddingEditor(db))
+        .use(weddingTier(db, "gold"))
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post(
           "/registry/image",
@@ -723,7 +823,7 @@ function registryImageErrors(set: { status?: number | string }, weddingId: strin
 /**
  * Gift registry — IMAGE SERVE:
  *
- *   GET /registry/image/:name   (weddingMember + entitlement)
+ *   GET /registry/image/:name   (weddingMember + Gold)
  *
  * The organiser portal's thumbnail. Same Cache-API-short-circuit + Images-binding
  * transform + raw-original fallback as every other cire image — `serveTransformedImage`
@@ -764,8 +864,8 @@ export const createRegistryImageServeRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
+        .use(weddingMember(db))
+        .use(weddingTier(db, "gold"))
         .get("/registry/image/:name", ({ weddingId, params, query, request, set }) => {
           if (!weddingId) return internalSync(set);
           if (!REGISTRY_IMAGE_NAME.test(params.name)) {

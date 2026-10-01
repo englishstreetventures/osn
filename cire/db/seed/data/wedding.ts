@@ -44,4 +44,10 @@ export const bootstrapWedding = {
   // the future, move both.
   rsvpDeadline: "2026-10-25",
   rsvpDeadlineTimezone: "Australia/Sydney",
+  // The top tier, comped: a dev tier has no payment provider wired up, and on
+  // Ivory every paid module (budget, checklist, registry, vendors) sits locked,
+  // so nobody would exercise them before a release reaches prod.
+  tier: "crimson",
+  tierSource: "comp",
+  tierGrantedBy: "dev-seed",
 } as const;

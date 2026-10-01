@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { weddingHosts } from "@cire/db";
+import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -14,6 +14,7 @@ import type { AssignableHostRole } from "../../src/services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -620,11 +621,12 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
 
   it("returns 409 last_owner when the only owner tries to leave, and keeps their seat", async () => {
     const { db, app } = buildApp();
-    const before = await counterValue(CIRE_METRICS.hostRemoved, { result: "last_owner" });
+    const attrs = { result: "last_owner", actor: "owner" };
+    const before = await counterValue(CIRE_METRICS.hostRemoved, attrs);
     const res = await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER);
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "last_owner" });
-    expect(await counterValue(CIRE_METRICS.hostRemoved, { result: "last_owner" })).toBe(before + 1);
+    expect(await counterValue(CIRE_METRICS.hostRemoved, attrs)).toBe(before + 1);
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, OWNER)).all(),
     ).toHaveLength(1);
@@ -644,6 +646,205 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     const { app } = buildApp();
     const res = await req(app, "DELETE", `/api/organiser/weddings/wed_nope/hosts/${COHOST}`, OWNER);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
+  const leavePath = `${hostsPath}/me`;
+
+  // Its own limiter per app: the default host limiter is one per process, and
+  // this block's calls would otherwise spend the budget later blocks rely on.
+  const build = (overrides: Partial<AppOptions> = {}) =>
+    buildApp({
+      hostLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+      ...overrides,
+    });
+
+  function seedNotice(db: Db, osnProfileId: string) {
+    db.insert(hostRsvpNotices)
+      .values({ weddingId: WEDDING_ID, osnProfileId, updatedAt: new Date() })
+      .run();
+  }
+
+  const noticeIds = async (db: Db) =>
+    (await db.select({ id: hostRsvpNotices.osnProfileId }).from(hostRsvpNotices).all())
+      .map((r) => r.id)
+      .toSorted();
+  const seatIds = async (db: Db) =>
+    (await db.select({ id: weddingHosts.osnProfileId }).from(weddingHosts).all())
+      .map((r) => r.id)
+      .toSorted();
+
+  it("returns 401 without a token", async () => {
+    const { app } = build();
+    const res = await req(app, "DELETE", leavePath);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a stranger", async () => {
+    const { app } = build();
+    const res = await req(app, "DELETE", leavePath, STRANGER);
+    expect(res.status).toBe(403);
+  });
+
+  it("lets an editor leave: their seat and notice row go, everyone else's stay", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, "usr_carol", "viewer");
+    seedNotice(db, COHOST);
+    seedNotice(db, "usr_carol");
+    seedNotice(db, OWNER);
+    const before = await counterValue("cire.host.removed", { result: "ok", actor: "self" });
+
+    const res = await req(app, "DELETE", leavePath, COHOST);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ left: true });
+    expect(await seatIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
+    expect(await noticeIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
+    expect(await counterValue("cire.host.removed", { result: "ok", actor: "self" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("lets a viewer leave", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "viewer");
+    const res = await req(app, "DELETE", leavePath, COHOST);
+    expect(res.status).toBe(200);
+    expect(await seatIds(db)).toEqual([OWNER]);
+  });
+
+  it("refuses the last owner with 409 last_owner and changes nothing", async () => {
+    // Also proves the static `/hosts/me` path wins over the owner-gated
+    // `/hosts/:osnProfileId`: had that matched, the refusal would be counted
+    // against the removal route rather than self-leave.
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    seedNotice(db, OWNER);
+    seedNotice(db, COHOST);
+    const before = await counterValue("cire.host.removed", {
+      result: "last_owner",
+      actor: "self",
+    });
+
+    const res = await req(app, "DELETE", leavePath, OWNER);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "last_owner" });
+    expect(await seatIds(db)).toEqual([COHOST, OWNER].toSorted());
+    expect(await noticeIds(db)).toEqual([COHOST, OWNER].toSorted());
+    expect(await counterValue("cire.host.removed", { result: "last_owner", actor: "self" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("lets an owner leave while another owner remains", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "owner");
+    seedNotice(db, OWNER);
+    seedNotice(db, COHOST);
+    const before = await counterValue("cire.host.removed", { result: "ok", actor: "self" });
+
+    const res = await req(app, "DELETE", leavePath, OWNER);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ left: true });
+    expect(await seatIds(db)).toEqual([COHOST]);
+    expect(await noticeIds(db)).toEqual([COHOST]);
+    expect(await counterValue("cire.host.removed", { result: "ok", actor: "self" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("lets a helper leave too — holding a seat is the whole test", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "helper");
+    seedNotice(db, COHOST);
+    const res = await req(app, "DELETE", leavePath, COHOST);
+    expect(res.status).toBe(200);
+    expect(await seatIds(db)).toEqual([OWNER]);
+    expect(await noticeIds(db)).toEqual([]);
+  });
+
+  it("returns 403 on a second call, once the seat is gone", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    expect((await req(app, "DELETE", leavePath, COHOST)).status).toBe(200);
+    expect((await req(app, "DELETE", leavePath, COHOST)).status).toBe(403);
+  });
+
+  // The portal reaches this route with the organiser session cookie, so the
+  // cookie path has to delete the seat it names, not only the bearer's.
+  it("leaves on a session cookie and refuses a dead one", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, "usr_carol", "viewer");
+
+    const dead = await appRequest(app, leavePath, {
+      method: "DELETE",
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    expect(await seatIds(db)).toEqual([COHOST, OWNER, "usr_carol"].toSorted());
+
+    const token = await seedOrganiserSession(db, COHOST);
+    const ok = await appRequest(app, leavePath, {
+      method: "DELETE",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(ok.status).toBe(200);
+    expect(await seatIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
+  });
+
+  it("answers a failed delete with 500 and counts it", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    // The member gate reads only `wedding_hosts`, so dropping the notice table
+    // lets the request through the gate and fails the batch inside `remove`.
+    db.$client.exec("DROP TABLE host_rsvp_notices");
+    const before = await counterValue("cire.host.removed", { result: "error", actor: "self" });
+
+    const res = await req(app, "DELETE", leavePath, COHOST);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not leave this wedding" });
+    expect(await seatIds(db)).toEqual([COHOST, OWNER].toSorted());
+    expect(await counterValue("cire.host.removed", { result: "error", actor: "self" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("counts the owner's removal of someone else as actor owner", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "viewer");
+    const before = await counterValue("cire.host.removed", { result: "ok", actor: "owner" });
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER)).status).toBe(200);
+    expect(await counterValue("cire.host.removed", { result: "ok", actor: "owner" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("is rate limited per user with the other host-management writes", async () => {
+    const { db, app } = build({
+      hostLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    // The owner, because the gate runs before the limiter: a co-host's second
+    // call would meet the member gate's 403 once their seat is gone.
+    seedHostSeat(db, COHOST, "editor");
+    expect((await req(app, "DELETE", leavePath, OWNER)).status).toBe(409);
+    expect((await req(app, "DELETE", leavePath, OWNER)).status).toBe(429);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = build();
+    const res = await req(app, "DELETE", "/api/organiser/weddings/wed_nope/hosts/me", COHOST);
+    expect(res.status).toBe(404);
+  });
+
+  it("leaves the owner's remove route working for a profile id that starts with `me`", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, "meadow", "viewer");
+    const res = await req(app, "DELETE", `${hostsPath}/meadow`, OWNER);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ removed: true, osnProfileId: "meadow" });
+    expect(await seatIds(db)).toEqual([OWNER]);
   });
 });
 
@@ -846,6 +1047,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: string;
         displayName: string;
         role: string;
+        tier: string;
         entitlements: string[];
         guestCap: number;
       }[];
@@ -858,6 +1060,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: "hosts-wedding",
         displayName: "Hosts Wedding",
         role: "editor",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
       },
@@ -884,6 +1087,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: string;
         displayName: string;
         role: string;
+        tier: string;
         entitlements: string[];
         guestCap: number;
       }[];
@@ -894,6 +1098,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: "hosts-wedding",
         displayName: "Hosts Wedding",
         role: "viewer",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
       },

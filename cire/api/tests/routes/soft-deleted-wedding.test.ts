@@ -67,6 +67,9 @@ const ENQUIRY = `enq_${WID}`;
 const LISTING = `dv_${WID}`;
 const VENDOR_PROFILE = "usr_vendor";
 const ORG = "org_vendor";
+/** A second org of the same vendor, owning no listing: an org that already
+ *  owns one cannot claim another. */
+const CLAIMING_ORG = "org_claimer";
 const UNCLAIMED_LISTING = "dv_unclaimed";
 const BUFFERED_ENQUIRY = "enq_buffered";
 const CLAIM_TOKEN = "claim-token-for-the-net";
@@ -126,6 +129,7 @@ const stripe: StripeClient = {
   retrieveCheckoutSession: unreached,
   createPlatformCheckoutSession: unreached,
   retrievePlatformCheckoutSession: unreached,
+  expirePlatformCheckoutSession: unreached,
   retrievePrice: unreached,
 };
 
@@ -213,7 +217,7 @@ async function fixture(deleted: boolean): Promise<Fixture> {
     assets,
     enquiryZapClient: zap,
     orgMembership: async (orgId, profileId) =>
-      orgId === ORG && profileId === VENDOR_PROFILE ? "member" : null,
+      (orgId === ORG || orgId === CLAIMING_ORG) && profileId === VENDOR_PROFILE ? "member" : null,
     profileOrgs: async (profileId) =>
       profileId === VENDOR_PROFILE ? [{ id: ORG } as unknown as OsnOrgSummary] : [],
   });
@@ -435,7 +439,7 @@ const REQUESTS: Record<string, Row> = {
     request: (f) =>
       send(f, "POST", `/api/vendor/claims/${CLAIM_TOKEN}/consume`, {
         as: VENDOR_PROFILE,
-        body: { orgId: ORG },
+        body: { orgId: CLAIMING_ORG },
       }),
     // Claiming the listing flushes the couple's buffered enquiry to Zap.
     live: (res, f) => {

@@ -32,6 +32,7 @@ import {
 import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
+import { TIER_LABEL, tierOf } from "../lib/tiers";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { fetchPurchase } from "../lib/upgrade-api";
 import {
@@ -45,6 +46,7 @@ import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
+import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
@@ -158,6 +160,8 @@ function WeddingDashboard(props: {
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
   /** An owner deleted the wedding from Settings; restorable until the ISO date. */
   onWeddingDeleted: (restoreUntil: string) => void;
+  /** The organiser gave up their seat on this wedding. */
+  onLeft: () => void;
 }) {
   // One decision, taken once, for every surface below. The API enforces all of
   // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
@@ -165,7 +169,10 @@ function WeddingDashboard(props: {
   const surfaces = () => surfacesFor(props.wedding.role);
 
   return (
-    <Show when={surfaces().canOpenDashboard} fallback={<RunSheetSeat />}>
+    <Show
+      when={surfaces().canOpenDashboard}
+      fallback={<RunSheetSeat weddingId={props.weddingId} onLeft={props.onLeft} />}
+    >
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
           weddingId={props.weddingId}
@@ -180,6 +187,8 @@ function WeddingDashboard(props: {
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
           onWeddingDeleted={props.onWeddingDeleted}
+          onLeftWedding={props.onLeft}
+          tier={tierOf(props.wedding)}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
         />
@@ -217,13 +226,17 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
  *  wedding is still listed for them — that is how they reach it at all — so
  *  this says what the seat covers rather than leaving them on a dashboard whose
  *  every panel errors. */
-function RunSheetSeat() {
+function RunSheetSeat(props: { weddingId: string; onLeft: () => void }) {
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
-      <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
-      <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
-        {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
-      </p>
+    <div class="flex flex-col gap-6">
+      <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
+        <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
+        <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
+          {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
+        </p>
+      </div>
+      {/* A helper never reaches the co-host panel, so their way out lives here. */}
+      <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
     </div>
   );
 }
@@ -597,11 +610,18 @@ function Dashboard() {
     setDeletedWeddings((prev) => prev.filter((w) => w.id !== weddingId));
   }
 
+  /** The organiser left a wedding. Dropping it from the list is all it takes:
+   *  the route falls back to the list (the effect above), the dashboard
+   *  unmounts, and its cache scope releases the wedding's rows. */
+  function handleLeftWedding(weddingId: string) {
+    setWeddings((prev) => (prev ?? []).filter((w) => w.id !== weddingId));
+  }
+
   /**
    * Back from Stripe.
    *
-   * The entitlement is granted by the webhook, not by this page, so all this
-   * does is ask what happened and refresh the list once it has. The params are
+   * The tier is raised by the webhook, not by this page, so all this does is
+   * ask what happened and refresh the list once it has. The params are
    * stripped the moment they are read: `setRoute` rebuilds the URL as
    * `pathname + search + hash` on every hash write and the login bounce carries
    * `search` through, so leaving them would re-run this on every later
@@ -641,8 +661,8 @@ function Dashboard() {
         if (cancelled) return;
 
         if (state?.status === "succeeded") {
-          // The entitlement now exists server-side; the list is what the nav
-          // reads, so refetching it is what unlocks the module.
+          // The wedding's tier is raised server-side; the list is what the nav
+          // reads, so refetching it is what unlocks the modules.
           invalidateCatalogue(receipt.weddingId);
           try {
             const res = await authFetch(apiUrl("/api/organiser/weddings"));
@@ -657,7 +677,13 @@ function Dashboard() {
             // The purchase landed even if this refresh did not; a reload shows
             // it. Saying so beats a scary error about a payment that worked.
           }
-          if (!cancelled) toast.success("Upgrade complete — the module is unlocked.");
+          if (!cancelled) {
+            toast.success(
+              state.tier
+                ? `Upgrade complete — this wedding is on ${TIER_LABEL[state.tier]}.`
+                : "Upgrade complete.",
+            );
+          }
           return;
         }
         if (state?.status === "failed" || state?.status === "expired") {
@@ -787,6 +813,7 @@ function Dashboard() {
                             onWeddingDeleted={(restoreUntil) =>
                               handleWeddingDeleted(weddingId, restoreUntil)
                             }
+                            onLeft={() => handleLeftWedding(weddingId)}
                           />
                         );
                       }}

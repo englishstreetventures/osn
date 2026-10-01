@@ -42,8 +42,8 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
-import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import { registryService } from "../services/registry";
 import type { StripeClient, StripeError } from "../services/stripe";
@@ -126,9 +126,9 @@ export const createRegistryStripeRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingOwner(db, "registry"))
-        .use(weddingEntitlement(db, "registry"))
-        // Gate order: owner (403) → entitlement (402) → limiter (429), so a
+        .use(weddingOwner(db))
+        .use(weddingTier(db, "gold"))
+        // Gate order: owner (403) → tier (402) → limiter (429), so a
         // stranger never spends the couple's budget.
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post("/registry/stripe/session", ({ weddingId, set }) => {

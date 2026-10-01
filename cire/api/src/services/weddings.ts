@@ -8,6 +8,8 @@ import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
 import type { WeddingRole } from "./hosts";
+import { capForTier, normaliseTier } from "./tiers";
+import type { Tier } from "./tiers";
 
 export type WeddingSummary = {
   id: string;
@@ -19,11 +21,12 @@ export type WeddingSummary = {
    *  portal that does not recognise a role may mislabel it but can never widen
    *  what it reaches. */
   role: WeddingRole;
-  /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
-   *  Merged in by the route from `entitlementService.setsForWeddings` — the
-   *  service itself stays free of entitlement logic. */
+  /** The wedding's plan tier — what the portal locks modules by. */
+  tier: Tier;
+  /** Entitlement keys for a portal build that locks by key rather than by
+   *  `tier`. Merged in by the route — see `legacyEntitlementKeys`. */
   entitlements: string[];
-  /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
+  /** The guest ceiling the tier gives the wedding. */
   guestCap: number;
 };
 
@@ -104,6 +107,7 @@ export const weddingsService = {
             id: weddings.id,
             slug: weddings.slug,
             displayName: weddings.displayName,
+            tier: weddings.tier,
             role: weddingHosts.role,
             deletedAt: weddings.deletedAt,
           })
@@ -129,13 +133,15 @@ export const weddingsService = {
       const deleted: DeletedWeddingSummary[] = [];
       for (const w of rows) {
         if (w.deletedAt === null) {
+          const tier = normaliseTier(w.tier);
           live.push({
             id: w.id,
             slug: w.slug,
             displayName: w.displayName,
             role: normaliseHostRole(w.role),
+            tier,
             entitlements: [],
-            guestCap: 100,
+            guestCap: capForTier(tier),
           });
         } else {
           deleted.push({
@@ -215,8 +221,10 @@ export const weddingsService = {
               slug,
               displayName: trimmed,
               role: "owner" as const,
+              // Every wedding starts on the free tier: the column's DEFAULT.
+              tier: "ivory" as const,
               entitlements: [] as string[],
-              guestCap: 100,
+              guestCap: capForTier("ivory"),
             },
           })),
           Effect.catch((cause) =>

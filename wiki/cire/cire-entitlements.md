@@ -1,173 +1,336 @@
 ---
-title: Cire entitlements
-tags: [systems, cire, entitlements, phase1]
+title: Cire plan tiers
+aliases:
+  - cire tiers
+  - plan tiers
+  - Ivory Gold Crimson
+tags: [systems, cire, entitlements, tiers, phase1]
 related:
-  - "[[cire-vendors]]"
-  - "[[cire-registry]]"
-  - "[[cire-auth]]"
   - "[[cire-upgrades]]"
+  - "[[cire-auth]]"
+  - "[[cire-budget]]"
+  - "[[cire-checklist-tasks]]"
+  - "[[cire-registry]]"
+  - "[[cire-vendors]]"
+  - "[[cire-plus-ones]]"
+  - "[[cire-invite-designs]]"
+  - "[[cire-host-portal-layout]]"
 last-reviewed: 2026-10-01
 ---
-# Entitlements — per-wedding capability gates
+# Plan tiers — what a wedding has paid for
 
-The entitlement system is a row-presence gate: a row in `wedding_entitlements` means that wedding has the named capability. No row means the capability is absent. There are no enum columns to decode, no flag columns to toggle — the table acts as a sparse capability set.
+Every wedding is on exactly one plan tier, stored on the wedding row itself as
+`weddings.tier`. The tier decides which portal modules open and how many guests
+the wedding may hold. The API enforces it, a 402 from a tier gate, and the
+organiser portal reads the same rule only so it never offers a module the API
+would refuse.
+
+## The tiers
+
+The list is ranked lowest first, and the order **is** the ranking:
+`tierAtLeast(held, min)` compares positions, so a higher tier includes
+everything a lower one does.
+
+| Tier | Price | Opens | Guest cap |
+|---|---|---|---|
+| `ivory` | free | The invite and its design, events, the guest list, RSVPs, import, settings, co-hosts | 100 |
+| `gold` | paid | Everything in Ivory, plus the budget, the checklist and the gift registry | 500 |
+| `crimson` | paid | Everything in Gold, plus vendors (the CRM, the directory and enquiries) and every premium invite design | 1,000 |
+
+`cire/api/src/services/tiers.ts` is the authority (`TIERS`, `tierAtLeast`,
+`TIER_GUEST_CAP`). `cire/host/src/lib/tiers.ts` mirrors the list and the
+ranking for the portal, and `cire/host/tests/lib/tiers.test.ts` pins the order.
+On both sides a stored value that is not a known tier reads as `ivory`
+(`normaliseTier`, `tierOf`), the tier that opens nothing paid, so an unknown
+string can never unlock a module.
+
+What a tier costs is not in this repository: each paid tier is a Stripe Price
+configured per deployment — see [[cire-upgrades]].
 
 ---
 
-## Database — `wedding_entitlements` table
+## Database
 
-Added by migration 0042.
+### `weddings` — the tier itself (migration 0073)
 
 | Column | Type | Notes |
 |---|---|---|
-| `wedding_id` | `text NOT NULL` | FK → `weddings.id` ON DELETE CASCADE |
-| `entitlement` | `text NOT NULL` | One of the capability keys (see below) |
-| `source` | `text NOT NULL` | `'purchase'` or `'comp'` |
-| `granted_at` | `integer` (timestamp) | When the row was written |
-| `granted_by` | `text NOT NULL` | Operator identifier (for comp rows) or system label |
-| `provider_ref` | `text` | External provider reference on `source = 'purchase'`; `NULL` on `source = 'comp'` |
+| `tier` | `text NOT NULL DEFAULT 'ivory'` | `ivory` \| `gold` \| `crimson` |
+| `tier_source` | `text` | How the wedding reached its tier: `purchase`, `comp` or `migration`. NULL on a wedding that has never left Ivory |
+| `tier_granted_by` | `text` | `stripe:<purchase id>` for a purchase (the buyer is on that purchase row), `script:<operator>` for a comp. NULL on a migrated wedding |
 
-**Primary key:** composite `(wedding_id, entitlement)` — one row per (wedding, capability) pair. Duplicate grants via `INSERT OR IGNORE` / `onConflictDoNothing` are idempotent.
+There is no guest-cap column: the cap is derived from the tier, so the two
+cannot drift.
 
----
+**A tier only ever moves up on its own.** The grant is one conditional
+`UPDATE … WHERE id = ? AND tier IN (<tiers below the target>)`
+(`tierGrantStatement` in `tiers.ts`), so a wedding already on the target or
+above it is left alone, with its attribution. A replayed webhook, or a late
+one for a Gold purchase on a wedding that has since reached Crimson, changes
+nothing. Lowering a tier — after a refund — is a deliberate operator act with
+`grant-tier.ts --lower` (below); nothing lowers a tier automatically. A
+purchase priced as an upgrade from a tier adds one condition: its grant matches
+only while the wedding still holds that tier, so a from-Gold Crimson paid after
+the wedding was lowered to Ivory raises nothing ([[cire-upgrades]]).
 
-## Entitlement keys
+Migration 0073 lifted every wedding whose legacy entitlement rows had already
+paid for more: `vendors` or `capacity_1000` to Crimson, then `registry` or
+`capacity_500` to Gold, each with `tier_source = 'migration'`.
 
-Six opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
+### `wedding_entitlements` — one-off capabilities
 
-| Key | What its presence enables |
-|---|---|
-| `premium_templates` | Access to extended invite template designs |
-| `vendors` | Vendor CRM (wedding-scoped) + Directory browse/add routes |
-| `ai` | AI-assisted content generation features |
-| `capacity_500` | Guest import ceiling raised to 500 |
-| `capacity_1000` | Guest import ceiling raised to 1000 |
-| `registry` | Gift registry module — the organiser routes and, transitively, the guest gift page and the band on the invite |
+A row-presence table: a row `(wedding_id, entitlement)` means the wedding holds
+that one-off capability. Primary key `(wedding_id, entitlement)`; `source` is
+`purchase` or `comp`; `provider_ref` carries the provider reference on a
+purchase.
 
-Boolean capability flags (`premium_templates`, `vendors`, `ai`, `registry`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
+**The only key the API reads is `premium_templates`.** A wedding below Crimson
+may hold it as a one-off; Crimson includes every premium design anyway.
+`tierService.hasPremiumTemplates` answers "Crimson, or the row". The invite
+design route hands it the tier `weddingEditor` already read, so a Crimson
+wedding costs no statement and one below Crimson only the primary-key probe of
+its row; called without a tier it reads both in one statement.
+`premiumTemplateHolders` reads the key for the wedding list. It
+is comp-only: nothing sells it today, and every design is free while the
+premium designs are dormant ([[cire-invite-designs]]).
 
----
-
-## Derived guest capacity
-
-Guest capacity is not stored as a column. It is **derived** from the entitlement set at the moment of enforcement. `deriveCap` (a pure function in `cire/api/src/services/entitlements.ts`) inspects the set and returns the ceiling:
-
-| Entitlement row present | Effective guest ceiling |
-|---|---|
-| `capacity_1000` | 1000 |
-| `capacity_500` (and NOT `capacity_1000`) | 500 |
-| neither capacity row | 100 |
-
-`capacity_1000` wins over `capacity_500` if both rows happen to exist. The ceiling deliberately has no stored column — it cannot drift from the entitlement set.
-
----
-
-## `entitlementService` — methods
-
-All methods are Effect programs returning `Effect.Effect<A, E, DbService>`. Implemented in `cire/api/src/services/entitlements.ts`.
-
-| Method | Signature | Description |
-|---|---|---|
-| `has` | `(weddingId, key) → Effect<boolean, never, DbService>` | Returns `true` if the row `(weddingId, key)` exists |
-| `setsForWeddings` | `(weddingIds[]) → Effect<Map<weddingId, EntitlementKey[]>, never, DbService>` | Batch-fetches all entitlement rows for a list of wedding IDs; used to annotate wedding-list responses |
-| `deriveCap` | `(keys: string[]) → number` | Pure — derives the effective guest ceiling from an entitlement key array |
-| `grant` | `(weddingId, key, { source, grantedBy, providerRef? }) → Effect<void, never, DbService>` | Inserts a row; idempotent on conflict |
-| `assertGuestCapacity` | `(weddingId, incomingNewGuests, precomputedCap?) → Effect<void, CapacityExceeded, DbService>` | Derives the cap (from `precomputedCap` if given, else its own narrowed entitlement query — see below), counts current (non-host) guests, fails with `CapacityExceeded { limit, current }` if the import would breach the ceiling. `precomputedCap` only ever skips the RE-DERIVATION, never the check itself |
-
-`CapacityExceeded` is a tagged error (`Data.TaggedError`); handlers map it to a **402** response with body `{ error: "payment_required", entitlement: "capacity", limit, current }`.
+The other keys in the enum (`vendors`, `registry`, `capacity_500`,
+`capacity_1000`, `ai`) are what 0073 read to set each wedding's tier. Their rows
+are still in the table and nothing reads them. englishstventures/osn#1315
+deletes them and narrows the enum once the tier release is deployed.
 
 ---
 
-## `weddingEntitlement(db, key)` middleware
+## The tier gate — `weddingTier(db, min)`
 
-Implemented in `cire/api/src/middleware/wedding-entitlement.ts`. Returns an Elysia plugin (scoped derive + onBeforeHandle).
-
-**Ordering in the middleware chain:**
+`cire/api/src/middleware/wedding-tier.ts`. An Elysia plugin (scoped derive plus
+`onBeforeHandle`) mounted per route group:
 
 ```
-osnAuth()              ← verifies OSN access JWT
-weddingOwner/Editor/Member()  ← role gate (403 if wrong role)
-weddingEntitlement(db, key)   ← entitlement gate (402 if capability absent)
-rateLimiter            ← rate limiting
+osnAuth()                                  ← verifies the OSN access JWT (401)
+weddingMember / Editor / Owner / RunSheet  ← role gate (403)
+weddingTier(db, "gold" | "crimson")        ← tier gate (402)
+rate limiter                               ← 429
 ```
-
-The entitlement gate sits **after** the role gate. The role gate already returns a 403 to a viewer on an entitled wedding, before this middleware runs. A `402` from this middleware means: the caller's role is enough, but the wedding itself does not have the capability.
 
 **402 response contract:**
 
 ```json
-{ "error": "payment_required", "entitlement": "<key>" }
+{ "error": "payment_required", "tier": "gold" }
 ```
 
-HTTP status `402`. In the organiser portal a locked module has no page at all, so this response is a backstop rather than something a user normally meets: `isModuleLocked` (`cire/host/src/lib/module-nav.ts`) derives the lock from the wedding's own entitlement set, `ModuleShell` coerces a locked module back to Overview, and the module's nav row stays visible but faded and inert. Resting a pointer on that row for three seconds — or clicking it, which is the only path a touch user has — opens a popover naming the module and offering an Upgrade button. That button is live: it opens a dialog that prices the module and starts a Stripe checkout — see [[cire-upgrades]].
+`tier` is the tier the route needs, which is what the portal's upgrade offer
+names. A 402 means the caller's role is enough and the wedding's tier is not.
 
-A missing `weddingId` in `params` (should not occur after the role gate validates it) degrades to a `402` rather than throwing.
+**It costs no query.** Every role gate already selects the wedding row to
+authorise the caller; it selects `weddings.tier` in the same statement and
+parks it on the context as `weddingTier`. The tier gate reads that
+(`readWeddingTier` in `middleware/upstream-context.ts`). Mounted standalone —
+which only tests do — it reads the tier itself with `tierService.tierOf`, and a
+read that fails denies, logging a warning that names the wedding.
 
-**It does no D1 read when the role gate has already refused.** Every role gate parks its refusal on the context as `weddingGateError`; the entitlement `derive` returns immediately when it finds one. Elysia runs every `derive` before any `onBeforeHandle`, so without that check a stranger's request still paid for an entitlement query whose answer could never change the response — a free, unauthenticated read on every request to every gated route. Skipping it leaves the status ordering untouched (401, then 403 `read_only_role`, then 402 `payment_required`), which route tests pin.
+**It reads nothing when the role gate has refused.** A role gate parks its
+refusal as `weddingGateError`, and the tier derive returns at once when it
+finds one, so a stranger's request never reaches a tier read, and the status
+order stays 401, then 403, then 402. A missing `weddingId` (the role gate has
+already validated it) degrades to the 402 rather than throwing.
 
-**It shares a query with the role gate instead of running its own.** `weddingMember(db, key)`, `weddingEditor(db, key)` and `weddingOwner(db, key)` take the SAME entitlement key this middleware is mounted with as an optional second argument. When given, the role gate adds an `EXISTS` check against `wedding_entitlements` to the `SELECT` it already runs for the wedding row and the caller's seat — one extra column, not a second query. The column is `entitlementPresent()` in `cire/api/src/services/entitlements.ts`, used by `hostsService.authorize()` (which answers all three role gates) and the guest registry gate. It takes a wedding id already in hand, or a column of the outer query (`weddings.id`, when the guest gate resolves the wedding from its slug in the same statement); a column goes through `outerColumn` (`cire/api/src/db/index.ts`) so it always renders as `"weddings"."id"`. Drizzle writes a column placed directly in a selected `sql` field bare when the select reads one table, and inside the `EXISTS` a bare name can bind to the subquery's own table. The gate exposes the answer as `weddingEntitlementFold` on context, and `weddingEntitlement`'s derive picks it up (`readWeddingEntitlementFold` in `upstream-context.ts`) instead of calling `entitlementService.has()` itself, provided the fold's key matches its own. A mismatch or absence — the gate mounted standalone, a role gate called with no key, or a fold query that defected and fell back to the plain role query — falls back to that separate `has()` query, so correctness never depends on the two call sites agreeing; only the saved round trip does. On a gated route any caller's request — owner or co-host — costs one query.
+### Where it is mounted
 
-**The two gates are always mounted as a pair.** Every `.use(weddingEntitlement(db, key))` sits directly after `.use(weddingMember | weddingEditor | weddingOwner(db, key))` with the same literal key, and a role gate never takes a key without that entitlement gate after it — on a route with no entitlement gate the fold would add the check's cost for nothing. The route files that pass a key are `vendor-directory.ts`, `vendors.ts`, `registry.ts`, `registry-stripe.ts` and `organiser-enquiries.ts`. `cire/api/tests/routes/entitlement-gate-pairing.test.ts` parses every file under `cire/api/src/` and fails on a broken pair in either direction; it also pins which files mount the gate and how many times, so a new gated route, or one that loses its gate, changes that list on purpose. `cire/api/tests/middleware/wedding-entitlement-fold.test.ts` counts `db.select()` calls on gated and ungated routes for all three role gates.
+| Tier | File | Mounts | Covers |
+|---|---|---|---|
+| Gold | `routes/budget.ts` | 3 | Every `/budget/*` route, reads included ([[cire-budget]]) |
+| Gold | `routes/tasks.ts` | 2 | Every `/tasks/*` route, reads included ([[cire-checklist-tasks]]) |
+| Gold | `routes/registry.ts` | 6 | The organiser registry, its link preview and the preview's thumbnails ([[cire-registry]]) |
+| Gold | `routes/registry-stripe.ts` | 1 | Connect onboarding for gift payouts |
+| Crimson | `routes/vendors.ts` | 2 | The vendor CRM ([[cire-vendors]]) |
+| Crimson | `routes/vendor-directory.ts` | 2 | Directory browse and add |
+| Crimson | `routes/organiser-enquiries.ts` | 2 | The couple's side of enquiries |
 
-**One registry surface is ungated on purpose: the gift-log export** (`GET …/gifts.csv`). It is the couple's own record, and they must be able to take it away whether or not the wedding still holds `registry` — see [[cire-registry]]. A named test in `cire/api/tests/routes/organiser-weddings.test.ts` fails if a plain gate is added to it.
+`cire/api/tests/routes/tier-gate-pairing.test.ts` parses every file under
+`cire/api/src/` and fails when a `weddingTier(` mount is not directly behind a
+`weddingMember`, `weddingEditor`, `weddingOwner` or `weddingRunSheet` mount, or
+when its tier is not the string literal `"gold"` or `"crimson"`. It also pins
+the table above — which files mount the gate and how many times — so a new
+gated route, or one that loses its gate, changes that list on purpose.
+
+The guest side of the registry checks Gold inside the one statement that
+resolves the wedding from its slug (`services/registry.ts`). A wedding below
+Gold gets the same 404 as an unknown slug or an unpublished registry, so the
+guest surface never tells a caller which of those it is.
+
+### Ungated on purpose
+
+| Route | Why |
+|---|---|
+| The upgrade routes (`/upgrade/*`) | Gating the route that sells a tier on that tier is a 402 loop ([[cire-upgrades]]) |
+| `GET …/gifts.csv` | The couple's own record of gifts; they can take it away whatever tier the wedding is on ([[cire-registry]]) |
+| `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
+
+A wedding whose tier no longer includes a module keeps that module's rows; it
+cannot read them through the module until it is back on the tier. An export
+for that case is englishstventures/osn#1316.
 
 ---
 
-## Capacity enforcement in `applyImport`
+## Guest cap
 
-`applyImport` (in `cire/api/src/services/import.ts`) calls `entitlementService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap)` — where `netGuestDelta = guestCreates.length - guestRemoves.length` — **before** writing any rows. `applyImport` skips the check when the net delta is zero or negative (a churn import that removes K and adds K at cap succeeds). The check and the D1 batch write that follows are sequenced atomically: if the capacity check fails, no guests are written. There are no partial writes.
+| Tier | Cap (`TIER_GUEST_CAP`) |
+|---|---|
+| `ivory` | 100 (`BASE_GUEST_CAP`, the floor) |
+| `gold` | 500 |
+| `crimson` | 1,000 |
 
-The check counts real guests only — a `ne(families.kind, 'host')` filter excludes the synthetic `host`-kind family row used for invite previews. A **plus-one** is a real guest and counts: a household that names one takes a place under the organiser's cap, so naming one is refused (`409 guest_capacity`) when the wedding is full ([[cire-plus-ones]]). The diff's preview arithmetic counts plus-ones too.
+The cap counts real guests: the synthetic host-preview family is excluded, and
+a named plus-one counts ([[cire-plus-ones]]). It is enforced in four places,
+each reading the tier rather than a stored number:
 
-**The capacity query only ever reads the two rows that can matter.** `assertGuestCapacity`'s own fallback query, and `diffAgainstDb`'s preview-warning query below, both filter `WHERE entitlement IN ('capacity_500', 'capacity_1000')` (the `CAPACITY_ENTITLEMENT_KEYS` constant in `entitlements.ts`) instead of fetching every entitlement row on the wedding — `deriveCap` only ever inspects those two keys, so a wider fetch would be pure waste. **`setsForWeddings` is NOT narrowed** — it feeds `deriveCap` in `organiser-weddings.ts` and also drives feature display (`premium_templates`/`vendors`/`ai`/`registry`), so it keeps returning the full set.
+- **`tierService.assertGuestCapacity(weddingId, incoming, precomputedCap?)`**
+  reads the tier and counts real guests in one statement, and fails with
+  `CapacityExceeded { limit, current, requiredTier }` when the write would pass
+  the cap. `requiredTier` is
+  the lowest tier whose cap holds the result (`tierForGuests`), or `null` when
+  even Crimson's would not. `precomputedCap` only ever skips re-reading the
+  tier, never the check.
+- **The import preview** (`diffAgainstDb` in `services/import.ts`) warns when an
+  import would pass the cap. It reads the tier on the wedding row it already
+  reads for the claim-code style, so the cap costs no statement of its own. It
+  leaves the cap unset while existing guests plus creates come to at most
+  `BASE_GUEST_CAP` — no tier could make that import breach — and otherwise
+  carries it on the plan as `derivedCap`, which `applyImport` hands to
+  `assertGuestCapacity` in the same request. A missing `derivedCap` is never
+  treated as "no cap". `applyImport` checks the net delta
+  (`creates − removes`) before writing anything, so a refused import writes
+  nothing.
+- **Naming a plus-one** checks the cap inside its `INSERT … SELECT`:
+  `roomForOneMoreGuest` compares the real-guest count with a scalar subquery
+  that reads the wedding's tier as a `CASE`. D1 runs batches one at a time, so
+  two namings racing for the last place cannot both win.
+- **The plus-one context read** (`readGuestContext` in `services/plus-one.ts`)
+  selects the tier in its one statement and derives the cap with `capForTier`.
 
-**`diffAgainstDb`'s preview warning skips its own query below a floor threshold.** The resulting guest count after any plan is `existing − removes + creates`, which can never exceed `existing + creates` (removes only ever help). Since the cap can never fall below `BASE_GUEST_CAP` (100, exported from `entitlements.ts`, the same fallback `deriveCap` returns), `diffAgainstDb` skips the entitlement query — and the warning check — entirely once the wedding's current guests (plus-ones included) plus `guestCreates.length` come to at most `BASE_GUEST_CAP`: no entitlement row on any wedding could make that import breach the cap. Above the threshold it runs the narrowed query.
+**402 from the change routes** (`routes/organiser-changes.ts`, which carry
+imports and editor saves):
 
-**`applyImport` reuses `diffAgainstDb`'s already-derived cap instead of re-scanning.** `ImportPlan` carries an optional `derivedCap: number`, set by `diffAgainstDb` ONLY when its own preview-warning block actually ran the entitlement query (i.e. above the floor threshold, with `guestCreates.length > 0`). `applyImport` passes it straight to `assertGuestCapacity`'s `precomputedCap` parameter, which then skips its own query. `derivedCap` is absent whenever the preview never needed the real cap (below the floor threshold, or no guests were being created) — `assertGuestCapacity` MUST keep enforcing in that case by running its own (narrowed) query; a missing cap is never treated as "no cap". This composes with the floor threshold cleanly: a small import pays one query total (`applyImport`'s own, since the preview skipped its), a large one also pays one query total (the preview's, reused by `applyImport`) — never two separate scans of the same rows. Both call sites that feed `applyImport` a plan (`organiser-changes.ts` and `revert.ts`) run `diffAgainstDb` then `applyImport` in the SAME request — plan objects never cross the client boundary, so there is no TOCTOU window between the two.
+```json
+{ "error": "payment_required", "entitlement": "capacity", "tier": "gold", "limit": 100, "current": 140 }
+```
+
+`tier` is `requiredTier` — the portal names it in the import error ("upgrade
+to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
+for a portal build that reads it, until englishstventures/osn#1315. Naming a
+plus-one past the cap answers `409 guest_capacity` instead.
 
 ---
 
-## Comp-grant CLI
+## The wedding list
 
-`cire/api/scripts/grant-entitlement.ts` is an operator tool for manual (comp) grants. It is not a network-accessible route.
+`GET /api/organiser/weddings` returns, per wedding, `tier`, `guestCap` (the
+tier's cap) and `entitlements`. Until englishstventures/osn#1315,
+`entitlements` carries the legacy keys the tier stands for
+(`legacyEntitlementKeys`): Gold → `registry`, `capacity_500`; Crimson →
+`vendors`, `registry`, `capacity_1000`, `premium_templates`; plus
+`premium_templates` wherever that row is held. A portal build that locks by key
+then locks exactly what the tier leaves locked. `POST /weddings` answers a new
+wedding with `tier: "ivory"`, `entitlements: []`, `guestCap: 100`.
 
-**Local run (bun:sqlite):**
+## The portal
+
+`isModuleLocked(id, tier)` (`cire/host/src/lib/module-nav.ts`) is the one
+predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
+`tier` — Checklist, Budget and Registry `gold`, Vendors `crimson`.
+
+- **`tierOf(summary)`** (`cire/host/src/lib/tiers.ts`) reads the list's `tier`.
+  With no `tier` at all the list came from an API that predates tiers, and the
+  legacy keys stand in for it with the same mapping 0073 used
+  (`legacyTierFromEntitlements`), so a portal deployed ahead of its API locks
+  nothing the couple paid for. The fallback goes with englishstventures/osn#1315.
+- **`ModuleShell`** coerces a locked module to Overview: a deep link or a stale
+  hash lands on a real view, and a locked module's panel never mounts.
+- **The rail and the sheet** keep a locked row visible but faded. Its accessible
+  name and its popover name the tier that includes it ("Included with Gold");
+  the popover's **Upgrade to Gold** button opens the purchase dialog
+  ([[cire-upgrades]]). See [[cire-host-portal-layout]].
+- **Overview** shows no card for a locked module and makes no read for it:
+  `/tasks`, `/budget` and `/vendors` answer 402 below their tier, and a refused
+  tasks read would reject the whole snapshot and blank the guest and event
+  counts with it. `cire/host/tests/components/Overview.test.tsx` answers those
+  routes 402 and pins that an Ivory wedding's counts survive and none of them
+  is requested.
+- **The command palette** offers no row for a locked module.
+- **Premium designs** lock by `premium_templates` in the list's `entitlements`,
+  which Crimson includes; the API answers `403 premium_design` regardless.
+
+---
+
+## Changing a wedding's tier by hand
+
+`cire/api/scripts/grant-tier.ts` is an operator tool, not a network route. It
+validates its arguments and prints the SQL rather than running it:
 
 ```bash
-bun run cire/api/scripts/grant-entitlement.ts <weddingId> <key,key,...> [grantedBy]
+# Raise only — a wedding already on the tier or above it is untouched:
+bun run cire/api/scripts/grant-tier.ts <weddingId> <gold|crimson> <operator>
+# Set outright — how a refund takes a wedding back down:
+bun run cire/api/scripts/grant-tier.ts <weddingId> <ivory|gold|crimson> <operator> --lower
 ```
 
-**Production (D1):** the script prints idempotent `INSERT OR IGNORE` SQL.
+Every change records `tier_source = 'comp'` and
+`tier_granted_by = 'script:<operator>'`.
 
-**Warning:** a prod D1 write needs explicit human authorisation naming `cire-db`. Get it before you run the command below. This is a deploy-time step, not an automated path.
+`--lower` prints two statements, one per line, and both must be applied in the
+same `--command`. The first marks the wedding's `succeeded` purchases of
+anything above the new tier `refunded`; the second lowers the tier. The
+webhook grants nothing for a `refunded` purchase, so the refund holds when
+Stripe redelivers the original payment or an operator resends it from the
+dashboard, and marking first means a delivery landing between the two
+statements already finds the purchase refunded. Setting Crimson, or raising
+without `--lower`, prints one statement and refunds nothing.
 
-Apply via:
+> [!warning]
+> A production D1 write needs explicit human authorisation naming `cire-db`.
+> Get it before applying the printed SQL with
+> `wrangler d1 execute cire-db --env production --remote --command "<printed SQL>"`
+> from `cire/api`, naming the env as every production D1 command in
+> [[production-deploy]] does.
 
-```bash
-wrangler d1 execute cire-db --remote --command "<printed SQL>"
-```
+## How a wedding reaches a tier
 
----
+| Path | `tier_source` | `tier_granted_by` | Who |
+|---|---|---|---|
+| Self-serve purchase | `purchase` | `stripe:<purchase id>` | Any **owner** of the wedding, from the portal — [[cire-upgrades]] |
+| Comp, or a refund lowering it | `comp` | `script:<operator>` | An operator, with `grant-tier.ts` |
+| The tier migration | `migration` | NULL | Migration 0073, from legacy entitlement rows |
 
-## How a wedding gets an entitlement
+The tier is one value per wedding, so it cannot hold purchase history: the money
+side lives in `wedding_upgrade_purchases` and `platform_sales`
+([[cire-upgrades]]). Refunds do not lower a tier automatically; the customer
+wording for that is englishstventures/osn#1317.
 
-Two paths, and only two.
+## Deploying a change to tiers
 
-| Path | `source` | Who runs it |
-|---|---|---|
-| Self-serve purchase | `purchase` | Any **owner** of the wedding, from the portal — see [[cire-upgrades]] |
-| Comp / manual grant | `comp` | An operator, via `cire/api/scripts/grant-entitlement.ts` |
+The portal and the API deploy in separate jobs. In production, approve
+`deploy-cire-host` **before** `deploy-cire-api`: the new portal reads either
+list shape, while the old portal on the new API would request `/tasks` for an
+Ivory wedding, get a 402 and blank its Overview. The order and the pre-flight
+queries are in [[production-deploy]] §5.6.
 
-`grant()` is `onConflictDoNothing` on `(wedding_id, entitlement)`, so both paths are idempotent and neither can produce a second row. That is also why the table cannot hold purchase history: a second purchase of a key already held would be swallowed with no record that money moved. The money side lives in `wedding_upgrade_purchases` (migration 0059), and `provider_ref` on the entitlement row carries the Stripe checkout session id that bought it.
+## Observability
 
-> [!note]
-> `premium_templates`, `ai` and the two `capacity_*` keys are **not** purchasable. Only `vendors` and `registry` are sold self-serve; everything else is comp-only. Adding another is a catalogue entry plus a configured Stripe Price, not a schema change.
+| Signal | Shape |
+|---|---|
+| `cire.tier.gate.payment_required` | Counter, `required_tier`: `gold` \| `crimson` |
+| `cire.tier.gate payment required` | Warning log, `{ weddingId, requiredTier, tier }` |
+| Spans | `cire.tier.tierOf`, `cire.tier.grant`, `cire.tier.hasPremiumTemplates`, `cire.tier.premiumTemplateHolders`, `cire.tier.assertGuestCapacity` |
 
----
+A rise in `payment_required` on a tier nobody is being offered usually means a
+portal build and an API build disagree about which modules a tier opens.
 
 ## Related
 
-- [[cire-vendors]] — Vendor CRM, Directory and enquiries; all three route groups gate on the `vendors` entitlement
-- [[cire-registry]] — Gift registry; purchasable self-serve, and comp-grantable
-- [[cire-upgrades]] — the self-serve purchase flow: catalogue, checkout, the platform webhook that grants
-- [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates
+- [[cire-upgrades]] — buying a tier: catalogue, checkout, the webhook that grants
+- [[cire-auth]] — the role gates the tier gate sits behind
+- [[cire-host-portal-layout]] — the locked nav row and its popover
+- [[cire-budget]], [[cire-checklist-tasks]], [[cire-registry]] — the Gold modules
+- [[cire-vendors]] — the Crimson module
+- [[cire-plus-ones]] — the cap check inside a plus-one insert

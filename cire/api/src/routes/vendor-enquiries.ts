@@ -160,7 +160,7 @@ export function createVendorEnquiriesRoutes(
       // GET /enquiries — enquiries across the caller's claimed listings.
       // SCOPED to the caller's own org(s) BEFORE the scan: resolve the caller's
       // org ids, then read only enquiries whose listing's `owner_org_id` is one
-      // of them (indexed by `directory_vendors_owner_idx`). No cross-tenant
+      // of them (indexed by `directory_vendors_owner_uniq`). No cross-tenant
       // full-table read, no per-org membership fan-out. Fail-closed: if the
       // profile-orgs resolver yields no orgs (absent ARC key / infra failure),
       // the list is empty — never an unscoped scan.

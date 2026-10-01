@@ -101,9 +101,30 @@ export const weddings = sqliteTable(
     changeRev: integer("change_rev").notNull().default(0),
     changeClaim: text("change_claim"),
     changeClaimedAt: integer("change_claimed_at"),
+    // ── Plan tier (migration 0073) ─────────────────────────────────────────
+    // What the wedding has paid for: `ivory` (free — invite, guests, RSVPs,
+    // import), `gold` (adds budget, checklist and the gift registry) or
+    // `crimson` (adds vendors and premium invite templates). The guest cap is
+    // derived from it (100 / 500 / 1000), so there is deliberately no cap
+    // column to drift. Only ever moves UP: the grant is a conditional UPDATE
+    // that leaves a wedding already at or above the target untouched, and a
+    // refund is an operator decision made with `grant-tier.ts`, never automatic.
+    //
+    // `tier_source` says how the wedding reached its tier — `purchase` (a
+    // settled Stripe checkout), `comp` (an operator grant) or `migration` (lifted
+    // from its legacy `wedding_entitlements` rows by 0073) — and
+    // `tier_granted_by` what: `stripe:<purchase id>` for a purchase (the buyer
+    // is on that purchase row), `script:<operator>` for a comp. Both NULL on a
+    // wedding that has never left `ivory`, and `tier_granted_by` NULL on a
+    // migrated one.
+    tier: text("tier", { enum: ["ivory", "gold", "crimson"] })
+      .notNull()
+      .default("ivory"),
+    tierSource: text("tier_source", { enum: ["purchase", "comp", "migration"] }),
+    tierGrantedBy: text("tier_granted_by"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-    // ── Soft delete (migration 0072) ────────────────────────────────────────
+    // ── Soft delete (migration 0075) ────────────────────────────────────────
     // NULL means the wedding is live. Set, it is unreachable by every guest,
     // vendor and co-host path, and by every organiser route except its owners'
     // restore; the daily purge hard-deletes the row (and, by cascade, every
@@ -471,7 +492,9 @@ export const payments = sqliteTable(
 );
 
 // Vendors Slice 1 (platform Phase 2, migration 0040).
-// directory_vendors: the global business listing (one per OSN org).
+// directory_vendors: the global business listing. An org owns at most one:
+// `owner_org_id` is unique, and SQLite lets any number of rows hold NULL, so
+// unclaimed listings are unaffected.
 export const directoryVendors = sqliteTable(
   "directory_vendors",
   {
@@ -499,7 +522,7 @@ export const directoryVendors = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    index("directory_vendors_owner_idx").on(t.ownerOrgId),
+    uniqueIndex("directory_vendors_owner_uniq").on(t.ownerOrgId),
     // Browse runs `WHERE listed='live' … ORDER BY name, id` — the composite
     // serves filter + order in one b-tree walk (migration 0053 replaced the
     // single-column `listed` index, whose prefix this still covers).
@@ -610,16 +633,16 @@ export const vendorClaims = sqliteTable(
   (t) => [index("vendor_claims_vendor_idx").on(t.directoryVendorId)],
 );
 
-// wedding_entitlements: per-wedding unlocked packs (platform tiering, migration
-// 0042). Row-presence = entitled. The whole paid model is a SET here: a wedding
-// holds any subset of packs. Boolean packs (`premium_templates`, `vendors`,
-// `ai`) gate features by presence; capacity is LEVELED — the effective guest
-// ceiling is DERIVED from the highest capacity_* row (none→100, capacity_500→500,
-// capacity_1000→1000), so there is deliberately no guest_cap column to drift.
-// `source` distinguishes a provider purchase from a comp/manual grant (R&V,
-// "contact us" capacity, support goodwill). `provider_ref` carries the
-// external provider reference on purchases (NULL on comp) and is the
-// Phase-2 webhook idempotency key.
+// wedding_entitlements: per-wedding one-off capabilities (migration 0042).
+// Row-presence = entitled. Since migration 0073 the plan a wedding is on lives
+// in `weddings.tier`, and the only key still read for what it grants is
+// `premium_templates` — the one-off purchase a wedding below Crimson can hold
+// (Crimson includes it). The other keys are what 0073 read to lift each
+// wedding to its tier; they stay in the enum, and their rows stay in the
+// table, until englishstventures/osn#1315 removes them.
+// `source` distinguishes a provider purchase from a comp/manual grant, and
+// `provider_ref` carries the external provider reference on purchases (NULL on
+// comp).
 export const weddingEntitlements = sqliteTable(
   "wedding_entitlements",
   {
@@ -638,8 +661,8 @@ export const weddingEntitlements = sqliteTable(
 );
 
 // ── Gift registry (migration 0057) ────────────────────────────────────────────
-// Gated by the `registry` entitlement, which is granted to no wedding — so every
-// table below is empty in production until someone grants it.
+// Gated by the Gold tier: a wedding below it gets 402 from every organiser
+// registry route, and its guests get no gift page.
 //
 // MONEY: the wedding has ONE primary currency (`weddings.currency`) and
 // everything the organiser authors is denominated in it — `registry_items` has
@@ -653,9 +676,9 @@ export const registrySettings = sqliteTable("registry_settings", {
   weddingId: text("wedding_id")
     .primaryKey()
     .references(() => weddings.id, { onDelete: "cascade" }),
-  // Guest visibility. The guest GET 404s unless this is 1 AND the wedding holds
-  // the entitlement — two independent gates, because an entitlement lapsing must
-  // not silently republish a registry the couple had turned off (and vice versa).
+  // Guest visibility. The guest GET 404s unless this is 1 AND the wedding is on
+  // Gold or above — two independent gates, because a tier lapsing must not
+  // silently republish a registry the couple had turned off (and vice versa).
   published: integer("published", { mode: "boolean" }).notNull().default(false),
   headline: text("headline"),
   // The couple's note above the list — "your presence is the present", "no boxed
@@ -1007,9 +1030,12 @@ export const rsvps = sqliteTable(
     // Plain text with no CHECK constraint, so a new value needs no DDL. One
     // column carries both facts because the writer and the consent-attester are
     // the same principal, with one exception: an organiser's status-only
-    // recording for a plus-one keeps `'inviter_attested'` while the row holds
-    // the household's dietary answer or its consent record. The column then
-    // names the dietary data's basis, not who wrote the status. Legacy rows back-fill to `'guest'` (the form was the only
+    // recording keeps the stored source (`'guest'` or `'inviter_attested'`)
+    // while the row holds a dietary answer or its consent record. The column
+    // then names the dietary data's basis, not who wrote the status. An
+    // organiser's dietary answer for a plus-one is `'organiser_attested'`,
+    // stamped with the organiser's plus-one attestation version. Legacy rows
+    // back-fill to `'guest'` (the form was the only
     // writer pre-0037). The dashboard reads this to badge organiser-entered
     // answers distinctly and show they overwrite a prior guest reply.
     consentSource: text("consent_source", {
@@ -1342,8 +1368,8 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // Gift-registry section copy + tone (migration 0057). Same nullable-means-
   // built-in-default contract as the details/story headers above, so every
   // pre-0057 wedding renders exactly as it does today. The section itself only
-  // appears when the wedding holds the `registry` entitlement AND has published
-  // a registry — this is presentation, never the gate.
+  // appears when the wedding is on Gold or above AND has published a registry —
+  // this is presentation, never the gate.
   registryEyebrow: text("registry_eyebrow"),
   registryHeading: text("registry_heading"),
   registryBody: text("registry_body"),
@@ -1462,12 +1488,10 @@ export const imports = sqliteTable(
   ],
 );
 
-// ── Upgrade purchases (migration 0060) ───────────────────────────────────────
-// Self-serve purchase of a `wedding_entitlements` capability — `vendors` and
-// `registry` today. The money side of the entitlement table, which cannot hold
-// it: that table's primary key is (wedding_id, entitlement) and grants are
-// `onConflictDoNothing`, so a second purchase of a key the wedding already has
-// would be swallowed with no record that money changed hands.
+// ── Upgrade purchases (migration 0061, tiers from 0073) ─────────────────────
+// Self-serve purchase of a plan tier — `gold` or `crimson`. The money side of
+// `weddings.tier`, which cannot hold it: the tier is one value per wedding, so
+// a second purchase would leave no record that money changed hands.
 //
 // MERCHANT: cire, unlike every other payment in this product. Gift
 // contributions are DIRECT charges on the couple's own connected account (they
@@ -1482,13 +1506,35 @@ export const weddingUpgradePurchases = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    // Deliberately the same enum as `wedding_entitlements.entitlement` rather
-    // than only the two keys sold today: making another key purchasable is then
-    // a catalogue/config change, not a migration.
+    // The product bought. `gold` and `crimson` are the tiers sold today; the
+    // legacy entitlement keys are rows written before 0073, which settle maps
+    // to the tier that replaced them. The SQL column keeps its name, so those
+    // rows need no rewrite.
     entitlement: text("entitlement", {
-      enum: ["premium_templates", "vendors", "ai", "capacity_500", "capacity_1000", "registry"],
+      enum: [
+        "gold",
+        "crimson",
+        "premium_templates",
+        "vendors",
+        "ai",
+        "capacity_500",
+        "capacity_1000",
+        "registry",
+      ],
     }).notNull(),
-    status: text("status", { enum: ["pending", "succeeded", "failed", "expired"] })
+    // The tier the wedding held when the purchase started, which is what tells
+    // a Crimson bought outright from one bought as an upgrade from Gold. NULL on
+    // every row written before 0073.
+    fromTier: text("from_tier", { enum: ["ivory", "gold"] }),
+    // `refunded` is a paid purchase an operator has since taken back with
+    // `grant-tier.ts --lower`: a redelivered payment for it grants nothing.
+    // `mismatch` is a payment whose amount or currency is not what this
+    // purchase sold, or one priced from a tier the wedding no longer holds:
+    // the money arrived and nothing was granted, so a person has to refund it
+    // or apply it by hand.
+    status: text("status", {
+      enum: ["pending", "succeeded", "failed", "expired", "refunded", "mismatch"],
+    })
       .notNull()
       .default("pending"),
     // UNIQUE, and NULL until Stripe returns a session. The idempotency anchor
@@ -1496,12 +1542,20 @@ export const weddingUpgradePurchases = sqliteTable(
     // a 2xx, so a duplicate delivery is the ordinary case, not the edge.
     checkoutSessionId: text("checkout_session_id").unique(),
     paymentIntentId: text("payment_intent_id"),
+    // The Stripe Price the purchase opened at, and what that Price charges,
+    // read from Stripe when the row is written. Settle grants only for a
+    // payment of exactly this amount and currency. NULL on every row written
+    // before 0073, which settle accepts only from the session it already holds.
+    priceId: text("price_id"),
+    priceAmountMinor: integer("price_amount_minor"),
+    priceCurrency: text("price_currency"),
     // What Stripe ACTUALLY charged, recorded at settle — never what was asked
     // for. Null while pending.
     amountMinor: integer("amount_minor"),
     currency: text("currency"),
-    // Who pressed buy. Also what the entitlement grant records as `granted_by`:
-    // a webhook has no actor of its own, and the buyer is the honest answer.
+    // Who pressed buy. A webhook has no actor of its own, so the tier grant
+    // records this purchase (`weddings.tier_granted_by = 'stripe:<id>'`) and
+    // the buyer is read from here.
     createdByOsnProfileId: text("created_by_osn_profile_id").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -1509,14 +1563,16 @@ export const weddingUpgradePurchases = sqliteTable(
   (t) => [
     index("wedding_upgrade_purchases_wedding_entitlement_idx").on(t.weddingId, t.entitlement),
     index("wedding_upgrade_purchases_payment_intent_idx").on(t.paymentIntentId),
-    // At most ONE attempt in flight per (wedding, entitlement). The service
-    // resolves an existing pending row before it ever reaches an insert — this
-    // is the backstop behind that, for the race the lookup cannot close, not
-    // the control flow. A violation surfaces as a 409, which is why the insert
-    // goes through `Effect.tryPromise` rather than `dbQuery` (whose throws are
+    // At most ONE attempt in flight per wedding, whatever it buys: a wedding
+    // can only be moving to one tier at a time, and a Gold page left open
+    // beside a Crimson one could charge for both. The service resolves an
+    // existing pending row before it ever reaches an insert — this is the
+    // backstop behind that, for the race the lookup cannot close, not the
+    // control flow. A violation surfaces as a 409, which is why the insert goes
+    // through `Effect.tryPromise` rather than `dbQuery` (whose throws are
     // defects, i.e. 500s).
     uniqueIndex("wedding_upgrade_purchases_one_pending_uniq")
-      .on(t.weddingId, t.entitlement)
+      .on(t.weddingId)
       .where(sql`status = 'pending'`),
   ],
 );
@@ -1535,9 +1591,8 @@ export const weddingUpgradePurchases = sqliteTable(
 // rows away, and this row is what is left of the sale afterwards.
 //
 // NOT anonymous, and the compliance pages must not say it is: `settled_at` is
-// the same timestamp the purchase row and the entitlement grant carry, and the
-// amount and entitlement repeat the purchase row, so while that row exists the
-// join is exact. Afterwards it stays linkable through Stripe's own retained
+// the same timestamp the purchase row carries, and the amount and product
+// repeat the purchase row, so while that row exists the join is exact. Afterwards it stays linkable through Stripe's own retained
 // session. `purchase_id` therefore adds no linkability the timestamp does not
 // already give — and it is what makes the insert idempotent across retries.
 export const platformSales = sqliteTable("platform_sales", {
@@ -1545,8 +1600,23 @@ export const platformSales = sqliteTable("platform_sales", {
   // UNIQUE with no FK: after a future cascade this is an orphan opaque string.
   // It exists so a redelivered webhook writes one row rather than a second.
   purchaseId: text("purchase_id").notNull().unique(),
+  // The product sold, as `wedding_upgrade_purchases.entitlement` names it.
   entitlement: text("entitlement").notNull(),
   amountMinor: integer("amount_minor").notNull(),
   currency: text("currency").notNull(),
   settledAt: integer("settled_at", { mode: "timestamp" }).notNull(),
+});
+
+// How many Images-binding transforms the registry link picker's thumbnails have
+// spent in one calendar month (UTC), across every wedding. One row per month.
+//
+// The Images quota is per account and the invite images guests load spend from
+// it too, so the picker stops at a fixed share of it
+// (`MONTHLY_THUMB_TRANSFORMS` in `cire/api/src/services/link-thumbnail.ts`)
+// rather than let one busy month — or one editor feeding it distinct URLs —
+// leave the invites with none. No wedding id and no profile id: the counter is
+// a total, so it holds no personal data and needs no erasure path.
+export const linkThumbTransforms = sqliteTable("link_thumb_transforms", {
+  period: text("period").primaryKey(), // YYYY-MM, UTC
+  used: integer("used").notNull().default(0),
 });

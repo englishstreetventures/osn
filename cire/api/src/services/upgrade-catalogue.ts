@@ -8,7 +8,7 @@
  * out of step with the one customers are actually charged.
  *
  * KEY-OPTIONAL, AND FAIL-CLOSED, like `createStripeClientFromEnv` and
- * `@shared/turnstile`: a key with no configured Price id is simply not
+ * `@shared/turnstile`: a tier with no configured Price id is simply not
  * purchasable. It never appears in the catalogue and the checkout route 404s
  * for it. Absent configuration means no payment surface — never "free".
  */
@@ -16,48 +16,58 @@
 import { Effect } from "effect";
 
 import { type StripeClient, StripeError, type StripePrice } from "./stripe";
+import { PAID_TIERS, type PaidTier, type Tier, tierAtLeast } from "./tiers";
 
-/**
- * The keys sold self-serve today.
- *
- * `premium_templates` and `ai` have no finished module behind them, and the two
- * `capacity_*` keys are derived rather than a module unlock (`deriveCap`), so
- * they want their own prompt at the point an import hits the ceiling rather
- * than a nav-row upgrade. Adding to this list plus a Price id is the whole
- * change needed to sell another.
- */
-export const PURCHASABLE_ENTITLEMENTS = ["vendors", "registry"] as const;
-export type PurchasableEntitlement = (typeof PURCHASABLE_ENTITLEMENTS)[number];
-
-export function isPurchasable(key: string): key is PurchasableEntitlement {
-  // `Object.hasOwn`-style membership on a closed list: `includes` on a
-  // readonly tuple is the array equivalent and walks no prototype chain.
-  return (PURCHASABLE_ENTITLEMENTS as readonly string[]).includes(key);
-}
+/** The tiers sold self-serve: every paid tier. The session route's body
+ *  schema admits exactly these. */
+export const PURCHASABLE_TIERS = PAID_TIERS;
 
 /** The copy shown on the upgrade dialog. Not in the database: it is product
  *  writing that ships with the release, and a row would only let it drift from
- *  the module it describes. */
+ *  the modules it describes. */
 const COPY = {
-  vendors: {
-    title: "Vendors & directory",
-    blurb: "Browse trusted wedding vendors and manage your shortlist in one place.",
+  gold: {
+    title: "Gold",
+    blurb: "Your budget, checklist and gift registry, for up to 500 guests.",
   },
-  registry: {
-    title: "Gift registry",
-    blurb: "List the gifts you'd like, and see what guests have claimed and sent.",
+  crimson: {
+    title: "Crimson",
+    blurb: "Everything in Gold, plus vendors and premium invite designs, for up to 1,000 guests.",
   },
-} satisfies Record<PurchasableEntitlement, { title: string; blurb: string }>;
+} satisfies Record<PaidTier, { title: string; blurb: string }>;
 
-/** Stripe Price ids, one per purchasable key. A key absent here is not for
- *  sale in this deployment. */
-export type UpgradePriceConfig = Partial<Record<PurchasableEntitlement, string>>;
+/**
+ * Stripe Price ids. `gold` and `crimson` are each tier's own Price, charged to
+ * a wedding on Ivory. `crimsonFromGold` is a second Price on the Crimson
+ * product, charged to a wedding already on Gold — and with it unset, Crimson is
+ * not offered to a Gold wedding at all, never offered at the full price. A
+ * Price absent here is not for sale in this deployment.
+ */
+export interface UpgradePriceConfig {
+  gold?: string | undefined;
+  crimson?: string | undefined;
+  crimsonFromGold?: string | undefined;
+}
 
-/** One sellable upgrade, priced. */
+/** One sellable upgrade, priced for the tier the wedding is on now. */
 export interface CatalogueEntry {
-  entitlement: PurchasableEntitlement;
+  tier: PaidTier;
+  /** The tier this Price upgrades from — the wedding's current tier. */
+  fromTier: Tier;
   title: string;
   blurb: string;
+  priceId: string;
+  amountMinor: number;
+  currency: string;
+}
+
+/**
+ * The Price a purchase opens at, and what it charges. A purchase records all
+ * three, and settle grants only for a payment of exactly this amount and
+ * currency. A Stripe Price's amount cannot change once the Price exists, so a
+ * cached read of it is as good as a fresh one.
+ */
+export interface Quote {
   priceId: string;
   amountMinor: number;
   currency: string;
@@ -105,57 +115,86 @@ export function createUpgradeCatalogue(deps: {
       return price;
     });
 
-  const sellable = (): PurchasableEntitlement[] =>
-    PURCHASABLE_ENTITLEMENTS.filter((key) => priceIdFor(key) !== null);
-
-  const priceIdFor = (key: PurchasableEntitlement): string | null => {
-    const id = deps.prices[key]?.trim();
-    return id === undefined || id === "" ? null : id;
+  const configured = (id: string | undefined): string | null => {
+    const trimmed = id?.trim();
+    return trimmed === undefined || trimmed === "" ? null : trimmed;
   };
 
+  /**
+   * The Price that moves a wedding on `from` to `tier`, or `null` when this
+   * deployment does not sell that move. A wedding already on `tier` or above
+   * it has nothing to buy, so that is `null` too.
+   */
+  const priceIdFor = (tier: PaidTier, from: Tier): string | null => {
+    if (tierAtLeast(from, tier)) return null;
+    if (tier === "gold") return configured(deps.prices.gold);
+    return from === "gold"
+      ? configured(deps.prices.crimsonFromGold)
+      : configured(deps.prices.crimson);
+  };
+
+  /** The tiers a wedding on `from` can buy here, lowest first. */
+  const sellable = (from: Tier): PaidTier[] =>
+    PURCHASABLE_TIERS.filter((tier) => priceIdFor(tier, from) !== null);
+
   return {
-    /** The keys this deployment can actually sell. */
     sellable,
-    /** The Price id for a key, or `null` when it is not for sale here. */
     priceIdFor,
 
     /**
-     * Every sellable upgrade, priced.
+     * The Price that moves a wedding on `from` to `tier`, read through the same
+     * cache as the catalogue, or `null` when this deployment does not sell that
+     * move. A Price Stripe refuses fails, rather than quoting nothing: there is
+     * then no amount to hold a payment to.
+     */
+    quote(tier: PaidTier, from: Tier): Effect.Effect<Quote | null, StripeError> {
+      const priceId = priceIdFor(tier, from);
+      if (priceId === null) return Effect.succeed(null);
+      return priceFor(priceId).pipe(
+        Effect.map((price) => ({
+          priceId,
+          amountMinor: price.unitAmountMinor,
+          currency: price.currency,
+        })),
+      );
+    },
+
+    /**
+     * Every upgrade a wedding on `from` can buy, priced.
      *
      * A Price that Stripe refuses drops its entry rather than failing the whole
-     * catalogue: one misconfigured key must not take the other module's upgrade
-     * offer down with it. The refusal is the caller's to log.
+     * catalogue: one misconfigured Price must not take the other tier's offer
+     * down with it. The refusal is the caller's to log.
      */
-    list(): Effect.Effect<CatalogueEntry[], never, never> {
-      // Concurrent across keys: each is a separate Stripe resource, so the
+    list(from: Tier): Effect.Effect<CatalogueEntry[], never, never> {
+      // Concurrent across tiers: each is a separate Stripe resource, so the
       // reads never had to chain. On a cold isolate a sequential loop makes the
       // dialog's "Checking the price…" state as long as the sum of them, and a
       // Worker gets new isolates continuously — the cache spares the second
       // request, never the first.
       //
-      // `sellable()` yields distinct keys, so two fibres cannot race the same
-      // `priceId` into the cache.
-      const entryFor = (
-        entitlement: PurchasableEntitlement,
-      ): Effect.Effect<CatalogueEntry | null, never, never> =>
+      // `sellable()` yields distinct tiers, each with its own Price, so two
+      // fibres cannot race the same `priceId` into the cache.
+      const entryFor = (tier: PaidTier): Effect.Effect<CatalogueEntry | null, never, never> =>
         Effect.gen(function* () {
-          const priceId = priceIdFor(entitlement);
+          const priceId = priceIdFor(tier, from);
           if (priceId === null) return null;
           const price = yield* Effect.result(priceFor(priceId));
           // A Price Stripe refuses drops its OWN entry and no other: one
-          // misconfigured key is an operator mistake, the whole upgrade surface
-          // vanishing because of it is an outage.
+          // misconfigured Price is an operator mistake, the whole upgrade
+          // surface vanishing because of it is an outage.
           if (price._tag === "Failure") return null;
           return {
-            entitlement,
-            ...COPY[entitlement],
+            tier,
+            fromTier: from,
+            ...COPY[tier],
             priceId,
             amountMinor: price.success.unitAmountMinor,
             currency: price.success.currency,
           };
         });
 
-      return Effect.all(sellable().map(entryFor), { concurrency: "unbounded" }).pipe(
+      return Effect.all(sellable(from).map(entryFor), { concurrency: "unbounded" }).pipe(
         Effect.map((entries) => entries.filter((e): e is CatalogueEntry => e !== null)),
         Effect.withSpan("cire.upgrade.catalogue"),
       );

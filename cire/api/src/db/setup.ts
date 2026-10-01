@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS weddings (
   change_rev INTEGER NOT NULL DEFAULT 0,
   change_claim TEXT,
   change_claimed_at INTEGER,
+  tier TEXT NOT NULL DEFAULT 'ivory',
+  tier_source TEXT,
+  tier_granted_by TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER,
@@ -349,7 +352,7 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS directory_vendors_owner_idx ON directory_vendors(owner_org_id);
+CREATE UNIQUE INDEX IF NOT EXISTS directory_vendors_owner_uniq ON directory_vendors(owner_org_id);
 CREATE INDEX IF NOT EXISTS directory_vendors_listed_name_idx ON directory_vendors(listed, name, id);
 CREATE TABLE IF NOT EXISTS directory_vendor_categories (
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
@@ -505,9 +508,13 @@ CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   entitlement TEXT NOT NULL,
+  from_tier TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   checkout_session_id TEXT UNIQUE,
   payment_intent_id TEXT,
+  price_id TEXT,
+  price_amount_minor INTEGER,
+  price_currency TEXT,
   amount_minor INTEGER,
   currency TEXT,
   created_by_osn_profile_id TEXT NOT NULL,
@@ -516,7 +523,7 @@ CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
 );
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_wedding_entitlement_idx ON wedding_upgrade_purchases(wedding_id, entitlement);
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_payment_intent_idx ON wedding_upgrade_purchases(payment_intent_id);
-CREATE UNIQUE INDEX IF NOT EXISTS wedding_upgrade_purchases_one_pending_uniq ON wedding_upgrade_purchases(wedding_id, entitlement) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS wedding_upgrade_purchases_one_pending_uniq ON wedding_upgrade_purchases(wedding_id) WHERE status = 'pending';
 CREATE TABLE IF NOT EXISTS platform_sales (
   id TEXT PRIMARY KEY,
   purchase_id TEXT NOT NULL UNIQUE,
@@ -524,6 +531,10 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   amount_minor INTEGER NOT NULL,
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS link_thumb_transforms (
+  period TEXT PRIMARY KEY NOT NULL,
+  used INTEGER DEFAULT 0 NOT NULL
 );
 `;
 

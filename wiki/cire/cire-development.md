@@ -251,7 +251,7 @@ table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
 and each statement needs its own `--> statement-breakpoint`, because
 `d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
 step that has to run before the drop goes at the top of the same file.
-`0071_wedding_owners.sql` is the example, and `migration-0071.test.ts` is the
+`0074_wedding_owners.sql` is the example, and `migration-0074.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
@@ -334,27 +334,27 @@ loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
 
 **Both portals enforce their policy.** Each file's `/*` rule sends one
 `Content-Security-Policy`. The browser blocks whatever it does not allow and
-reports each block to cire-api's collector (`POST /api/csp-report`). The two
+reports each block to cire-api's collector (`POST /api/csp-report`). Neither
+sends a `Content-Security-Policy-Report-Only` header: every directive is
+enforced and reports already, so one would file each violation twice. The two
 policies match except for `img-src`:
 
-| Portal | Enforced `img-src` | `Content-Security-Policy-Report-Only` |
-|---|---|---|
-| `@cire/host` | `'self' data: blob:`, cire-api, `https:` | `img-src` without `https:`, plus `report-uri` and `report-to` |
-| `@cire/vendor` | `'self' data:`, cire-api | none |
+| Portal | Enforced `img-src` |
+|---|---|
+| `@cire/host` | `'self' data: blob:`, cire-api |
+| `@cire/vendor` | `'self' data:`, cire-api |
 
-The organiser portal admits any `https:` image because the registry's shop
-link picker shows candidate images straight from each shop's own host (see
-[[cire-registry]], "Link preview"). That gives up `img-src` as a guard against
-injected markup loading an off-site image, so the report-only header keeps the
-tight list: every image that loads only because of `https:` files a report.
-It lists no other fetch directive, since those are enforced and already
-report. `tests/lib/headers.test.ts` pins its `img-src` to the enforced one
-minus `https:`. Taking `https:` out of the enforced line means serving the
-candidates through cire-api first.
+Neither lists any other https origin, so injected markup cannot load an image
+from a host it chose. The organiser portal needs `blob:` because it reads every
+registry picture through `authFetch` into an object URL, the shop link picker's
+candidates included: cire-api fetches and re-encodes each one (see
+[[cire-registry]], "Thumbnails"), so the browser never loads a shop's host.
+`tests/lib/headers.test.ts` pins the whole policy and fails if a report-only
+header comes back.
 
-A profile avatar can come from any https host. The organiser portal loads it
-and the report-only header reports it; the vendor portal blocks it. Both
-avatar components show the account's initial when the image fails to load.
+A profile avatar can come from any https host, and both portals block and
+report it until englishstventures/osn#1207 lists the avatar host. Both avatar
+components show the account's initial when the image fails to load.
 
 The guest site (`cire/invites`) is an SSR Worker, so it carries its policy in
 two places, and both name the API of the build. The middleware in
@@ -396,9 +396,9 @@ committed file names only the production API and no loopback origin:
    `cire-api-dev`. Each line carries the directive, the blocked origin, the
    document path and the disposition.
 
-The walk passes when no line has `disposition: "enforce"` and the only
-`report` lines are organiser-portal `img-src` lines naming a shop or avatar
-origin. The log is harder to read than it looks:
+The walk passes when no line names anything but an avatar origin under
+`img-src`; every line has `disposition: "enforce"`, since neither portal sends
+a report-only policy. The log is harder to read than it looks:
 
 - It holds the document's path, not its origin, and both portals serve `/` and
   `/login`. Walk one portal at a time and note the clock.
@@ -408,7 +408,7 @@ origin. The log is harder to read than it looks:
 - The collector drops reports past 60 a minute from one IP address and still
   answers 204. Walk at a normal pace.
 - The `cire.csp.report` counter is keyed by directive only, so it cannot tell
-  a block from a report-only line. Read the logs.
+  one blocked origin from another. Read the logs.
 
 Two kinds of report come from the dev tier only, and neither is a policy gap: a
 Cloudflare Web Analytics beacon (`script-src`, `static.cloudflareinsights.com`)

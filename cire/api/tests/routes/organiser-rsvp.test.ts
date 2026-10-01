@@ -1,12 +1,17 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, events, guests, rsvps, weddings, weddingHosts } from "@cire/db";
-import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
+import {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+  PLUS_ONE_DIETARY_ATTESTATION,
+} from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -307,8 +312,66 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
   });
 });
 
+describe("PUT …/rsvps/:eventId — a status-only reply over a guest's own answer", () => {
+  it("keeps the guest's dietary answer, consent record and source", async () => {
+    const { db, app } = buildApp();
+    const adaId = guestByName(db, "Ada");
+    const hindu = eventBySlug(db, "hindu");
+    const consentAt = new Date("2026-09-20T10:00:00Z");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "Coeliac",
+        dietaryPresets: "gluten,other",
+        dietaryConsentAt: consentAt,
+        dietaryConsentVersion: DIETARY_CONSENT_VERSION,
+        consentSource: "guest",
+        createdAt: consentAt,
+      })
+      .run();
+
+    const res = await put(app, rsvpPath(db), OWNER, { status: "declined" });
+    expect(res.status).toBe(200);
+    const row = db
+      .select({
+        status: rsvps.status,
+        dietary: rsvps.dietary,
+        presets: rsvps.dietaryPresets,
+        at: rsvps.dietaryConsentAt,
+        version: rsvps.dietaryConsentVersion,
+        source: rsvps.consentSource,
+      })
+      .from(rsvps)
+      .where(and(eq(rsvps.guestId, adaId), eq(rsvps.eventId, hindu)))
+      .get();
+    expect(row).toEqual({
+      status: "declined",
+      dietary: "Coeliac",
+      presets: "gluten,other",
+      at: consentAt,
+      version: DIETARY_CONSENT_VERSION,
+      source: "guest",
+    });
+  });
+
+  it("refuses a guest's dietary data attested in the plus-one wording", async () => {
+    const { db, app } = buildApp();
+    const res = await put(app, rsvpPath(db), OWNER, {
+      status: "attending",
+      dietaryPresets: ["vegan"],
+      dietaryConsent: true,
+      dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+    });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("dietary_attestation_mismatch");
+  });
+});
+
 describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
-  it("records a status-only reply, and refuses dietary data even when attested", async () => {
+  it("records a status-only reply, and refuses dietary data attested in the guest wording", async () => {
     const { db, app } = buildApp();
     const samId = seedPlusOne(db, guestByName(db, "Ada"), { firstName: "Sam" });
     const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${samId}/rsvps/${eventBySlug(db, "hindu")}`;
@@ -410,5 +473,46 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
       .where(eq(rsvps.guestId, samId))
       .get();
     expect(row).toEqual({ presets: "", source: "organiser_attested" });
+  });
+
+  it("stores dietary data attested in the plus-one wording for the name the row carries", async () => {
+    const { db, app } = buildApp();
+    const samId = seedPlusOne(db, guestByName(db, "Ada"), { firstName: "Sam", lastName: "Lee" });
+    const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${samId}/rsvps/${eventBySlug(db, "hindu")}`;
+    const body = {
+      status: "attending",
+      dietaryPresets: ["halal"],
+      dietaryConsent: true,
+      dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+    };
+    const stored = () =>
+      db
+        .select({
+          presets: rsvps.dietaryPresets,
+          version: rsvps.dietaryConsentVersion,
+          source: rsvps.consentSource,
+        })
+        .from(rsvps)
+        .where(eq(rsvps.guestId, samId))
+        .get();
+
+    // A page opened before the household renamed them names someone else.
+    const renamed = await put(app, path, OWNER, { ...body, dietaryAttestedName: "Alex Lee" });
+    expect(renamed.status).toBe(409);
+    expect(((await renamed.json()) as { error: string }).error).toBe("plus_one_changed");
+    expect(stored()).toBeUndefined();
+
+    // No name at all ties the tick to nobody.
+    const unnamed = await put(app, path, OWNER, body);
+    expect(unnamed.status).toBe(409);
+    expect(stored()).toBeUndefined();
+
+    const res = await put(app, path, OWNER, { ...body, dietaryAttestedName: "Sam Lee" });
+    expect(res.status).toBe(200);
+    expect(stored()).toEqual({
+      presets: "halal",
+      version: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+      source: "organiser_attested",
+    });
   });
 });

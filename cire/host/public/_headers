@@ -4,8 +4,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com https:; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
-  Content-Security-Policy-Report-Only: img-src 'self' data: blob: https://api.cireweddings.com; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 # The dashboard holds the signed-in account's data. `no-store` keeps it out of
 # the HTTP cache and, in most browsers, out of the back/forward cache, so Back
@@ -36,27 +35,17 @@
 # production origin here; the build fails if this file stops naming it, or if
 # the origin it writes appears in no client script.
 #
-# TWO POLICIES ON PURPOSE:
+# ONE POLICY, ENFORCED: the browser blocks whatever `Content-Security-Policy`
+# does not allow, and reports each block to the first-party collector
+# (`POST /api/csp-report` on cire-api — public, creds-less, 204-always). The
+# portal holds a session for the whole account and full guest lists, so it must
+# never be framed, and no injected markup may load an image from a host it
+# chose: `img-src` lists no https origin but cire-api's. `X-Frame-Options` above
+# is the legacy twin of `frame-ancestors`. There is no report-only header: every
+# directive is enforced and reports already, so one would file each violation
+# twice.
 #
-# 1. `Content-Security-Policy` is ENFORCED: the browser blocks whatever it does
-#    not allow, and reports each block to the first-party collector
-#    (`POST /api/csp-report` on cire-api — public, creds-less, 204-always). The
-#    portal holds a session for the whole account and full guest lists, so it
-#    must never be framed; `X-Frame-Options` above is the legacy twin of
-#    `frame-ancestors`. Its `img-src` admits any `https:` image, for the shop
-#    link picker (below).
-#
-# 2. `Content-Security-Policy-Report-Only` carries `img-src` WITHOUT `https:`,
-#    plus the two reporting directives. It blocks nothing; it files a report
-#    for every image the enforced policy loads only because of `https:` — the
-#    picker's candidates, an avatar, or an image some injected markup points
-#    off-site. Its `img-src` stays exactly the enforced one minus `https:`, and
-#    it lists no other fetch directive: those are enforced and already report,
-#    so repeating one here would file each violation twice. Dropping `https:`
-#    from the enforced line means serving the picker's candidates through
-#    cire-api first.
-#
-# Before changing either policy, walk the dev tier with its collector's logs
+# Before changing the policy, walk the dev tier with its collector's logs
 # open (`wiki/cire/cire-development.md`, "Portal security headers").
 #
 # WHY EACH SOURCE IS THERE (audited against the portal's source, not guessed):
@@ -75,25 +64,20 @@
 #                               fonts.googleapis.com / fonts.gstatic.com, unlike
 #                               cire/invites, which still links the stylesheet.
 #   img-src data: blob:         `data:` for the cropperjs canvas; `blob:` for
-#                               it, for `lib/download.ts`'s object URLs and for
-#                               the registry thumbnail `RegistryImageField`
-#                               reads through `authFetch`.
+#                               it, for `lib/download.ts`'s object URLs, and for
+#                               the registry pictures `RegistryImageField` reads
+#                               through `authFetch` — the saved one and the shop
+#                               link picker's candidates, which cire-api fetches
+#                               and re-encodes (`POST /registry/link-preview/
+#                               image`) so the browser never loads a shop's host.
 #   img-src api.cireweddings…   Every uploaded image (invite art, event photos)
 #                               is served by cire-api.
-#   img-src https:              The registry's shop link picker
-#                               (`RegistryImageField.tsx`) shows the candidate
-#                               images `POST /registry/link-preview` returns
-#                               straight from the shop's own host, which can be
-#                               any https origin (cire-api emits `https:`
-#                               candidates only). Enforced line only; the
-#                               report-only line leaves it out on purpose.
 #   img-src: avatars            The profile avatar comes from the OIDC `picture`
-#                               claim and can name ANY https host, which
-#                               `https:` admits; `ProfileMenu` renders only an
-#                               https URL. OSN hosts no avatars yet, so nothing
-#                               populates it. A set avatar loads and files a
-#                               report-only report until its host is listed
-#                               there: englishstventures/osn#1207.
+#                               claim and can name ANY https host, which this
+#                               policy blocks and reports; `ProfileMenu` shows
+#                               the initial instead. OSN hosts no avatars yet, so
+#                               nothing populates it. Listing the avatar host is
+#                               englishstventures/osn#1207.
 #   connect-src                 cire-api only. Sign-in is a TOP-LEVEL redirect
 #                               to musubi, not a fetch, and a navigation is not
 #                               a connect-src subject — so the OSN origin is

@@ -4,6 +4,7 @@ import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
+import type { Tier } from "../../src/lib/tiers";
 import type { WeddingRole } from "../../src/lib/wedding-roles";
 
 /**
@@ -16,17 +17,17 @@ import type { WeddingRole } from "../../src/lib/wedding-roles";
  * never reaches a write-only or owner-only sub even via a stale deep link.
  */
 
-// `entitlements` is on the mock deliberately. The shell is the only place its
-// two ends meet — Overview's own tests pass the prop directly — and a required
-// prop means deleting the pass-down fails typecheck while quietly passing `[]`
+// `tier` is on the mock deliberately. The shell is the only place its two ends
+// meet — Overview's own tests pass the prop directly — and a required prop
+// means deleting the pass-down fails typecheck while quietly passing a constant
 // does not. Rendering it here is what makes the wrong value visible.
 vi.mock("../../src/components/Overview", () => ({
   default: (p: {
     weddingId: string;
-    entitlements: readonly string[];
+    tier: Tier;
     onNavigate: (module: "guests", sub?: string) => void;
   }) => (
-    <div data-testid="overview" data-entitlements={p.entitlements.join(",")}>
+    <div data-testid="overview" data-tier={p.tier}>
       {p.weddingId}
       <button onClick={() => p.onNavigate("guests", "rsvps")}>overview-to-rsvps</button>
     </div>
@@ -119,9 +120,17 @@ vi.mock("../../src/components/HostsPanel", () => ({
   // the caller's seat to what the panel offers — the add form, the role and
   // remove controls, and the roles an owner may grant — and with the mock
   // reading only weddingId, a wrong role there would leave every test green.
-  default: (p: { weddingId: string; callerRole: string }) => (
-    <div data-testid="hosts" data-caller-role={p.callerRole}>
+  // `canLeave` is surfaced for the same reason: it is derived here, and nothing
+  // downstream can see a wrong derivation.
+  default: (p: {
+    weddingId: string;
+    callerRole: string;
+    canLeave?: boolean;
+    onLeft?: () => void;
+  }) => (
+    <div data-testid="hosts" data-caller-role={p.callerRole} data-can-leave={String(p.canLeave)}>
       {p.weddingId}
+      <button onClick={() => p.onLeft?.()}>hosts-left</button>
     </div>
   ),
 }));
@@ -174,6 +183,8 @@ function renderShell(opts: {
   canEdit?: boolean;
   module?: Module;
   sub?: string;
+  /** Defaults to Ivory, the tier that opens nothing paid. */
+  tier?: Tier;
   entitlements?: string[];
   guestCap?: number;
   /** Stand in for a declined unsaved-changes prompt: every module switch is
@@ -181,6 +192,7 @@ function renderShell(opts: {
   refuseModule?: boolean;
   /** The caller's role; derived from the two flags when a test names none. */
   role?: WeddingRole;
+  onLeftWedding?: () => void;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -217,8 +229,10 @@ function renderShell(opts: {
       sub={sub()}
       onModule={onModule}
       onSub={onSub}
+      tier={opts.tier ?? "ivory"}
       entitlements={opts.entitlements ?? []}
       guestCap={opts.guestCap ?? 100}
+      onLeftWedding={opts.onLeftWedding}
     />
   ));
   return { ...utils, onModule, onSub, setModule, setSub };
@@ -366,6 +380,21 @@ describe("ModuleShell", () => {
         expect(screen.getByTestId("hosts").getAttribute("data-caller-role")).toBe(role);
       });
     }
+
+    it("lets every seat leave, an owner too: the API refuses only the last owner", () => {
+      for (const role of ["owner", "editor", "viewer"] as const) {
+        renderShell({ role, module: "settings", sub: "hosts" });
+        expect(screen.getByTestId("hosts").getAttribute("data-can-leave")).toBe("true");
+        cleanup();
+      }
+    });
+
+    it("hands the panel's leave up to the dashboard", () => {
+      const onLeftWedding = vi.fn();
+      renderShell({ role: "editor", module: "settings", sub: "hosts", onLeftWedding });
+      fireEvent.click(screen.getByRole("button", { name: "hosts-left" }));
+      expect(onLeftWedding).toHaveBeenCalledTimes(1);
+    });
   });
 
   /**
@@ -469,10 +498,9 @@ describe("ModuleShell", () => {
    * link or a stale hash naming one lands on a real view rather than on an
    * empty panel — the upgrade is offered on the faded nav row instead.
    */
-  describe("entitlement gating — vendors module", () => {
-    it("renders Overview instead when the vendors entitlement is absent", () => {
-      // No entitlements → vendors module is locked.
-      renderShell({ module: "vendors", sub: "index", entitlements: [] });
+  describe("tier gating — vendors module (Crimson)", () => {
+    it("renders Overview instead on Ivory", () => {
+      renderShell({ module: "vendors", sub: "index", tier: "ivory" });
       expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("vendors")).toBeNull();
       expect(screen.queryByTestId("directory-browse")).toBeNull();
@@ -483,21 +511,20 @@ describe("ModuleShell", () => {
     // positive assertion here has to await it; the NEGATIVE ones deliberately
     // do not, because the point of the locked case is that the chunk is never
     // asked for at all.
-    it("renders the vendors feature views when the vendors entitlement is present", async () => {
-      renderShell({ module: "vendors", sub: "index", entitlements: ["vendors"] });
+    it("renders the vendors feature views on Crimson", async () => {
+      renderShell({ module: "vendors", sub: "index", tier: "crimson" });
       expect(screen.queryByTestId("overview")).toBeNull();
       expect(await screen.findByTestId("vendors")).toBeTruthy();
     });
 
-    it("renders the browse sub-view when entitled and active() is 'browse'", async () => {
-      renderShell({ module: "vendors", sub: "browse", entitlements: ["vendors"] });
+    it("renders the browse sub-view on Crimson when active() is 'browse'", async () => {
+      renderShell({ module: "vendors", sub: "browse", tier: "crimson" });
       expect(screen.queryByTestId("overview")).toBeNull();
       expect(await screen.findByTestId("directory-browse")).toBeTruthy();
     });
 
-    it("coerces on the absent vendors key alone, not on holding some other key", () => {
-      // Has other entitlements but not vendors → still locked.
-      renderShell({ module: "vendors", sub: "index", entitlements: ["capacity_500", "ai"] });
+    it("stays locked on Gold, which opens every other module", () => {
+      renderShell({ module: "vendors", sub: "index", tier: "gold" });
       expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("vendors")).toBeNull();
     });
@@ -505,7 +532,7 @@ describe("ModuleShell", () => {
     it("headlines the coerced module as Overview rather than as Vendors", () => {
       // The header, the sub-tabs and the rail's active row all read the same
       // coerced module, so nothing on screen claims a module that is not there.
-      renderShell({ module: "vendors", sub: "index", entitlements: [] });
+      renderShell({ module: "vendors", sub: "index", tier: "gold" });
       expect(screen.getByRole("heading", { name: /Overview/ })).toBeTruthy();
       expect(screen.queryByRole("tab", { name: /My vendors/ })).toBeNull();
     });
@@ -518,19 +545,19 @@ describe("ModuleShell", () => {
       const { onModule, onSub } = renderShell({
         module: "vendors",
         sub: "index",
-        entitlements: [],
+        tier: "ivory",
       });
       expect(screen.getByTestId("overview")).toBeTruthy();
       expect(onModule).not.toHaveBeenCalled();
       expect(onSub).not.toHaveBeenCalled();
     });
 
-    it("passes the entitlement set down to Overview", () => {
-      // Overview gates its own Vendors card on the same predicate, so a shell
-      // that forgot to thread the prop would put a card linking to a locked
-      // module on the page the coercion sends you to.
-      renderShell({ module: "overview", entitlements: ["registry", "ai"] });
-      expect(screen.getByTestId("overview").getAttribute("data-entitlements")).toBe("registry,ai");
+    it("passes the tier down to Overview", () => {
+      // Overview gates its own cards on the same predicate, so a shell that
+      // forgot to thread the prop would put a card linking to a locked module
+      // on the page the coercion sends you to.
+      renderShell({ module: "overview", tier: "gold" });
+      expect(screen.getByTestId("overview").getAttribute("data-tier")).toBe("gold");
     });
   });
 
@@ -540,47 +567,45 @@ describe("ModuleShell", () => {
    * NEGATIVE ones do not, and deliberately are not awaited: the point of the
    * locked case is that the chunk is never asked for at all.
    */
-  describe("entitlement gating — registry module", () => {
-    it("renders Overview instead when the registry entitlement is absent", () => {
-      // A wedding without the key answers 402 on every registry route, so the
+  describe("tier gating — registry module (Gold)", () => {
+    it("renders Overview instead on Ivory", () => {
+      // A wedding below Gold answers 402 on every registry route, so the
       // coercion has to keep the views unmounted, or the module fires a
       // guaranteed-failing fetch.
-      renderShell({ module: "registry", sub: "list", entitlements: [] });
+      renderShell({ module: "registry", sub: "list", tier: "ivory" });
       expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("registry")).toBeNull();
     });
 
-    it("renders the gift list when the registry entitlement is present", async () => {
-      renderShell({ module: "registry", sub: "list", entitlements: ["registry"] });
+    it("renders the gift list on Gold", async () => {
+      renderShell({ module: "registry", sub: "list", tier: "gold" });
       expect(screen.queryByTestId("overview")).toBeNull();
       expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("list");
     });
 
     it("renders the gift log on the gifts sub", async () => {
-      renderShell({ module: "registry", sub: "gifts", entitlements: ["registry"] });
+      renderShell({ module: "registry", sub: "gifts", tier: "gold" });
       const view = await screen.findByTestId("registry");
       expect(view.getAttribute("data-view")).toBe("gifts");
       // The export names its file after the slug, so the shell has to hand it down.
       expect(view.getAttribute("data-slug")).toBe("r-and-v");
     });
 
-    it("stays locked on another module's entitlement", () => {
-      // The vendors key unlocks vendors, nothing else.
-      renderShell({ module: "registry", sub: "list", entitlements: ["vendors"] });
-      expect(screen.getByTestId("overview")).toBeTruthy();
-      expect(screen.queryByTestId("registry")).toBeNull();
+    it("stays open on Crimson, which includes everything Gold does", async () => {
+      renderShell({ module: "registry", sub: "list", tier: "crimson" });
+      expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("list");
     });
 
     it("gives a viewer the module read-only rather than hiding it", async () => {
-      // Role and entitlement gate different things: an entitled wedding's
-      // viewer gets the read view, with the write controls gated INSIDE
-      // RegistryView by canEdit rather than by hiding the module.
+      // Role and tier gate different things: a Gold wedding's viewer gets the
+      // read view, with the write controls gated INSIDE RegistryView by
+      // canEdit rather than by hiding the module.
       renderShell({
         canManage: false,
         canEdit: false,
         module: "registry",
         sub: "gifts",
-        entitlements: ["registry"],
+        tier: "gold",
       });
       expect(within(rail()).getByRole("button", { name: /Registry/ })).toBeTruthy();
       expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("gifts");
@@ -590,12 +615,58 @@ describe("ModuleShell", () => {
       const { onSub } = renderShell({
         module: "registry",
         sub: "list",
-        entitlements: ["registry"],
+        tier: "gold",
       });
       expect(screen.getByRole("tab", { name: /Gift list/ })).toBeTruthy();
       fireEvent.click(screen.getByRole("tab", { name: /Gifts received/ }));
       expect(onSub).toHaveBeenCalledWith("gifts");
       expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("gifts");
+    });
+  });
+
+  /**
+   * Budget and the checklist are read views with no sub-tabs, eager rather than
+   * lazy, so their panels are in the DOM on the same render. Both answer 402
+   * below Gold, reads included, so a locked one must never mount.
+   */
+  describe("tier gating — checklist and budget (Gold)", () => {
+    it.each(["checklist", "budget"] as const)("renders Overview instead of %s on Ivory", (id) => {
+      renderShell({ module: id, tier: "ivory" });
+      expect(screen.getByTestId("overview")).toBeTruthy();
+      expect(screen.queryByTestId(id)).toBeNull();
+      expect(screen.getByRole("heading", { name: /Overview/ })).toBeTruthy();
+    });
+
+    it.each(["checklist", "budget"] as const)("renders %s on Gold", (id) => {
+      renderShell({ module: id, tier: "gold" });
+      expect(screen.getByTestId(id)).toBeTruthy();
+      expect(screen.queryByTestId("overview")).toBeNull();
+    });
+
+    it("opens the module once the tier rises, without a remount", () => {
+      // The list refetch after a purchase changes the tier prop on the same
+      // shell; the coercion has to follow it rather than holding Overview.
+      const [tier, setTier] = createSignal<Tier>("ivory");
+      render(() => (
+        <ModuleShell
+          weddingId="wed_1"
+          weddingName="R & V"
+          weddingSlug="r-and-v"
+          callerRole="owner"
+          canManage
+          canEdit
+          module="budget"
+          sub="index"
+          onModule={vi.fn()}
+          onSub={vi.fn()}
+          tier={tier()}
+          entitlements={[]}
+          guestCap={100}
+        />
+      ));
+      expect(screen.queryByTestId("budget")).toBeNull();
+      setTier("gold");
+      expect(screen.getByTestId("budget")).toBeTruthy();
     });
   });
 

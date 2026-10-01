@@ -397,8 +397,10 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 
 With **Workers observability enabled** on cire-api (`[observability]` +
 `[env.production.observability]` in `cire/api/wrangler.toml`) and on osn-api
-(`[observability]` in `osn/api/wrangler.toml`), Workers Logs + invocation
-records persist for **7 days** and are viewable in the CF dashboard.
+(`[observability]` in `osn/api/wrangler.toml`), Workers Logs persist for
+**7 days**, plus invocation records on osn-api. Both cire Workers (cire-api in
+every env, cire-invites) set `invocation_logs = false`, because an invocation
+record stores the request URL and the public cire routes carry the wedding slug. Logs are viewable in the CF dashboard.
 
 - **Where to watch:** CF dashboard → **Workers & Pages → cire-api / osn-api →
   Observability / Logs** (and the Query Builder). D1 + Workers request metrics

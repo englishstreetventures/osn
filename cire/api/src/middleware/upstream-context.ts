@@ -15,6 +15,9 @@
  * branches at every call site already deny on.
  */
 
+import { isTier } from "../services/tiers";
+import type { Tier } from "../services/tiers";
+
 /** The OSN profile id `osnAuth()` derived, or undefined if it never ran. */
 export function readOsnProfileId(ctx: unknown): string | undefined {
   if (typeof ctx !== "object" || ctx === null || !("osnProfileId" in ctx)) return undefined;
@@ -33,30 +36,15 @@ export function hasWeddingGateError(ctx: unknown): boolean {
 }
 
 /**
- * The entitlement presence check a role gate (weddingMember/weddingEditor/
- * weddingOwner) already folded into its OWN query, when it was called with an
- * `entitlementKey`. `weddingEntitlement(db, key)` reads this instead of
- * running its own query — but only trusts it when the fold's `key` matches
- * ITS key; a mismatch (or absence, e.g. the role gate ran with no key, or this
- * gate is mounted standalone in a test) returns `undefined` so the caller
- * falls back to its own query rather than trust a wrong answer.
+ * The wedding's plan tier, as the role gate (weddingMember/weddingEditor/
+ * weddingOwner/weddingRunSheet) read it from the same row it authorised the
+ * caller against. `weddingTier(db, min)` reads this instead of running a query
+ * of its own. Anything that is not a known tier — the gate never ran, or it
+ * refused and parked no tier — comes back `undefined`, and the tier gate then
+ * reads the tier itself.
  */
-export function readWeddingEntitlementFold(
-  ctx: unknown,
-): { key: string; entitled: boolean } | undefined {
-  if (typeof ctx !== "object" || ctx === null || !("weddingEntitlementFold" in ctx)) {
-    return undefined;
-  }
-  const fold = (ctx as { weddingEntitlementFold: unknown }).weddingEntitlementFold;
-  if (
-    typeof fold !== "object" ||
-    fold === null ||
-    !("key" in fold) ||
-    !("entitled" in fold) ||
-    typeof fold.key !== "string" ||
-    typeof fold.entitled !== "boolean"
-  ) {
-    return undefined;
-  }
-  return { key: fold.key, entitled: fold.entitled };
+export function readWeddingTier(ctx: unknown): Tier | undefined {
+  if (typeof ctx !== "object" || ctx === null || !("weddingTier" in ctx)) return undefined;
+  const value = ctx.weddingTier;
+  return isTier(value) ? value : undefined;
 }

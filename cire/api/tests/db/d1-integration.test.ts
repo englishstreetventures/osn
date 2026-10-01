@@ -21,10 +21,12 @@ import {
   vendorClaims,
   vendors,
   weddingFaqs,
+  platformSales,
   weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
   weddings,
+  weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
 import { EmailService, type SendEmailInput } from "@shared/email";
@@ -51,8 +53,11 @@ import {
   headRevision,
 } from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
-import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
-import { BASE_GUEST_CAP } from "../../src/services/entitlements";
+import {
+  ClaimInvalid,
+  createDirectoryService,
+  OrgAlreadyHasListing,
+} from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
 import { hostsService, MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
@@ -70,7 +75,11 @@ import { type GiftSummaryNotice, retentionService } from "../../src/services/ret
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
+import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
+import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
+import { createUpgradeService } from "../../src/services/upgrades";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
 import {
   fullWeddingKeys,
@@ -91,7 +100,8 @@ import { ownerSeat } from "../test-helpers/wedding";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
-const MIGRATION_0071 = "0071_wedding_owners.sql";
+const MIGRATION_0073 = "0073_wedding_tiers.sql";
+const MIGRATION_0074 = "0074_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -265,6 +275,7 @@ beforeEach(async () => {
     tasks,
     registrySettings,
     weddingFaqs,
+    platformSales,
     weddings,
   ]) {
     await db.delete(table);
@@ -880,14 +891,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const now = new Date();
       const visible = (eff: Effect.Effect<string, unknown, DbService>) =>
         Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
-      await db.insert(weddingEntitlements).values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: "usr_test",
-      });
-      // Entitled, never opened: no settings row reads as unpublished.
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      // On Gold, never opened: no settings row reads as unpublished.
       expect(Exit.isFailure(await visible(registryGuestService.visibleWeddingId("w")))).toBe(true);
 
       await db.insert(registrySettings).values({
@@ -1107,6 +1112,20 @@ describe("cire/api over real D1 (Miniflare)", () => {
         }),
       );
 
+      // A second live token for the same listing, as a couple's enquiry mints.
+      const second = await run(
+        directory.issueClaimForListing({
+          id: directoryVendorId,
+          ownerOrgId: null,
+          email: "claim@example.com",
+          name: "Claim Florals",
+          phone: null,
+          claimedByProfileId: null,
+          leadForwardEmail: null,
+        }),
+      );
+      expect(second).not.toBeNull();
+
       const listing = await run(directory.consumeClaim(claimToken, "org_claim", "usr_claim"));
       expect(listing.id).toBe(directoryVendorId);
       expect(listing.ownerOrgId).toBe("org_claim");
@@ -1118,11 +1137,22 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(directoryVendors)
         .where(eq(directoryVendors.id, directoryVendorId));
       expect(row?.claimedByProfileId).toBe("usr_claim");
-      const [claim] = await db
+      // The bind's batch burned the listing's other token too.
+      const claims = await db
         .select()
         .from(vendorClaims)
         .where(eq(vendorClaims.directoryVendorId, directoryVendorId));
-      expect(claim?.consumedAt).not.toBeNull();
+      expect(claims).toHaveLength(2);
+      expect(claims.every((c) => c.consumedAt !== null)).toBe(true);
+      const late = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(second!.claimToken, "org_late", "usr_late")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(late) &&
+          Option.getOrUndefined(Cause.findErrorOption(late.cause)) instanceof ClaimInvalid,
+      ).toBe(true);
 
       const reuse = await Effect.runPromiseExit(
         directory
@@ -1133,6 +1163,56 @@ describe("cire/api over real D1 (Miniflare)", () => {
         Exit.isFailure(reuse) &&
           Option.getOrUndefined(Cause.findErrorOption(reuse.cause)) instanceof ClaimInvalid,
       ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "consumeClaim refuses an org that already owns a listing, and the owner index is unique",
+    async () => {
+      const now = new Date();
+      const directory = createDirectoryService();
+      const base = { listed: "live", createdAt: now, updatedAt: now };
+      await db.insert(directoryVendors).values([
+        { id: "dv_owned", ownerOrgId: "org_owner", name: "Owned", ...base },
+        { id: "dv_open", ownerOrgId: null, name: "Open", ...base },
+      ]);
+      const claim = await run(
+        directory.issueClaimForListing({
+          id: "dv_open",
+          ownerOrgId: null,
+          email: "open@example.com",
+          name: "Open",
+          phone: null,
+          claimedByProfileId: null,
+          leadForwardEmail: null,
+        }),
+      );
+
+      const refused = await Effect.runPromiseExit(
+        directory
+          .consumeClaim(claim!.claimToken, "org_owner", "usr_owner")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(
+        Exit.isFailure(refused) &&
+          Option.getOrUndefined(Cause.findErrorOption(refused.cause)) instanceof
+            OrgAlreadyHasListing,
+      ).toBe(true);
+      const [open] = await db
+        .select()
+        .from(vendorClaims)
+        .where(eq(vendorClaims.directoryVendorId, "dv_open"));
+      expect(open?.consumedAt).toBeNull();
+
+      // The unique owner index, on D1's own SQLite: a second owned row fails.
+      // ddl-lockstep.test.ts checks that migration 0072 builds the same index.
+      await expect(
+        db
+          .insert(directoryVendors)
+          .values({ id: "dv_dup", ownerOrgId: "org_owner", name: "Dup", ...base })
+          .run(),
+      ).rejects.toThrow();
     },
     MF_TIMEOUT_MS,
   );
@@ -1959,7 +2039,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "runs migration 0071 on D1's own SQLite: owners become seats, nothing cascades",
+    "runs migration 0074 on D1's own SQLite: owners become seats, nothing cascades",
     async () => {
       // Its own instance, built from the chain up to 0070, so the weddings the
       // migration moves are rows that exist before it runs — including one
@@ -1974,7 +2054,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = readdirSync(MIGRATIONS_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
-        const cut = files.indexOf(MIGRATION_0071);
+        const cut = files.indexOf(MIGRATION_0074);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
           for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
@@ -1988,7 +2068,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0071);
+        const statements = migrationStatements(MIGRATION_0074);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -2406,10 +2486,145 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(orphans!.n).toBe(0);
       const [sales] = await db.all<{ n: number }>(
-        sql.raw("SELECT count(*) AS n FROM platform_sales"),
+        sql.raw(
+          `SELECT count(*) AS n FROM platform_sales WHERE purchase_id IN ('upg_${gone}', 'upg_${live}')`,
+        ),
       );
       expect(sales!.n).toBe(2);
-      await db.run(sql`DELETE FROM platform_sales`);
+      await db.run(sql`DELETE FROM platform_sales WHERE purchase_id LIKE 'upg_wed_d1_%'`);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0073's data statements on D1's own SQLite",
+    async () => {
+      // The schema comes from the test DDL, which already has the tier columns
+      // and the narrowed index, so only the migration's UPDATEs are replayed:
+      // what is proven is that D1 accepts them (`unixepoch()` included) and
+      // that they lift each wedding to the tier its legacy rows paid for.
+      const updates = migrationStatements(MIGRATION_0073).filter((stmt) =>
+        stmt.startsWith("UPDATE"),
+      );
+      expect(updates).toHaveLength(3);
+
+      const stamp = new Date(1_790_000_000_000);
+      const lifted = [
+        ["wed_d1_vendors", "vendors"],
+        ["wed_d1_registry", "registry"],
+        ["wed_d1_both", "registry"],
+        ["wed_d1_both", "capacity_1000"],
+        ["wed_d1_templates", "premium_templates"],
+      ] as const;
+      for (const id of new Set(lifted.map(([w]) => w))) {
+        await db.insert(weddings).values({
+          id,
+          slug: id,
+          displayName: id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+      for (const [weddingId, entitlement] of lifted) {
+        await db.insert(weddingEntitlements).values({
+          weddingId,
+          entitlement,
+          source: "comp",
+          grantedAt: stamp,
+          grantedBy: "usr_test",
+        });
+      }
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1_legacy",
+        weddingId: "wed_d1_vendors",
+        entitlement: "vendors",
+        status: "pending",
+        createdByOsnProfileId: "usr_test",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+
+      for (const stmt of updates) await d1.prepare(stmt).run();
+
+      const tiers = await db
+        .select({ id: weddings.id, tier: weddings.tier, source: weddings.tierSource })
+        .from(weddings)
+        .where(sql`${weddings.id} LIKE 'wed_d1_%'`)
+        .orderBy(asc(weddings.id));
+      expect(tiers).toEqual([
+        { id: "wed_d1_both", tier: "crimson", source: "migration" },
+        { id: "wed_d1_registry", tier: "gold", source: "migration" },
+        { id: "wed_d1_templates", tier: "ivory", source: null },
+        { id: "wed_d1_vendors", tier: "crimson", source: "migration" },
+      ]);
+      const [purchase] = await db
+        .select({
+          status: weddingUpgradePurchases.status,
+          updatedAt: weddingUpgradePurchases.updatedAt,
+        })
+        .from(weddingUpgradePurchases)
+        .where(eq(weddingUpgradePurchases.id, "upg_d1_legacy"));
+      expect(purchase?.status).toBe("expired");
+      expect(purchase!.updatedAt.getTime()).toBeGreaterThan(stamp.getTime());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "settles an upgrade on D1: the tier grant, the sale and the flip in one batch",
+    async () => {
+      // The grant is an UPDATE of `weddings` riding in the same D1 batch as the
+      // sales insert and the RETURNING flip, read back through D1's row
+      // mapping — the shape bun:sqlite chains instead of batching.
+      const stripe = {} as StripeClient;
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+      });
+      const now = new Date();
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "crimson",
+        fromTier: "ivory",
+        status: "pending",
+        checkoutSessionId: "cs_d1",
+        createdByOsnProfileId: "usr_test",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const settle = () =>
+        run(
+          upgrades.settlePurchase({
+            purchaseId: "upg_d1",
+            checkoutSessionId: "cs_d1",
+            paid: true,
+            paidAmountMinor: 9900,
+            paidCurrency: "aud",
+            paymentIntentId: "pi_d1",
+          }),
+        );
+
+      expect(await settle()).toBe("granted");
+      expect(await settle()).toBe("replayed");
+      expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
+      const [wedding] = await db
+        .select({ source: weddings.tierSource, by: weddings.tierGrantedBy })
+        .from(weddings)
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      expect(wedding).toEqual({ source: "purchase", by: "stripe:upg_d1" });
+      expect(await db.select({ id: platformSales.purchaseId }).from(platformSales)).toEqual([
+        { id: "upg_d1" },
+      ]);
+
+      // A later, lower grant changes nothing on D1 either.
+      await run(
+        tierService.grant(BOOTSTRAP_WEDDING_ID, "gold", {
+          source: "comp",
+          grantedBy: "script:ops",
+        }),
+      );
+      expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
     },
     MF_TIMEOUT_MS,
   );

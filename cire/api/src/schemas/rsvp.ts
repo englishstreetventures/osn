@@ -86,21 +86,27 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // variant). Same caps and consent gate as the guest path.
 //
 // `dietary` and `dietaryPresets` stay absent when the body omits them: a body
-// with neither is a status-only reply, which for a plus-one keeps the
-// household's dietary answer (see `organiserRsvpService.record`). Either one
+// with neither is a status-only reply, which keeps the stored dietary answer
+// and its consent record (see `organiserRsvpService.record`). Either one
 // present makes it a dietary edit, the other counting as empty.
 //
 // `dietaryAttestation` is the version of the attestation wording the portal
-// showed (`ORGANISER_DIETARY_ATTESTATION.version` in `@cire/dietary`). The
-// route refuses dietary data unless it is the version this API stamps, and
-// stamps its own constant, never this string. Bounded because it is compared,
-// not stored.
+// showed: `ORGANISER_DIETARY_ATTESTATION.version` for a guest, or
+// `ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version` for a plus-one (both in
+// `@cire/dietary`). The API refuses dietary data unless the version is the one
+// it stamps for that person, and stamps its own constant, never this string.
+// `dietaryAttestedName` is the full name the portal showed the plus-one's box
+// for; a plus-one's dietary data is refused when the row no longer carries
+// that name. Both bounded because they are compared, not stored.
 export const OrganiserRsvpBody = Schema.Struct({
   status: Schema.Literals(["attending", "declined", "maybe"]),
   dietary: Schema.optionalKey(DietaryText),
   dietaryPresets: Schema.optionalKey(DietaryPresets),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
   dietaryAttestation: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("")),
+  ),
+  dietaryAttestedName: Schema.String.check(Schema.isMaxLength(256)).pipe(
     Schema.withDecodingDefaultType(Effect.succeed("")),
   ),
 });

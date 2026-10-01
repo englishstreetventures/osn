@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 
 import { DEV_OWNER_SEAT_ID, faqs, hosts } from "../../seed/data";
+import { BOOTSTRAP_WEDDING_ID } from "../../src/schema";
 
 // seed.test.ts proves dev-seed.sql is what the generator emits; this proves
 // that SQL runs. It builds a database from the migration chain, as the dev
@@ -41,6 +42,19 @@ describe("dev-seed.sql against the migrated schema", () => {
     for (const row of rows) {
       expect(Math.abs(row.created_at - Date.now() / 1000)).toBeLessThan(60);
     }
+  });
+
+  it("seeds the sample wedding on Crimson, comped by the seed", () => {
+    // Dropping the tier from the seed would leave the column's Ivory default,
+    // and every dev and preview wedding would then answer 402 on budget,
+    // checklist, registry and vendors.
+    const row = seededDatabase()
+      .query<
+        { tier: string; tier_source: string | null; tier_granted_by: string | null },
+        [string]
+      >("SELECT tier, tier_source, tier_granted_by FROM weddings WHERE id = ?")
+      .get(BOOTSTRAP_WEDDING_ID);
+    expect(row).toEqual({ tier: "crimson", tier_source: "comp", tier_granted_by: "dev-seed" });
   });
 });
 

@@ -13,7 +13,6 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
-import { entitlementService } from "../services/entitlements";
 import { familyDeactivateService } from "../services/family-deactivate";
 import { giftExportService } from "../services/gift-export";
 import { hostCodeService } from "../services/host-code";
@@ -23,6 +22,7 @@ import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
 import { downloadFidelity, stateExportService } from "../services/state-export";
 import { tableExportService } from "../services/table-export";
+import { legacyEntitlementKeys, tierService } from "../services/tiers";
 import { weddingsService } from "../services/weddings";
 
 // Sentinel parse hook: stops Elysia from consuming the body so the handler can
@@ -110,17 +110,13 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       return runCire(
         Effect.gen(function* () {
           const list = yield* weddingsService.listForMember(osnProfileId);
-          // Entitlements matter only to a wedding that can be opened.
-          const sets = yield* entitlementService.setsForWeddings(list.weddings.map((w) => w.id));
+          // Entitlement keys matter only to a wedding that can be opened.
+          const premium = yield* tierService.premiumTemplateHolders(list.weddings.map((w) => w.id));
+          for (const w of list.weddings) {
+            w.entitlements = legacyEntitlementKeys(w.tier, premium.has(w.id));
+          }
           return {
-            weddings: list.weddings.map((w) => {
-              const keys = sets.get(w.id) ?? [];
-              return {
-                ...w,
-                entitlements: keys,
-                guestCap: entitlementService.deriveCap(keys),
-              };
-            }),
+            weddings: list.weddings,
             // An owner's soft-deleted weddings they can still restore.
             deleted: list.deleted.map((w) => ({
               id: w.id,
@@ -402,12 +398,12 @@ export const createOrganiserExportRoutes = (
         // weddingMember() gate + attachment/no-store contract as the exports
         // above.
         //
-        // No `weddingEntitlement(db, "registry")` gate, unlike every other
-        // registry surface, and that is deliberate: the log is the couple's
-        // own record, and they must be able to take it away whether or not
-        // the wedding still holds `registry`. Refusing to hand back data we
-        // hold is the worse failure. A wedding that never held the entitlement
-        // has no gifts, so it gets the header line and nothing else; the read
+        // No `weddingTier(db, "gold")` gate, unlike every other registry
+        // surface, and that is deliberate: the log is the couple's own
+        // record, and they must be able to take it away whether or not the
+        // wedding is still on Gold. Refusing to hand back data we hold is the
+        // worse failure. A wedding that was never on Gold has no gifts, so it
+        // gets the header line and nothing else; the read
         // is capped and rate-limited. A gate here would have to keep admitting
         // this read for as long as the gift rows exist, so it cannot be the
         // plain one the registry routes use.

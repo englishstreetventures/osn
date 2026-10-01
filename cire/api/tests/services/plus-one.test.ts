@@ -7,7 +7,6 @@ import {
   guests,
   rsvpChanges,
   rsvps,
-  weddingEntitlements,
   weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
@@ -18,10 +17,10 @@ import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import { hostCodeService } from "../../src/services/host-code";
 import { buildCreatePlusOne, plusOneService } from "../../src/services/plus-one";
-import { recordStatements } from "../test-helpers";
+import { BASE_GUEST_CAP } from "../../src/services/tiers";
+import { recordStatements, setTier } from "../test-helpers";
 import {
   allowPlusOne,
   eventIdsOf,
@@ -232,9 +231,7 @@ describe("plusOneService.save", () => {
         })
         .run();
     }
-    db.delete(weddingEntitlements)
-      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
 
     expect(
       await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
@@ -589,19 +586,11 @@ describe("plusOneService.save — the rules change after the lookup, before the 
     ).toBe("PlusOneHouseholdGone");
   });
 
-  it("names the plus-one past the base cap once the wedding holds a capacity entitlement", async () => {
+  it("names the plus-one past the Ivory cap once the wedding is on Gold", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     fillToCap(db);
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "capacity_500",
-        source: "comp",
-        grantedAt: new Date(),
-        grantedBy: "test",
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     const result = await run(
       plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" }),
     );
@@ -1473,9 +1462,7 @@ describe("plusOneService — the RSVP change log", () => {
         })
         .run();
     }
-    db.delete(weddingEntitlements)
-      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
     expect(
       await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
     ).toBe("CapacityExceeded");

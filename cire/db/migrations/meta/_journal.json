@@ -103,15 +103,36 @@
     {
       "idx": 71,
       "version": "6",
-      "when": 1790828816884,
-      "tag": "0071_wedding_owners",
+      "when": 1790824558204,
+      "tag": "0071_directory_vendors_owner_unique",
       "breakpoints": true
     },
     {
       "idx": 72,
       "version": "6",
-      "when": 1790838041219,
-      "tag": "0072_wedding_soft_delete",
+      "when": 1790838851551,
+      "tag": "0072_link_thumb_transforms",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1790839684170,
+      "tag": "0073_wedding_tiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1790841013768,
+      "tag": "0074_wedding_owners",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1790841019388,
+      "tag": "0075_wedding_soft_delete",
       "breakpoints": true
     }
   ]

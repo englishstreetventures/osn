@@ -2,9 +2,9 @@
  * Gift registry (platform Phase 4, [[registry]]) — the couple's gift list, the
  * households that claim from it, and the gift log they thank people from.
  *
- * LOCKED BY DEFAULT: every organiser route that reaches this service sits behind
- * `weddingEntitlement(db, "registry")`, and the `registry` entitlement is granted
- * to no wedding. Nothing here runs in production until someone grants it.
+ * A GOLD MODULE: every organiser route that reaches this service sits behind
+ * `weddingTier(db, "gold")`, and the guest routes check the same tier in their
+ * own gate. A wedding below Gold reaches none of it.
  *
  * TENANCY: the route gate proves the caller may touch `weddingId`. Every read and
  * write here ADDITIONALLY scopes by `wedding_id`, so an editor of wedding A can
@@ -44,11 +44,11 @@ import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
-import { entitlementPresent } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
 // Nothing at runtime crosses between them, so no import cycle.
 import type { GiftSummary } from "./retention";
+import { normaliseTier, tierAtLeast } from "./tiers";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
 export class RegistryItemNotInWedding extends Data.TaggedError("RegistryItemNotInWedding") {}
@@ -87,8 +87,8 @@ export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimi
 export class InvalidQuantity extends Data.TaggedError("InvalidQuantity") {}
 /**
  * No registry a guest may see at this slug. 404-class, and DELIBERATELY one error
- * for four different causes: unknown slug, wedding without the `registry`
- * entitlement, registry never opened, registry opened but unpublished.
+ * for four different causes: unknown slug, wedding below the Gold tier,
+ * registry never opened, registry opened but unpublished.
  *
  * Telling them apart would tell an unauthenticated caller which weddings exist
  * and which of them are drafting a gift list — so the guest surface answers all
@@ -1480,7 +1480,7 @@ export const registryService = {
    * The gates are all here, in one read, because each of them is the difference
    * between a payment and a refund:
    *
-   *  - the registry must be visible (published, entitled, real slug);
+   *  - the registry must be visible (published, Gold or above, real slug);
    *  - the family must belong to THIS wedding — a session names a household,
    *    not a wedding;
    *  - the couple must have said yes (`cash_gifts_enabled`) AND Stripe must be
@@ -2809,11 +2809,11 @@ const toPublicItemDto = (
 /**
  * Slug → wedding id, but ONLY when a guest may see this wedding's registry.
  *
- * Two independent gates, both of which must hold: the wedding carries the
- * `registry` entitlement, and `registry_settings.published` is 1. Either one
- * missing fails `RegistryNotVisible`, which every guest route turns into the
- * same 404 — so an unentitled wedding, an unpublished one and a slug nobody
- * registered are indistinguishable from outside.
+ * Two independent gates, both of which must hold: the wedding is on Gold or
+ * above, and `registry_settings.published` is 1. Either one missing fails
+ * `RegistryNotVisible`, which every guest route turns into the same 404 — so a
+ * wedding below Gold, an unpublished one and a slug nobody registered are
+ * indistinguishable from outside.
  *
  * Two optional checks join them, each failing the same way:
  *
@@ -2834,7 +2834,7 @@ const toPublicItemDto = (
  *   that is not this wedding's is kept and its line dropped, so a foreign item
  *   must not close the gate.
  *
- * ONE statement, whatever the answer: the slug read, the entitlement, the
+ * ONE statement, whatever the answer: the slug read, the tier, the
  * settings row and every check are keyed on the id the slug read produces, so
  * each is folded into it rather than run after it. Every guest route pays this
  * gate, and the image route pays it per image.
@@ -2860,7 +2860,7 @@ function resolveVisibleRegistry(
         .select({
           id: weddings.id,
           currency: weddings.currency,
-          entitled: entitlementPresent(weddings.id, "registry").as("entitled"),
+          tier: weddings.tier,
           // A check the caller did not ask for is the constant 1, so the row
           // keeps one shape.
           imageListed: (imageName === undefined
@@ -2899,7 +2899,8 @@ function resolveVisibleRegistry(
     const row = found as GateRow | undefined;
     if (!row) return yield* Effect.fail(new RegistryNotVisible());
     const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
-    if (!row.entitled || !settings.published || !row.imageListed || !row.familyListed) {
+    const onGold = tierAtLeast(normaliseTier(row.tier), "gold");
+    if (!onGold || !settings.published || !row.imageListed || !row.familyListed) {
       return yield* Effect.fail(new RegistryNotVisible());
     }
     // Same fallback `primaryCurrency` has always used.
@@ -2923,7 +2924,7 @@ interface GateChecks {
 interface GateRow {
   id: string;
   currency: string | null;
-  entitled: number;
+  tier: string;
   imageListed: number;
   familyListed: number;
   itemListed: number;
@@ -3006,7 +3007,7 @@ export const registryGuestService = {
    * `cire_session` names a household, not a wedding, so without this one
    * leaked code would open every couple's list on the platform. A family from
    * another wedding fails `RegistryNotVisible` — the same failure, and so the
-   * same 404, as a registry that is unpublished or unentitled. A distinct code
+   * same 404, as a registry that is unpublished or below Gold. A distinct code
    * would confirm to any cookie-holder which weddings have a list.
    */
   guestView(input: {

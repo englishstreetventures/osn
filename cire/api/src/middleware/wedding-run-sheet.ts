@@ -6,8 +6,8 @@ import type { Db } from "../db";
 import { runCire } from "../observability";
 import { hostsService } from "../services/hosts";
 import type { RunSheetScope } from "../services/hosts";
+import type { Tier } from "../services/tiers";
 import { readOsnProfileId } from "./upstream-context";
-import type { WeddingEntitlementFold } from "./wedding-member";
 import { decideCapability, runSheetScopeFor } from "./wedding-role";
 import type { WeddingRole } from "./wedding-role";
 
@@ -22,7 +22,7 @@ const fail = (status: number, error: string) => ({
   weddingRole: undefined as WeddingRole | undefined,
   weddingHostId: undefined as string | undefined,
   weddingRunSheetScope: undefined as RunSheetScope | undefined,
-  weddingEntitlementFold: undefined as WeddingEntitlementFold | undefined,
+  weddingTier: undefined as Tier | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
@@ -31,6 +31,7 @@ const pass = (
   role: WeddingRole,
   hostId: string | null,
   scope: RunSheetScope,
+  tier: Tier,
 ) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
@@ -39,11 +40,9 @@ const pass = (
   // route filtering to `own` compares assignments against it.
   weddingHostId: (hostId ?? undefined) as string | undefined,
   weddingRunSheetScope: scope as RunSheetScope | undefined,
-  // Always absent: this gate takes no entitlement key, and the entitlement gate
-  // reads this off upstream context. Present and undefined means "no fold",
-  // which makes `weddingEntitlement()` run its own query rather than trust a
-  // missing answer.
-  weddingEntitlementFold: undefined as WeddingEntitlementFold | undefined,
+  // Read from the same wedding row, for a `weddingTier(db, min)` mounted
+  // after this gate.
+  weddingTier: tier as Tier | undefined,
   weddingGateError: undefined as GateError | undefined,
 });
 
@@ -66,6 +65,8 @@ const pass = (
  *   route MUST narrow its response to this: `runSheetVisibleTo()` in
  *   `wedding-role.ts` is the filter, and returning the whole run sheet to a
  *   helper scoped `own` hands it over whatever the page then renders.
+ * - `weddingTier` — the wedding's plan tier, for a `weddingTier(db, min)`
+ *   mounted directly after this gate.
  *
  * Mirrors the other gates' lifecycle: the derive runs before osnAuth's
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
@@ -95,6 +96,7 @@ export function weddingRunSheet(db: Db) {
         result.role,
         result.hostId,
         runSheetScopeFor(result.role, result.runSheetScope),
+        result.weddingTier,
       );
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {

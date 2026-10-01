@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-10-01
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -96,13 +96,24 @@ along. If the user opens the link in a *different* browser, every call
    link. On success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies
    `requireAuthAfter` — the retry loop needs no special casing.
-3. **Profile picker** (`reason=select_account`, or multiple profiles and
-   no `linkedProfileId`) — one card per profile (avatar, display name,
+3. **Account** (`reason=select_account`, signed in, and no sign-in made on
+   this page yet) — the client card, then "Signed in as" with the account's
+   profile (avatar, display name, handle), or every profile as a toggle when
+   there are two or more. Buttons: **Continue**, **Use another account**,
+   **Cancel**. Shown for every account, one profile or many, and for
+   first-party clients too. Continue fixes the profile and moves to consent
+   (state 5) — never straight to a decision, because the page sees only
+   `reason` and the app may have paired `select_account` with `consent`.
+   Use another account opens the sign-in panel with a **Back** button; a
+   sign-in there is itself the choice of account, so the account screen
+   does not return after it.
+4. **Profile picker** (multiple profiles and no `linkedProfileId`, or
+   `reason=select_account` after a sign-in made on this page) — one card per profile (avatar, display name,
    handle). Default selection: `linkedProfileId` if present (this client
    already knows that profile — switching is allowed but changes the
    pairwise `sub` the client sees; say so in a caption), else the default
    profile.
-4. **Consent** — the heart of the page:
+5. **Consent** — the heart of the page:
    - Client identity: `name`, `logoUrl` (render as `<img src>` ONLY —
      never interpolate into markup; treat the URL as untrusted even
      though registration now pins it to https).
@@ -111,17 +122,21 @@ along. If the user opens the link in a *different* browser, every call
      "See your email address" with the explicit warning that email is
      account-level and shared across apps (the one claim pairwise
      subjects cannot protect).
-   - The chosen profile (from state 3, collapsed to a switcher row).
+   - The chosen profile (from state 3 or 4, collapsed to a switcher row).
    - Buttons: **Approve** (primary) / **Cancel** (secondary). Cancel
      POSTs `approved: false` — the relying party gets `access_denied`;
      it must NOT just close the tab, or the request lingers for its TTL.
-5. **Redirecting** — after either decision, assign `redirectTo`. Show
+6. **Redirecting** — after either decision, assign `redirectTo`. Show
    nothing clickable; the decision cannot be re-posted (single-use).
-6. **Expired / wrong browser** — terminal, with the app's name if context
+7. **Expired / wrong browser** — terminal, with the app's name if context
    was ever loaded, else generic.
 
-First-party clients normally never reach this page (the provider
-short-circuits consent), so state 4's copy can assume a third party.
+First-party clients reach this page only on `prompt=select_account`,
+`prompt=login`, `prompt=create` or `prompt=consent`; otherwise the provider
+grants them without a screen. The provider parks `select_account` before
+both the stored-consent and the first-party short-cuts, so the account
+screen shows even when consent is on record (pinned in
+`osn/api/tests/routes/oidc.test.ts`).
 
 ## Rules the page must not break
 
@@ -141,8 +156,9 @@ short-circuits consent), so state 4's copy can assume a third party.
 1. ~~Route + loading/expired/signed-out states wired to `<SignIn>`~~ — done.
 2. ~~Consent card + scope humanisation + decision POST + redirect~~ — done.
 3. ~~Profile picker~~ — done. It only leads when there is a real choice:
-   two or more profiles, and either `reason=select_account` or the client
-   has never seen any of them. Single-profile accounts never see it.
+   two or more profiles, and the client has never seen any of them (or a
+   `select_account` flow after a sign-in made here). Single-profile accounts
+   never see it; on `select_account` they see the account screen instead.
 4. ~~Set `OSN_AUTHORIZE_UI_URL` in prod vars~~ — done 2026-07-26, along
    with the `deploy-osn-social` Pages job; re-pointed at
    `https://musubi.social/authorize` on 2026-07-27. Smoke check still open: full
@@ -194,6 +210,14 @@ short-circuits consent), so state 4's copy can assume a third party.
   context refetch reported `signedIn: false`, and a `prompt=create` journey
   landed back on the sign-up panel having apparently done nothing. Pinned by
   a test in `osn/client/tests/register.test.ts`.
+- **"Use another account" signs in over the live session; it does not sign
+  out first.** The new sign-in replaces the issuer's session cookie, so the
+  context refetch and the decision both run as the new account; the request's
+  binding cookie ties it to the browser, not to the account that parked it.
+  The previous account's refresh session is left live server-side, and the
+  whole browser, not only this request, is now signed in as the new account.
+  Whether to call `POST /logout` before the switch is open:
+  englishstventures/osn#1344.
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the message and a retry, not an endless spinner.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,
@@ -266,8 +290,6 @@ short-circuits consent), so state 4's copy can assume a third party.
 
 ## Open questions (decide at build time, none block starting)
 
-- Whether denying should also offer "use a different account" (sign out +
-  restart) — nice-to-have, not in the first cut.
 - Localisation — the scope descriptions are the only user-facing strings
   with security weight; keep them in one map.
 - Whether `reason=consent` with an existing narrower grant should show a

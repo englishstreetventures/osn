@@ -32,6 +32,7 @@ import { Effect } from "effect";
 
 import type { WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
+import type { PaidTier, Tier } from "./services/tiers";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const CIRE_METRICS = {
@@ -147,15 +148,20 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
-  // Self-serve upgrades. `entitlement` is a closed set of capability keys and
-  // never a wedding, purchase or profile id — the whole point of the two
+  // Self-serve upgrades. `tier` and `from_tier` are closed sets of plan tiers
+  // and never a wedding, purchase or profile id — the whole point of the two
   // counters is that a spike is visible without anything per-tenant reaching
   // an attribute. `started` is what an organiser pressed; `settled` is what
   // Stripe's webhook concluded, and the gap between the two IS the health
-  // signal (money taken with no entitlement granted shows up as started
-  // without settled).
+  // signal (money taken with no tier granted shows up as started without
+  // settled).
   upgradeCheckoutStarted: "cire.upgrade.checkout.started",
   upgradePurchaseSettled: "cire.upgrade.purchase.settled",
+  // The tier gate refusing a request (402 `payment_required`), by the tier the
+  // route needs. The portal hides a locked module, so this is a backstop: a
+  // sustained count means a portal build is still calling a module it should
+  // show as locked.
+  tierGatePaymentRequired: "cire.tier.gate.payment_required",
   // Link preview — the one outbound fetch a user's input aims. The result
   // attribute is how a spike in refused destinations becomes visible.
   registryLinkPreview: "cire.registry.link_preview",
@@ -164,6 +170,10 @@ export const CIRE_METRICS = {
   // the two apart (only one of them spends our network on a user's URL) and
   // `result` says how it ended. Neither is per-wedding.
   registryImageSave: "cire.registry.image.save",
+  // The picker's thumbnails — one candidate fetched through the link-preview
+  // guard and re-encoded. `result` is how it ended; `cache_hit` means neither
+  // the outbound fetch nor the Images binding ran.
+  registryLinkThumb: "cire.registry.link_thumb",
   // A D1 query prepared on the raw binding because no session was on the async
   // context, so it went to the primary and skipped read replication. Gives no
   // wrong answer, so nothing else notices it. Should read zero on a deployed
@@ -273,8 +283,15 @@ export type HostAddResult =
   | "error";
 
 /** Outcome of removing a seat. `last_owner` — refused, it was the wedding's
- *  only owner. */
+ *  only owner (an owner leaving included). */
 export type HostRemoveResult = "ok" | "last_owner" | "error";
+
+/**
+ * Which route removed the seat — not the caller's role. `owner` is an owner
+ * removing someone (`DELETE /hosts/:osnProfileId`); `self` is the self-leave
+ * route (`DELETE /hosts/me`), an owner leaving included.
+ */
+export type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a seat's role. `last_owner` — refused, it would have
  *  left the wedding without an owner; the two `_cap_reached` — the ceiling the
@@ -365,8 +382,9 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  `guest` (written through the invite — a guest's own reply, or one the
  *  household typed for their plus-one) vs `organiser` (phone/paper RSVP
  *  recorded on the guest's behalf). An organiser's write usually stamps
- *  `consent_source='organiser_attested'`; a status-only one for a plus-one
- *  keeps the household's `inviter_attested` and still counts as `organiser`. */
+ *  `consent_source='organiser_attested'`; a status-only one over a reply holding
+ *  dietary data keeps that reply's source (`guest` or `inviter_attested`) and
+ *  still counts as `organiser`. */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
@@ -414,23 +432,18 @@ type RegistryItemWriteAttrs = { action: RegistryItemAction };
  *  want to read. */
 export type RegistryGiftAction = "thanked" | "unthanked" | "note_hidden" | "note_unhidden";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
-/** Which capability an upgrade counter is about. Deliberately the full
- *  entitlement key set rather than only the two sold today, so making another
- *  purchasable is a catalogue change and not a metrics migration. Bounded and
- *  closed: this is the only dimension either upgrade counter carries. */
-export type UpgradeEntitlement =
-  | "premium_templates"
-  | "vendors"
-  | "ai"
-  | "capacity_500"
-  | "capacity_1000"
-  | "registry";
+/** Which tier an upgrade counter is about. `unmapped` is a purchase row whose
+ *  product names no tier — only ever counted beside the `defect` outcome. */
+export type UpgradeTier = PaidTier | "unmapped";
 /** How an attempt to start a checkout ended. `reused` and `processing` are the
  *  two that keep a customer from paying twice and are worth watching apart:
  *  `reused` handed back a payment page still open, `processing` refused because
  *  a paid session has not been settled by the webhook yet. A sustained rise in
  *  `processing` means deliveries are lagging, not that organisers are confused.
- *  `unconfigured` is a key with no Stripe Price in this deployment. */
+ *  `unconfigured` is a tier with no Stripe Price in this deployment for the
+ *  tier the wedding is on now. `already_held` is a wedding already on that tier
+ *  or above it. `error` is Stripe refusing to read the Price or to open the
+ *  session. */
 export type UpgradeCheckoutResult =
   | "ok"
   | "reused"
@@ -439,26 +452,41 @@ export type UpgradeCheckoutResult =
   | "unconfigured"
   | "error";
 type UpgradeCheckoutStartedAttrs = {
-  entitlement: UpgradeEntitlement;
+  tier: PaidTier;
+  /** The tier the wedding was on when the organiser pressed buy. */
+  from_tier: Tier;
   result: UpgradeCheckoutResult;
 };
 /** What the webhook concluded about a purchase. `granted` is the only one that
- *  moved an entitlement; `replayed` is Stripe's ordinary redelivery and is
+ *  could move a tier; `replayed` is Stripe's ordinary redelivery and is
  *  expected, not a fault. `unknown` is an event this deployment has no purchase
  *  row for — on a platform endpoint shared with whatever else the account does,
  *  that is a normal outcome rather than an error. `unpaid` should be zero while
- *  sessions are card-only; a non-zero count means that restriction slipped. */
+ *  sessions are card-only; a non-zero count means that restriction slipped.
+ *  `defect` is a paid purchase whose product maps to no tier: the delivery is
+ *  answered 500 so Stripe retries it, and every count is a customer who paid
+ *  and holds nothing until someone looks. `mismatch` is a payment whose amount
+ *  or currency is not the Price the purchase opened at, or one priced from a
+ *  tier the wedding no longer holds: acknowledged, nothing granted, and every
+ *  count is money a person has to refund or apply by hand. `refunded` is a
+ *  redelivery for a purchase an operator has taken back, which grants
+ *  nothing. */
 export type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
   | "unpaid"
   | "failed"
   | "expired"
-  | "unknown";
+  | "unknown"
+  | "defect"
+  | "mismatch"
+  | "refunded";
 type UpgradePurchaseSettledAttrs = {
-  entitlement: UpgradeEntitlement;
+  tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;
 };
+/** The tier a gated route needs. Bounded to the two paid tiers. */
+type TierGatePaymentRequiredAttrs = { required_tier: PaidTier };
 /** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
  *  destination — a sustained rise in it is someone probing, not a shop being
  *  slow, which is why it is its own value rather than folded into a failure. */
@@ -484,6 +512,22 @@ export type RegistryImageSaveResult =
   | "too_large"
   | "error";
 type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryImageSaveResult };
+/** How one picker thumbnail ended. `original` is the local path with no Images
+ *  binding, where the sniffed bytes are served as they arrived; `unavailable` is
+ *  a deployed tier refusing to do that; `transform_failed` includes a spent
+ *  Images quota; `budget_spent` is the picker's own monthly share running out. A refusal is its own value, as on the preview counter. */
+export type RegistryLinkThumbResult =
+  | "ok"
+  | "cache_hit"
+  | "original"
+  | "blocked"
+  | "fetch_failed"
+  | "unsupported_type"
+  | "too_large"
+  | "transform_failed"
+  | "unavailable"
+  | "budget_spent";
+type RegistryLinkThumbAttrs = { result: RegistryLinkThumbResult };
 /** The Worker entry point a session-routed D1 client was built for. */
 export type D1SessionEntry = "fetch" | "scheduled";
 type D1SessionMissingAttrs = { entry: D1SessionEntry };
@@ -533,7 +577,7 @@ type WeddingPurgedAttrs = { result: WeddingPurgedResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
-type HostRemovedAttrs = { result: HostRemoveResult };
+type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
@@ -650,14 +694,20 @@ const registryGift = createCounter<RegistryGiftAttrs>({
 
 const upgradeCheckoutStarted = createCounter<UpgradeCheckoutStartedAttrs>({
   name: CIRE_METRICS.upgradeCheckoutStarted,
-  description: "Self-serve upgrade checkouts started, by entitlement and outcome",
+  description: "Self-serve upgrade checkouts started, by tier, starting tier and outcome",
   unit: "{attempt}",
 });
 
 const upgradePurchaseSettled = createCounter<UpgradePurchaseSettledAttrs>({
   name: CIRE_METRICS.upgradePurchaseSettled,
-  description: "Upgrade purchases settled by the platform webhook, by entitlement and outcome",
+  description: "Upgrade purchases settled by the platform webhook, by tier and outcome",
   unit: "{purchase}",
+});
+
+const tierGatePaymentRequired = createCounter<TierGatePaymentRequiredAttrs>({
+  name: CIRE_METRICS.tierGatePaymentRequired,
+  description: "Requests the tier gate refused with 402, by the tier the route needs",
+  unit: "{request}",
 });
 
 const registryLinkPreview = createCounter<RegistryLinkPreviewAttrs>({
@@ -670,6 +720,12 @@ const registryImageSave = createCounter<RegistryImageSaveAttrs>({
   name: CIRE_METRICS.registryImageSave,
   description: "Registry item image saves, by source + outcome",
   unit: "{save}",
+});
+
+const registryLinkThumb = createCounter<RegistryLinkThumbAttrs>({
+  name: CIRE_METRICS.registryLinkThumb,
+  description: "Registry link-picker thumbnails, by outcome",
+  unit: "{thumbnail}",
 });
 
 const d1SessionMissing = createCounter<D1SessionMissingAttrs>({
@@ -911,7 +967,7 @@ const hostAdded = createCounter<HostAddedAttrs>({
 
 const hostRemoved = createCounter<HostRemovedAttrs>({
   name: CIRE_METRICS.hostRemoved,
-  description: "Seat removals, owners' included, by outcome",
+  description: "Seat removals, owners' included, by outcome and by route (removal or self-leave)",
   unit: "{host}",
 });
 
@@ -1037,14 +1093,18 @@ export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
 
 export const metricUpgradeCheckoutStarted = (
-  entitlement: UpgradeEntitlement,
+  tier: PaidTier,
+  fromTier: Tier,
   result: UpgradeCheckoutResult,
-): void => upgradeCheckoutStarted.inc({ entitlement, result });
+): void => upgradeCheckoutStarted.inc({ tier, from_tier: fromTier, result });
 
 export const metricUpgradePurchaseSettled = (
-  entitlement: UpgradeEntitlement,
+  tier: UpgradeTier,
   outcome: UpgradeSettleOutcome,
-): void => upgradePurchaseSettled.inc({ entitlement, outcome });
+): void => upgradePurchaseSettled.inc({ tier, outcome });
+
+export const metricTierGatePaymentRequired = (requiredTier: PaidTier): void =>
+  tierGatePaymentRequired.inc({ required_tier: requiredTier });
 
 export const metricRegistryLinkPreview = (result: RegistryLinkPreviewResult): void =>
   registryLinkPreview.inc({ result });
@@ -1053,6 +1113,9 @@ export const metricRegistryImageSave = (
   source: RegistryImageSource,
   result: RegistryImageSaveResult,
 ): void => registryImageSave.inc({ source, result });
+
+export const metricRegistryLinkThumb = (result: RegistryLinkThumbResult): void =>
+  registryLinkThumb.inc({ result });
 
 export const metricD1SessionMissing = (entry: D1SessionEntry): void =>
   d1SessionMissing.inc({ entry });
@@ -1190,7 +1253,8 @@ export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefus
 export const metricHostAdded = (result: HostAddResult, role: HostMetricRole = "none"): void =>
   hostAdded.inc({ result, role });
 
-export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+export const metricHostRemoved = (result: HostRemoveResult, actor: HostRemoveActor): void =>
+  hostRemoved.inc({ result, actor });
 
 export const metricHostRoleChanged = (
   result: HostRoleChangeResult,

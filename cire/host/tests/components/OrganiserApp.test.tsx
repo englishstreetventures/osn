@@ -43,10 +43,19 @@ vi.mock("@shared/rp-auth/solid", async () => {
   };
 });
 
-vi.mock("@shared/toast", async () => {
-  const { toastMock } = await import("../test-support/mocks");
-  return { ...toastMock(), Toaster: () => null };
-});
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+const toastInfo = vi.fn();
+vi.mock("@shared/toast", () => ({
+  Toaster: () => null,
+  // The upgrade return, the helper screen's leave control and a deleted
+  // wedding toast their outcome.
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: (...args: unknown[]) => toastError(...args),
+    info: (...args: unknown[]) => toastInfo(...args),
+  },
+}));
 
 vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
@@ -73,6 +82,7 @@ vi.mock("../../src/components/WeddingList", () => ({
             slug: "new-x",
             displayName: "Fresh Wedding",
             role: "owner",
+            tier: "ivory",
             entitlements: [],
             guestCap: 100,
           })
@@ -104,10 +114,12 @@ vi.mock("../../src/components/ModuleShell", async () => {
       canEdit: boolean;
       module: string;
       sub: string;
+      tier: string;
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
       onWeddingDeleted?: (restoreUntil: string) => void;
+      onLeftWedding?: () => void;
     }) => {
       const { authFetch } = useAuth();
       shellMounts += 1;
@@ -119,6 +131,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-can-edit={String(props.canEdit)}
           data-module={props.module}
           data-sub={props.sub}
+          data-tier={props.tier}
           data-mount={String(mount)}
         >
           {props.weddingId}
@@ -141,6 +154,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           <button onClick={() => props.onWeddingDeleted?.("2026-10-08T12:00:00.000Z")}>
             delete-wedding
           </button>
+          <button onClick={() => props.onLeftWedding?.()}>leave</button>
         </div>
       );
     },
@@ -165,7 +179,7 @@ import {
   type VendorRow,
 } from "../../src/lib/vendors-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
-import { redirectSpy, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
+import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 function listResponse(
   weddings: {
@@ -173,6 +187,7 @@ function listResponse(
     slug: string;
     displayName: string;
     role?: string;
+    tier?: string;
     entitlements?: string[];
     guestCap?: number;
   }[],
@@ -181,6 +196,7 @@ function listResponse(
     JSON.stringify({
       weddings: weddings.map((w) => ({
         role: "owner",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
         ...w,
@@ -290,6 +306,27 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.queryByTestId("preview-button")).toBeNull();
   });
 
+  it("lets a helper leave from the run-sheet screen, which drops the wedding", async () => {
+    // A helper never reaches the co-host panel, so the run-sheet screen is the
+    // only place their leave control can live.
+    authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(JSON.stringify({ left: true }));
+      return listResponse([{ id: "wed_h", slug: "h", displayName: "Helped", role: "helper" }]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("0"));
+    expect(screen.queryByText(/Helper access/i)).toBeNull();
+    const del = authFetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+    expect(String(del?.[0])).toBe("https://api.test/api/organiser/weddings/wed_h/hosts/me");
+  });
+
   it("treats a role it has never heard of as the narrowest one, not as an editor", async () => {
     // The check this replaced was `role !== "viewer"`, which is true of any
     // unknown value — so a role the portal did not recognise was handed every
@@ -303,6 +340,119 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(screen.getByText(/Helper access/i)).toBeTruthy();
+  });
+
+  it("hands the wedding's tier to the module shell", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_g", slug: "g", displayName: "Golden", tier: "gold" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("gold");
+  });
+
+  it("reads the tier from the legacy keys of an API that sends none", async () => {
+    // The portal can deploy ahead of the API. That API's list has no `tier`,
+    // only the packs a wedding bought; `vendors` was the Crimson pack, and
+    // reading it as Ivory would lock a module the couple paid for.
+    authFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          weddings: [
+            {
+              id: "wed_l",
+              slug: "l",
+              displayName: "Legacy",
+              role: "owner",
+              entitlements: ["vendors"],
+              guestCap: 1000,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("crimson");
+  });
+
+  it("treats a tier it has never heard of as Ivory, which opens nothing paid", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        {
+          id: "wed_p",
+          slug: "p",
+          displayName: "Platinum",
+          tier: "platinum",
+          entitlements: ["vendors"],
+        },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("ivory");
+  });
+
+  it("names the tier bought when a returning purchase has settled, and refreshes the list", async () => {
+    // Stripe sends the organiser back with the receipt in the query.
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    let listReads = 0;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        return new Response(JSON.stringify({ purchase: { status: "succeeded", tier: "gold" } }), {
+          status: 200,
+        });
+      }
+      listReads += 1;
+      return listResponse([
+        {
+          id: "wed_a",
+          slug: "a",
+          displayName: "Alice & Bob",
+          tier: listReads > 1 ? "gold" : "ivory",
+        },
+      ]);
+    });
+    render(() => <OrganiserApp />);
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete — this wedding is on Gold."),
+    );
+    // The list is what the nav locks by, so it is read again once the tier is raised.
+    expect(listReads).toBe(2);
+    // And the receipt is gone from the URL, so a refresh does not poll again.
+    expect(window.location.search).toBe("");
+    toastSuccess.mockReset();
+  });
+
+  it("says the upgrade is complete without naming a tier this build does not know", async () => {
+    // A purchase the API reports in a tier this portal has no name for comes
+    // back with no tier at all; the toast must not try to name one.
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    let listReads = 0;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        return new Response(
+          JSON.stringify({ purchase: { status: "succeeded", tier: "platinum" } }),
+          { status: 200 },
+        );
+      }
+      listReads += 1;
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "gold" }]);
+    });
+    render(() => <OrganiserApp />);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete."));
+    expect(listReads).toBe(2);
+    expect(window.location.search).toBe("");
+    toastSuccess.mockReset();
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {
@@ -611,6 +761,30 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     setCachedVendors("wed_a", [vendorRow("wed_a")]);
     expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("drops a wedding the organiser leaves from the list, the route and the caches", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        { id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "editor" },
+        { id: "wed_b", slug: "b", displayName: "Bea & Cal", role: "viewer" },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+
+    fireEvent.click(screen.getByText("leave"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(window.location.hash).not.toContain("wed_a");
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    // Leaving is local: the list is not asked again.
+    expect(listCalls()).toBe(1);
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

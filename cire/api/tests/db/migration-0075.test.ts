@@ -3,13 +3,13 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Data proof for migration 0072, which adds the soft-delete pair to `weddings`.
+// Data proof for migration 0075, which adds the soft-delete pair to `weddings`.
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is what
 // a structural diff cannot see — that every wedding already in the database
 // reads as live afterwards, and that the purge's index holds deleted rows only.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 
-const MIG_0072 = "0072_wedding_soft_delete.sql";
+const MIG_0075 = "0075_wedding_soft_delete.sql";
 
 const numberOf = (file: string): number => Number(file.slice(0, 4));
 
@@ -27,15 +27,15 @@ function apply(db: Database, file: string): void {
 function migratedWithOneWedding(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chainBefore(72)) apply(db, file);
+  for (const file of chainBefore(75)) apply(db, file);
   db.exec(
     "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_a', 'a-1', 'A', 1, 1)",
   );
-  apply(db, MIG_0072);
+  apply(db, MIG_0075);
   return db;
 }
 
-describe("migration 0072 — wedding soft delete", () => {
+describe("migration 0075 — wedding soft delete", () => {
   it("leaves every wedding that already exists live", () => {
     const db = migratedWithOneWedding();
     const row = db
