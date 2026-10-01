@@ -8,7 +8,7 @@ import {
   rateLimitMiddleware,
   rateLimitMiddlewareByUser,
 } from "../../src/middleware/rate-limit";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 
 function createTestApp(maxRequests: number) {
   const limiter = createRateLimiter({ maxRequests, windowMs: 60_000 });
@@ -82,7 +82,7 @@ describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
     );
     const res = await appRequest(app, "/test", { method: "POST" });
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "rate_limiter_unavailable" });
+    expect(await jsonBody(res)).toEqual({ error: "rate_limiter_unavailable" });
   });
 
   it("never lets the request through on any other throw", async () => {
