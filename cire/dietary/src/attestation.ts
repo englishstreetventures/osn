@@ -1,4 +1,9 @@
 /**
+ * The attestation wordings for dietary requirements given on someone else's
+ * behalf, each with the version that names it. A guest's own consent is
+ * versioned by the API (`DIETARY_CONSENT_VERSION` in
+ * `cire/api/src/schemas/rsvp.ts`); these are the other two.
+ *
  * What a household confirms when it gives a plus-one's dietary requirements,
  * and the version that names those words.
  *
@@ -29,4 +34,32 @@ export const PLUS_ONE_DIETARY_ATTESTATION = {
    *  already joined ("Sam", "Sam and Alex"). */
   text: (names: string): string =>
     `I confirm that ${names} agreed to their dietary requirements above being stored and shared with the caterers for this wedding.`,
+} as const;
+
+/**
+ * What an organiser confirms when they record a guest's dietary requirements
+ * from a phone or paper reply, and the version that names those words.
+ *
+ * The organiser is not the guest, so their tick is an attestation that the
+ * guest consented (GDPR Art. 9(2)(a), the organiser-attested variant in
+ * `wiki/compliance/dpia/cire-guest-data.md`). The organiser portal renders
+ * `text` beside the box and sends `version` with the reply; the API refuses the
+ * reply's dietary data unless the version sent is this one, and stamps this one
+ * onto the row. A portal and an API built from different commits therefore
+ * cannot store evidence naming words that were not on screen.
+ *
+ * Changing `text` means changing `version` in the same commit (the test beside
+ * this file pins the two together). `wiki/compliance/data-map.md` names the
+ * current version on the consent-record row and moves with it, as do the copy
+ * in `cire/db/seed/data/rsvps.ts` and the generated `cire/db/seed/dev-seed.sql`.
+ */
+export const ORGANISER_DIETARY_ATTESTATION = {
+  /**
+   * Stamped into `rsvps.dietary_consent_version` on an organiser-recorded
+   * reply. Prefixed, like the household's, so the stored value alone says
+   * which copy it names.
+   */
+  version: "organiser-2026-10-01",
+  /** The sentence beside the box. */
+  text: "I confirm the guest consented to their dietary requirements being stored and shared with the caterers for this wedding.",
 } as const;

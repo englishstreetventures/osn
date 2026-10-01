@@ -83,4 +83,29 @@ describe("rsvp-change-digest", () => {
     });
     expect(out.subject).not.toMatch(/[\r\n]/);
   });
+
+  it("offers no stop link and no unsubscribe headers without a signed link", () => {
+    const out = renderTemplate("rsvp-change-digest", base);
+    expect(out.headers).toBeUndefined();
+    expect(out.text).not.toContain("without signing in");
+  });
+
+  it("links the signed stop link and offers one-click unsubscribe (RFC 8058)", () => {
+    const stopUrl = "https://api.example.test/api/rsvp-digest/stop?t=abc.def";
+    const out = renderTemplate("rsvp-change-digest", { ...base, stopUrl });
+    expect(out.text).toContain(stopUrl);
+    expect(out.html).toContain(`href="${stopUrl}"`);
+    expect(out.headers).toEqual({
+      "List-Unsubscribe": `<${stopUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+  });
+
+  it("keeps the unsubscribe header on one line", () => {
+    const out = renderTemplate("rsvp-change-digest", {
+      ...base,
+      stopUrl: "https://api.example.test/stop\r\nBcc: someone@example.test",
+    });
+    expect(out.headers?.["List-Unsubscribe"]).not.toMatch(/[\r\n]/);
+  });
 });

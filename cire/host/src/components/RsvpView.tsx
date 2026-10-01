@@ -1,4 +1,4 @@
-import { formatDietaryCell } from "@cire/dietary";
+import { formatDietaryCell, ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -290,6 +290,10 @@ export default function RsvpView(props: RsvpViewProps) {
             dietary,
             dietaryPresets,
             dietaryConsent: hasDietaryData ? formConsent() : false,
+            // The version of the words beside the box. The API refuses dietary
+            // data unless it is the version it stamps, so a stale portal
+            // cannot store evidence of copy it did not show.
+            dietaryAttestation: hasDietaryData ? ORGANISER_DIETARY_ATTESTATION.version : "",
           }),
         },
       );
@@ -302,7 +306,12 @@ export default function RsvpView(props: RsvpViewProps) {
       }
       if (!res.ok) {
         haptic("reject");
-        setFormError("Could not save this RSVP. Please try again.");
+        const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+        setFormError(
+          body?.error === "dietary_attestation_outdated"
+            ? "This page is out of date. Reload it and try again."
+            : "Could not save this RSVP. Please try again.",
+        );
         setSaving(false);
         return;
       }
@@ -692,10 +701,7 @@ export default function RsvpView(props: RsvpViewProps) {
               onChange={(e) => setFormConsent(e.currentTarget.checked)}
               disabled={saving()}
             />
-            <span>
-              I confirm the guest consented to their dietary requirements being stored and shared
-              with the caterers for this wedding.
-            </span>
+            <span>{ORGANISER_DIETARY_ATTESTATION.text}</span>
           </label>
         </Show>
 

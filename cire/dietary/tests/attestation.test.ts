@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { PLUS_ONE_DIETARY_ATTESTATION } from "../src/index";
+import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "../src/index";
 
 describe("PLUS_ONE_DIETARY_ATTESTATION", () => {
   /**
@@ -29,5 +29,26 @@ describe("PLUS_ONE_DIETARY_ATTESTATION", () => {
    */
   it("can never be mistaken for a date-only consent version", () => {
     expect(PLUS_ONE_DIETARY_ATTESTATION.version).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("ORGANISER_DIETARY_ATTESTATION", () => {
+  /**
+   * Pinned together for the same reason as the household's: the API stamps
+   * the version onto every organiser-recorded row as the evidence of which
+   * words the organiser ticked. Change the version with the words.
+   */
+  it("pins the wording to its version", () => {
+    expect(ORGANISER_DIETARY_ATTESTATION.version).toBe("organiser-2026-10-01");
+    expect(ORGANISER_DIETARY_ATTESTATION.text).toBe(
+      "I confirm the guest consented to their dietary requirements being stored and shared with the caterers for this wedding.",
+    );
+  });
+
+  it("can never be mistaken for another copy's version", () => {
+    expect(ORGANISER_DIETARY_ATTESTATION.version).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(ORGANISER_DIETARY_ATTESTATION.version.split("-")[0]).not.toBe(
+      PLUS_ONE_DIETARY_ATTESTATION.version.split("-")[0],
+    );
   });
 });

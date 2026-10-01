@@ -30,6 +30,13 @@ export interface RsvpChangeDigestData {
   readonly counts: Partial<Readonly<Record<RsvpDigestChangeKind, number>>>;
   /** The organiser portal's RSVP page for this wedding. */
   readonly rsvpUrl: string;
+  /**
+   * A signed link that turns this recipient's digest off for this wedding
+   * without signing in. Present ⇒ the email links it and carries
+   * `List-Unsubscribe` / `List-Unsubscribe-Post` (RFC 8058), so a mail client
+   * can offer one-click unsubscribe. Absent ⇒ neither.
+   */
+  readonly stopUrl?: string;
 }
 
 /** Each kind's line, in the order the email lists them. */
@@ -65,6 +72,8 @@ export function renderRsvpChangeDigest(data: RsvpChangeDigestData): RenderedEmai
   const lead = `${households(data.households)} changed their RSVPs for ${data.weddingName} since our last email`;
   const stop =
     'We send this once a day, and only when something has changed. To stop these emails for this wedding, turn off "Email me a daily summary" on the wedding\'s Overview page. Your co-hosts choose for themselves.';
+  // A line break in a header value would start a new header.
+  const stopUrl = data.stopUrl?.replaceAll(/[\r\n]+/g, "");
 
   const text = [
     `Hello,`,
@@ -76,6 +85,7 @@ export function renderRsvpChangeDigest(data: RsvpChangeDigestData): RenderedEmai
     `See who: ${data.rsvpUrl}`,
     ``,
     stop,
+    ...(stopUrl ? [`Or stop them from this link, without signing in: ${stopUrl}`] : []),
     ``,
     `Cire Weddings`,
   ].join("\n");
@@ -87,8 +97,20 @@ export function renderRsvpChangeDigest(data: RsvpChangeDigestData): RenderedEmai
       `<ul>${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` +
       `<p><a href="${esc(data.rsvpUrl)}">See who</a></p>` +
       `<p style="color:#666;font-size:14px">${esc(stop)}</p>` +
+      (stopUrl
+        ? `<p style="color:#666;font-size:14px"><a href="${esc(stopUrl)}">Stop these emails for this wedding</a></p>`
+        : "") +
       `<p style="color:#666;font-size:14px">Cire Weddings</p>`,
   );
 
-  return { subject, text, html };
+  if (!stopUrl) return { subject, text, html };
+  return {
+    subject,
+    text,
+    html,
+    headers: {
+      "List-Unsubscribe": `<${stopUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  };
 }

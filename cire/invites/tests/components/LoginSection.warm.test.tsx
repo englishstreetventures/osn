@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * A returning household: this browser holds the restore hint, so the page's
  * session restore is about to open the invite without a code. The account link
- * and the plus-one prompt start loading at mount, beside that restore request,
+ * and — when the claim behind the hint showed it — the plus-one prompt start
+ * loading at mount, beside that restore request,
  * rather than after it — otherwise they appear late, above events that are
  * already on screen.
  *
@@ -35,10 +36,10 @@ afterEach(() => {
   document.cookie = "cire_claimed=; Path=/; Max-Age=0";
 });
 
-describe("LoginSection warms the account link for a returning household", () => {
-  it("starts loading it at mount when this browser holds the restore hint", async () => {
+describe("LoginSection warms the controls for a returning household", () => {
+  it("starts loading them at mount when the restore hint says the prompt showed", async () => {
     vi.stubGlobal("fetch", vi.fn());
-    document.cookie = "cire_claimed=1; Path=/";
+    document.cookie = "cire_claimed=plus-one; Path=/";
     const { LoginSection } = await import("../../src/components/LoginSection");
     render(() => <LoginSection apiUrl="http://x" result={null} onClaimed={() => {}} />);
     await waitFor(() => expect(loads.pulse).toBe(1));

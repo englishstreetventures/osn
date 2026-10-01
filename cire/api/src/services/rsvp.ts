@@ -1,5 +1,6 @@
 import { rsvps, guests } from "@cire/db";
 import {
+  ORGANISER_DIETARY_ATTESTATION,
   parsePresets,
   PLUS_ONE_DIETARY_ATTESTATION,
   serialisePresets,
@@ -27,15 +28,21 @@ import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
 
 /**
- * The consent version a reply is stamped with, chosen by who recorded it: the
- * household's attestation for its plus-one carries the attestation wording's
- * own version; a guest's own reply and an organiser's recording carry the
- * guest's own-consent version. The one place a version is chosen.
+ * The consent version a reply is stamped with, chosen by who recorded it: each
+ * writer ticks its own words, and the row names the version of those words —
+ * the guest's own-consent copy, the household's attestation for its plus-one,
+ * or the organiser's attestation for a phone or paper reply. The one place a
+ * version is chosen.
  */
 export function dietaryConsentVersionFor(source: ConsentSource): string {
-  return source === "inviter_attested"
-    ? PLUS_ONE_DIETARY_ATTESTATION.version
-    : DIETARY_CONSENT_VERSION;
+  switch (source) {
+    case "inviter_attested":
+      return PLUS_ONE_DIETARY_ATTESTATION.version;
+    case "organiser_attested":
+      return ORGANISER_DIETARY_ATTESTATION.version;
+    case "guest":
+      return DIETARY_CONSENT_VERSION;
+  }
 }
 
 /**

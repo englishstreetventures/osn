@@ -90,11 +90,18 @@ Runs in the 04:00 UTC cron (`scheduled` in `cire/api/src/index.ts`), only when o
 6. One Resend batch call for every email (`EmailService.sendBatch`, `POST /emails/batch`, up to 100), all or nothing. A sent batch moves each recipient's marker to the newest change it covered; a failed one moves none, so the next run includes them.
 7. One upsert moves every marker (never backwards, never touching the switch), and writes a row only for someone who still owns the wedding or holds a seat on it.
 
+**Stopping it without signing in.** When cire-api has both `CIRE_API_ORIGIN` and `CIRE_OIDC_CLIENT_SECRET`, each email links `GET /api/rsvp-digest/stop?t=<token>` and names the same URL in `List-Unsubscribe` / `List-Unsubscribe-Post` (RFC 8058), so a mail client can offer one-click unsubscribe. Without either, the email carries neither and the route answers 503.
+
+- The token (`cire/api/src/lib/digest-stop.ts`) is the wedding id and the recipient's profile id with an HMAC-SHA256 over them. Its key is derived by HKDF from `CIRE_OIDC_CLIENT_SECRET` under its own `info`: once per cron run, and only when the run has someone to mail; once per isolate on the route, on its first stop request. It does not expire; rotating the client secret voids every link already sent.
+- `GET` only shows a page asking to confirm, because mail scanners fetch every link. Its button, and a mail client's one-click call, `POST` to the same URL, which turns that person's digest off (`rsvpChangeService.setDigest`) — only while they hold a seat with the `editor` capability, so a link from before a seat was removed writes nothing. The page reads the same either way.
+- Mounted before the origin guard (a one-click POST has no `Origin`), behind its own per-IP limiter (30/min). Pages are fixed HTML with `no-store`, `no-referrer` and a CSP that allows no script.
+- Anyone who holds the token can do exactly one thing: turn that one digest off. It sits in the email at Resend, and in Workers request logs (7 days) once used. Each use logs `rsvp digest stop` with `outcome` (`stopped`, `no_seat`, `invalid`) and never the token.
+
 A run ends with one `rsvp digest run complete` log line carrying the counts — the only signal that reaches production, since cire metrics are a no-op on workerd ([[cire-workerd]]).
 
-**Budget.** The cron is one invocation shared by every sweep, on Workers Free: 10 ms CPU, 50 external subrequests, 50 D1 queries ([[free-tier-limits]]). The digest costs six D1 queries whatever the recipient count, and two external subrequests (one lookup, one batch) for up to 100 organisers. The retention sweep's gift-summary emails share the same 50.
+**Budget.** The cron is one invocation shared by every sweep, on Workers Free: 10 ms CPU, 50 external subrequests, 50 D1 queries ([[free-tier-limits]]). The digest costs six D1 queries whatever the recipient count, and two external subrequests (one lookup, one batch) for up to 100 organisers. Signing up to 100 stop links adds no query and no subrequest, only CPU. The retention sweep's gift-summary emails share the same 50.
 
-*Unverified — the digest's CPU time on workerd has not been measured; no deployed run exists yet.*
+*Unverified — the digest's CPU time on workerd, stop-link signing included, has not been measured; no deployed run exists yet.*
 
 The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
 

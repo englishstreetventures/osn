@@ -41,12 +41,10 @@ export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
  *  `guest_events` row) — an organiser must not RSVP them to it. 409/4xx-class. */
 export class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToEvent") {}
 
-/** Dietary data on a plus-one's reply, which this path refuses. An organiser's
- *  recording is stamped with the guest's own-consent version (see
- *  `dietaryConsentVersionFor`), not a version of the words the organiser
- *  ticks, so for a person whose data comes from someone else it would store
- *  evidence naming copy nobody was shown. The household gives a plus-one's
- *  dietary answers on the invite, under its own attestation. 422-class. */
+/** Dietary data on a plus-one's reply, which this path refuses. The
+ *  organiser's attestation speaks of "the guest"; a plus-one never sees the
+ *  invite, and their dietary answers are the household's to give, on the
+ *  invite, under the household's own attestation. 422-class. */
 export class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
 
 export interface OrganiserRsvpInput {

@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-01
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -575,7 +575,9 @@ The row's shape — the columns that carry a trust decision are listed in
 > `CIRE_OIDC_CLIENT_SECRET` without updating `oauth_clients.client_secret_hash` (or the
 > reverse) makes every token exchange fail `invalid_client`, and organiser sign-in stops
 > dead — existing sessions survive their 7 days, so the break shows up gradually. Rotate
-> both, then redeploy cire-api to cycle the warm isolates.
+> both, then redeploy cire-api to cycle the warm isolates. A rotation also voids the
+> one-click stop links in RSVP digest emails already sent ([[cire-rsvp-changes]]);
+> the Overview switch keeps working.
 
 **Local development** needs its own row in the **local** D1 with a
 `http://localhost:8787/api/auth/oidc/callback` redirect URI, and the secret in

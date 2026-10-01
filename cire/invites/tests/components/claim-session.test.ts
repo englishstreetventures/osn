@@ -2,7 +2,12 @@ import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createSessionRestore, noteClaimed } from "../../src/components/claim-session";
+import {
+  createSessionRestore,
+  hasClaimedHint,
+  hasPlusOneHint,
+  noteClaimed,
+} from "../../src/components/claim-session";
 import type { ClaimResult } from "../../src/components/types";
 
 function claimResult(publicId = "OKAFOR-LILY-AB12CD"): ClaimResult {
@@ -220,5 +225,23 @@ describe("createSessionRestore", () => {
     await settle();
 
     expect(document.cookie).toContain("cire_claimed=");
+  });
+});
+
+describe("noteClaimed", () => {
+  it("records whether the claim showed the plus-one prompt", () => {
+    noteClaimed(true);
+    expect(hasClaimedHint()).toBe(true);
+    expect(hasPlusOneHint()).toBe(true);
+
+    noteClaimed(false);
+    expect(hasClaimedHint()).toBe(true);
+    expect(hasPlusOneHint()).toBe(false);
+  });
+
+  it("reports no plus-one prompt when there is no hint at all", () => {
+    document.cookie = "cire_claimed=; Path=/; Max-Age=0";
+    expect(hasClaimedHint()).toBe(false);
+    expect(hasPlusOneHint()).toBe(false);
   });
 });

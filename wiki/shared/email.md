@@ -23,7 +23,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # Email Transport
@@ -131,9 +131,12 @@ Content-Type: application/json
   "to":      ["user@example.com"],
   "subject": "Verify your OSN email",
   "html":    "...",
-  "text":    "..."
+  "text":    "...",
+  "headers": { "List-Unsubscribe": "<https://…>" }
 }
 ```
+
+`headers` is present only when the template returns some.
 
 ### Cloudflare Email API wire format (legacy fallback)
 
@@ -171,6 +174,11 @@ Content-Type: application/json
   nothing; the other transports leave it out and callers loop over `send`.
   cire's RSVP digest uses it so a cron run mails up to 100 organisers for one
   outbound request ([[cire-rsvp-changes]]).
+- **Headers.** A renderer may return `headers` beside the subject and bodies;
+  the Resend transport sends them on `send` and `sendBatch`, and the
+  Cloudflare and log transports drop them. The RSVP digest uses this for
+  `List-Unsubscribe` / `List-Unsubscribe-Post`. A renderer strips line breaks
+  from any value it puts there, as it does from the subject.
 - `makeLogEmailLive()` — dev + test. Renders the template in-process,
   records the payload into an in-memory ring buffer (exposed via
   `recorded()`), emits a single `Effect.logDebug` line with `template`

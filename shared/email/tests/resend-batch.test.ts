@@ -75,6 +75,28 @@ describe("ResendEmailLive.sendBatch", () => {
     expect(body[0]!.text).toContain("1 household replied");
   });
 
+  it("carries a template's headers, and none for a template without them", async () => {
+    const stopUrl = "https://api.example.test/api/rsvp-digest/stop?t=abc.def";
+    const withStop: SendEmailInput = {
+      template: "rsvp-change-digest",
+      to: "a@example.test",
+      data: {
+        weddingName: "Ama & Jonah",
+        households: 1,
+        counts: { reply_new: 1 },
+        rsvpUrl: "https://host.example.test/#/w/wed_1/guests/rsvps",
+        stopUrl,
+      },
+    };
+    await run([withStop, digest("b@example.test")]);
+    const body = calls[0]!.body as { headers?: Record<string, string> }[];
+    expect(body[0]!.headers).toEqual({
+      "List-Unsubscribe": `<${stopUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+    expect(body[1]!.headers).toBeUndefined();
+  });
+
   it("splits past the provider's limit into calls of at most that many", async () => {
     const inputs = Array.from({ length: RESEND_BATCH_LIMIT + 1 }, (_, i) =>
       digest(`${i}@example.test`),

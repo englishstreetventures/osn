@@ -79,6 +79,38 @@ describe("ResendEmailLive", () => {
     expect(payload.html).toContain("000000");
   });
 
+  it("carries a template's headers on a single send, and none for a template without them", async () => {
+    const stopUrl = "https://api.example.test/api/rsvp-digest/stop?t=abc.def";
+    const send = (input: SendEmailInput) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const email = yield* EmailService;
+          yield* email.send(input);
+        }).pipe(Effect.provide(buildLayer())),
+      );
+    await send({
+      template: "rsvp-change-digest",
+      to: "owner@example.com",
+      data: {
+        weddingName: "Ama & Jonah",
+        households: 1,
+        counts: { reply_new: 1 },
+        rsvpUrl: "https://host.example.test/#/w/wed_1/guests/rsvps",
+        stopUrl,
+      },
+    });
+    expect((JSON.parse(captured!.body) as { headers?: unknown }).headers).toEqual({
+      "List-Unsubscribe": `<${stopUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+    await send({
+      template: "otp-registration",
+      to: "alice@example.com",
+      data: { code: "000000", ttlMinutes: 10 },
+    });
+    expect(JSON.parse(captured!.body)).not.toHaveProperty("headers");
+  });
+
   const expectFailsWith = async (
     layer: ReturnType<typeof buildLayer>,
     input: SendEmailInput,

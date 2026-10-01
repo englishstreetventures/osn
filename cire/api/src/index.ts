@@ -459,6 +459,9 @@ const handler: ExportedHandler<Env> = {
         // in-memory default in createApp is generous enough for the
         // infrequent revoke/delete calls.
         internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
+        // The digest's stop links are signed with a key derived from the OIDC
+        // client secret; the cron below signs them from the same value.
+        digestStopSecret: env.CIRE_OIDC_CLIENT_SECRET ?? null,
         resolveOsnAccountId,
         resolveOsnProfileByHandle,
         resolveOsnProfileDisplays,
@@ -730,10 +733,19 @@ const handler: ExportedHandler<Env> = {
     });
     if (organiserEmailLookup && resendApiKey && !digestOriginProblem) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
+      // Each email's one-click stop link points at this Worker's own origin
+      // and is signed with a key derived from the secret the stop route
+      // verifies with. Either value missing ⇒ the emails go without a stop
+      // link or unsubscribe header.
+      const apiOrigin = env.CIRE_API_ORIGIN?.replace(/\/+$/, "");
+      const stopLinks =
+        apiOrigin && env.CIRE_OIDC_CLIENT_SECRET
+          ? { apiOrigin, secret: env.CIRE_OIDC_CLIENT_SECRET }
+          : undefined;
       runSweep(() =>
         Effect.runPromise(
           rsvpDigestService
-            .sendDailyDigests({ organiserOrigin, lookup: organiserEmailLookup })
+            .sendDailyDigests({ organiserOrigin, lookup: organiserEmailLookup, stopLinks })
             .pipe(
               Effect.catch((err) =>
                 Effect.logError("scheduled rsvp digest failed", { reason: err.reason }),
