@@ -606,7 +606,7 @@ export default function GuestTable(props: GuestTableProps) {
           await reloadGuests();
           toast.error("That guest is no longer on the list.");
         } else if (answer.status === 403) {
-          toast.error("Only the owner and editors can change plus-ones.");
+          toast.error("Only owners and editors can change plus-ones.");
         } else {
           toast.error("Could not change the plus-one setting. Try again.");
         }

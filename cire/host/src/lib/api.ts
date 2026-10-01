@@ -66,6 +66,18 @@ export function redirectToLogin(): void {
 }
 
 /**
+ * Start the portal again from the API's answer, on the page it is on.
+ *
+ * For a change to the signed-in organiser's own role — an owner stepping down —
+ * which moves what every view offers them, not only the one that made it. A
+ * wrapper for the reason `navigateTo` is: navigation is this module's job, and
+ * a test can replace this where replacing `window.location` hangs happy-dom.
+ */
+export function reloadPortal(): void {
+  window.location.reload();
+}
+
+/**
  * Leave the app for an external URL.
  *
  * A one-line wrapper, and it earns its place for the same reason

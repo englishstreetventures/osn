@@ -15,6 +15,7 @@ import { peekCachedBudget } from "../lib/budget-store";
 import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
+import type { WeddingRole } from "../lib/wedding-roles";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EditWorkspace from "./EditWorkspace";
@@ -152,7 +153,10 @@ interface ModuleShellProps {
   weddingId: string;
   weddingName: string;
   weddingSlug: string;
-  /** Owner of this wedding? Owners get the destructive/owner-only sub-views
+  /** The signed-in organiser's role here. The host panel asks it what they may
+   *  grant; everything else reads the two flags below, which come from it. */
+  callerRole: WeddingRole;
+  /** An owner of this wedding? Owners get the destructive/owner-only sub-views
    *  (invite/codes, settings save, host management). */
   canManage: boolean;
   /** Owner or editor co-host? Editors get the module write surfaces (invite
@@ -647,7 +651,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     fallback={
                       <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
                         You have view-only access to this wedding. Use “Preview invite” above to see
-                        the invitation as guests will — ask the owner for editor access to customise
+                        the invitation as guests will — ask an owner for editor access to customise
                         it.
                       </p>
                     }
@@ -684,14 +688,11 @@ export default function ModuleShell(props: ModuleShellProps) {
                   />
                 </Show>
                 <Show when={active() === "hosts"}>
-                  {/* Two flags, because the API has two gates here: adding a
-                  co-host is `weddingEditor()` (so `canEdit`), while changing a
-                  role or removing one stays `weddingOwner()`. */}
-                  <HostsPanel
-                    weddingId={props.weddingId}
-                    canManage={props.canManage}
-                    canAdd={props.canEdit}
-                  />
+                  {/* The role itself, not the flags: the panel needs both of
+                  the API's gates here (adding a co-host is `weddingEditor()`,
+                  changing or removing one `weddingOwner()`) and what the
+                  caller may grant, which only the role says. */}
+                  <HostsPanel weddingId={props.weddingId} callerRole={props.callerRole} />
                 </Show>
               </Show>
             </div>

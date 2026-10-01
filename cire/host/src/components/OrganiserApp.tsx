@@ -168,6 +168,7 @@ function WeddingDashboard(props: {
           weddingId={props.weddingId}
           weddingName={props.wedding.displayName}
           weddingSlug={props.wedding.slug}
+          callerRole={props.wedding.role}
           canManage={surfaces().canManage}
           canEdit={surfaces().canEdit}
           module={props.module()}

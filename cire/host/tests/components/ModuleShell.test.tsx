@@ -4,6 +4,7 @@ import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
+import type { WeddingRole } from "../../src/lib/wedding-roles";
 
 /**
  * ModuleShell is the IA replacement for the flat tab bar: a left module rail
@@ -113,14 +114,13 @@ vi.mock("../../src/components/RemintPanel", () => ({
   ),
 }));
 vi.mock("../../src/components/HostsPanel", () => ({
-  // Surfaces BOTH flags, for the same reason SettingsPanel surfaces
-  // canEditRsvpDeadline below: `canAdd={props.canEdit}` is the one line
-  // connecting the API's weddingEditor() gate on POST /hosts to the portal's
-  // add form, and with the mock reading only weddingId, reverting it to
-  // `props.canManage` — switching the whole capability off for editors — left
-  // all 663 organiser tests green.
-  default: (p: { weddingId: string; canManage: boolean; canAdd: boolean }) => (
-    <div data-testid="hosts" data-can-manage={String(p.canManage)} data-can-add={String(p.canAdd)}>
+  // Surfaces the role it was handed, for the same reason SettingsPanel surfaces
+  // canEditRsvpDeadline below: `callerRole={props.callerRole}` is the one line connecting
+  // the caller's seat to what the panel offers — the add form, the role and
+  // remove controls, and the roles an owner may grant — and with the mock
+  // reading only weddingId, a wrong role there would leave every test green.
+  default: (p: { weddingId: string; callerRole: string }) => (
+    <div data-testid="hosts" data-caller-role={p.callerRole}>
       {p.weddingId}
     </div>
   ),
@@ -179,6 +179,8 @@ function renderShell(opts: {
   /** Stand in for a declined unsaved-changes prompt: every module switch is
    *  refused and the route stays where it is. */
   refuseModule?: boolean;
+  /** The caller's role; derived from the two flags when a test names none. */
+  role?: WeddingRole;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -205,6 +207,10 @@ function renderShell(opts: {
       weddingId="wed_1"
       weddingName="R & V"
       weddingSlug="r-and-v"
+      callerRole={
+        opts.role ??
+        ((opts.canManage ?? true) ? "owner" : (opts.canEdit ?? true) ? "editor" : "viewer")
+      }
       canManage={opts.canManage ?? true}
       canEdit={opts.canEdit ?? true}
       module={module()}
@@ -350,31 +356,16 @@ describe("ModuleShell", () => {
     });
   });
 
-  describe("co-hosts — adding follows canEdit, managing follows canManage", () => {
-    // The additive/subtractive split has to survive the trip from OrganiserApp
-    // through this shell: an editor may ADD a co-host (weddingEditor) but not
-    // remove or demote one (weddingOwner). Wiring `canAdd` to the wrong flag
-    // silently disables the feature with the API still granting it.
-    it("gives an editor co-host the add form but not role/remove", () => {
-      renderShell({ canManage: false, canEdit: true, module: "settings", sub: "hosts" });
-      const panel = screen.getByTestId("hosts");
-      expect(panel.getAttribute("data-can-add")).toBe("true");
-      expect(panel.getAttribute("data-can-manage")).toBe("false");
-    });
-
-    it("gives a viewer co-host neither", () => {
-      renderShell({ canManage: false, canEdit: false, module: "settings", sub: "hosts" });
-      const panel = screen.getByTestId("hosts");
-      expect(panel.getAttribute("data-can-add")).toBe("false");
-      expect(panel.getAttribute("data-can-manage")).toBe("false");
-    });
-
-    it("gives the owner both", () => {
-      renderShell({ canManage: true, canEdit: true, module: "settings", sub: "hosts" });
-      const panel = screen.getByTestId("hosts");
-      expect(panel.getAttribute("data-can-add")).toBe("true");
-      expect(panel.getAttribute("data-can-manage")).toBe("true");
-    });
+  describe("co-hosts — the panel is handed the caller's own role", () => {
+    // What the panel offers — adding someone, changing or removing a seat, and
+    // which roles may be granted — all follows from the caller's role, so the
+    // role has to survive the trip from OrganiserApp through this shell intact.
+    for (const role of ["owner", "editor", "viewer"] as const) {
+      it(`passes ${role} through`, () => {
+        renderShell({ role, module: "settings", sub: "hosts" });
+        expect(screen.getByTestId("hosts").getAttribute("data-caller-role")).toBe(role);
+      });
+    }
   });
 
   /**

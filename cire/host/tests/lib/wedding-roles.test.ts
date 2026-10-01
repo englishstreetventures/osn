@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   ASSIGNABLE_ROLES,
+  assignableRolesFor,
   LEAST_PRIVILEGE_ROLE,
   needsPromotionConfirmation,
+  needsRoleChangeConfirmation,
   normaliseWeddingRole,
   ROLE_COPY,
   surfacesFor,
@@ -28,8 +30,8 @@ describe("the vocabulary", () => {
     expect(ROLES.toSorted()).toEqual(["editor", "helper", "owner", "viewer"]);
   });
 
-  it("offers every role but owner on a seat, most privilege first", () => {
-    expect(ASSIGNABLE_ROLES).toEqual(["editor", "viewer", "helper"]);
+  it("offers every role on a seat, owner included, most privilege first", () => {
+    expect(ASSIGNABLE_ROLES).toEqual(["owner", "editor", "viewer", "helper"]);
   });
 
   it("puts the floor at the narrowest role, and offers it nothing", () => {
@@ -121,6 +123,12 @@ describe("surfacesFor", () => {
 });
 
 describe("needsPromotionConfirmation", () => {
+  it("confirms making someone an owner, from every role below it", () => {
+    expect(needsPromotionConfirmation("editor", "owner")).toBe(true);
+    expect(needsPromotionConfirmation("viewer", "owner")).toBe(true);
+    expect(needsPromotionConfirmation("helper", "owner")).toBe(true);
+  });
+
   it("confirms a promotion to editor from every role below it", () => {
     expect(needsPromotionConfirmation("viewer", "editor")).toBe(true);
     expect(needsPromotionConfirmation("helper", "editor")).toBe(true);
@@ -152,5 +160,50 @@ describe("needsPromotionConfirmation", () => {
       (role) => !needsPromotionConfirmation(LEAST_PRIVILEGE_ROLE, role),
     );
     expect(unconfirmed).toEqual([]);
+  });
+});
+
+describe("assignableRolesFor", () => {
+  it("lets an owner grant every role, owner included", () => {
+    expect(assignableRolesFor("owner")).toEqual(["owner", "editor", "viewer", "helper"]);
+  });
+
+  it("caps an editor at their own role — never owner", () => {
+    expect(assignableRolesFor("editor")).toEqual(["editor", "viewer", "helper"]);
+  });
+
+  it("lets a viewer and a helper grant nothing", () => {
+    expect(assignableRolesFor("viewer")).toEqual([]);
+    expect(assignableRolesFor("helper")).toEqual([]);
+  });
+
+  it("lets only the roles offered management grant owner", () => {
+    const granting = ROLES.filter((role) => assignableRolesFor(role).includes("owner"));
+    const managing = ROLES.filter((role) => surfacesFor(role).canManage);
+    expect(granting).toEqual(managing);
+  });
+});
+
+describe("needsRoleChangeConfirmation", () => {
+  it("asks an owner before any change to their own seat — stepping down", () => {
+    for (const to of ["editor", "viewer", "helper"] as const) {
+      expect(needsRoleChangeConfirmation("owner", to, true)).toBe(true);
+    }
+  });
+
+  it("does not ask an owner to demote another owner", () => {
+    expect(needsRoleChangeConfirmation("owner", "editor", false)).toBe(false);
+  });
+
+  it("asks before a promotion, whoever's seat it is", () => {
+    expect(needsRoleChangeConfirmation("viewer", "owner", false)).toBe(true);
+    expect(needsRoleChangeConfirmation("viewer", "editor", false)).toBe(true);
+  });
+
+  it("never asks about a change to the role already held", () => {
+    for (const role of ASSIGNABLE_ROLES) {
+      expect(needsRoleChangeConfirmation(role, role, true)).toBe(false);
+      expect(needsRoleChangeConfirmation(role, role, false)).toBe(false);
+    }
   });
 });

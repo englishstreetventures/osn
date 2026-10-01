@@ -26,9 +26,12 @@ vi.mock("../../src/lib/api", async () => {
 
 import HostsPanel from "../../src/components/HostsPanel";
 import {
+  activeProfileIdMock,
   authFetchMock,
   redirectSpy,
+  reloadSpy,
   resetOrganiserMocks,
+  toastError,
   toastSuccess,
 } from "../test-support/mocks";
 
@@ -66,7 +69,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", role: "host", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
     // The GET request hit the hosts endpoint.
     expect(String(authFetchMock.mock.calls[0]![0])).toBe(
@@ -76,7 +79,7 @@ describe("HostsPanel", () => {
 
   it("shows a fixed @ ahead of the add-host box and strips one a paste drops into the value", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     // The "@" is decoration next to the box, not part of its value — and
@@ -86,28 +89,187 @@ describe("HostsPanel", () => {
     expect((handleInput() as HTMLInputElement).value).toBe("bob");
   });
 
-  it("shows the wedding's owner above the co-hosts, with no role badge or remove control", async () => {
+  it("lists owners as seats, ahead of everyone else, each badged Owner", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({
-        owner: { osnProfileId: "usr_alice", handle: "alice", displayName: "Alice" },
-        hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }],
+        hosts: [
+          { osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 },
+          { osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 2 },
+        ],
       }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
     await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
-    expect(screen.getByText("Owner")).toBeTruthy();
-    expect(screen.getByText("@bob")).toBeTruthy();
-    // The owner's row carries no role-change or remove control — those actions
-    // don't apply to an owner, unlike the co-host row right below it.
-    expect(screen.queryByRole("button", { name: /Make @alice/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Remove @alice/i })).toBeNull();
+    const rows = screen.getAllByRole("listitem");
+    expect(within(rows[0]!).getByText("@alice")).toBeTruthy();
+    expect(within(rows[0]!).getByText("Owner")).toBeTruthy();
+    expect(within(rows[1]!).getByText("@bob")).toBeTruthy();
   });
 
-  it("falls back to the owner's profile id when the handle can't be resolved", async () => {
-    authFetchMock.mockResolvedValueOnce(json({ owner: { osnProfileId: "usr_alice" }, hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+  it("falls back to an owner's profile id when the handle can't be resolved", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_alice", role: "owner", createdAt: 1 }] }),
+    );
+    // A viewer, so the badge is the only thing on the row naming the role.
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
     await waitFor(() => expect(screen.getByText("usr_alice")).toBeTruthy());
-    expect(screen.getByText("Owner")).toBeTruthy();
+    expect(within(screen.getByRole("listitem")).getByText("Owner")).toBeTruthy();
+    // Owners only: nobody else is helping yet.
+    expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy();
+  });
+
+  it("offers an owner the role and remove controls on another owner's row", async () => {
+    activeProfileIdMock.mockImplementation(() => "usr_alice");
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          { osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 1 },
+          { osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 2 },
+        ],
+      }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@ben")).toBeTruthy());
+    expect((roleSelect("@ben") as HTMLSelectElement).value).toBe("owner");
+    expect(screen.getByRole("button", { name: "Remove @ben" })).toBeTruthy();
+  });
+
+  it("marks the caller's own seat, offering a step down but no remove", async () => {
+    activeProfileIdMock.mockImplementation(() => "usr_alice");
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          { osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 1 },
+          { osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 2 },
+        ],
+      }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
+    const own = screen.getAllByRole("listitem")[0]!;
+    expect(within(own).getByText("you")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: /Your role on this wedding/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove @alice" })).toBeNull();
+  });
+
+  it("asks before an owner steps down, then starts the portal again on yes", async () => {
+    activeProfileIdMock.mockImplementation(() => "usr_alice");
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          { osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 1 },
+          { osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 2 },
+        ],
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_alice", role: "editor", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
+
+    const own = screen.getByRole("combobox", { name: /Your role on this wedding/i });
+    fireEvent.change(own, { target: { value: "editor" } });
+    // Stepping down is asked about even though it takes something away: it is
+    // the caller's own owner surface, and only another owner can give it back.
+    expect(screen.getByText(/Step down to editor\?/i)).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Yes, step down/i }));
+    await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1));
+    const [url, init] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_alice/role");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "editor" });
+  });
+
+  it("says why when the API keeps the last owner (409 last_owner)", async () => {
+    activeProfileIdMock.mockImplementation(() => "usr_alice");
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [{ osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 1 }],
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ error: "last_owner" }, 409));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Your role on this wedding/i }), {
+      target: { value: "viewer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Yes, step down/i }));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/at least one owner/i)),
+    );
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("combobox", { name: /Your role on this wedding/i }) as HTMLSelectElement)
+        .value,
+    ).toBe("owner");
+  });
+
+  it("asks before making someone an owner", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", role: "owner", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "owner" } });
+    expect(screen.getByText(/Make @bob an owner\?/i)).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Yes, make them owner/i }));
+    await waitFor(() => expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("owner"));
+    expect(JSON.parse(String((authFetchMock.mock.calls[1]![1] as RequestInit).body))).toEqual({
+      role: "owner",
+    });
+  });
+
+  it("says why a promotion past the owner ceiling was refused (409 owner_cap_reached)", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ error: "owner_cap_reached" }, 409));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.change(roleSelect("@bob"), { target: { value: "owner" } });
+    fireEvent.click(screen.getByRole("button", { name: /Yes, make them owner/i }));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/at most four owners/i)),
+    );
+  });
+
+  it("says why removing an owner was refused (409 last_owner)", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_ben", handle: "ben", role: "owner", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ error: "last_owner" }, 409));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("@ben")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove @ben" }));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/at least one owner/i)),
+    );
+    expect(screen.getByText("@ben")).toBeTruthy();
+  });
+
+  it("explains the owner role to an owner adding someone, and not to an editor", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    const { unmount } = render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+    const forOwner = screen.getByRole("group", { name: /What a co-host can do/i });
+    expect(within(forOwner).getByText("Owner")).toBeTruthy();
+    unmount();
+
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+    const forEditor = screen.getByRole("group", { name: /What a co-host can do/i });
+    expect(within(forEditor).queryByText("Owner")).toBeNull();
   });
 
   it("adds a host by handle and appends it to the list", async () => {
@@ -115,7 +277,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "host", createdAt: 2 } }, 201),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("@bob");
@@ -135,7 +297,7 @@ describe("HostsPanel", () => {
 
   it("offers no role picker in the add form — a seat starts at viewer", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     // Nothing in the form sets a role: choosing one before the person exists is
@@ -146,7 +308,7 @@ describe("HostsPanel", () => {
 
   it("puts the role explainers ahead of the handle input", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     const explainers = screen.getByRole("group", { name: /What a co-host can do/i });
@@ -167,7 +329,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", role: "viewer", createdAt: 1 } }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     // A demotion goes straight through — nothing is being handed over.
@@ -187,7 +349,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
@@ -205,7 +367,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", role: "editor", createdAt: 1 } }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
@@ -225,7 +387,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     fireEvent.change(roleSelect("@bob"), { target: { value: "editor" } });
@@ -244,7 +406,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", role: "helper", createdAt: 1 } }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
@@ -255,16 +417,16 @@ describe("HostsPanel", () => {
     });
   });
 
-  it("shows a helper seat as a helper, and offers all three roles on the row", async () => {
+  it("shows a helper seat as a helper, and offers every role on the row to an owner", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "helper", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("helper");
     const options = within(roleSelect("@bob")).getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual(["Editor", "Viewer", "Helper"]);
+    expect(options.map((o) => o.textContent)).toEqual(["Owner", "Editor", "Viewer", "Helper"]);
   });
 
   it("shows a role it does not recognise as the narrowest seat", async () => {
@@ -274,7 +436,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "planner", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     expect(within(screen.getByRole("listitem")).getByText("Helper")).toBeTruthy();
@@ -288,7 +450,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
     expect(screen.getByRole("button", { name: /Add host/i })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: /Role for @bob/i })).toBeNull();
@@ -306,7 +468,7 @@ describe("HostsPanel", () => {
         201,
       ),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="editor" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("carol");
@@ -319,7 +481,7 @@ describe("HostsPanel", () => {
   it("shows a not-found message when the handle resolves to nobody (404)", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "No OSN account with that handle" }, 404));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("ghost");
@@ -330,7 +492,7 @@ describe("HostsPanel", () => {
   it("shows an already-a-host message on 409", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "already_host" }, 409));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");
@@ -341,7 +503,7 @@ describe("HostsPanel", () => {
   it("explains when adding hosts is unavailable (503)", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "Adding hosts is not available" }, 503));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");
@@ -353,7 +515,7 @@ describe("HostsPanel", () => {
 
   it("does not call the API when the handle is blank", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("   ");
@@ -370,7 +532,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ removed: true }), { status: 200 }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
@@ -384,7 +546,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", role: "host", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add host/i })).toBeNull();
@@ -393,7 +555,7 @@ describe("HostsPanel", () => {
 
   it("redirects to login on a 401 during load", async () => {
     authFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
   });
 
@@ -424,7 +586,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alina", handle: "alina", displayName: null },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -446,7 +608,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       searchJson([{ profileId: "usr_zoe", handle: "zoe", displayName: "Zoe", connected: true }]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     // The old two-character floor existed for the global handle search; the
@@ -469,7 +631,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_zoe", handle: "zoe", displayName: null, connected: true },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -488,7 +650,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       searchJson([{ profileId: "usr_zoe", handle: "zoe", displayName: null, connected: true }]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -510,7 +672,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alice", handle: "alice", displayName: "Alice", connected: false },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -530,7 +692,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       searchJson([{ profileId: "usr_zoe", handle: "zoe", displayName: null, connected: true }]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -548,7 +710,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alice", handle: "alice", displayName: "Alice", connected: false },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -573,7 +735,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alice", handle: "alice", displayName: null, connected: false },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -599,7 +761,7 @@ describe("HostsPanel", () => {
       json({ host: { osnProfileId: "usr_zoe", handle: "zoe", role: "editor", createdAt: 2 } }, 201),
     );
     authFetchMock.mockResolvedValueOnce(searchJson([]));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -634,7 +796,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alice", handle: "alice", displayName: null, connected: false },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle(); // starts the (hanging) q= fetch
@@ -654,7 +816,7 @@ describe("HostsPanel", () => {
   it("fails soft (no dropdown) when the connections fetch errors on focus", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "nope" }, 500));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     focusHandle();
@@ -669,7 +831,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       searchJson([{ profileId: "usr_alice", handle: "alice", displayName: "Alice" }]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -686,7 +848,7 @@ describe("HostsPanel", () => {
   it("fails soft (no listbox) when the search endpoint errors", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "nope" }, 500));
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -703,7 +865,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "host", createdAt: 2 } }, 201),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");
