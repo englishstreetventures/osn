@@ -13,6 +13,10 @@
  *   bun scripts/cire-vendor-claim-review.ts confirm dv_… --env production --apply
  *   bun scripts/cire-vendor-claim-review.ts reject  dv_… --env production --apply
  *
+ * Confirm also reads the claimant's organisation from the OSN D1 and refuses
+ * when OSN has no such organisation or the claiming profile is no longer a
+ * member of it.
+ *
  * `--env` has no default: `local` (wrangler's local D1), `dev` or `production`.
  * Confirm and reject are dry runs unless `--apply` is given; a dry run reads
  * the claim, runs every check and prints the SQL it would send.
@@ -81,12 +85,22 @@ export function parseArgs(argv: readonly string[]): Args | { error: string } {
   return { error: USAGE };
 }
 
-/** The wrangler arguments that point `d1 execute` at one tier's cire D1. */
-export function targetArgs(env: Env): string[] {
-  // Database names and env blocks as `cire/db/package.json` db:migrate:* use them.
-  if (env === "local") return ["cire-db", "--local"];
-  if (env === "dev") return ["cire-db-dev", "--env", "dev", "--remote"];
-  return ["cire-db", "--env", "production", "--remote"];
+/** Which D1 a statement runs on: cire's, or OSN's (the claimant's organisation). */
+export type Db = "cire" | "osn";
+
+/**
+ * The wrangler arguments that point `d1 execute` at one tier's database, as
+ * `cire/api/wrangler.toml` and `osn/api/wrangler.toml` name them. `local`
+ * names no env and passes `--local`: the top-level block in both files carries
+ * the production database id, so `--remote` without `--env` would reach it.
+ */
+export function targetArgs(db: Db, env: Env): string[] {
+  const names =
+    db === "cire"
+      ? { local: "cire-db", dev: "cire-db-dev", production: "cire-db" }
+      : { local: "osn-db", dev: "osn-db-dev", production: "osn-db-prod" };
+  if (env === "local") return [names.local, "--local"];
+  return [names[env], "--env", env, "--remote"];
 }
 
 const quote = (id: string): string => {
@@ -111,6 +125,25 @@ export const confirmSql = (listingId: string, orgId: string, profileId: string):
   "updated_at = unixepoch() " +
   `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)} ` +
   `AND review_profile_id = ${quote(profileId)} AND owner_org_id IS NULL RETURNING id;`;
+
+/**
+ * The claimant's organisation as OSN holds it, and whether the claiming
+ * profile is still one of its members: a membership can end between the claim
+ * and the review.
+ */
+export const orgSql = (orgId: string, profileId: string): string =>
+  "SELECT o.id, o.handle, o.name, " +
+  `(SELECT m.role FROM organisation_members m WHERE m.organisation_id = o.id AND m.profile_id = ${quote(profileId)}) AS claimant_role, ` +
+  `(SELECT u.handle FROM users u WHERE u.id = ${quote(profileId)}) AS claimant_handle ` +
+  `FROM organisations o WHERE o.id = ${quote(orgId)};`;
+
+export interface OrgRow {
+  id: string;
+  handle: string;
+  name: string;
+  claimant_role: string | null;
+  claimant_handle: string | null;
+}
 
 export const rejectSql = (listingId: string, orgId: string): string =>
   "UPDATE directory_vendors SET review_org_id = NULL, review_profile_id = NULL, " +
@@ -154,13 +187,17 @@ interface D1Result {
   results?: unknown[];
 }
 
-/** Runs one SQL statement on the tier and returns wrangler's parsed `--json` output. */
-export type Runner = (env: Env, sql: string) => Promise<D1Result[]>;
+/** Runs one SQL statement on a tier's database and returns wrangler's parsed `--json` output. */
+export type Runner = (db: Db, env: Env, sql: string) => Promise<D1Result[]>;
 
-export const wranglerRunner: Runner = async (env, sql) => {
+export const wranglerRunner: Runner = async (db, env, sql) => {
   const proc = Bun.spawn(
-    ["bunx", "wrangler", "d1", "execute", ...targetArgs(env), "--json", "--command", sql],
-    { cwd: new URL("../cire/api", import.meta.url).pathname, stdout: "pipe", stderr: "inherit" },
+    ["bunx", "wrangler", "d1", "execute", ...targetArgs(db, env), "--json", "--command", sql],
+    {
+      cwd: new URL(db === "cire" ? "../cire/api" : "../osn/api", import.meta.url).pathname,
+      stdout: "pipe",
+      stderr: "inherit",
+    },
   );
   const out = await new Response(proc.stdout).text();
   if ((await proc.exited) !== 0)
@@ -183,14 +220,14 @@ export async function run(
   }
 
   if (args.command === "list") {
-    const rows = firstResults(await runner(args.env, listSql()));
+    const rows = firstResults(await runner("cire", args.env, listSql()));
     if (rows.length === 0) print("No vendor claims are waiting for review.");
     for (const row of rows) print(JSON.stringify(row));
     return 0;
   }
 
   const listingId = args.listingId!;
-  const [row] = firstResults(await runner(args.env, showSql(listingId))) as ClaimRow[];
+  const [row] = firstResults(await runner("cire", args.env, showSql(listingId))) as ClaimRow[];
   const refused = refusal(args.command, row);
   if (refused) {
     print(`${args.command} refused: ${refused}`);
@@ -202,6 +239,24 @@ export async function run(
   );
   print(`Claimed by org ${claim.review_org_id}, profile ${claim.review_profile_id}`);
 
+  if (args.command === "confirm") {
+    const [org] = firstResults(
+      await runner("osn", args.env, orgSql(claim.review_org_id!, claim.review_profile_id!)),
+    ) as OrgRow[];
+    if (!org) {
+      print("confirm refused: OSN has no organisation with that id");
+      return 1;
+    }
+    print(`Organisation "${org.name}" (@${org.handle})`);
+    if (org.claimant_role === null) {
+      print(
+        `confirm refused: profile ${claim.review_profile_id} is no longer a member of @${org.handle}; reject the claim`,
+      );
+      return 1;
+    }
+    print(`Claimant @${org.claimant_handle ?? "?"} is a ${org.claimant_role} of @${org.handle}`);
+  }
+
   const sql =
     args.command === "confirm"
       ? confirmSql(claim.id, claim.review_org_id!, claim.review_profile_id!)
@@ -211,7 +266,7 @@ export async function run(
     return 0;
   }
 
-  const changed = firstResults(await runner(args.env, sql)).length;
+  const changed = firstResults(await runner("cire", args.env, sql)).length;
   if (changed !== 1) {
     print(
       `${args.command} changed ${changed} rows; the claim changed after the check. Run it again.`,
