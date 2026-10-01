@@ -46,6 +46,17 @@ import { mockViewport } from "../test-support/viewport";
  */
 let restoreViewport = () => {};
 
+/** The organiser PUT's answer: the reply as stored. */
+function saved(
+  guestId: string,
+  status: "attending" | "declined" | "maybe",
+  consentSource: "guest" | "organiser_attested" | "inviter_attested",
+  dietary = "",
+  dietaryPresets: readonly string[] = [],
+) {
+  return { rsvp: { guestId, eventId: "evt_1", status, dietary, dietaryPresets, consentSource } };
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -449,13 +460,10 @@ describe("RsvpView", () => {
     expect(screen.getByText(/Showing 0 of 6 guest rows/i)).toBeTruthy();
   });
 
-  it("editor records a phone RSVP: PUTs consent-attested body and reloads", async () => {
+  it("editor records a phone RSVP: PUTs a consent-attested body", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(VIEW)) // initial load
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      ) // PUT
-      .mockResolvedValueOnce(json(VIEW)); // reload after save
+      .mockResolvedValueOnce(json(saved("g3", "attending", "organiser_attested"))); // PUT
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -480,7 +488,7 @@ describe("RsvpView", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/g3/rsvps/evt_1");
     expect(putCall[1]?.method).toBe("PUT");
@@ -511,10 +519,7 @@ describe("RsvpView", () => {
     restoreViewport = mockViewport(false);
     authFetchMock
       .mockResolvedValueOnce(json(VIEW)) // initial load
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      ) // PUT
-      .mockResolvedValueOnce(json(VIEW)); // reload after save
+      .mockResolvedValueOnce(json(saved("g3", "attending", "organiser_attested"))); // PUT
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -538,7 +543,7 @@ describe("RsvpView", () => {
     fireEvent.click(consent);
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/g3/rsvps/evt_1");
     const body = JSON.parse(putCall[1]?.body as string) as {
@@ -585,8 +590,7 @@ describe("RsvpView", () => {
     restoreViewport = mockViewport(false);
     authFetchMock
       .mockResolvedValueOnce(json(VIEW))
-      .mockResolvedValueOnce(json({ rsvp: { status: "declined", consentSource: "guest" } }))
-      .mockResolvedValueOnce(json(VIEW));
+      .mockResolvedValueOnce(json(saved("g1", "declined", "guest")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -610,7 +614,7 @@ describe("RsvpView", () => {
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(save);
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/g1/rsvps/evt_1");
     // The WHOLE body. No dietary field is what tells the API to keep the
@@ -623,8 +627,7 @@ describe("RsvpView", () => {
     restoreViewport = mockViewport(false);
     authFetchMock
       .mockResolvedValueOnce(json(VIEW))
-      .mockResolvedValueOnce(json({ rsvp: { status: "maybe", consentSource: "guest" } }))
-      .mockResolvedValueOnce(json(VIEW));
+      .mockResolvedValueOnce(json(saved("g1", "maybe", "guest")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -642,7 +645,7 @@ describe("RsvpView", () => {
 
     fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
       status: "maybe",
     });
@@ -652,10 +655,7 @@ describe("RsvpView", () => {
     restoreViewport = mockViewport(false);
     authFetchMock
       .mockResolvedValueOnce(json(VIEW))
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      )
-      .mockResolvedValueOnce(json(VIEW));
+      .mockResolvedValueOnce(json(saved("g1", "attending", "organiser_attested")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -676,7 +676,7 @@ describe("RsvpView", () => {
 
     fireEvent.click(consent);
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
       status: "attending",
       dietary: "",
@@ -698,10 +698,7 @@ describe("RsvpView", () => {
     ada.dietaryPresets = ["gluten", "a_future_key"];
     authFetchMock
       .mockResolvedValueOnce(json(withUnknown))
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      )
-      .mockResolvedValueOnce(json(withUnknown));
+      .mockResolvedValueOnce(json(saved("g1", "attending", "organiser_attested")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -712,7 +709,7 @@ describe("RsvpView", () => {
     fireEvent.click(screen.getByLabelText(/I confirm the guest consented/i));
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const body = JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string) as {
       dietaryPresets: readonly string[];
     };
@@ -730,10 +727,7 @@ describe("RsvpView", () => {
     ada.dietaryPresets = ["a_future_key"];
     authFetchMock
       .mockResolvedValueOnce(json(withUnknown))
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      )
-      .mockResolvedValueOnce(json(withUnknown));
+      .mockResolvedValueOnce(json(saved("g1", "attending", "organiser_attested")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -750,7 +744,7 @@ describe("RsvpView", () => {
     expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const body = JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string) as {
       dietaryPresets: readonly string[];
       dietaryConsent: boolean;
@@ -778,38 +772,12 @@ describe("RsvpView", () => {
     ).toBe(false);
   });
 
-  it("keeps an unrelated event's row identity across a reload, patches the one that changed", async () => {
-    // The point of the store + mapArray split: a reload must not rebuild every
-    // <section>/<tr> in the wedding, only the one event whose data actually moved.
-    const RELOADED = {
-      events: VIEW.events.map((event) =>
-        event.id === "evt_1"
-          ? {
-              ...event,
-              attending: 2,
-              responded: 4,
-              noResponse: 0,
-              guests: [
-                ...event.guests,
-                {
-                  ...CLEO,
-                  status: "attending" as const,
-                  dietary: "",
-                  dietaryPresets: ["nuts"] as const,
-                  consentSource: "organiser_attested" as const,
-                },
-              ],
-              unresponded: [],
-            }
-          : event,
-      ),
-    };
+  it("patches the saved row and its tallies from the PUT, with no reload", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(VIEW)) // initial load
       .mockResolvedValueOnce(
-        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
-      ) // PUT
-      .mockResolvedValueOnce(json(RELOADED)); // reload after save
+        json(saved("g3", "attending", "organiser_attested", "Nut allergy", ["other"])),
+      ); // PUT
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
@@ -825,24 +793,99 @@ describe("RsvpView", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
-
-    // Cleo's own row is the one that should have moved — she now has a reply,
-    // so a brand-new <tr> for her is correct. The reload body still has to parse
-    // and land in the store after the third call resolves, so requery the whole
-    // way down on each tick: a captured <section> would go stale the moment a
-    // rebuild swapped it out, and this half of the test must fail for its own
-    // reason, not that one.
+    // Cleo's row now carries her reply, and the header counts moved with it.
+    // Requery the whole way down on each tick: a captured <section> would go
+    // stale the moment a rebuild swapped it out.
     await waitFor(() => {
       const ceremony = screen.getByText("Ceremony").closest("section")!;
       const cleoRow = within(ceremony).getByText("Cleo Jones").closest("tr")!;
       expect(within(cleoRow).getByText("Attending")).toBeTruthy();
+      expect(within(cleoRow).getByText("Host-entered")).toBeTruthy();
+      expect(within(cleoRow).queryByText("Host-updated")).toBeNull();
+      expect(tally(ceremony, "Attending")).toBe("2");
+      expect(tally(ceremony, "No reply")).toBe("0");
     });
+    // The PUT was the only request after the load.
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
 
     const receptionAfter = screen.getByText("Reception").closest("section")!;
     const rowAfter = within(receptionAfter).getByText("Ada Sharma").closest("tr")!;
     expect(rowAfter).toBe(untouchedRow);
     expect(document.body.contains(untouchedRow)).toBe(true);
+  });
+
+  it("moves a changed status between the header counts and badges a host's update", async () => {
+    restoreViewport = mockViewport(false);
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(json(saved("g1", "declined", "guest", "", ["gluten"])));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    fireEvent.change(await screen.findByLabelText(/Status/i), { target: { value: "declined" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => {
+      const ceremony = screen.getByText("Ceremony").closest("section")!;
+      expect(tally(ceremony, "Attending")).toBe("0");
+      expect(tally(ceremony, "Declined")).toBe("2");
+      const adaRow = within(ceremony).getByText("Ada Sharma").closest("tr")!;
+      // The guest's own dietary answer stays, so the badge says a host changed
+      // the status, not that a host entered the reply.
+      expect(within(adaRow).getByText("Host-updated")).toBeTruthy();
+      expect(within(adaRow).queryByText("Host-entered")).toBeNull();
+    });
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("badges a host's update from the loaded view, and only there", async () => {
+    // Dev's reply (the third) is the one a host last changed.
+    const [ada, bo, dev] = VIEW.events[0]!.guests;
+    const view = {
+      events: [{ ...VIEW.events[0]!, guests: [ada, bo, { ...dev!, statusRecordedByHost: true }] }],
+    };
+    authFetchMock.mockResolvedValueOnce(json(view));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    const rowFor = (name: string) => screen.getByText(name).closest("tr")!;
+    expect(within(rowFor("Dev Rao")).getByText("Host-updated")).toBeTruthy();
+    expect(within(rowFor("Ada Sharma")).queryByText("Host-updated")).toBeNull();
+  });
+
+  it.each([
+    ["an answer that is not JSON", () => new Response("ok", { status: 200 })],
+    ["a reply for a guest the page does not hold", () => json(saved("gone", "attending", "guest"))],
+  ])("reloads on %s", async (_what, answer) => {
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(answer())
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    fireEvent.change(await screen.findByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(authFetchMock.mock.calls[2]![0]).toContain("/rsvps");
+  });
+
+  it("reloads when the PUT's answer cannot be folded in", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(json({ rsvp: { status: "attending" } }))
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    fireEvent.change(await screen.findByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(authFetchMock.mock.calls[2]![0]).toContain("/rsvps");
   });
 
   it("closes the open editor when a filter hides the row it belongs to", async () => {
@@ -1044,8 +1087,7 @@ describe("RsvpView — plus-ones", () => {
   it("records a plus-one's reply as a status only when the dietary fields are left alone", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
-      .mockResolvedValueOnce(json({ rsvp: { status: "declined" } }))
-      .mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+      .mockResolvedValueOnce(json(saved("p2", "declined", "organiser_attested")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
 
@@ -1058,7 +1100,7 @@ describe("RsvpView — plus-ones", () => {
 
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/p2/rsvps/evt_1");
     expect(JSON.parse(putCall[1]?.body as string)).toEqual({ status: "declined" });
@@ -1067,8 +1109,7 @@ describe("RsvpView — plus-ones", () => {
   it("records a plus-one's dietary requirements under the plus-one's own attestation", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
-      .mockResolvedValueOnce(json({ rsvp: { status: "attending" } }))
-      .mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+      .mockResolvedValueOnce(json(saved("p2", "attending", "organiser_attested")));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
 
@@ -1091,7 +1132,7 @@ describe("RsvpView — plus-ones", () => {
 
     fireEvent.click(consent);
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
       status: "attending",
       dietary: "No shellfish",
@@ -1143,8 +1184,7 @@ describe("RsvpView — plus-ones", () => {
       const view = withSamDietary([...presets], text);
       authFetchMock
         .mockResolvedValueOnce(json(view))
-        .mockResolvedValueOnce(json({ rsvp: { status: "maybe" } }))
-        .mockResolvedValueOnce(json(view));
+        .mockResolvedValueOnce(json(saved("p1", "maybe", "inviter_attested")));
       render(() => <RsvpView weddingId="wed_a" canEdit />);
       await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
 
@@ -1160,7 +1200,7 @@ describe("RsvpView — plus-ones", () => {
 
       fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
       fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
       expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
         status: "maybe",
       });

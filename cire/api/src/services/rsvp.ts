@@ -7,7 +7,7 @@ import {
   serialisePresets,
   type DietaryPreset,
 } from "@cire/dietary";
-import { eq, sql } from "drizzle-orm";
+import { eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
@@ -110,6 +110,59 @@ export interface RsvpInput {
   submittedByGuestId?: string | null;
   // The write carried a musubi sign-in matching that member's account link.
   submittedViaLink?: boolean;
+  // The organiser (OSN profile id) making this write; null (the default) for a
+  // household's. Written on every upsert, so it always names the row's latest
+  // organiser writer, and also names the attester of an organiser's consent
+  // record.
+  recordedByOsnProfileId?: string | null;
+}
+
+/**
+ * The columns one reply writes: `values` for a new row, `set` for the
+ * conflict-update over an existing one. Every upsert shape builds from this,
+ * so a plain and a guarded write store the same thing.
+ */
+function rsvpUpsertRow(input: RsvpInput, now: Date) {
+  const consentSource: ConsentSource = input.consentSource ?? "guest";
+  const dietaryConsentAt = input.dietaryConsent ? now : null;
+  const dietaryConsentVersion = input.dietaryConsent
+    ? dietaryConsentVersionFor(consentSource, input.plusOne ?? false)
+    : null;
+  const submittedByGuestId = input.submittedByGuestId ?? null;
+  const recordedByOsnProfileId = input.recordedByOsnProfileId ?? null;
+  const set = {
+    status: input.status,
+    dietary: input.dietary,
+    // Serialised once: the insert and the conflict-update store the same value.
+    dietaryPresets: serialisePresets(input.dietaryPresets),
+    dietaryConsentAt,
+    dietaryConsentVersion,
+    // Overwrite the writer/consent provenance too: an organiser recording over
+    // a guest's reply (or vice-versa) must repoint this so the row reflects
+    // who last wrote it.
+    consentSource,
+    // And who sent it: an organiser's write clears a member's stamp, and a
+    // member's write clears an organiser's.
+    submittedByGuestId,
+    submittedViaLink: submittedByGuestId !== null && (input.submittedViaLink ?? false),
+    recordedByOsnProfileId,
+    // Only an organiser's own consent record names an attester; a guest's or a
+    // household's record, or none, names nobody.
+    dietaryAttestedByOsnProfileId:
+      dietaryConsentVersion !== null && consentSource === "organiser_attested"
+        ? recordedByOsnProfileId
+        : null,
+  };
+  return {
+    values: {
+      id: crypto.randomUUID(),
+      guestId: input.guestId,
+      eventId: input.eventId,
+      ...set,
+      createdAt: now,
+    },
+    set,
+  };
 }
 
 /**
@@ -124,48 +177,11 @@ function buildRsvpUpsertStatements(
   now: Date,
 ): BatchItem<"sqlite">[] {
   return inputs.map((input) => {
-    const consentSource: ConsentSource = input.consentSource ?? "guest";
-    const dietaryConsentAt = input.dietaryConsent ? now : null;
-    const dietaryConsentVersion = input.dietaryConsent
-      ? dietaryConsentVersionFor(consentSource, input.plusOne ?? false)
-      : null;
-    // Serialised once: the insert and the conflict-update store the same value.
-    const dietaryPresets = serialisePresets(input.dietaryPresets);
-    const submittedByGuestId = input.submittedByGuestId ?? null;
-    const submittedViaLink = submittedByGuestId !== null && (input.submittedViaLink ?? false);
+    const { values, set } = rsvpUpsertRow(input, now);
     return db
       .insert(rsvps)
-      .values({
-        id: crypto.randomUUID(),
-        guestId: input.guestId,
-        eventId: input.eventId,
-        status: input.status,
-        dietary: input.dietary,
-        dietaryPresets,
-        dietaryConsentAt,
-        dietaryConsentVersion,
-        consentSource,
-        submittedByGuestId,
-        submittedViaLink,
-        createdAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [rsvps.guestId, rsvps.eventId],
-        set: {
-          status: input.status,
-          dietary: input.dietary,
-          dietaryPresets,
-          dietaryConsentAt,
-          dietaryConsentVersion,
-          // Overwrite the writer/consent provenance too: an organiser
-          // recording over a guest's reply (or vice-versa) must repoint
-          // this so the row reflects who last wrote it.
-          consentSource,
-          // And who sent it: an organiser's write clears a member's stamp.
-          submittedByGuestId,
-          submittedViaLink,
-        },
-      });
+      .values(values)
+      .onConflictDoUpdate({ target: [rsvps.guestId, rsvps.eventId], set });
   });
 }
 
@@ -316,6 +332,69 @@ export const rsvpService = {
   },
 
   /**
+   * Upsert one reply only while its guest's row carries `name` (first and last
+   * name joined by a space, trimmed), and say whether it was written. Same
+   * precondition as {@link submitRsvps}.
+   *
+   * One `INSERT … SELECT … WHERE EXISTS (…) ON CONFLICT DO UPDATE`, and SQLite
+   * runs one statement as one transaction, so the name tested is the name the
+   * row carries when the reply lands. A rename committed after the caller's
+   * read refuses the write instead of storing an answer given for one person
+   * under another's name. Stored names are trimmed on write, so SQLite's
+   * `trim()` only ever meets the joining space.
+   */
+  submitRsvpIfNamed(input: RsvpInput, name: string): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { values, set } = rsvpUpsertRow(input, new Date());
+      const named = sql`EXISTS (SELECT 1 FROM ${guests} WHERE ${guests.id} = ${input.guestId} AND trim(${guests.firstName} || ' ' || ${guests.lastName}) = ${name.trim()})`;
+
+      // The SELECT lists its values in the table's column order, which is the
+      // column list drizzle writes for an INSERT … SELECT. Raw values skip the
+      // columns' encoders, so the timestamps and the boolean go through them by
+      // hand: drizzle stores a timestamp as epoch seconds, a boolean as 0 or 1.
+      const encoded = {
+        id: sql`${values.id}`,
+        guestId: sql`${values.guestId}`,
+        eventId: sql`${values.eventId}`,
+        status: sql`${values.status}`,
+        dietary: sql`${values.dietary}`,
+        dietaryPresets: sql`${values.dietaryPresets}`,
+        dietaryConsentAt:
+          values.dietaryConsentAt === null
+            ? sql`NULL`
+            : sql`${rsvps.dietaryConsentAt.mapToDriverValue(values.dietaryConsentAt)}`,
+        dietaryConsentVersion: sql`${values.dietaryConsentVersion}`,
+        consentSource: sql`${values.consentSource}`,
+        submittedByGuestId: sql`${values.submittedByGuestId}`,
+        submittedViaLink: sql`${rsvps.submittedViaLink.mapToDriverValue(values.submittedViaLink)}`,
+        recordedByOsnProfileId: sql`${values.recordedByOsnProfileId}`,
+        dietaryAttestedByOsnProfileId: sql`${values.dietaryAttestedByOsnProfileId}`,
+        createdAt: sql`${rsvps.createdAt.mapToDriverValue(values.createdAt)}`,
+      } satisfies Record<keyof typeof rsvps.$inferSelect, SQL>;
+      const selectList = Object.keys(getTableColumns(rsvps)).map((key) => {
+        if (!Object.hasOwn(encoded, key)) throw new Error(`rsvps column "${key}" has no value`);
+        return encoded[key as keyof typeof encoded];
+      });
+
+      // The outer SELECT keeps its WHERE: without one, SQLite would read
+      // `ON CONFLICT` as part of the SELECT.
+      const written = yield* dbQuery(() =>
+        db
+          .insert(rsvps)
+          .select(sql`SELECT ${sql.join(selectList, sql`, `)} WHERE ${named}`)
+          .onConflictDoUpdate({ target: [rsvps.guestId, rsvps.eventId], set })
+          .returning({ id: rsvps.id })
+          .all(),
+      );
+      if (written.length === 0) return false;
+      const writer = writerOf(input.consentSource ?? "guest");
+      yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
+      return true;
+    }).pipe(Effect.withSpan("cire.rsvp.submitIfNamed"));
+  },
+
+  /**
    * An organiser's status-only reply: write `status` and leave the stored
    * dietary answer and its consent record as they are, whoever gave them. Same
    * precondition as {@link submitRsvps} — the caller has checked the guest and
@@ -327,12 +406,15 @@ export const rsvpService = {
    * (that column is then the data's consent basis, given by whoever wrote it);
    * a row holding none is repointed to `organiser_attested`, the writer of
    * what it now holds. The dietary and consent columns are never written.
+   * `recorded_by_osn_profile_id` always names this organiser; the attester of
+   * a kept consent record stays, and a row holding no record names none.
    * Returns the row as stored.
    */
   recordStatus(input: {
     guestId: string;
     eventId: string;
     status: RsvpInput["status"];
+    recordedByOsnProfileId: string;
   }): Effect.Effect<
     {
       status: RsvpInput["status"];
@@ -345,6 +427,9 @@ export const rsvpService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      // Whether the row holds a dietary answer or its consent record, which
+      // this save keeps along with whoever gave it.
+      const holdsDietary = sql`${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL`;
       const rows = yield* dbQuery(() =>
         db
           .insert(rsvps)
@@ -360,6 +445,8 @@ export const rsvpService = {
             consentSource: "organiser_attested",
             submittedByGuestId: null,
             submittedViaLink: false,
+            recordedByOsnProfileId: input.recordedByOsnProfileId,
+            dietaryAttestedByOsnProfileId: null,
             createdAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -369,7 +456,9 @@ export const rsvpService = {
               // An organiser wrote the status, so no household member sent it.
               submittedByGuestId: null,
               submittedViaLink: false,
-              consentSource: sql`CASE WHEN ${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
+              consentSource: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
+              recordedByOsnProfileId: input.recordedByOsnProfileId,
+              dietaryAttestedByOsnProfileId: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.dietaryAttestedByOsnProfileId} ELSE NULL END`,
             },
           })
           .returning({

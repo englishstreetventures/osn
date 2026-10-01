@@ -415,7 +415,14 @@ function writeName(
     // so a reply that lands after the caller's read is still caught.
     const clearAnswers = db
       .update(rsvps)
-      .set({ dietary: "", dietaryPresets: "", dietaryConsentAt: null, dietaryConsentVersion: null })
+      .set({
+        dietary: "",
+        dietaryPresets: "",
+        dietaryConsentAt: null,
+        dietaryConsentVersion: null,
+        // The record goes, so nobody attested what the row now holds.
+        dietaryAttestedByOsnProfileId: null,
+      })
       .where(
         and(
           eq(rsvps.guestId, plusOne.guestId),

@@ -738,6 +738,34 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
   );
 
   it(
+    "says when a host wrote a reply last, without the host's profile id",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const hindu = yield* eventBySlug(db, "hindu");
+        rsvp(db, ada.id, catholic.id, "attending", "No nuts");
+        rsvp(db, ada.id, hindu.id, "attending");
+        // A co-host changed the catholic reply's status, keeping the guest's answer.
+        db.update(rsvps)
+          .set({ status: "declined", recordedByOsnProfileId: "usr_cohost" })
+          .where(eq(rsvps.eventId, catholic.id))
+          .run();
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const rowFor = (eventId: string) =>
+          view.events.find((e) => e.id === eventId)!.guests.find((g) => g.guestId === ada.id)!;
+        expect(rowFor(catholic.id)).toMatchObject({
+          consentSource: "guest",
+          statusRecordedByHost: true,
+        });
+        expect(rowFor(hindu.id).statusRecordedByHost).toBe(false);
+        expect(JSON.stringify(view)).not.toContain("usr_cohost");
+      }),
+    ),
+  );
+
+  it(
     "excludes a host-preview family's RSVPs from the view",
     withDb(
       Effect.gen(function* () {

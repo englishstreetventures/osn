@@ -84,6 +84,9 @@ export interface RsvpFilterGuest extends PlusOneLink {
    */
   dietaryPresets: readonly string[];
   consentSource: ConsentSource;
+  /** Whether a host made the reply's latest write. Absent from an API that
+   *  predates it, which reads as "no". */
+  statusRecordedByHost?: boolean;
   /** Who sent the reply; absent from an API that predates member attribution. */
   submittedBy?: ReplySubmitter | null;
 }
@@ -114,6 +117,9 @@ export interface RsvpRow {
   dietaryPresets: readonly string[];
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
+  /** A host made the reply's latest write. False on a row nobody has answered
+   *  for. */
+  statusRecordedByHost: boolean;
   /** Null on a row nobody has answered for, and on a reply with no member
    *  recorded. */
   submittedBy: ReplySubmitter | null;
@@ -181,6 +187,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       dietary: guest.dietary,
       dietaryPresets: guest.dietaryPresets,
       consentSource: guest.consentSource,
+      statusRecordedByHost: guest.statusRecordedByHost ?? false,
       submittedBy: guest.submittedBy ?? null,
       ...link,
       responded: true,
@@ -199,6 +206,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       dietary: "",
       dietaryPresets: [],
       consentSource: null,
+      statusRecordedByHost: false,
       submittedBy: null,
       ...link,
       responded: false,

@@ -12,10 +12,16 @@
  * status and keeps the stored dietary answer, with its consent record and its
  * `consent_source`, whoever gave it (`rsvpService.recordStatus`).
  *
+ * Every write names the organiser who made it (`recorded_by_osn_profile_id`),
+ * and an organiser's consent record names the organiser who attested it
+ * (`dietary_attested_by_osn_profile_id`), so each co-host's write stays
+ * traceable to one person.
+ *
  * The organiser's attestation names whom it is about. A guest's dietary data
  * is stored under `ORGANISER_DIETARY_ATTESTATION`; a plus-one's only under
  * `ORGANISER_PLUS_ONE_DIETARY_ATTESTATION`, for the name the plus-one's row
- * carries now.
+ * carries when the write lands: the name is tested inside the write itself
+ * (`rsvpService.submitRsvpIfNamed`), so a rename cannot slip in between.
  *
  * TENANCY: the route gate (`weddingEditor()`) proves the caller may write
  * `weddingId`. This service ADDITIONALLY re-validates, in wedding scope, that:
@@ -72,6 +78,10 @@ export class DietaryAttestationMismatch extends Data.TaggedError("DietaryAttesta
 
 export interface OrganiserRsvpInput {
   weddingId: string;
+  /** The OSN profile id of the organiser making this write, from the route's
+   *  auth context. Stored as the row's latest writer and, on a dietary answer,
+   *  as its attester. */
+  actorOsnProfileId: string;
   guestId: string;
   eventId: string;
   status: "attending" | "declined" | "maybe";
@@ -89,7 +99,7 @@ export interface OrganiserRsvpInput {
    *  that is neither organiser attestation's. */
   dietaryAttestation: string;
   /** The full name the portal showed a plus-one's box for. Checked only on a
-   *  plus-one's dietary data. */
+   *  plus-one's dietary data, inside the write. */
   dietaryAttestedName: string;
 }
 
@@ -115,7 +125,7 @@ export const organiserRsvpService = {
     | DietaryAttestationMismatch,
     DbService
   > {
-    const { weddingId, guestId, eventId, status } = input;
+    const { weddingId, guestId, eventId, status, actorOsnProfileId } = input;
     const dietary = input.dietary?.text ?? "";
     const dietaryPresets = input.dietary?.presets ?? [];
     // Consent authority is organiser-attested for every dietary answer this
@@ -144,8 +154,6 @@ export const organiserRsvpService = {
         db
           .select({
             plusOneOf: guests.plusOneOfGuestId,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
             eventInWedding: sql<number>`EXISTS (SELECT 1 FROM ${events} WHERE ${events.id} = ${eventId} AND ${events.weddingId} = ${weddingId})`,
             invited: sql<number>`EXISTS (SELECT 1 FROM ${guestEvents} WHERE ${guestEvents.guestId} = ${guestId} AND ${guestEvents.eventId} = ${eventId})`,
           })
@@ -166,16 +174,14 @@ export const organiserRsvpService = {
 
       const isPlusOne = guestRow.plusOneOf !== null;
       // The attestation must speak of the person the row is about: the
-      // plus-one wording, for the name the row carries now, on a plus-one's
-      // reply; the guest wording on anyone else's.
-      if (hasDietaryData && isPlusOne) {
-        if (input.dietaryAttestation !== ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version) {
-          return yield* Effect.fail(new PlusOneDietaryUnavailable());
-        }
-        const currentName = `${guestRow.firstName} ${guestRow.lastName}`.trim();
-        if (input.dietaryAttestedName.trim() !== currentName) {
-          return yield* Effect.fail(new PlusOneChanged());
-        }
+      // plus-one wording on a plus-one's reply (its name is tested by the
+      // write below); the guest wording on anyone else's.
+      if (
+        hasDietaryData &&
+        isPlusOne &&
+        input.dietaryAttestation !== ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version
+      ) {
+        return yield* Effect.fail(new PlusOneDietaryUnavailable());
       }
       if (
         hasDietaryData &&
@@ -189,14 +195,19 @@ export const organiserRsvpService = {
       // own consent or attestation, which this save does not repeat, so it
       // stays, with its consent record and source.
       if (input.dietary === null) {
-        const stored = yield* rsvpService.recordStatus({ guestId, eventId, status });
+        const stored = yield* rsvpService.recordStatus({
+          guestId,
+          eventId,
+          status,
+          recordedByOsnProfileId: actorOsnProfileId,
+        });
         return { guestId, eventId, ...stored };
       }
 
       // Upsert through the shared write path (same `(guest_id, event_id)`
       // conflict target + dietary-consent stamping the guest path uses), with
       // the organiser-attested provenance. Overwrites any prior reply.
-      yield* rsvpService.submitRsvp({
+      const reply = {
         guestId,
         eventId,
         status,
@@ -205,7 +216,19 @@ export const organiserRsvpService = {
         dietaryConsent,
         consentSource,
         plusOne: isPlusOne,
-      });
+        recordedByOsnProfileId: actorOsnProfileId,
+      };
+      // A plus-one's dietary data lands only while the row carries the name
+      // the organiser attested for: tested in the same statement as the
+      // write, so a household rename between the portal's read and this save
+      // refuses it rather than storing one person's answer under another's
+      // name.
+      if (hasDietaryData && isPlusOne) {
+        const written = yield* rsvpService.submitRsvpIfNamed(reply, input.dietaryAttestedName);
+        if (!written) return yield* Effect.fail(new PlusOneChanged());
+      } else {
+        yield* rsvpService.submitRsvp(reply);
+      }
 
       return { guestId, eventId, status, dietary, dietaryPresets, consentSource };
     }).pipe(Effect.withSpan("cire.organiser-rsvp.record"));
