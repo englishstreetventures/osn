@@ -36,6 +36,12 @@ export interface Listing {
   priceMinMinor: number | null;
   priceMaxMinor: number | null;
   listed: string;
+  /**
+   * The listing is a claim waiting for an operator: not live, not editable,
+   * and enquiries do not reach the vendor yet. Optional because the portal can
+   * deploy before the API that sends it; absent reads as false.
+   */
+  awaitingConfirmation?: boolean;
   categories: string[];
   createdAt: number;
   updatedAt: number;
