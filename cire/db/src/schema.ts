@@ -1186,6 +1186,23 @@ export const hostRsvpNotices = sqliteTable(
   (t) => [primaryKey({ columns: [t.weddingId, t.osnProfileId] })],
 );
 
+/**
+ * The owner-notice email budget: how many notice emails one key has caused on
+ * one UTC day. A key is `wedding:<id>` or `actor:<osn profile id>`. Shared by
+ * every Worker isolate, which an in-memory limiter is not. Rows older than the
+ * current day are deleted by the next notice.
+ */
+export const ownerNoticeBudget = sqliteTable(
+  "owner_notice_budget",
+  {
+    key: text("key").notNull(),
+    // `YYYY-MM-DD`, UTC.
+    day: text("day").notNull(),
+    sent: integer("sent").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.day] })],
+);
+
 export const sessions = sqliteTable(
   "sessions",
   {

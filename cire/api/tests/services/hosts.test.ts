@@ -847,14 +847,21 @@ describe("the prior role a write reports", () => {
     expect(again.previousRole).toBe("viewer");
   });
 
-  it("remove reports the removed seat's role, and null when there was no seat", async () => {
+  it("remove reports the removed seat as it stood, and null when there was no seat", async () => {
     const db = buildDb();
     seat(db, ALICE, "owner");
     expect(
       await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE })),
-    ).toEqual({ removedRole: "owner" });
+    ).toMatchObject({ removed: { role: "owner", addedByOsnProfileId: OWNER } });
     expect(
       await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE })),
-    ).toEqual({ removedRole: null });
+    ).toEqual({ removed: null });
+  });
+});
+
+describe("hostsService.list on a wedding with no seats", () => {
+  it("lists nothing, with a total of 0", async () => {
+    const db = buildDb();
+    expect(await run(db, hostsService.list("wed_nobody"))).toEqual({ hosts: [], total: 0 });
   });
 });

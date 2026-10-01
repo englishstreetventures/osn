@@ -91,11 +91,82 @@ describe("wedding-owner-change", () => {
   });
 });
 
+describe("wedding-owner-change — the other wordings", () => {
+  it("words a demotion for the actor and the other owners, named or not", () => {
+    const demoted = { ...change, change: "demoted" as const, newRole: "viewer" as const };
+    expect(
+      renderTemplate("wedding-owner-change", { ...demoted, audience: "actor" }).text,
+    ).toContain("You changed @jonah's role on Ama & Jonah from owner to viewer.");
+    expect(
+      renderTemplate("wedding-owner-change", { ...demoted, subjectName: null }).text,
+    ).toContain("Ama Mensah (@ama) changed one owner's role on Ama & Jonah to viewer.");
+  });
+
+  it("defaults a demotion without a role to editor, and picks the article", () => {
+    const own = { ...change, change: "demoted" as const, audience: "subject" as const, self: true };
+    expect(renderTemplate("wedding-owner-change", own).text).toContain("You are now an editor.");
+    expect(renderTemplate("wedding-owner-change", { ...own, newRole: "viewer" }).text).toContain(
+      "You are now a viewer.",
+    );
+  });
+
+  it("speaks of an unnamed owner who left", () => {
+    const out = renderTemplate("wedding-owner-change", {
+      ...change,
+      self: true,
+      subjectName: null,
+    });
+    expect(out.text).toContain("One of the owners left Ama & Jonah.");
+  });
+
+  it("tells the owners who made someone an owner, and what that grants", () => {
+    const added = renderTemplate("wedding-owner-change", { ...change, change: "added" });
+    expect(added.text).toContain("Ama Mensah (@ama) added @jonah to Ama & Jonah as an owner.");
+    expect(added.text).toContain("deleting the wedding");
+    const promoted = renderTemplate("wedding-owner-change", {
+      ...change,
+      change: "promoted",
+      audience: "actor",
+    });
+    expect(promoted.text).toContain("You made @jonah an owner of Ama & Jonah.");
+    expect(promoted.text).toContain("If this was not you");
+  });
+});
+
 describe("wedding-delete-started", () => {
+  const base = {
+    weddingName: "Ama & Jonah",
+    actorName: "Ama Mensah (@ama)",
+    audience: "owner" as const,
+    restoreUntil: "9 October 2026 at 14:05 UTC",
+    restoreDays: 7,
+    portalUrl: "https://host.example.test",
+  };
+
+  it("tells the deleter it was them, and what to do if it was not", () => {
+    const out = renderTemplate("wedding-delete-started", { ...base, audience: "actor" });
+    expect(out.text).toContain("You deleted Ama & Jonah.");
+    expect(out.text).toContain("If this was not you");
+  });
+
+  it("falls back to a generic name, says 1 day, and escapes the name", () => {
+    const out = renderTemplate("wedding-delete-started", {
+      ...base,
+      actorName: null,
+      restoreDays: 1,
+      weddingName: "<b>Ama</b>",
+    });
+    expect(out.text).toContain("Another owner deleted");
+    expect(out.text).toContain("for 1 day:");
+    expect(out.html).not.toContain("<b>Ama</b>");
+    expect(out.html).toContain("&lt;b&gt;Ama&lt;/b&gt;");
+  });
+
   it("names the deleter and the restore window", () => {
     const out = renderTemplate("wedding-delete-started", {
       weddingName: "Ama & Jonah",
       actorName: "Ama Mensah (@ama)",
+      audience: "owner",
       restoreUntil: "9 October 2026, 14:05 UTC",
       restoreDays: 7,
       portalUrl: "https://host.example.test",

@@ -2201,7 +2201,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         await run(
           hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
         ),
-      ).toEqual({ removedRole: "editor" });
+      ).toMatchObject({ removed: { role: "editor", addedByOsnProfileId: "usr_test" } });
       expect(await seatRole("usr_second")).toBeUndefined();
       expect(
         await db

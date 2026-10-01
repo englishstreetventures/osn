@@ -17,11 +17,7 @@ import type { AccountLinking } from "./lib/account-linking";
 import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
 import { originGuard } from "./lib/origin-guard";
-import {
-  createOwnerNotices,
-  OWNER_NOTICE_WINDOW_MS,
-  OWNER_NOTICE_EMAILS_PER_WINDOW,
-} from "./lib/owner-notice-email";
+import { createOwnerNotices } from "./lib/owner-notice-email";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
@@ -177,12 +173,7 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  * anyone deletes or restores weddings by hand.
  */
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
-/** Owner-notice emails per wedding and per acting owner, per day: keeps a
- *  promote/demote loop from spending the mail provider's daily allowance. */
-const defaultOwnerNoticeThrottle = createRateLimiter({
-  maxRequests: OWNER_NOTICE_EMAILS_PER_WINDOW,
-  windowMs: OWNER_NOTICE_WINDOW_MS,
-});
+
 /**
  * Default per-IP limiter for the co-host autocomplete (S-L1). osnAuth-gated
  * already, so this just caps the per-keystroke ARC-sign + S2S amplifier (the
@@ -473,11 +464,12 @@ export interface AppOptions {
    * Resolves organiser profile ids to their account addresses (server-to-server
    * over ARC, `account:email-read`) for the owner notices: an owner removed or
    * demoted, a wedding deleted. KEY-OPTIONAL: when omitted, no notice is sent
-   * and every route behaves the same. Sent through `emailLayer`.
+   * and every route behaves the same. Sent through `emailLayer`, and only when
+   * one is passed: the log stand-in is not delivery, and would log addresses.
    */
   organiserEmailLookup?: OsnOrganiserEmailLookup;
-  /** Override the per-wedding owner-notice throttle (useful for testing). */
-  ownerNoticeThrottle?: RateLimiterBackend;
+  /** Override the owner-notice daily email budget per key (useful for testing). */
+  ownerNoticeEmailsPerDay?: number;
   /**
    * Suggests OSN profiles whose handle starts with a typed prefix (server-to-
    * server over ARC) for the add-co-host autocomplete. KEY-OPTIONAL + FAIL-SOFT:
@@ -675,7 +667,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
     organiserEmailLookup,
-    ownerNoticeThrottle = defaultOwnerNoticeThrottle,
+    ownerNoticeEmailsPerDay,
     resolveOsnHandleSearch,
     resolveOsnConnectionSearch,
     turnstileVerifier = null,
@@ -754,17 +746,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
     threadBaseUrl: `${organiserOrigin.replace(/\/+$/, "")}/vendors/enquiries`,
   });
 
-  // Owner notices go out through the same transport as the vendor emails, and
-  // only when osn-api can be asked for the owners' addresses.
-  const ownerNotices = organiserEmailLookup
-    ? createOwnerNotices({
-        lookup: organiserEmailLookup,
-        resolveDisplays: resolveOsnProfileDisplays,
-        emailLayer: vendorEmailLayer,
-        portalUrl: organiserOrigin.replace(/\/+$/, ""),
-        throttle: ownerNoticeThrottle,
-      })
-    : undefined;
+  // Owner notices need a way to ask osn-api for the owners' addresses and a
+  // real transport passed in; without either, none are sent.
+  const ownerNotices =
+    organiserEmailLookup && emailLayerOption
+      ? createOwnerNotices({
+          lookup: organiserEmailLookup,
+          resolveDisplays: resolveOsnProfileDisplays,
+          emailLayer: emailLayerOption,
+          portalUrl: organiserOrigin.replace(/\/+$/, ""),
+          emailsPerDay: ownerNoticeEmailsPerDay,
+        })
+      : undefined;
 
   // `db` turns on the organiser session cookie path in `osnAuth` — the way every
   // browser authenticates now that the passkey ceremony lives on musubi.social.

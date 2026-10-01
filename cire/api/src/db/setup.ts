@@ -177,6 +177,13 @@ CREATE TABLE IF NOT EXISTS host_rsvp_notices (
   PRIMARY KEY (wedding_id, osn_profile_id)
 );
 
+CREATE TABLE IF NOT EXISTS owner_notice_budget (
+  key TEXT NOT NULL,
+  day TEXT NOT NULL,
+  sent INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (key, day)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,

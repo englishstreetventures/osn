@@ -247,6 +247,15 @@ export const createOrganiserHostsWriteRoutes = (
                   );
 
                 yield* Effect.sync(() => metricHostAdded("ok", host.role));
+                // A new owner holds every owner power; the other owners hear of it.
+                if (host.role === "owner") {
+                  yield* notifyOwnerChange(db, request, ownerNotices, {
+                    weddingId: scopedWeddingId,
+                    actorOsnProfileId: addedByProfileId,
+                    subjectOsnProfileId: host.osnProfileId,
+                    change: "added",
+                  });
+                }
                 set.status = 201;
                 return {
                   host: {
@@ -334,7 +343,8 @@ export const createOrganiserHostsWriteRoutes = (
                   );
                 yield* Effect.sync(() => metricHostRoleChanged("ok", host.role));
                 // An owner moved below owner, the caller's own step-down
-                // included: every owner hears of it, and so does the person.
+                // included, or a seat moved up to owner: every owner hears of
+                // it, and a demoted owner does too.
                 if (host.previousRole === "owner" && host.role !== "owner") {
                   yield* notifyOwnerChange(db, request, ownerNotices, {
                     weddingId,
@@ -342,6 +352,14 @@ export const createOrganiserHostsWriteRoutes = (
                     subjectOsnProfileId: host.osnProfileId,
                     change: "demoted",
                     newRole: host.role,
+                    subjectSeat: host,
+                  });
+                } else if (host.previousRole !== "owner" && host.role === "owner") {
+                  yield* notifyOwnerChange(db, request, ownerNotices, {
+                    weddingId,
+                    actorOsnProfileId,
+                    subjectOsnProfileId: host.osnProfileId,
+                    change: "promoted",
                   });
                 }
                 return {
@@ -400,13 +418,14 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
-              Effect.tap(({ removedRole }) =>
-                removedRole === "owner"
+              Effect.tap(({ removed }) =>
+                removed?.role === "owner"
                   ? notifyOwnerChange(db, request, ownerNotices, {
                       weddingId,
                       actorOsnProfileId: osnProfileId,
                       subjectOsnProfileId: params.osnProfileId,
                       change: "removed",
+                      subjectSeat: removed,
                     })
                   : Effect.void,
               ),
@@ -457,8 +476,8 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
-              Effect.tap(({ removedRole }) =>
-                removedRole === "owner"
+              Effect.tap(({ removed }) =>
+                removed?.role === "owner"
                   ? notifyOwnerChange(db, request, ownerNotices, {
                       weddingId,
                       actorOsnProfileId: osnProfileId,

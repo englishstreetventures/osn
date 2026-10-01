@@ -127,6 +127,7 @@ describe("renderTemplate", () => {
     "wedding-delete-started": {
       weddingName: "Ama & Jonah",
       actorName: "Ama Mensah (@ama)",
+      audience: "owner",
       restoreUntil: "9 October 2026, 14:05 UTC",
       restoreDays: 7,
       portalUrl: "https://host.example.test",

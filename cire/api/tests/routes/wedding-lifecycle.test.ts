@@ -20,6 +20,7 @@ import { RESTORE_WINDOW_S } from "../../src/db/live-wedding";
 import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { formatRestoreUntil } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
 import { CLAIM_TTL_MS } from "../../src/services/changes";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
@@ -650,23 +651,26 @@ describe("the delete notice", () => {
             ? [[CREATOR, { handle: "creator", displayName: "Cee Reator" }]]
             : [],
         ),
-      ownerNoticeThrottle: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     });
     return { ...built, mail };
   }
 
-  it("mails every other owner once, naming the deleter and the 7-day window", async () => {
+  it("mails every owner once, the deleter included, naming the deleter and the 7-day window", async () => {
     const { app, mail } = noticeApp();
     const res = await del(app, CREATOR);
     expect(res.status).toBe(200);
+    const { restoreUntil } = (await res.json()) as { restoreUntil: string };
 
     const sent = mail.recorded();
-    // The other owner only: not the deleter, not the editor.
-    expect(sent.map((m) => m.to)).toEqual(["second@example.test"]);
-    const [notice] = sent;
+    // Every owner, the deleter first; never the editor.
+    expect(sent.map((m) => m.to)).toEqual(["creator@example.test", "second@example.test"]);
+    expect(sent[0]?.text).toContain("You deleted");
+    const notice = sent[1];
     expect(notice?.template).toBe("wedding-delete-started");
     expect(notice?.text).toContain("Cee Reator (@creator) deleted");
-    expect(notice?.text).toContain("restore it for 7 days");
+    expect(notice?.text).toContain(
+      `restore it for 7 days: until ${formatRestoreUntil(new Date(restoreUntil))}`,
+    );
   });
 
   it("sends nothing for a refused delete", async () => {

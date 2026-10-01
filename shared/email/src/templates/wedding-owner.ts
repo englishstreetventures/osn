@@ -1,8 +1,8 @@
 /**
  * Wedding owner notices.
  *
- * Cire lets every owner of a wedding act alone: any owner may remove or demote
- * another, step down, or delete the wedding. These two emails are how the
+ * Cire lets every owner of a wedding act alone: any owner may make someone an
+ * owner, remove or demote another, step down, or delete the wedding. These two emails are how the
  * others find out. Each names who acted, so an owner who did not expect the
  * change knows whom to ask, and an owner whose session someone else is using
  * sees the change made in their name.
@@ -18,9 +18,10 @@ export type WeddingOwnerNewRole = "editor" | "viewer" | "helper";
 
 /** Who this copy of the notice is for. */
 export type WeddingOwnerAudience =
-  /** The person removed or demoted — the actor too, when they stepped down. */
+  /** The person removed or demoted — the actor too, when they stepped down.
+   *  Never sent for an add or a promotion. */
   | "subject"
-  /** The owner who removed or demoted someone else. */
+  /** The owner who made the change to someone else's seat. */
   | "actor"
   /** Every other remaining owner. */
   | "owner";
@@ -30,10 +31,13 @@ export interface WeddingOwnerChangeData {
   readonly weddingName: string;
   /** Who acted, e.g. "Ama Mensah (@ama)". `null` when OSN could not say. */
   readonly actorName: string | null;
-  /** Who was removed or demoted. `null` when OSN could not say. */
+  /** Whose seat changed. `null` when OSN could not say. */
   readonly subjectName: string | null;
-  /** `removed` — no seat any more; `demoted` — still seated, below owner. */
-  readonly change: "removed" | "demoted";
+  /**
+   * `added` — seated as an owner; `promoted` — moved up to owner; `removed` —
+   * no seat any more; `demoted` — still seated, below owner.
+   */
+  readonly change: "added" | "promoted" | "removed" | "demoted";
   /** The role a demoted owner now holds. Ignored for `removed`. */
   readonly newRole?: WeddingOwnerNewRole;
   readonly audience: WeddingOwnerAudience;
@@ -47,6 +51,8 @@ export interface WeddingDeleteStartedData {
   readonly weddingName: string;
   /** Who deleted it. `null` when OSN could not say. */
   readonly actorName: string | null;
+  /** `actor` — the owner who deleted it; `owner` — every other owner. */
+  readonly audience: "actor" | "owner";
   /** When the restore window closes, already formatted, e.g. "9 October 2026 at 14:05 UTC". */
   readonly restoreUntil: string;
   /** The restore window in days. */
@@ -92,6 +98,19 @@ function ownerChangeCopy(data: WeddingOwnerChangeData): OwnerChangeCopy {
   const demoted = data.change === "demoted";
 
   const check = `If you did not expect this, sign in to the organiser portal and check who can manage the wedding. Any owner can change it.`;
+  const notYou = `We send this to every owner, you included. If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and check who can manage the wedding.`;
+
+  if (data.change === "added" || data.change === "promoted") {
+    const who = data.subjectName ?? "someone";
+    const what =
+      data.change === "added"
+        ? `added ${who} to ${wedding} as an owner`
+        : `made ${who} an owner of ${wedding}`;
+    const power = `An owner can do everything you can, including removing other owners and deleting the wedding.`;
+    return data.audience === "actor"
+      ? { lead: `You ${what}. ${power}`, advice: notYou }
+      : { lead: `${actor} ${what}. ${power}`, advice: check };
+  }
 
   if (data.audience === "subject") {
     if (data.self) {
@@ -113,7 +132,7 @@ function ownerChangeCopy(data: WeddingOwnerChangeData): OwnerChangeCopy {
   if (data.audience === "actor") {
     return {
       lead: demoted ? `You ${demotedSubject(role)}.` : `You ${removedSubject}.`,
-      advice: `We send this to every owner, you included. If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and check who can manage the wedding.`,
+      advice: notYou,
     };
   }
 
@@ -164,10 +183,16 @@ export function renderWeddingDeleteStarted(data: WeddingDeleteStartedData): Rend
   const actor = data.actorName ?? "Another owner";
   const days = `${data.restoreDays} ${data.restoreDays === 1 ? "day" : "days"}`;
 
-  const lead = `${actor} deleted ${data.weddingName}. Guests, co-hosts and vendors can no longer see it.`;
+  const lead =
+    data.audience === "actor"
+      ? `You deleted ${data.weddingName}. Guests, co-hosts and vendors can no longer see it.`
+      : `${actor} deleted ${data.weddingName}. Guests, co-hosts and vendors can no longer see it.`;
   const window = `Any owner, you included, can restore it for ${days}: until ${data.restoreUntil}. Restoring puts everything back as it was.`;
   const after = `After that we erase the wedding and everything in it, the guest list and replies included. We cannot get it back once it is erased.`;
-  const how = `To keep it, sign in to the organiser portal and restore it from Recently deleted on your weddings list.`;
+  const how =
+    data.audience === "actor"
+      ? `If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and restore the wedding from Recently deleted on your weddings list.`
+      : `To keep it, sign in to the organiser portal and restore it from Recently deleted on your weddings list.`;
 
   const text = [
     `Hello,`,

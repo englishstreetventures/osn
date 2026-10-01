@@ -9,6 +9,7 @@ import { createApp } from "../../src/app";
 import type { AppOptions } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { setExecutionCtx } from "../../src/lib/execution-ctx";
 import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
@@ -17,7 +18,7 @@ import type {
   OsnOrganiserEmailLookup,
   OsnProfileDisplayResolver,
 } from "../../src/services/osn-bridge";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, TEST_CF_IP, TEST_ORIGIN } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -90,7 +91,12 @@ function seedWedding(db: Db) {
 /** Row a seat directly, so a test can call as any of the roles a seat may
  *  hold, owner included. Typed off the service rather than listed, so a role the API starts
  *  assigning can be seeded here without the literal being widened by hand. */
-function seedHostSeat(db: Db, osnProfileId: string, role: AssignableHostRole) {
+function seedHostSeat(
+  db: Db,
+  osnProfileId: string,
+  role: AssignableHostRole,
+  createdAt: Date = new Date(),
+) {
   db.insert(weddingHosts)
     .values({
       id: `whost_${osnProfileId}`,
@@ -98,7 +104,7 @@ function seedHostSeat(db: Db, osnProfileId: string, role: AssignableHostRole) {
       osnProfileId,
       addedByOsnProfileId: OWNER,
       role,
-      createdAt: new Date(),
+      createdAt,
     })
     .run();
 }
@@ -1109,11 +1115,13 @@ describe("owner change notices", () => {
       organiserEmailLookup: lookup,
       resolveOsnProfileDisplays: stubDisplayResolver,
       emailLayer: mail.layer,
-      ownerNoticeThrottle: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
       ...overrides,
     });
-    seedHostSeat(built.db, SECOND, "owner");
-    seedHostSeat(built.db, THIRD, "owner");
+    // Seated two days back: a seat the actor created in the last day does not
+    // mail its holder.
+    const longAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    seedHostSeat(built.db, SECOND, "owner", longAgo);
+    seedHostSeat(built.db, THIRD, "owner", longAgo);
     seedHostSeat(built.db, COHOST, "editor");
     return { ...built, mail };
   }
@@ -1176,16 +1184,13 @@ describe("owner change notices", () => {
     expect(to.get("second@example.test")?.text).toContain("You left Hosts Wedding.");
   });
 
-  it("sends nothing for a co-host's removal or role change, a promotion, or a refused change", async () => {
+  it("sends nothing for a co-host's removal or role change, a no-op, or a refused change", async () => {
     const { app, mail, db } = noticeApp();
     expect(
       (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "viewer" })).status,
     ).toBe(200);
     expect(
-      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "owner" })).status,
-    ).toBe(200);
-    expect(
-      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "owner" })).status,
+      (await req(app, "PUT", `${hostsPath}/${SECOND}/role`, OWNER, { role: "owner" })).status,
     ).toBe(200);
     db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).run();
     expect((await req(app, "DELETE", `${hostsPath}/${STRANGER}`, OWNER)).status).toBe(200);
@@ -1218,9 +1223,94 @@ describe("owner change notices", () => {
     expect(down.mail.recorded()).toEqual([]);
   });
 
+  it("sends after the response through the request's waitUntil when it has one", async () => {
+    const { app, mail } = noticeApp();
+    const request = new Request(`http://localhost${hostsPath}/${SECOND}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${await auth.sign(OWNER)}`,
+        "cf-connecting-ip": TEST_CF_IP,
+        origin: TEST_ORIGIN,
+      },
+    });
+    const kept: Promise<unknown>[] = [];
+    setExecutionCtx(request, { waitUntil: (promise) => kept.push(promise) });
+    const res = await app.fetch(request);
+    expect(res.status).toBe(200);
+    expect(kept).toHaveLength(1);
+    await Promise.all(kept);
+    expect(mail.recorded()).toHaveLength(3);
+  });
+
+  it("names the actor on the portal's session cookie, and a dead cookie sends nothing", async () => {
+    const { app, db, mail } = noticeApp();
+    const dead = await appRequest(app, `${hostsPath}/${SECOND}`, {
+      method: "DELETE",
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    expect(mail.recorded()).toEqual([]);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    const ok = await appRequest(app, `${hostsPath}/${SECOND}/role`, {
+      method: "PUT",
+      headers: { cookie: `cire_org_session=${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "editor" }),
+    });
+    expect(ok.status).toBe(200);
+    expect(byAddress(mail).get("second@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) changed your role",
+    );
+  });
+
+  it("tells the owners, not the person, when someone is made an owner", async () => {
+    const { app, mail } = noticeApp();
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "owner" })).status,
+    ).toBe(200);
+    let to = byAddress(mail);
+    expect([...to.keys()].toSorted()).toEqual(
+      ["alice@example.test", "second@example.test", "third@example.test"].toSorted(),
+    );
+    expect(to.get("second@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) made Bob Jones (@bob) an owner of Hosts Wedding.",
+    );
+
+    mail.reset();
+    expect(
+      (await req(app, "POST", hostsPath, OWNER, { handle: "carol", role: "owner" })).status,
+    ).toBe(201);
+    to = byAddress(mail);
+    expect(to.has("bob@example.test")).toBe(true);
+    expect(to.get("alice@example.test")?.text).toContain(
+      "You added @carol to Hosts Wedding as an owner.",
+    );
+  });
+
+  it("does not mail a person the remover seated in the last day; the owners still hear", async () => {
+    const { app, db, mail } = noticeApp({
+      organiserEmailLookup: async (ids) => ({
+        answered: true,
+        emails: new Map(
+          ids.flatMap((id) => {
+            const to = id === "usr_fresh" ? "fresh@example.test" : ADDRESSES[id];
+            return to ? [[id, to] as const] : [];
+          }),
+        ),
+      }),
+    });
+    seedHostSeat(db, "usr_fresh", "owner");
+    expect((await req(app, "DELETE", `${hostsPath}/usr_fresh`, OWNER)).status).toBe(200);
+    const to = byAddress(mail);
+    expect(to.has("fresh@example.test")).toBe(false);
+    expect([...to.keys()].toSorted()).toEqual(
+      ["alice@example.test", "second@example.test", "third@example.test"].toSorted(),
+    );
+  });
+
   it("counts emails, not notices, against the budget, the person affected first", async () => {
     const { app, mail } = noticeApp({
-      ownerNoticeThrottle: createRateLimiter({ maxRequests: 4, windowMs: 60_000 }),
+      ownerNoticeEmailsPerDay: 4,
     });
     expect((await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
     expect(mail.recorded()).toHaveLength(3);
