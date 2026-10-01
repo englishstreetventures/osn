@@ -24,6 +24,7 @@ import {
 } from "../../src/services/tiers";
 import type { Tier } from "../../src/services/tiers";
 import { recordStatements, setTier } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -32,16 +33,13 @@ const run = <A, E>(db: TestDb, eff: Effect.Effect<A, E, DbService>) =>
 
 function seedWedding(db: TestDb, id = "wed_test", tier: Tier = "ivory") {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id,
-      slug: `${id}-slug`,
-      displayName: "Test",
-      ownerOsnProfileId: "usr_owner",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id,
+    slug: `${id}-slug`,
+    displayName: "Test",
+    owners: ["usr_owner"],
+    createdAt: now,
+  });
   setTier(db, id, tier);
   return id;
 }

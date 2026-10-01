@@ -18,6 +18,7 @@ import { hostCodeService } from "../../src/services/host-code";
 import { eff } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
@@ -866,23 +867,24 @@ describe("POST /api/rsvp — RSVP deadline", () => {
         });
 
         try {
+          // The session read joins the wedding (its live-wedding check), so
+          // the guest's session itself is refused before the route's own
+          // deny branch is reached. Either way the answer is a refusal.
           const res = yield* rsvpOnce(cookie);
-          expect(res.status).toBe(403);
+          expect(res.status).toBe(401);
           const data = yield* Effect.promise(() => res.json<{ error: string }>());
           expect(data.error).toBe("Unauthorized");
         } finally {
           // Restore the wedding row (and FK enforcement) for the rest of the
-          // suite — the whole file shares one in-memory db.
-          db.insert(weddings)
-            .values({
-              id: BOOTSTRAP_WEDDING_ID,
-              slug: "cire-wedding",
-              displayName: "Cire Wedding",
-              ownerOsnProfileId: "usr_dev_bootstrap_owner",
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .run();
+          // suite — the whole file shares one in-memory db. Its owner seat
+          // outlived it, foreign keys being off, so only the row comes back.
+          insertWedding(db, {
+            id: BOOTSTRAP_WEDDING_ID,
+            slug: "cire-wedding",
+            displayName: "Cire Wedding",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
           db.run(sql`PRAGMA foreign_keys = ON`);
         }
       }),

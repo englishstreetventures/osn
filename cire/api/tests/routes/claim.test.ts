@@ -630,7 +630,6 @@ describe("GET /api/claim/session", () => {
         id: "wed_other_restore",
         slug: "someone-elses-wedding",
         displayName: "Other Wedding",
-        ownerOsnProfileId: "prof_other",
         createdAt: new Date(),
         updatedAt: new Date(),
       })

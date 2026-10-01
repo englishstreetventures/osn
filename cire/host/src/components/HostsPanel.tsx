@@ -12,30 +12,26 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
-  ASSIGNABLE_ROLES,
   type AssignableRole,
-  asSeatRole,
-  needsPromotionConfirmation,
+  assignableRolesFor,
+  needsRoleChangeConfirmation,
   NEW_SEAT_ROLE,
+  normaliseWeddingRole,
   ROLE_COPY,
+  surfacesFor,
+  type WeddingRole,
 } from "../lib/wedding-roles";
 import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 
-/** The wedding's owner — never a row in `wedding_hosts` (the API always rows
- *  them in separately), so it needs its own shape: no role, no add/remove. */
-interface WeddingOwnerRow {
-  osnProfileId: string;
-  handle?: string;
-  displayName?: string;
-}
-
+/** A seat on the wedding — an owner's or a co-host's. Owners are seats like
+ *  everyone else, so one shape serves both. */
 interface HostRow {
   osnProfileId: string;
   /** Present only on a freshly-added host (the add response echoes the handle);
    *  the list endpoint returns ids only, so existing rows show the id. */
   handle?: string;
-  role: AssignableRole;
+  role: WeddingRole;
   createdAt: number;
   /** Who created this seat. Absent on the add response (it is by definition the
    *  caller) and on a mid-deploy payload from an older API. */
@@ -45,21 +41,50 @@ interface HostRow {
 }
 
 /**
- * A role change waiting on the owner to say yes.
+ * A role change waiting on an owner to say yes.
  *
- * Held rather than applied because the grant it carries is the widest a seat
- * can be given. While it is held, the row's select shows `to` — the option the
- * owner picked — and dropping this puts the select back on the seat's own role,
- * which is still whatever it was: nothing has been sent.
+ * Held rather than applied because it either hands over a wide grant (owner,
+ * editor) or is the owner stepping down from their own seat. While it is held,
+ * the row's select shows `to` — the option the owner picked — and dropping this
+ * puts the select back on the seat's own role, which is still whatever it was:
+ * nothing has been sent.
  */
 interface PendingPromotion {
   host: HostRow;
   to: AssignableRole;
+  /** The caller's own seat: confirming steps them down. */
+  ownSeat: boolean;
 }
 
-/** Every row the API hands back, with its role narrowed to one this panel has a
- *  dropdown option for. */
-const withSeatRole = (host: HostRow): HostRow => ({ ...host, role: asSeatRole(host.role) });
+/** Every row the API hands back, with its role narrowed to one the portal
+ *  knows. */
+const withKnownRole = (host: HostRow): HostRow => ({
+  ...host,
+  role: normaliseWeddingRole(host.role),
+});
+
+/** Owners first, then everyone else, each group in the order the API listed
+ *  them (oldest seat first). */
+const ownersFirst = (rows: readonly HostRow[]): HostRow[] =>
+  rows.toSorted((a, b) => Number(b.role === "owner") - Number(a.role === "owner"));
+
+/** What a refused seat change says, by the API's error string. */
+const SEAT_REFUSALS = {
+  last_owner: "A wedding always keeps at least one owner. Make someone else an owner first.",
+  host_cap_reached: "This wedding has as many hosts as it can hold, owners included.",
+  already_host: "That person is already a host.",
+} as const;
+
+type SeatRefusal = keyof typeof SEAT_REFUSALS;
+
+/** The refusal message in a 4xx body, if it names one this panel words.
+ *  `Object.hasOwn`, never `in`: a body naming `constructor` is not a refusal. */
+async function refusalIn(res: Response): Promise<string | null> {
+  const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+  return typeof body.error === "string" && Object.hasOwn(SEAT_REFUSALS, body.error)
+    ? SEAT_REFUSALS[body.error as SeatRefusal]
+    : null;
+}
 
 /** One autocomplete suggestion from `GET /api/organiser/handle-search`. */
 interface HandleSuggestion {
@@ -84,38 +109,43 @@ const optionId = (i: number) => `host-handle-option-${i}`;
 
 interface HostsPanelProps {
   weddingId: string;
-  /** True when the signed-in organiser owns this wedding. Owners can change a
-   *  co-host's role and remove one — the subtractive half of host management. */
-  canManage: boolean;
-  /** True for the owner OR an `editor` co-host — mirrors the API's
-   *  `weddingEditor()` gate on `POST /hosts`. Adding is the additive half, and
-   *  it is deliberately open wider than removal so the owner isn't the single
-   *  person who has to bring everyone on board. */
-  canAdd: boolean;
-  /** True for anyone but the owner. Every seat may leave (`weddingSeat()` on
-   *  `DELETE /hosts/me`); the owner has no seat and the API refuses them. */
+  /** The signed-in organiser's role on this wedding. `surfacesFor()` turns it
+   *  into what this panel offers: adding someone, and changing or removing a
+   *  seat, are an owner's alone (`weddingOwner()` on every one of those
+   *  routes). Not named `role`: on a JSX element that reads as an ARIA role. */
+  callerRole: WeddingRole;
+  /** True for every seat holder (`weddingSeat()` on `DELETE /hosts/me`). An
+   *  owner may leave too while another owner remains; the API refuses the last
+   *  owner with 409 `last_owner`. */
   canLeave?: boolean;
   /** Called once the caller has left the wedding, after the confirmation
    *  toast. The parent drops the wedding from the organiser's list, which
    *  unmounts this panel and releases the wedding's cached rows. */
   onLeft?: () => void;
+  /** Called with the caller's new role once the API has changed their OWN
+   *  seat — an owner stepping down. The parent patches the wedding's role, and
+   *  every view re-derives what it offers from it, this panel included. */
+  onOwnRoleChanged?: (role: WeddingRole) => void;
 }
 
 /**
- * Hosts section of a wedding's dashboard. Lists the wedding's co-hosts; the
- * owner or an editor can add another organiser by OSN handle, the owner alone
- * can change a role or remove someone else, and any co-host here can leave.
+ * Hosts section of a wedding's dashboard. Lists everyone seated on the wedding,
+ * owners first; owners alone add someone by OSN handle, change a role or remove
+ * a seat, and anyone seated here can leave.
  *
- * The two flags are separate because the API's two gates are separate, and the
- * split is additive-versus-subtractive: an editor can grow the team (their
- * ceiling is `editor` — there is no seat above their own to grant), but only
- * the owner can shrink or demote it, so every addition stays reversible by the
- * one person who can't be removed. Offering a button here that the API would
- * 403 is the failure this mirroring avoids.
+ * Owners are equals: any owner can make another, demote or remove one, or step
+ * down from their own seat — and the API refuses whichever change would leave
+ * the wedding with no owner. Everyone else sees the list and nothing to change
+ * in it. Offering a control here that the API would 403 is the failure this
+ * mirroring avoids.
  */
 export default function HostsPanel(props: HostsPanelProps) {
-  const { authFetch } = useAuth();
-  const [owner, setOwner] = createSignal<WeddingOwnerRow | null>(null);
+  const { authFetch, activeProfileId } = useAuth();
+  const surfaces = () => surfacesFor(props.callerRole);
+  const canManage = () => surfaces().canManage;
+  /** The roles this caller may put on a seat — the dropdown and the explainers. */
+  const grantable = () => assignableRolesFor(props.callerRole);
+  const isMe = (host: HostRow) => host.osnProfileId === activeProfileId();
   const [hosts, setHosts] = createSignal<HostRow[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -134,6 +164,7 @@ export default function HostsPanel(props: HostsPanelProps) {
   // True row count from the API; compared against what we rendered.
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
+  const hasCohosts = () => hosts().some((h) => h.role !== "owner");
   // `Field` takes a list; this form only ever raises the one message at a time.
   const addErrors = () => {
     const message = addError();
@@ -317,13 +348,8 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
-      const body = (await res.json()) as {
-        hosts: HostRow[];
-        total?: number;
-        owner?: WeddingOwnerRow;
-      };
-      setOwner(body.owner ?? null);
-      setHosts(body.hosts.map(withSeatRole));
+      const body = (await res.json()) as { hosts: HostRow[]; total?: number };
+      setHosts(ownersFirst(body.hosts.map(withKnownRole)));
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
       // who can read their guests' data is missing from it.
@@ -362,13 +388,13 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       if (res.status === 409) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
         haptic("reject");
-        setAddError(
-          body.error === "owner_is_host"
-            ? "You already host this wedding as its owner."
-            : "That person is already a host.",
-        );
+        setAddError((await refusalIn(res)) ?? "That person is already a host.");
+        return;
+      }
+      if (res.status === 403) {
+        haptic("reject");
+        setAddError("Only an owner can add someone to this wedding.");
         return;
       }
       if (res.status === 503) {
@@ -382,8 +408,8 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       const body = (await res.json()) as { host: HostRow };
-      const added = withSeatRole(body.host);
-      setHosts((prev) => [...prev, added]);
+      const added = withKnownRole(body.host);
+      setHosts((prev) => ownersFirst([...prev, added]));
       setHandle("");
       setSuggestions([]);
       // The just-added host is now an existing co-host, so the cached connection
@@ -415,7 +441,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         haptic("reject");
-        toast.error("Could not remove that host. Please try again.");
+        toast.error((await refusalIn(res)) ?? "Could not remove that host. Please try again.");
         return;
       }
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
@@ -447,14 +473,15 @@ export default function HostsPanel(props: HostsPanelProps) {
    */
   function selectRole(host: HostRow, nextRole: AssignableRole) {
     if (nextRole === host.role) return;
-    if (needsPromotionConfirmation(host.role, nextRole)) {
-      setPending({ host, to: nextRole });
+    const ownSeat = isMe(host);
+    if (needsRoleChangeConfirmation(host.role, nextRole, ownSeat)) {
+      setPending({ host, to: nextRole, ownSeat });
       return;
     }
     void changeRole(host, nextRole);
   }
 
-  /** Set a host's role (owner-only; the API re-checks). */
+  /** Set a seat's role (owner-only; the API re-checks). */
   async function changeRole(host: HostRow, nextRole: AssignableRole) {
     const label = nameOf(host);
     setRoleBusyId(host.osnProfileId);
@@ -467,14 +494,30 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         haptic("reject");
-        toast.error("Could not change that host's role. Please try again.");
+        toast.error(
+          (await refusalIn(res)) ?? "Could not change that host's role. Please try again.",
+        );
         return;
       }
-      setHosts((prev) =>
-        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
-      );
       haptic("commit");
-      toast.success(`${label} is now a ${ROLE_COPY[nextRole].label.toLowerCase()}.`);
+      setHosts((prev) =>
+        ownersFirst(
+          prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
+        ),
+      );
+      if (isMe(host)) {
+        toast.success(
+          `You are now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
+        );
+        // Stepping down changes what the whole portal offers this person, not
+        // only this row: the parent patches the wedding's role from the API's
+        // answer, and every view re-derives its surfaces from that.
+        props.onOwnRoleChanged?.(nextRole);
+        return;
+      }
+      toast.success(
+        `${label} is now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
+      );
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
@@ -490,15 +533,13 @@ export default function HostsPanel(props: HostsPanelProps) {
         eyebrow="Co-hosts"
         title="Share this wedding's dashboard"
         description={
-          props.canManage
-            ? "Invite a partner or planner to help. Pick someone from your OSN connections, or add them by handle — everyone joins as a viewer, and you set what they can do from their row. Only you, the owner, can change a role or remove someone."
-            : props.canAdd
-              ? "Invite a partner or planner to help — pick someone from your OSN connections, or add them by handle. They join as a viewer; changing a role or removing someone is the owner's call."
-              : "These co-hosts help run this wedding. Ask the owner for editor access to add someone."
+          canManage()
+            ? "Invite a partner or planner to help. Pick someone from your OSN connections, or add them by handle — everyone joins as a viewer, and an owner sets what they can do from their row. A wedding can have more than one owner, all equal: any of you can change a role or remove someone."
+            : "These people help run this wedding. Adding someone, changing a role or removing a seat is an owner's call."
         }
       />
 
-      <Show when={props.canAdd}>
+      <Show when={canManage()}>
         <form class="flex flex-col gap-3" onSubmit={add}>
           {/* What each role carries, ahead of the box that names the person.
               Before the handle rather than after it because it is what the
@@ -507,7 +548,7 @@ export default function HostsPanel(props: HostsPanelProps) {
               once they are here. */}
           <Fieldset legend="What a co-host can do">
             <dl class="flex flex-col gap-2 @lg/panel:flex-row">
-              <For each={ASSIGNABLE_ROLES}>
+              <For each={grantable()}>
                 {(option) => (
                   <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
                     <dt class="font-body text-text text-ui-base">{ROLE_COPY[option].label}</dt>
@@ -638,38 +679,6 @@ export default function HostsPanel(props: HostsPanelProps) {
       </Show>
 
       <Show when={!loading() && !error()}>
-        {/* The owner is never a `wedding_hosts` row (see the API's hosts
-            service), so without this the panel below listed every co-host and
-            silently left off the one person who can never be removed. Its own
-            list, styled apart from the co-hosts below: no role badge to flip,
-            no remove control — those actions don't apply to an owner. */}
-        <Show when={owner()}>
-          {(o) => (
-            <ul class="flex flex-col gap-2">
-              <li class="border-gold/40 bg-gold/5 flex items-center justify-between gap-4 rounded-sm border px-4 py-3">
-                <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
-                  {o().handle ? (
-                    <span class="text-gold-dim">@{o().handle}</span>
-                  ) : (
-                    <span
-                      class="text-text-muted text-ui-sm tracking-ui-wide font-mono"
-                      title="OSN profile id"
-                    >
-                      {o().osnProfileId}
-                    </span>
-                  )}
-                  <span
-                    class="border-gold text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
-                    title="Owns this wedding — can't be removed or demoted"
-                  >
-                    Owner
-                  </span>
-                </span>
-              </li>
-            </ul>
-          )}
-        </Show>
-
         {/* Never let a truncated list look complete: a seat that isn't shown is
             a seat the owner can't remove, and every seat can read the household
             claim codes and the dietary export. */}
@@ -679,23 +688,17 @@ export default function HostsPanel(props: HostsPanelProps) {
             wedding aren&apos;t listed here and can&apos;t be removed from this screen.
           </Notice>
         </Show>
-        <Show
-          when={hosts().length > 0}
-          fallback={
-            <EmptyState
-              title="No co-hosts yet"
-              description={
-                props.canAdd
-                  ? "Add one above to share this wedding."
-                  : "Only the owner manages this wedding for now."
-              }
-            />
-          }
-        >
+        <Show when={hosts().length > 0}>
           <ul class="flex flex-col gap-2">
             <For each={hosts()}>
               {(host) => (
-                <li class="border-border bg-surface/30 flex items-center justify-between gap-4 rounded-sm border px-4 py-3">
+                <li
+                  class="flex items-center justify-between gap-4 rounded-sm border px-4 py-3"
+                  classList={{
+                    "border-gold/40 bg-gold/5": host.role === "owner",
+                    "border-border bg-surface/30": host.role !== "owner",
+                  }}
+                >
                   <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
                     {host.handle ? (
                       <span class="text-gold-dim">@{host.handle}</span>
@@ -707,22 +710,29 @@ export default function HostsPanel(props: HostsPanelProps) {
                         {host.osnProfileId}
                       </span>
                     )}
+                    <Show when={isMe(host)}>
+                      <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">you</span>
+                    </Show>
                     {/* The badge is the read of the seat. An owner also gets the
                         select below, which is the write — both name the role
                         from the same place, so they cannot disagree. */}
                     <span
-                      class="border-gold/40 text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
+                      class="text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
+                      classList={{
+                        "border-gold": host.role === "owner",
+                        "border-gold/40": host.role !== "owner",
+                      }}
                       title={ROLE_COPY[host.role].summary}
                     >
                       {ROLE_COPY[host.role].label}
                     </span>
-                    {/* Who seated them. Shown only to the owner, and only when
-                        it wasn't the owner's own doing — an editor can create
-                        seats now, so a seat the owner didn't create is the thing
-                        worth surfacing. Absent on older API payloads. */}
+                    {/* Who seated them. Shown only to owners, and only when the
+                        seat names someone other than its holder — owners are
+                        equals, so which of them seated someone is worth
+                        surfacing. Absent on older API payloads. */}
                     <Show
                       when={
-                        props.canManage &&
+                        canManage() &&
                         host.addedByOsnProfileId &&
                         host.addedByOsnProfileId !== host.osnProfileId &&
                         (host.addedByHandle ?? host.addedByOsnProfileId)
@@ -735,7 +745,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       )}
                     </Show>
                   </span>
-                  <Show when={props.canManage}>
+                  <Show when={canManage()}>
                     <span class="flex items-center gap-3">
                       {/* The value is the pending promotion's target while one
                           is being confirmed, and the seat's own role otherwise.
@@ -747,28 +757,44 @@ export default function HostsPanel(props: HostsPanelProps) {
                         size="sm"
                         value={pendingRoleFor(host) ?? host.role}
                         disabled={roleBusyId() === host.osnProfileId}
-                        aria-label={`Role for ${nameOf(host)}`}
+                        aria-label={
+                          isMe(host) ? "Your role on this wedding" : `Role for ${nameOf(host)}`
+                        }
                         onChange={(e) => selectRole(host, e.currentTarget.value as AssignableRole)}
                       >
-                        <For each={ASSIGNABLE_ROLES}>
+                        <For each={grantable()}>
                           {(option) => <option value={option}>{ROLE_COPY[option].label}</option>}
                         </For>
                       </Select>
-                      <Button
-                        variant="subtle"
-                        size="sm"
-                        type="button"
-                        onClick={() => void remove(host)}
-                        aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
-                      >
-                        Remove
-                      </Button>
+                      {/* No remove on your own row: stepping down is the select
+                          above, and it keeps the wedding's last owner in place. */}
+                      <Show when={!isMe(host)}>
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          type="button"
+                          onClick={() => void remove(host)}
+                          aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
+                        >
+                          Remove
+                        </Button>
+                      </Show>
                     </span>
                   </Show>
                 </li>
               )}
             </For>
           </ul>
+        </Show>
+        <Show when={!hasCohosts()}>
+          <EmptyState
+            title="No co-hosts yet"
+            description={
+              canManage()
+                ? "Add one above to share this wedding."
+                : "Only the owners manage this wedding for now."
+            }
+          />
         </Show>
       </Show>
 
@@ -792,13 +818,28 @@ export default function HostsPanel(props: HostsPanelProps) {
         <Show when={shownPromotion()}>
           {(promotion) => (
             <div class="flex flex-col gap-4">
-              <p class="font-display text-text text-ui-md font-light">
-                Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
-                {ROLE_COPY[promotion().to].label.toLowerCase()}?
-              </p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
-                {ROLE_COPY[promotion().to].summary} You can change it back at any time.
-              </p>
+              <Show
+                when={promotion().ownSeat}
+                fallback={
+                  <>
+                    <p class="font-display text-text text-ui-md font-light">
+                      Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
+                      {ROLE_COPY[promotion().to].label.toLowerCase()}?
+                    </p>
+                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                      {ROLE_COPY[promotion().to].summary} You can change it back at any time.
+                    </p>
+                  </>
+                }
+              >
+                <p class="font-display text-text text-ui-md font-light">
+                  Step down to {ROLE_COPY[promotion().to].label.toLowerCase()}?
+                </p>
+                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                  You will stop being an owner of this wedding. {ROLE_COPY[promotion().to].summary}{" "}
+                  Only another owner can make you an owner again.
+                </p>
+              </Show>
               <div class="flex flex-wrap justify-end gap-2">
                 <Button variant="quiet" type="button" onClick={() => setPending(null)}>
                   Cancel
@@ -815,7 +856,9 @@ export default function HostsPanel(props: HostsPanelProps) {
                     if (confirmed) void changeRole(confirmed.host, confirmed.to);
                   }}
                 >
-                  Yes, make them {ROLE_COPY[promotion().to].label.toLowerCase()}
+                  {promotion().ownSeat
+                    ? "Yes, step down"
+                    : `Yes, make them ${ROLE_COPY[promotion().to].label.toLowerCase()}`}
                 </Button>
               </div>
             </div>

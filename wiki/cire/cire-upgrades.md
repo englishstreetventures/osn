@@ -14,7 +14,7 @@ last-reviewed: 2026-10-01
 
 # Self-serve upgrades — buying a plan tier
 
-A wedding's owner presses **Upgrade** on a locked module's nav row, pays on a
+An owner of the wedding presses **Upgrade** on a locked module's nav row, pays on a
 Stripe-hosted page, and the wedding moves up a plan tier — every module that
 tier includes opens at once. The tiers themselves, and what each one opens,
 are [[cire-entitlements]].
@@ -114,9 +114,9 @@ same URL without `upgrade` on cancel.
 
 > [!warning]
 > These routes carry **no** tier gate. Gating the route that sells a tier on
-> that tier is a 402 loop. The role gates still read the wedding's tier with
-> the owner row, and that is what the catalogue prices from, so it costs no
-> query of its own. See [[cire-entitlements]].
+> that tier is a 402 loop. The role gates still read the wedding's tier in the
+> query that finds the caller's seat, and that is what the catalogue prices
+> from, so it costs no query of its own. See [[cire-entitlements]].
 
 They are mounted **after** the `AnyElysia` widening in `app.ts`: the organiser
 chain is already at TypeScript's instantiation-depth limit (TS2589) and one
@@ -334,16 +334,12 @@ Its `entitlement` column holds the product sold (`gold` or `crimson`); the
 amount tells a Crimson-from-Gold sale apart, and `from_tier` is on the purchase
 row it names.
 
-It is written at **settle**, not at deletion, because no wedding-DELETE flow
-exists to trigger one. `purchase_id` is UNIQUE, which is what makes the insert
-idempotent across redeliveries.
+It is written at **settle**, not at deletion: a sale must exist whether or not the wedding is ever deleted. `purchase_id` is UNIQUE, which is what makes the insert idempotent across redeliveries.
 
 > [!caution]
 > The row is **pseudonymous, not anonymous**. `settled_at` is the same moment the purchase row settles and the tier is raised, and the amount and product repeat the purchase row, so while that row exists the join is exact — and afterwards it stays linkable through Stripe's own retained session. See `wiki/compliance/data-map.md` and `wiki/compliance/retention.md`.
 
-With no wedding-DELETE flow, a purchase row is currently retained
-**indefinitely with the wedding shell**. The cascade is designed behaviour,
-not current behaviour.
+A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, and an upgrade that settles while the wedding is soft-deleted is granted and its sale recorded as usual, so a restore finds it.
 
 Refunds do not lower a tier on their own; an operator lowers it with
 `grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Seed a cire D1 with the sample wedding from seed/dev-seed.sql, then re-point
-# that wedding's owner at a real OSN profile so a signed-in account owns it. The
-# seed creates the wedding owned by the fixed dev id usr_dev_bootstrap_owner; set
+# that wedding's owner seat at a real OSN profile so a signed-in account owns it.
+# The seed gives the owner seat (wedding_hosts id DEV_OWNER_SEAT_ID in
+# cire/db/seed/data/wedding.ts) to the fixed dev id usr_dev_bootstrap_owner; set
 # CIRE_DEV_OWNER_PROFILE_ID (in cire/db/.env, or as a GitHub environment variable
 # for the dev tier) to override it after every seed/reset.
 #
@@ -73,9 +74,13 @@ if [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
     echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID='${CIRE_DEV_OWNER_PROFILE_ID}' is not a profile id (expected usr_ followed by letters, digits, - or _). Refusing." >&2
     exit 1
   fi
+  # Ownership is a wedding_hosts seat. The owner seat keeps its fixed id and
+  # takes the new profile; any other seat that profile already holds on the
+  # sample wedding goes first, since a profile holds one seat per wedding.
+  OWNER_SEAT_ID="whost_d1f0c4a2-0000-4000-8000-000000000000"
   "${WRANGLER[@]}" --command \
-    "UPDATE weddings SET owner_osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}' WHERE id='wed_bootstrap';"
-  echo "db:seed: wedding owner set to ${CIRE_DEV_OWNER_PROFILE_ID}"
+    "DELETE FROM wedding_hosts WHERE wedding_id='wed_bootstrap' AND osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}' AND id<>'${OWNER_SEAT_ID}'; UPDATE wedding_hosts SET osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}', added_by_osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}', role='owner' WHERE id='${OWNER_SEAT_ID}';"
+  echo "db:seed: wedding owner seat set to ${CIRE_DEV_OWNER_PROFILE_ID}"
 elif [ "$TARGET" = "dev" ]; then
   echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID unset - the seeded wedding stays owned by usr_dev_bootstrap_owner and NO real account can open it. Set it as a variable on the dev environment in GitHub."
 else

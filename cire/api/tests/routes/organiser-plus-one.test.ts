@@ -16,6 +16,7 @@ import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
@@ -48,16 +49,14 @@ function buildApp() {
       .run();
   }
   // A second wedding the stranger owns, for the cross-wedding cases.
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: STRANGER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [STRANGER],
+  });
   const app = createApp(db, { osnTestKey: auth.key });
   return { db, app };
 }

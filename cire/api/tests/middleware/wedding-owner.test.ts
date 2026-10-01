@@ -1,29 +1,46 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { weddingOwner } from "../../src/middleware/wedding-owner";
 import { appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_alice";
 const OWNER = "usr_alice";
 
+const CO_OWNER = "usr_ben";
+
 function buildDb(): Db {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "alice-wedding",
-      displayName: "Alice's Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "alice-wedding",
+    displayName: "Alice's Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OWNER, CO_OWNER],
+  });
+  for (const [osnProfileId, role] of [
+    ["usr_editor", "editor"],
+    ["usr_viewer", "viewer"],
+    ["usr_helper", "helper"],
+  ] as const) {
+    db.insert(weddingHosts)
+      .values({
+        id: `whost_${osnProfileId}`,
+        weddingId: WEDDING_ID,
+        osnProfileId,
+        addedByOsnProfileId: OWNER,
+        role,
+        createdAt: now,
+      })
+      .run();
+  }
   return db;
 }
 
@@ -50,6 +67,23 @@ describe("weddingOwner", () => {
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ weddingId: WEDDING_ID });
+  });
+
+  it("admits a second owner exactly as the first", async () => {
+    const app = buildApp(CO_OWNER);
+    const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ weddingId: WEDDING_ID });
+  });
+
+  it("refuses every seat below owner with the plain forbidden a stranger gets", async () => {
+    // Never a role's own refusal string: a viewer's `read_only_role` tells the
+    // portal to ask for editor access, which would not open this surface.
+    for (const caller of ["usr_editor", "usr_viewer", "usr_helper"]) {
+      const res = await appRequest(buildApp(caller), `/weddings/${WEDDING_ID}/probe`);
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    }
   });
 
   it("returns 404 when the wedding does not exist", async () => {

@@ -6,13 +6,17 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
 import { appRequest, jsonBody } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 /**
  * Stripe's own deliveries.
@@ -1124,5 +1128,41 @@ describe("the body is bounded as it arrives", () => {
     const payload = padded(1024);
     const res = await deliverStream(app, payload, [new TextEncoder().encode(payload)]);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("a soft-deleted wedding's gifts", () => {
+  it("still settle: money that moves is recorded, so a restore finds it", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    db.update(weddings)
+      .set({ deletedAt: new Date(), deletedByOsnProfileId: "usr_owner" })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const res = await deliver(app, checkoutCompleted());
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "settled" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+});
+
+describe("refund and dispute events for a gift cire has no row for", () => {
+  it.each([
+    ["refund", () => chargeRefunded()],
+    ["dispute", () => dispute("charge.dispute.created")],
+  ] as const)("acknowledges a %s, and logs and counts it", async (event, payload) => {
+    // A purged wedding's gifts are gone; a dispute on one still reaches the
+    // platform's balance, so it is never dropped silently.
+    const { app } = buildApp();
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, { event });
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(app, payload());
+    });
+    expect(res?.status).toBe(200);
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, { event })).toBe(before + 1);
+    expect(logs).toContain("stripe webhook: money event for a gift cire has no row for");
   });
 });

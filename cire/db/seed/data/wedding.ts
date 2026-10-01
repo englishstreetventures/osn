@@ -11,19 +11,26 @@
 // their own weddings via POST /api/organiser/weddings.
 export const DEV_OWNER_PROFILE_ID = "usr_dev_bootstrap_owner";
 
+// The `wedding_hosts` id of that owner's seat, the first row of `./hosts.ts`.
+// Fixed, because the code that repoints the seat at a real account finds it by
+// this id: `scripts/cire-db-seed.sh` on the local and dev D1, and
+// `cire/api/src/local.ts` on the in-memory database `seedBootstrapWedding`
+// (`cire/api/src/db/setup.ts`) builds.
+export const DEV_OWNER_SEAT_ID = "whost_d1f0c4a2-0000-4000-8000-000000000000";
+
 // The bootstrap wedding's row values. `id` mirrors @cire/db's
 // BOOTSTRAP_WEDDING_ID ("wed_bootstrap"); kept literal here so this seed module
 // stays free of a schema import in the generated-SQL path.
 //
-// Only the first five fields reach the in-memory test seed
+// Only the first three fields reach the in-memory test seed
 // (cire/api/src/db/setup.ts#seedBootstrapWedding maps its columns explicitly);
 // the profile fields below exist for the SQL seed, so the dev tier's wedding
-// carries the same planning + RSVP-deadline facts a real one does.
+// carries the same planning + RSVP-deadline facts a real one does. The owner is
+// not a field here: it is a seat, the first row of `./hosts.ts`.
 export const bootstrapWedding = {
   id: "wed_bootstrap",
   slug: "cire-wedding",
   displayName: "Cire Wedding",
-  ownerOsnProfileId: DEV_OWNER_PROFILE_ID,
   codeStyle: "secure",
   // Date-only ISO (YYYY-MM-DD) — the ceremony day, matching the `hindu` event.
   weddingDate: "2026-11-25",

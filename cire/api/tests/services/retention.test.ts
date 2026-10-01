@@ -13,6 +13,7 @@ import {
   registryContributions,
   registrySettings,
   registryItems,
+  weddingHosts,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -28,6 +29,7 @@ import {
 } from "../../src/services/retention";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith, recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -105,16 +107,14 @@ function makeWedding(opts: {
     const guestId = crypto.randomUUID();
     const rsvpId = crypto.randomUUID();
 
-    db.insert(weddings)
-      .values({
-        id: weddingId,
-        slug: `slug-${weddingId}`,
-        displayName: "Test Wedding",
-        ownerOsnProfileId: "usr_test",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: weddingId,
+      slug: `slug-${weddingId}`,
+      displayName: "Test Wedding",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_test"],
+    });
 
     db.insert(families)
       .values({
@@ -946,13 +946,121 @@ describe("the parting gift summary", () => {
         expect(rowsLeftWhenNotified).toBe(0);
         const notice = seen[0]?.[0];
         expect(notice?.weddingId).toBe(weddingId);
-        expect(notice?.ownerOsnProfileId).toBe("usr_test");
+        expect(notice?.ownerOsnProfileIds).toEqual(["usr_test"]);
         expect(notice?.finalEventOn).toBe("2025-05-10");
         expect(notice?.summary.contributions.count).toBe(1);
         // The notice carries aggregates only, same as the stored summary.
         const asText = JSON.stringify(notice);
         expect(asText).not.toContain("Ashworth");
         expect(asText).not.toContain("Enjoy Japan");
+      }),
+    ),
+  );
+
+  it(
+    "writes a soft-deleted wedding's summary but mails none of its owners",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId } = yield* makeWedding({ eventDates: ["2025-05-10"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: `rct_${crypto.randomUUID()}`,
+            weddingId,
+            itemId: null,
+            familyId,
+            status: "succeeded",
+            amountMinor: 5_000,
+            currency: "AUD",
+            stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+        db.update(weddings)
+          .set({
+            deletedAt: new Date("2026-06-15T00:00:00.000Z"),
+            deletedByOsnProfileId: "usr_test",
+          })
+          .where(eq(weddings.id, weddingId))
+          .run();
+
+        const seen: GiftSummaryNotice[][] = [];
+        yield* retentionService.sweepExpiredGuestData(now, {}, (notices) =>
+          Effect.sync(() => void seen.push([...notices])),
+        );
+
+        // Nobody is mailed about a wedding its owners deleted...
+        expect(seen.flat()).toEqual([]);
+        // ...and the summary is still written, so a restore finds it.
+        const [settings] = yield* dbQuery(() =>
+          db
+            .select({ summary: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, weddingId))
+            .all(),
+        );
+        expect(settings?.summary).not.toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "names every owner of a swept wedding on its notice, oldest seat first, and no co-host",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId } = yield* makeWedding({ eventDates: ["2025-05-10"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        const later = new Date(Date.now() + 60_000);
+        for (const [osnProfileId, role] of [
+          ["usr_second_owner", "owner"],
+          ["usr_planner", "editor"],
+        ] as const) {
+          db.insert(weddingHosts)
+            .values({
+              id: `whost_${osnProfileId}_${weddingId}`,
+              weddingId,
+              osnProfileId,
+              addedByOsnProfileId: "usr_test",
+              role,
+              createdAt: later,
+            })
+            .run();
+        }
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: `rct_${crypto.randomUUID()}`,
+            weddingId,
+            itemId: null,
+            familyId,
+            status: "succeeded",
+            amountMinor: 5_000,
+            currency: "AUD",
+            stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+
+        const seen: GiftSummaryNotice[] = [];
+        yield* retentionService.sweepExpiredGuestData(now, {}, (notices) =>
+          Effect.sync(() => {
+            seen.push(...notices);
+          }),
+        );
+
+        const notice = seen.find((n) => n.weddingId === weddingId);
+        expect(notice?.ownerOsnProfileIds).toEqual(["usr_test", "usr_second_owner"]);
       }),
     ),
   );

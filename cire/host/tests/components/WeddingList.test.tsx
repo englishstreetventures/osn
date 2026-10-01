@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -8,6 +8,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * stubbed so this test covers only the list/selector wiring across the 0/1/many
  * cases.
  */
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
+vi.mock("../../src/lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
 vi.mock("../../src/components/CreateWeddingForm", () => ({
   default: (props: { onCreated: (w: unknown) => void }) => (
@@ -22,8 +31,9 @@ vi.mock("../../src/components/CreateWeddingForm", () => ({
   ),
 }));
 
-import type { WeddingSummary } from "../../src/components/CreateWeddingForm";
+import type { DeletedWeddingSummary, WeddingSummary } from "../../src/components/CreateWeddingForm";
 import WeddingList from "../../src/components/WeddingList";
+import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 const ONE: WeddingSummary[] = [
   {
@@ -94,5 +104,78 @@ describe("WeddingList", () => {
       displayName: "Brand New",
       role: "owner",
     });
+  });
+});
+
+describe("WeddingList — recently deleted", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+  });
+
+  const GONE: DeletedWeddingSummary[] = [
+    {
+      id: "wed_gone",
+      slug: "gone-1a2b3c",
+      displayName: "Gone & Back",
+      deletedAt: "2026-10-01T12:00:00.000Z",
+      restoreUntil: "2026-10-08T12:00:00.000Z",
+    },
+  ];
+
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  it("is not shown when nothing is restorable", () => {
+    render(() => <WeddingList weddings={ONE} onSelect={vi.fn()} onCreated={vi.fn()} />);
+    expect(screen.queryByText(/Recently deleted/i)).toBeNull();
+  });
+
+  it("lists each restorable wedding with its last day", () => {
+    render(() => (
+      <WeddingList weddings={ONE} deleted={GONE} onSelect={vi.fn()} onCreated={vi.fn()} />
+    ));
+    expect(screen.getByText(/Recently deleted/i)).toBeTruthy();
+    expect(screen.getByText("Gone & Back")).toBeTruthy();
+    expect(screen.getByText(/restore it until 8 October 2026/i)).toBeTruthy();
+  });
+
+  it("restores a wedding and reports it", async () => {
+    authFetchMock.mockResolvedValueOnce(respond({ restored: true, weddingId: "wed_gone" }));
+    const onRestored = vi.fn();
+    render(() => (
+      <WeddingList
+        weddings={ONE}
+        deleted={GONE}
+        onSelect={vi.fn()}
+        onCreated={vi.fn()}
+        onRestored={onRestored}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(onRestored).toHaveBeenCalledWith("wed_gone"));
+    const [url, init] = authFetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.test/api/organiser/weddings/wed_gone/restore");
+    expect(init.method).toBe("POST");
+  });
+
+  it("says when it is too late, and drops the wedding", async () => {
+    authFetchMock.mockResolvedValueOnce(respond({ error: "restore_window_passed" }, 409));
+    const onRestoreExpired = vi.fn();
+    render(() => (
+      <WeddingList
+        weddings={ONE}
+        deleted={GONE}
+        onSelect={vi.fn()}
+        onCreated={vi.fn()}
+        onRestoreExpired={onRestoreExpired}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    expect(await screen.findByText(/too late to restore/i)).toBeTruthy();
+    expect(onRestoreExpired).toHaveBeenCalledWith("wed_gone");
   });
 });

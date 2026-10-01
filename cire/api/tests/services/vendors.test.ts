@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, vendors, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, vendors } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
@@ -8,21 +8,20 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { vendorsService, VendorNotInWedding } from "../../src/services/vendors";
 import { recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
 function db0() {
   const db = createDb(":memory:");
   seedDb(db);
-  db.insert(weddings)
-    .values({
-      id: OTHER,
-      slug: "other",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER,
+    slug: "other",
+    displayName: "Other",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    owners: ["usr_bob"],
+  });
   return db;
 }
 const run = <A, E>(db: ReturnType<typeof createDb>, e: Effect.Effect<A, E, DbService>) =>

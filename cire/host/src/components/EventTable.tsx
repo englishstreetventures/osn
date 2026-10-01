@@ -28,6 +28,9 @@ interface EventTableProps {
   weddingId: string;
   /** URL slug of the wedding — embedded in the events CSV download filename. */
   weddingSlug: string;
+  /** True for an owner. The events CSV is owner-only (`weddingOwner()`), so
+   *  the download is offered to owners alone. Absent reads as not an owner. */
+  canManage?: boolean;
 }
 
 export default function EventTable(props: EventTableProps) {
@@ -142,8 +145,8 @@ export default function EventTable(props: EventTableProps) {
   /**
    * Download the wedding's event list CSV. Built (and formula-sanitised)
    * server-side at `GET …/events.csv`; the response Blob is handed to the
-   * shared download helper. Gated by `weddingMember()` so the owner OR a
-   * co-host can export — same pattern as the Guests tab's exports.
+   * shared download helper. Gated by `weddingOwner()` — same pattern as the
+   * Guests tab's exports.
    */
   async function exportEvents() {
     if (exporting()) return;
@@ -172,7 +175,7 @@ export default function EventTable(props: EventTableProps) {
         title="The day, hour by hour"
         description="Every event your guests can be invited to — the details come from Edit, by hand or from a spreadsheet. Add one photo per event here to bring each card to life."
         actions={
-          <Show when={!loading() && !error() && hasEvents()}>
+          <Show when={props.canManage && !loading() && !error() && hasEvents()}>
             <Button
               variant="outline"
               size="sm"

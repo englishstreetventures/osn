@@ -53,6 +53,9 @@ interface RegistryViewProps {
   /** Owner/editor may add, edit, reorder and delete items, and mark a gift
    *  thanked. A viewer reads both sub-views and writes nothing. */
   canEdit?: boolean;
+  /** True for an owner. The gift-log CSV is owner-only (`weddingOwner()`), so
+   *  the download is offered to owners alone. Absent reads as not an owner. */
+  canManage?: boolean;
   /** The wedding's slug, used to name the downloaded gift-log CSV. Passed in
    *  rather than read from the snapshot so the filename is right on the first
    *  click, before the registry has loaded. */
@@ -1050,11 +1053,11 @@ export default function RegistryView(props: RegistryViewProps) {
           )}
         </Show>
 
-        {/* Shown only when there is a log to download — after the retention
-            sweep the list is empty and an export would hand back a header row.
-            `Button` rather than the raw classes `GuestTable` uses, to match the
-            "Load more gifts" control below it. */}
-        <Show when={gifts().length > 0}>
+        {/* Shown only to an owner, and only when there is a log to download —
+            after the retention sweep the list is empty and an export would
+            hand back a header row. `Button` rather than the raw classes
+            `GuestTable` uses, to match the "Load more gifts" control below it. */}
+        <Show when={props.canManage && gifts().length > 0}>
           <Button
             variant="quiet"
             size="sm"

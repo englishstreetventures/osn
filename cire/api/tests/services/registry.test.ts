@@ -7,7 +7,6 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
-  weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -30,22 +29,21 @@ import {
   toEpochSeconds,
 } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
 
 function db0() {
   const db = createDb(":memory:");
   seedDb(db);
-  db.insert(weddings)
-    .values({
-      id: OTHER,
-      slug: "other",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER,
+    slug: "other",
+    displayName: "Other",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    owners: ["usr_bob"],
+  });
   return db;
 }
 

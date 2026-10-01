@@ -5,7 +5,6 @@ import {
   directoryVendorCategories,
   directoryVendors,
   weddingHosts,
-  weddings,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 
@@ -17,6 +16,7 @@ import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Write-test listing id (live, categories: venue + catering)
 const LA = "dv_live_add";
@@ -57,16 +57,14 @@ function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
       createdAt: now,
     })
     .run();
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
 
   // Seed two live directory listings.
   db.insert(directoryVendors)

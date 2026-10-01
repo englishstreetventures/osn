@@ -30,8 +30,8 @@ const unauthenticated = { osnProfileId: undefined as string | undefined };
  *    ceremony nor silent-refresh an OSN access token from OSN's HttpOnly cookie
  *    (that cookie is cross-site to us). The session row carries the real `usr_*`
  *    profile id taken from the ID token's first-party `osn_profile_id` claim, so
- *    everything downstream — `weddings.owner_osn_profile_id`, `wedding_hosts`,
- *    all three ARC bridges — keys on exactly what it always did.
+ *    everything downstream — `wedding_hosts`, all three ARC bridges — keys on
+ *    exactly what it always did.
  *
  * 2. **`Authorization: Bearer` with an OSN access token** — for callers that
  *    are not this browser: a first-party OSN surface holding a live

@@ -554,8 +554,8 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Nine
-  // independent jobs share the cron (eight when the digest has no transport):
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Ten
+  // independent jobs share the cron (nine when the digest has no transport):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -582,9 +582,11 @@ const handler: ExportedHandler<Env> = {
   //  9. The daily RSVP digest email to each wedding's owner and editors, sent
   //     only when osn-api can be asked for addresses and Resend is configured
   //     — services/rsvp-digest.ts.
+  // 10. The purge of soft-deleted weddings past their restore window, a few a
+  //     run, with the R2 objects their rows name — services/maintenance-sweeps.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles. All nine
+  // the other and the isolate stays alive until each delete settles. All ten
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
@@ -735,6 +737,22 @@ const handler: ExportedHandler<Env> = {
           ),
           Effect.provide(dbLayer),
         ),
+      ),
+    );
+
+    // Soft-deleted weddings past their restore window, hard-deleted with every
+    // child row and the sheet and image objects those rows name. Bounded per
+    // run; a wedding with money still able to move is left for a later run.
+    runSweep(() =>
+      Effect.runPromise(
+        maintenanceSweeps
+          .purgeDeletedWeddings(new Date(), { sheets: env.SHEETS, assets: env.ASSETS })
+          .pipe(
+            Effect.catch((err) =>
+              Effect.logError("scheduled wedding purge failed", { reason: err.reason }),
+            ),
+            Effect.provide(dbLayer),
+          ),
       ),
     );
 

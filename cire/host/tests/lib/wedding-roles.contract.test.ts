@@ -40,18 +40,24 @@ describe("the role vocabulary matches wedding_hosts.role", () => {
    */
   const NOT_SENT_TO_THE_PORTAL = new Set(["host"]);
 
-  it("offers every role a seat can be given", () => {
+  it("offers every role a seat can be given, owner included", () => {
     const expected = stored()
       .filter((role) => !NOT_SENT_TO_THE_PORTAL.has(role))
       .toSorted();
     expect(ASSIGNABLE_ROLES.toSorted()).toEqual(expected);
   });
 
-  it("knows every role the API can put on a wedding, plus the owner", () => {
-    const expected = [
-      "owner",
-      ...stored().filter((role) => !NOT_SENT_TO_THE_PORTAL.has(role)),
-    ].toSorted();
+  it("knows every role the API can put on a wedding — the seat roles, and nothing more", () => {
+    // Owners are seats, so the column's own values are the whole vocabulary:
+    // there is no role the portal knows that a seat cannot hold.
+    const expected = stored()
+      .filter((role) => !NOT_SENT_TO_THE_PORTAL.has(role))
+      .toSorted();
     expect((Object.keys(ROLE_COPY) as WeddingRole[]).toSorted()).toEqual(expected);
+  });
+
+  it("finds the owner among the column's values", () => {
+    // Without it the two lists above would agree on a vocabulary with no owner.
+    expect(stored()).toContain("owner");
   });
 });

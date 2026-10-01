@@ -58,7 +58,7 @@ describe("the invite-message preview", () => {
           weddingId="wed_1"
           weddingName="Anita & Ben"
           weddingSlug={LONG_SLUG}
-          canManage
+          canEdit
           savedLine={null}
           draftLine=""
         />

@@ -10,8 +10,8 @@ function weddingOn(tier: string): Database {
   const db = new Database(":memory:");
   db.exec(DDL);
   db.query(
-    "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, tier, created_at, updated_at)" +
-      " VALUES ('wed_a', 'a', 'A', 'usr_owner', ?, 0, 0)",
+    "INSERT INTO weddings (id, slug, display_name, tier, created_at, updated_at)" +
+      " VALUES ('wed_a', 'a', 'A', ?, 0, 0)",
   ).run(tier);
   return db;
 }
@@ -112,8 +112,8 @@ describe("--lower and the wedding's purchases", () => {
   function withPurchases(tier: string): Database {
     const db = weddingOn(tier);
     db.query(
-      "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, tier, created_at, updated_at)" +
-        " VALUES ('wed_b', 'b', 'B', 'usr_owner', 'crimson', 0, 0)",
+      "INSERT INTO weddings (id, slug, display_name, tier, created_at, updated_at)" +
+        " VALUES ('wed_b', 'b', 'B', 'crimson', 0, 0)",
     ).run();
     const insert = db.query(
       "INSERT INTO wedding_upgrade_purchases" +

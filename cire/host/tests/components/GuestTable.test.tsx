@@ -135,6 +135,7 @@ describe("GuestTable", () => {
       <GuestTable
         weddingId="wed_a"
         canManage
+        canEdit
         weddingName="Nadia & Sam"
         weddingSlug="nadia-sam-abc123"
       />
@@ -174,6 +175,7 @@ describe("GuestTable", () => {
       <GuestTable
         weddingId="wed_a"
         canManage
+        canEdit
         weddingName="Nadia & Sam"
         weddingSlug="nadia-sam-abc123"
       />
@@ -194,6 +196,7 @@ describe("GuestTable", () => {
       <GuestTable
         weddingId="wed_a"
         canManage
+        canEdit
         weddingName="Nadia & Sam"
         weddingSlug="nadia-sam-abc123"
       />
@@ -209,6 +212,7 @@ describe("GuestTable", () => {
       <GuestTable
         weddingId="wed_a"
         canManage
+        canEdit
         weddingName="Nadia & Sam"
         weddingSlug="nadia-sam-abc123"
       />
@@ -231,9 +235,10 @@ describe("GuestTable", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("marks nothing sent for a co-host, who may copy but not record it", async () => {
+  it("marks a household sent for an editor co-host too", async () => {
     withClipboard();
     primeLoad();
+    authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
 
     render(() => (
       <GuestTable
@@ -249,12 +254,66 @@ describe("GuestTable", () => {
     await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(copy);
 
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/mark-shared"))).toBe(
+        true,
+      ),
+    );
+    expect(screen.getAllByText("Sent")).toHaveLength(2);
+  });
+
+  it("marks nothing sent for a viewer, who may copy but not record it", async () => {
+    withClipboard();
+    primeLoad();
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage={false}
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    const copy = screen.getAllByRole("button", { name: /Copy message/i })[0]!;
+    await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(copy);
+
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
     expect(writeText.mock.calls[0]![0]).toContain("SHARMA-WIDGET-AB3K9-X7QPM");
-    // The mark-shared route is owner-only: no request, and only Jones (sent
-    // before) reads as sent.
+    // The mark-shared route admits an owner or an editor: no request, and only
+    // Jones (sent before) reads as sent.
     expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/mark-shared"))).toBe(false);
     expect(screen.getAllByText("Sent")).toHaveLength(1);
+  });
+
+  it("offers the CSV downloads to an owner only", async () => {
+    primeLoad();
+    const { unmount } = render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage={false}
+        canEdit
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Download guests \(CSV\)/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeNull();
+    unmount();
+
+    authFetchMock.mockResolvedValueOnce(json({ inviteMessage: null }));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    expect(screen.getByRole("button", { name: /Download guests \(CSV\)/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeTruthy();
   });
 
   it("uses the host's custom message as the first line when one is set", async () => {

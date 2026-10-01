@@ -49,6 +49,8 @@ export default function EditWorkspace(props: {
   weddingId: string;
   kind: ImportKind;
   editor: () => JSX.Element;
+  /** True for an owner: the import offers the current rows as a download. */
+  canManage?: boolean;
 }) {
   const [mode, setMode] = createSignal<EditMode>("editor");
   const baseId = createUniqueId();
@@ -136,7 +138,7 @@ export default function EditWorkspace(props: {
       <Show when={mode() === "editor"}>{props.editor()}</Show>
       <Show when={mode() === "import"}>
         <Suspense fallback={<PanelLoading />}>
-          <ImportPanel weddingId={props.weddingId} kind={props.kind} />
+          <ImportPanel weddingId={props.weddingId} kind={props.kind} canManage={props.canManage} />
         </Suspense>
       </Show>
     </div>

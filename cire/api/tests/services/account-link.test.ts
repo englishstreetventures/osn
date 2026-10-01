@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { families, guests, organiserSessions, weddings } from "@cire/db";
+import { families, guests, organiserSessions } from "@cire/db";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -8,6 +8,7 @@ import { DbService, type Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { accountLinkService, conflictReason } from "../../src/services/account-link";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { insertWedding } from "../test-helpers/wedding";
 
 const now = new Date();
 
@@ -15,17 +16,14 @@ const now = new Date();
 function fixture(): Db {
   const db = createDb(":memory:");
   const seedWedding = (id: string, slug: string) =>
-    db
-      .insert(weddings)
-      .values({
-        id,
-        slug,
-        displayName: id,
-        ownerOsnProfileId: "usr_owner",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id,
+      slug,
+      displayName: id,
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_owner"],
+    });
   const seedFamily = (id: string, weddingId: string, publicId: string) =>
     db
       .insert(families)

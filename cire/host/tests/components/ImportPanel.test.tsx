@@ -742,7 +742,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
     );
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" canManage />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
@@ -754,7 +754,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
 
   it("hits the guests export URL from the guests module", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("Family ID", { status: 200 }));
-    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" canManage />);
     fireEvent.click(screen.getByRole("button", { name: /download current guests/i }));
 
     await waitFor(() =>
@@ -766,7 +766,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
 
   it("redirects to login on a 401 export instead of surfacing an error", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("unauthorised", { status: 401 }));
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" canManage />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
@@ -776,10 +776,16 @@ describe("ImportPanel — download current data (round-trip export)", () => {
 
   it("surfaces a failed export inline instead of downloading", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 }));
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" canManage />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(screen.getByText(/export failed \(500\)/i)).toBeTruthy());
     expect(createdBlobs).toHaveLength(0);
+  });
+
+  it("offers the download to an owner only: every export is owner-only", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    expect(screen.queryByRole("button", { name: /download current guests/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /download guests template/i })).toBeTruthy();
   });
 });

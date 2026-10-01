@@ -129,7 +129,7 @@ async function mountAt(width: number) {
         weddingId="wed_1"
         weddingSlug="anita-ben"
         weddingName="Anita & Ben"
-        canManage
+        canEdit
         entitlements={[]}
       />
     </div>

@@ -16,6 +16,7 @@ import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 /** The attestation fields the portal sends beside dietary data. */
 const ATTESTED = {
@@ -76,16 +77,14 @@ function buildApp() {
     })
     .run();
   // A second wedding whose owner (usr_bob) is a stranger to the bootstrap one.
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   const app = createApp(db, { osnTestKey: auth.key });
   return { db, app };
 }

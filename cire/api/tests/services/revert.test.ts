@@ -1,14 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  events,
-  families,
-  guestEvents,
-  guests,
-  imports,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, imports } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -30,6 +22,7 @@ import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
 import { recordStatements } from "../test-helpers";
 import { seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const EVENTS_V1 = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
@@ -503,16 +496,14 @@ describe("revertImport", () => {
     // lookup filters by wedding_id, so a foreign import is indistinguishable
     // from a missing one → NoPriorImport (matching the /apply route's 404).
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other"],
+    });
     db.insert(imports)
       .values({
         id: "imp-foreign",

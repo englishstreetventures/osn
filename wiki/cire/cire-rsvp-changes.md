@@ -20,7 +20,7 @@ Organisers hear when guests change their RSVPs in three ways, all fed by one tab
 |---|---|---|
 | **Overview card** "RSVP changes since your last visit" | Every role that reads RSVPs: owner, editor, viewer (not helper) | How many households changed a reply since this organiser last opened the RSVP table, the latest five by name, a link to the table |
 | **"New" badge** in the RSVP table | Same | The rows the guest changed since this organiser last opened the table |
-| **Daily digest email** | The owner and every editor co-host (a hired planner included), unless they turned it off for that wedding | Counts per kind of change since their last digest, and a link to the RSVP page. No names |
+| **Daily digest email** | Every owner and every editor co-host (a hired planner included), unless they turned it off for that wedding | Counts per kind of change since their last digest, and a link to the RSVP page. No names |
 
 Read state and the email switch are **per organiser, per wedding**: one co-host opening the table never clears another's badges.
 
@@ -83,7 +83,7 @@ The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches the s
 Runs in the 04:00 UTC cron (`scheduled` in `cire/api/src/index.ts`), only when osn-api can be asked for addresses (the ARC key) and Resend is configured — the same rule as the gift summary, because a log stand-in would move markers past changes nobody was told about. From `hello@cireweddings.com`, template `rsvp-change-digest` ([[email]]).
 
 1. Weddings with a change in the last 7 days, with each one's newest `seq` and time. The query groups on `+wedding_id` so SQLite ranges over `rsvp_changes_created_at_idx` instead of walking the whole 90-day log through the wedding index (pinned by an `EXPLAIN QUERY PLAN` test).
-2. The owner and co-hosts of those weddings, and their notice rows. A recipient is anyone whose role has the `editor` capability, whose digest is on, and whose `digest_seq` is behind. A co-host with no notice row yet is owed only what changed after their seat was created, so a seat removed and added again does not start over with the whole window.
+2. The seats on those weddings — owners hold seats like everyone else — and their notice rows. A recipient is anyone whose role has the `editor` capability, whose digest is on, and whose `digest_seq` is behind. Someone with no notice row yet is owed only what changed after their seat was created, so a seat removed and added again does not start over with the whole window.
 3. Up to 100 recipients are chosen **one wedding at a time, round the weddings** — weddings in order of their longest-waiting recipient, each wedding's recipients oldest marker first. No wedding can fill a run while another waits. The rest are `deferred` and go first next run.
 4. The changes past the chosen recipients' markers, grouped by household and kind.
 5. One osn-api lookup (`POST /internal/accounts/emails`, scope `account:email-read`, through `createOrganiserEmailLookupFromEnv`). The lookup says whether osn-api **answered**: if any call failed, nobody is mailed, no marker moves, and the next run asks again. An id missing from an answer has no address, and that recipient's marker moves.

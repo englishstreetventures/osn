@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { events, registryItems, weddings, weddingInviteCustomisations } from "@cire/db";
+import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
@@ -13,6 +13,7 @@ import {
 } from "../../src/services/asset-reconcile";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -80,16 +81,14 @@ function seedReferenced(opts: {
     const db = yield* DbService;
     const now = new Date();
     const weddingId = `wed_${crypto.randomUUID()}`;
-    db.insert(weddings)
-      .values({
-        id: weddingId,
-        slug: `slug-${weddingId}`,
-        displayName: "Live Wedding",
-        ownerOsnProfileId: "usr_test",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: weddingId,
+      slug: `slug-${weddingId}`,
+      displayName: "Live Wedding",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_test"],
+    });
     if (opts.hero || opts.story || opts.footer) {
       db.insert(weddingInviteCustomisations)
         .values({

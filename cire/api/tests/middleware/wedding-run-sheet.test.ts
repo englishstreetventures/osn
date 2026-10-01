@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
@@ -8,6 +8,7 @@ import { createDb } from "../../src/db/setup";
 import { runSheetVisibleTo } from "../../src/middleware/wedding-role";
 import { weddingRunSheet } from "../../src/middleware/wedding-run-sheet";
 import { appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_alice";
 const OWNER = "usr_alice";
@@ -23,16 +24,14 @@ const OTHER_SEAT = "whost_someone_else";
 function buildDb(): Db {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "alice-wedding",
-      displayName: "Alice's Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "alice-wedding",
+    displayName: "Alice's Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OWNER],
+  });
   const seat = (id: string, profile: string, role: "editor" | "viewer" | "helper") => ({
     id,
     weddingId: WEDDING_ID,
@@ -84,11 +83,12 @@ describe("weddingRunSheet — who reaches the run sheet", () => {
     });
   });
 
-  it("admits the owner, with no seat id and the full run sheet", async () => {
+  it("admits the owner, with their own seat id and the full run sheet", async () => {
     const res = await appRequest(buildApp(OWNER), `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({
       weddingRole: "owner",
+      weddingHostId: expect.stringMatching(/^whost_/),
       weddingRunSheetScope: "full",
     });
   });

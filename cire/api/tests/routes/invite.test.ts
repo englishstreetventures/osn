@@ -3,7 +3,6 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import {
   BOOTSTRAP_WEDDING_ID,
   events,
-  weddings,
   weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
@@ -28,6 +27,7 @@ import type { RecordedStatement } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Fixed local dev owner of the seeded sample wedding (DEV_OWNER_PROFILE_ID).
 const BOOTSTRAP_OWNER = "usr_dev_bootstrap_owner";
@@ -947,16 +947,14 @@ describe("event image upload + serve + remove (migration 0019)", () => {
   it("404s serving an event from ANOTHER wedding (ownership scoping)", async () => {
     const { app, db } = buildApp();
     // A second wedding with its own event, with an image uploaded directly.
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other-wedding",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other_owner",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other-wedding",
+      displayName: "Other",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      owners: ["usr_other_owner"],
+    });
     db.insert(events)
       .values({
         id: "other-event",
@@ -978,16 +976,14 @@ describe("event image upload + serve + remove (migration 0019)", () => {
 
   it("rejects uploading to an event from ANOTHER wedding with 404 (ownership)", async () => {
     const { app, db } = buildApp();
-    db.insert(weddings)
-      .values({
-        id: "wed_other2",
-        slug: "other-wedding-2",
-        displayName: "Other 2",
-        ownerOsnProfileId: "usr_other_owner2",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other2",
+      slug: "other-wedding-2",
+      displayName: "Other 2",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      owners: ["usr_other_owner2"],
+    });
     db.insert(events)
       .values({
         id: "other-event-2",
@@ -2275,16 +2271,14 @@ describe("image crop (migration 0021)", () => {
 
     it("404s saving a crop for an event in ANOTHER wedding (ownership scoping)", async () => {
       const { app, db } = buildApp();
-      db.insert(weddings)
-        .values({
-          id: "wed_other",
-          slug: "other-wedding",
-          displayName: "Other",
-          ownerOsnProfileId: "usr_other_owner",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .run();
+      insertWedding(db, {
+        id: "wed_other",
+        slug: "other-wedding",
+        displayName: "Other",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        owners: ["usr_other_owner"],
+      });
       db.insert(events)
         .values({
           id: "other-event",

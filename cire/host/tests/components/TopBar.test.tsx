@@ -103,7 +103,7 @@ describe("TopBar", () => {
 
   it("badges the caller's role with the reason it matters", () => {
     mount();
-    const badge = screen.getByTitle(/you created this wedding/i);
+    const badge = screen.getByTitle(/you own this wedding/i);
     expect(badge.textContent).toBe("Owner");
   });
 
@@ -121,7 +121,7 @@ describe("TopBar", () => {
         onOpenPalette={() => {}}
       />
     ));
-    expect(screen.getByTitle(/ask the owner for editor access/i).textContent).toBe("Viewer");
+    expect(screen.getByTitle(/ask an owner for editor access/i).textContent).toBe("Viewer");
   });
 
   it("falls back to the least privileged badge for a role it does not know", () => {

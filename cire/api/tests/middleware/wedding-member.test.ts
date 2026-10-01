@@ -1,12 +1,13 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { weddingMember } from "../../src/middleware/wedding-member";
 import { appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_alice";
 const OWNER = "usr_alice";
@@ -15,16 +16,14 @@ const COHOST = "usr_bob";
 function buildDb(): Db {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "alice-wedding",
-      displayName: "Alice's Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "alice-wedding",
+    displayName: "Alice's Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OWNER],
+  });
   db.insert(weddingHosts)
     .values({
       id: "whost_bob",
@@ -133,21 +132,28 @@ describe("weddingMember", () => {
     expect(res.status).toBe(401);
   });
 
-  it("derives the wedding's owner id for a CO-HOST caller too, not just the owner", async () => {
-    // The co-host read routes (e.g. the /hosts list) need to name the owner
-    // even when the caller is a co-host — the owner is never rowed into
-    // `wedding_hosts`, so this is the only place that id comes from.
+  it("admits a second owner as an owner — every owner passes alike", async () => {
     const db = buildDb();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_coowner",
+        weddingId: WEDDING_ID,
+        osnProfileId: "usr_coowner",
+        addedByOsnProfileId: OWNER,
+        role: "owner",
+        createdAt: new Date(),
+      })
+      .run();
     const app = new Elysia({ aot: false })
-      .derive(() => ({ osnProfileId: COHOST }))
+      .derive(() => ({ osnProfileId: "usr_coowner" }))
       .group("/weddings/:weddingId", (group) =>
         group
           .use(weddingMember(db))
-          .get("/probe", ({ weddingOwnerOsnProfileId }) => ({ weddingOwnerOsnProfileId })),
+          .get("/probe", ({ weddingIsOwner, weddingRole }) => ({ weddingIsOwner, weddingRole })),
       );
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ weddingOwnerOsnProfileId: OWNER });
+    expect(await jsonBody(res)).toEqual({ weddingIsOwner: true, weddingRole: "owner" });
   });
 
   it("derives the wedding's slug for the owner and a co-host alike", async () => {

@@ -282,7 +282,7 @@ A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. Th
 
 ### Taking the log away (`gifts.csv`)
 
-`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingMember` → per-user limiter, not the Gold tier gate: a couple whose wedding is no longer on Gold must still be able to take their own record out.
+`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingOwner` → per-user limiter — every CSV export is owner-only — and not the Gold tier gate: a couple whose wedding is no longer on Gold must still be able to take their own record out.
 
 The export exists because the two things above are in tension. The portal reads the log **a page at a time** and the retention sweep **deletes the detail after a year**, leaving only the aggregate summary. Between those, the couple have no way to hold the whole thing. A download is that way.
 
@@ -297,7 +297,7 @@ The export exists because the two things above are in tension. The portal reads 
 
 Cells are formula-sanitised by `serialiseCsv` like every other export — a guest-authored note beginning `=` opens as text, not as a formula.
 
-The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`, shown only when there is a gift to export, and it downloads `cire-gifts-<slug>.csv`.
+The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`, shown only to an owner and only when there is a gift to export, and it downloads `cire-gifts-<slug>.csv`.
 
 ### External URLs
 

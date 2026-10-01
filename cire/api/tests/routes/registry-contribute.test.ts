@@ -20,6 +20,7 @@ import {
   type StripeClient,
 } from "../../src/services/stripe";
 import { appRequest, jsonBody, recordStatements, setTier, TEST_ORIGIN } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * A guest giving money.
@@ -112,16 +113,14 @@ function buildApp({
   const now = new Date();
   // A second wedding with its own household, so "a cookie for one wedding buys
   // nothing on another" has a real target rather than a fabricated id.
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   db.insert(families)
     .values({
       id: "fam_other",
@@ -475,7 +474,11 @@ describe("what reaches Stripe, and what does not", () => {
       200,
     );
 
-    const gate = statements.filter((s) => s.sql.includes('"weddings"'));
+    // The session read joins `weddings` for its live-wedding check; it is
+    // sessionAuth's, not the registry gate's.
+    const gate = statements.filter(
+      (s) => s.sql.includes('"weddings"') && !/from "sessions"/.test(s.sql),
+    );
     expect(gate).toHaveLength(1);
     expect(gate[0]!.sql).toContain('"families"');
     expect(gate[0]!.sql).toContain('"registry_items"');

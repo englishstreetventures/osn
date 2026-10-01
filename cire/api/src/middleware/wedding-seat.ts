@@ -29,9 +29,11 @@ const pass = (weddingId: string, role: WeddingRole) => ({
 
 /**
  * Authz gate for acts on the caller's OWN seat under
- * /api/organiser/weddings/:weddingId/* — admits the owner or anyone holding a
- * `wedding_hosts` row, whatever its role. It asks no capability: holding a seat
- * is the whole test, so a role added later can always give its seat up.
+ * /api/organiser/weddings/:weddingId/* — admits anyone holding a
+ * `wedding_hosts` row, whatever its role, owners included. It asks no
+ * capability: holding a seat is the whole test, so a role added later can
+ * always give its seat up. Whether an owner may go is the route's guarded
+ * write, which refuses the last one.
  *
  * Only for routes that act on nothing but the caller's own rows (leaving a
  * wedding). It hands out no read or write over the wedding, which is why it

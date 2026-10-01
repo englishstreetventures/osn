@@ -1082,10 +1082,19 @@ describe("RegistryView — gift log export", () => {
       headers: { "Content-Type": "text/csv; charset=utf-8" },
     });
 
+  it("offers the export to an owner only: the gift-log CSV is owner-only", async () => {
+    setCachedRegistry("wed_1", snapshot({ gifts: [gift({})] }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    await screen.findAllByText(/Copper pan/);
+    expect(screen.queryByRole("button", { name: /Download gifts/i })).not.toBeInTheDocument();
+  });
+
   it("offers no export while there is nothing to export", async () => {
     setCachedRegistry("wed_1", snapshot({ gifts: [] }));
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
     await screen.findByText("No gifts yet.");
     expect(screen.queryByRole("button", { name: /Download gifts/i })).not.toBeInTheDocument();
@@ -1095,7 +1104,7 @@ describe("RegistryView — gift log export", () => {
     setCachedRegistry("wed_1", snapshot({ gifts: [gift({})] }));
     authFetch.mockResolvedValueOnce(csvResponse());
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
     fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
@@ -1113,7 +1122,7 @@ describe("RegistryView — gift log export", () => {
     setCachedRegistry("wed_1", snapshot({ gifts: [gift({})] }));
     authFetch.mockResolvedValueOnce(new Response("nope", { status: 500 }));
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
     fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
@@ -1126,7 +1135,7 @@ describe("RegistryView — gift log export", () => {
     setCachedRegistry("wed_1", snapshot({ gifts: [gift({})] }));
     authFetch.mockResolvedValueOnce(new Response("", { status: 401 }));
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
     fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
@@ -1144,7 +1153,7 @@ describe("RegistryView — gift log export", () => {
     // rejects instead of resolving — the second of the two expiry exits.
     authFetch.mockRejectedValueOnce({ _tag: "AuthExpiredError" });
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
     fireEvent.click(await screen.findByRole("button", { name: /Download gifts/i }));
@@ -1162,7 +1171,7 @@ describe("RegistryView — gift log export", () => {
       }),
     );
     render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} canManage />
     ));
 
     const button = await screen.findByRole("button", { name: /Download gifts/i });

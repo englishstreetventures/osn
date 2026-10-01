@@ -16,6 +16,7 @@ import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboa
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
 import type { Tier } from "../lib/tiers";
+import type { WeddingRole } from "../lib/wedding-roles";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EditWorkspace from "./EditWorkspace";
@@ -153,7 +154,10 @@ interface ModuleShellProps {
   weddingId: string;
   weddingName: string;
   weddingSlug: string;
-  /** Owner of this wedding? Owners get the destructive/owner-only sub-views
+  /** The signed-in organiser's role here. The host panel asks it what they may
+   *  grant; everything else reads the two flags below, which come from it. */
+  callerRole: WeddingRole;
+  /** An owner of this wedding? Owners get the destructive/owner-only sub-views
    *  (invite/codes, settings save, host management). */
   canManage: boolean;
   /** Owner or editor co-host? Editors get the module write surfaces (invite
@@ -171,8 +175,12 @@ interface ModuleShellProps {
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+  /** An owner deleted the wedding from Settings (restorable until the ISO date). */
+  onWeddingDeleted?: (restoreUntil: string) => void;
   /** The organiser left this wedding from the co-host panel. */
   onLeftWedding?: () => void;
+  /** The organiser changed their own role from the co-host panel. */
+  onOwnRoleChanged?: (role: WeddingRole) => void;
   /** The wedding's plan tier (from the API list response). A module the tier
    *  does not include is locked: its nav row fades and offers the upgrade, and
    *  the module itself never renders — the shell coerces it to Overview. */
@@ -517,7 +525,11 @@ export default function ModuleShell(props: ModuleShellProps) {
               {/* ── Events: List (read) + Edit ───────────────────────────────── */}
               <Show when={module() === "events"}>
                 <Show when={active() === "list"}>
-                  <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+                  <EventTable
+                    weddingId={props.weddingId}
+                    weddingSlug={props.weddingSlug}
+                    canManage={props.canManage}
+                  />
                 </Show>
                 {/* Edit = the on-page editor OR an events CSV import, behind one
               choice. A pure write surface, editor-gated (the API also gates
@@ -526,6 +538,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <EditWorkspace
                     weddingId={props.weddingId}
                     kind="events"
+                    canManage={props.canManage}
                     editor={() => (
                       <Suspense fallback={<PanelLoading />}>
                         <EventsEditor weddingId={props.weddingId} />
@@ -599,6 +612,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       weddingSlug={props.weddingSlug}
                       view="gifts"
                       canEdit={props.canEdit}
+                      canManage={props.canManage}
                     />
                   </Show>
                   <Show when={active() === "settings"}>
@@ -631,6 +645,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <EditWorkspace
                     weddingId={props.weddingId}
                     kind="guests"
+                    canManage={props.canManage}
                     editor={() => (
                       <Suspense fallback={<PanelLoading />}>
                         <GuestsEditor weddingId={props.weddingId} />
@@ -653,7 +668,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     fallback={
                       <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
                         You have view-only access to this wedding. Use “Preview invite” above to see
-                        the invitation as guests will — ask the owner for editor access to customise
+                        the invitation as guests will — ask an owner for editor access to customise
                         it.
                       </p>
                     }
@@ -663,7 +678,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                         weddingId={props.weddingId}
                         weddingSlug={props.weddingSlug}
                         weddingName={props.weddingName}
-                        canManage={props.canManage}
+                        canEdit={props.canEdit}
                         entitlements={props.entitlements}
                         initialSection={builderSection()}
                         inviteMessageLinks={inviteMessageLinks("message")}
@@ -687,20 +702,20 @@ export default function ModuleShell(props: ModuleShellProps) {
                     canManage={props.canManage}
                     canEditRsvpDeadline={props.canEdit}
                     onWeddingUpdated={props.onWeddingUpdated}
+                    onWeddingDeleted={props.onWeddingDeleted}
                   />
                 </Show>
                 <Show when={active() === "hosts"}>
-                  {/* Three flags, because the API has three gates here: adding
-                  a co-host is `weddingEditor()` (so `canEdit`), changing a role
-                  or removing someone else stays `weddingOwner()`, and leaving
-                  is any co-host's — everyone who reaches this panel except the
-                  owner, who has no seat to leave. */}
+                  {/* The role itself, not the flags: the panel needs what the
+                  caller may grant, which only the role says. Adding, changing
+                  and removing a seat are all `weddingOwner()`. Every seat may
+                  leave; the API refuses the last owner. */}
                   <HostsPanel
                     weddingId={props.weddingId}
-                    canManage={props.canManage}
-                    canAdd={props.canEdit}
-                    canLeave={!props.canManage}
+                    callerRole={props.callerRole}
+                    canLeave
                     onLeft={props.onLeftWedding}
+                    onOwnRoleChanged={props.onOwnRoleChanged}
                   />
                 </Show>
               </Show>

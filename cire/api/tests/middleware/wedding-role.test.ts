@@ -9,19 +9,21 @@ import type { WeddingCapability, WeddingRole } from "../../src/middleware/weddin
 // deliberate decision shows up here as a failure rather than as silence.
 
 const ROLES: readonly WeddingRole[] = ["owner", "editor", "viewer", "helper"];
-const CAPABILITIES: readonly WeddingCapability[] = ["member", "editor", "runSheet"];
+const CAPABILITIES: readonly WeddingCapability[] = ["member", "editor", "runSheet", "manage"];
 
 /** Every (role, capability) pair, as `allowed` booleans. Written out in full on
  *  purpose — a table that derives its expectations from the code under test
  *  would agree with any change to it. */
 const EXPECTED: Record<WeddingRole, Record<WeddingCapability, boolean>> = {
-  owner: { member: true, editor: true, runSheet: true },
-  editor: { member: true, editor: true, runSheet: true },
-  viewer: { member: true, editor: false, runSheet: true },
+  // `manage` is the owner-only surface, and the owner's alone: every owner of
+  // a wedding holds it, no other role does.
+  owner: { member: true, editor: true, runSheet: true, manage: true },
+  editor: { member: true, editor: true, runSheet: true, manage: false },
+  viewer: { member: true, editor: false, runSheet: true, manage: false },
   // The whole point of the role: the run sheet, and nothing else. `member`
   // being false here is what keeps a helper out of the guest list, the budget,
   // the registry, the vendors and the RSVPs.
-  helper: { member: false, editor: false, runSheet: true },
+  helper: { member: false, editor: false, runSheet: true, manage: false },
 };
 
 describe("policyFor", () => {

@@ -298,7 +298,7 @@ without `--lower`, prints one statement and refunds nothing.
 
 | Path | `tier_source` | `tier_granted_by` | Who |
 |---|---|---|---|
-| Self-serve purchase | `purchase` | `stripe:<purchase id>` | The wedding's **owner**, from the portal — [[cire-upgrades]] |
+| Self-serve purchase | `purchase` | `stripe:<purchase id>` | Any **owner** of the wedding, from the portal — [[cire-upgrades]] |
 | Comp, or a refund lowering it | `comp` | `script:<operator>` | An operator, with `grant-tier.ts` |
 | The tier migration | `migration` | NULL | Migration 0073, from legacy entitlement rows |
 

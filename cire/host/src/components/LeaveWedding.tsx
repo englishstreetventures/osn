@@ -17,9 +17,10 @@ interface LeaveWeddingProps {
 
 /**
  * "Leave this wedding": a button, a confirm dialog, and `DELETE /hosts/me`.
- * Offered to every seat holder — the co-host panel shows it to editors and
- * viewers, the run-sheet screen to helpers — and never to the owner, whom the
- * API refuses (409): the owner has no seat to leave.
+ * Offered to every seat holder — the co-host panel shows it to owners, editors
+ * and viewers, the run-sheet screen to helpers. An owner may leave while
+ * another owner remains; the API refuses the last one (409 `last_owner`), and
+ * the message says what would let them go.
  */
 export default function LeaveWedding(props: LeaveWeddingProps) {
   const { authFetch } = useAuth();
@@ -49,7 +50,7 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
         haptic("reject");
         toast.error(
           res.status === 409
-            ? "You own this wedding, so you can't leave it."
+            ? "You're this wedding's only owner. Make someone else an owner first, or delete the wedding."
             : "Could not leave this wedding. Please try again.",
         );
         return;
@@ -77,8 +78,8 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
           Leave this wedding
         </h3>
         <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
-          Give up your seat. The wedding leaves your list and any emails about it stop. The owner or
-          an editor can add you back.
+          Give up your seat. The wedding leaves your list and any emails about it stop. An owner can
+          add you back.
         </p>
         <Button
           class="self-start"
@@ -102,8 +103,7 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
         <div class="flex flex-col gap-4">
           <p class="font-display text-text text-ui-md font-light">Leave this wedding?</p>
           <p class="font-body text-text-muted text-ui-sm leading-relaxed">
-            You lose access to it straight away. To come back, ask the owner or an editor to add you
-            again.
+            You lose access to it straight away. To come back, ask an owner to add you again.
           </p>
           <div class="flex flex-wrap justify-end gap-2">
             <Button

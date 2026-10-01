@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, rsvpChanges, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, guests, rsvpChanges, weddingHosts } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { eq, sql } from "drizzle-orm";
 
@@ -10,6 +10,7 @@ import { appRequest, jsonBody } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_rc_editor";
@@ -45,16 +46,14 @@ function buildApp() {
       .run();
   }
   // STRANGER owns another wedding, so a refusal is also the cross-wedding case.
-  db.insert(weddings)
-    .values({
-      id: "wed_rc_other",
-      slug: "rc-other",
-      displayName: "Other",
-      ownerOsnProfileId: STRANGER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_rc_other",
+    slug: "rc-other",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: [STRANGER],
+  });
   const ada = db
     .select({ id: guests.id, familyId: guests.familyId })
     .from(guests)

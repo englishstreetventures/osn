@@ -18,8 +18,9 @@ interface InviteMessageCopyProps {
   weddingId: string;
   weddingName: string;
   weddingSlug: string;
-  /** Owner: a copy also marks the household sent, which only the owner may. */
-  canManage: boolean;
+  /** Owner or editor: a copy also marks the household sent, which a viewer
+   *  may not. */
+  canEdit: boolean;
   /** The first line as saved — what a copy sends. `null` sends the default. */
   savedLine: string | null;
   /** The first line as typed — what the preview shows. */
@@ -108,7 +109,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
       return;
     }
     toast.success(`Copied ${household.familyName}'s invite message`);
-    if (!props.canManage) return;
+    if (!props.canEdit) return;
     if (await markHouseholdShared(authFetch, props.weddingId, household.familyId)) {
       setSentNow((prev) => new Set(prev).add(household.familyId));
     }

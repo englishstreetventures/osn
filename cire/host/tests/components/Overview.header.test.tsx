@@ -115,6 +115,7 @@ async function renderShell(module: Module, tier: Tier = "ivory") {
       weddingId="wed_1"
       weddingName="R & V"
       weddingSlug="r-and-v"
+      callerRole="owner"
       canManage={true}
       canEdit={true}
       module={module}

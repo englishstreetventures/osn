@@ -375,4 +375,26 @@ describe("SettingsPanel", () => {
     expect(String(toastError.mock.calls[0]?.[0])).toMatch(/permission/i);
     expect(toastSuccess).not.toHaveBeenCalled();
   });
+
+  describe("the danger zone", () => {
+    it("is offered to an owner", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => <SettingsPanel weddingId="wed_1" canManage onWeddingDeleted={vi.fn()} />);
+      expect(await screen.findByRole("button", { name: "Delete wedding…" })).toBeInTheDocument();
+    });
+
+    it("is not offered to a co-host", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => (
+        <SettingsPanel
+          weddingId="wed_1"
+          canManage={false}
+          canEditRsvpDeadline
+          onWeddingDeleted={vi.fn()}
+        />
+      ));
+      await screen.findByDisplayValue("Aisha & Ben");
+      expect(screen.queryByRole("button", { name: "Delete wedding…" })).toBeNull();
+    });
+  });
 });

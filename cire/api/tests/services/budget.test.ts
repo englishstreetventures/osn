@@ -27,22 +27,21 @@ import {
   PaymentNotInItem,
   perHeadMinor,
 } from "../../src/services/budget";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
 
 function db0() {
   const db = createDb(":memory:");
   seedDb(db);
-  db.insert(weddings)
-    .values({
-      id: OTHER,
-      slug: "other",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER,
+    slug: "other",
+    displayName: "Other",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    owners: ["usr_bob"],
+  });
   return db;
 }
 
@@ -408,16 +407,14 @@ describe("budgetService — per-head lines", () => {
   function perHeadDb() {
     const db = db0();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: W,
-        slug: "per-head",
-        displayName: "Per head",
-        ownerOsnProfileId: "usr_ph",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: W,
+      slug: "per-head",
+      displayName: "Per head",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_ph"],
+    });
     for (const [id, name, sortOrder] of [
       [RECEPTION, "Reception", 1],
       [CEREMONY, "Ceremony", 0],

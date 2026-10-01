@@ -253,7 +253,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 | Area | Where | Notes |
 |---|---|---|
 | Route factories | `cire/api/src/routes/` | One factory per domain, composed by `createApp` in `src/app.ts` (`aot: false` — Workers forbids `new Function`). New modules = new factory + `.use()` in `createApp`. POST routes pass the sentinel `parse` hook (`{ parse: () => ({}) }`) and read `request.json()` by hand. |
-| Auth gates | `cire/api/src/middleware/` | `osnAuth()` (organiser JWT), `weddingOwner()` / `weddingMember()` (per-`:weddingId` authz), `sessionAuth()` (guest cookie), `rate-limit.ts`, `turnstile.ts`. Phase 0 adds `weddingEditor()` between member and owner. |
+| Auth gates | `cire/api/src/middleware/` | `osnAuth()` (organiser JWT), `weddingOwner()` / `weddingEditor()` / `weddingMember()` / `weddingRunSheet()` (per-`:weddingId` authz, each reading the caller's `wedding_hosts` seat — owners are seats too, see [[cire-auth#Equal owners]]), `sessionAuth()` (guest cookie), `rate-limit.ts`, `turnstile.ts`. |
 | Services | `cire/api/src/services/` | Return `Effect.Effect<A, E>` with `Data.TaggedError` errors; routes unwrap via `runCire`. No logic in handlers; Drizzle only, no raw SQL. |
 | Validation | `cire/api/src/schemas/` | Effect Schema per domain. |
 | Metrics | `cire/api/src/metrics.ts` | Typed `cire.*` counters/histograms; bounded attribute cardinality only (closed enums). |

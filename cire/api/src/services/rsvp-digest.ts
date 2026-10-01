@@ -2,12 +2,12 @@
  * The daily RSVP change digest: one email per organiser per wedding, on a day
  * guests changed their RSVPs, and only then.
  *
- * Who gets one: the wedding's owner and every co-host whose role carries the
- * `editor` capability (`policyFor` in `middleware/wedding-role.ts`), less
- * anyone who turned it off for that wedding. What it covers: the changes in
- * `rsvp_changes` past that person's `digest_seq`, counted in households per
- * kind, and for a co-host with no marker yet only what changed after they
- * were given their seat. It carries no guest name (see the template in
+ * Who gets one: every owner of the wedding and every co-host whose role
+ * carries the `editor` capability (`policyFor` in `middleware/wedding-role.ts`),
+ * less anyone who turned it off for that wedding. What it covers: the changes
+ * in `rsvp_changes` past that person's `digest_seq`, counted in households per
+ * kind, and for someone with no marker yet only what changed after they were
+ * given their seat. It carries no guest name (see the template in
  * `@shared/email`).
  *
  * Built for one shared cron invocation on Workers Free — 50 external
@@ -41,6 +41,7 @@ import { Data, Effect } from "effect";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { deriveDigestStopKey, digestStopUrl, type DigestStopTarget } from "../lib/digest-stop";
 import { metricRsvpDigestEmails, type RsvpDigestOutcome } from "../metrics";
 import { decideCapability, type WeddingRole } from "../middleware/wedding-role";
@@ -187,9 +188,9 @@ function countGroups(groups: readonly ChangeGroup[]) {
 
 /**
  * One upsert moving every given marker forward, never back. The rows ride as
- * one JSON parameter. A row is written only for someone who still owns the
- * wedding or holds a seat on it, so a co-host removed while the run was going
- * does not get their row back. A new row takes the defaults a missing row
+ * one JSON parameter. A row is written only for someone who still holds a seat
+ * on the wedding, so anyone removed while the run was going does not get their
+ * row back. A new row takes the defaults a missing row
  * reads as (nothing seen, digest on); an existing row keeps its switch, so a
  * recipient who turned the digest off mid-run stays off. The `WHERE` is also
  * what lets SQLite read the `ON` that follows as the upsert rather than a join.
@@ -213,7 +214,7 @@ export function buildMarkStatement(db: Db, marks: readonly Mark[], now: Date) {
     }
     return columns[key as keyof typeof columns];
   });
-  const stillOrganiser = sql`(EXISTS (SELECT 1 FROM ${weddings} WHERE ${weddings.id} = ${wedding} AND ${weddings.ownerOsnProfileId} = ${profile}) OR EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${wedding} AND ${weddingHosts.osnProfileId} = ${profile}))`;
+  const stillOrganiser = sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${wedding} AND ${weddingHosts.osnProfileId} = ${profile})`;
   return db
     .insert(hostRsvpNotices)
     .select(
@@ -311,10 +312,11 @@ export const rsvpDigestService = {
               .select({
                 id: weddings.id,
                 name: weddings.displayName,
-                owner: weddings.ownerOsnProfileId,
               })
               .from(weddings)
-              .where(inArray(weddings.id, jsonEachIn(weddingIds)))
+              // A soft-deleted wedding is left out, and with it every one of
+              // its recipients below.
+              .where(and(inArray(weddings.id, jsonEachIn(weddingIds)), weddingIsLive))
               .all(),
           ),
           read(() =>
@@ -347,33 +349,25 @@ export const rsvpDigestService = {
 
       const notices = new Map(noticeRows.map((n) => [noticeKey(n.weddingId, n.osnProfileId), n]));
       const names = new Map(weddingRows.map((w) => [w.id, w.name]));
-      const people = [
-        ...weddingRows.map((w) => ({
-          weddingId: w.id,
-          osnProfileId: w.owner,
-          role: "owner" as WeddingRole,
-          seatedAt: null as number | null,
-        })),
-        ...hostRows.map((h) => ({
-          weddingId: h.weddingId,
-          osnProfileId: h.osnProfileId,
-          role: normaliseHostRole(h.role) as WeddingRole,
-          seatedAt: h.createdAt.getTime(),
-        })),
-      ];
+      // Every organiser holds a seat, owners included, so the seats are the
+      // whole list of people who might be mailed.
+      const people = hostRows.map((h) => ({
+        weddingId: h.weddingId,
+        osnProfileId: h.osnProfileId,
+        role: normaliseHostRole(h.role),
+        seatedAt: h.createdAt.getTime(),
+      }));
       const pending: Recipient[] = [];
       for (const person of people) {
+        if (!names.has(person.weddingId)) continue;
         if (!receivesDigest(person.role)) continue;
         const notice = notices.get(noticeKey(person.weddingId, person.osnProfileId));
         if (notice?.digestEnabled === false) continue;
         const cursor = notice?.digestSeq ?? 0;
-        // A co-host with no marker yet is owed only what changed after they
+        // Someone with no marker yet is owed only what changed after they
         // were seated — which also means a seat removed and added again does
         // not start over with the whole window.
-        const since =
-          !notice && person.seatedAt !== null
-            ? Math.max(lookback.getTime(), person.seatedAt)
-            : lookback.getTime();
+        const since = notice ? lookback.getTime() : Math.max(lookback.getTime(), person.seatedAt);
         const latest = newest.get(person.weddingId);
         if (!latest || cursor >= latest.seq || latest.at < since) continue;
         pending.push({
@@ -506,27 +500,17 @@ export const rsvpDigestService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, osnProfileId } = target;
-      // One statement: the wedding's owner and this person's seat on it, if any.
+      // One statement: this person's seat on the wedding, if any.
       const [row] = yield* read(() =>
         db
-          .select({ owner: weddings.ownerOsnProfileId, seatRole: weddingHosts.role })
-          .from(weddings)
-          .leftJoin(
-            weddingHosts,
-            and(
-              eq(weddingHosts.weddingId, weddings.id),
-              eq(weddingHosts.osnProfileId, osnProfileId),
-            ),
+          .select({ seatRole: weddingHosts.role })
+          .from(weddingHosts)
+          .where(
+            and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
           )
-          .where(eq(weddings.id, weddingId))
           .all(),
       );
-      const role: WeddingRole | null =
-        row?.owner === osnProfileId
-          ? "owner"
-          : row?.seatRole
-            ? normaliseHostRole(row.seatRole)
-            : null;
+      const role: WeddingRole | null = row ? normaliseHostRole(row.seatRole) : null;
       if (role === null || !receivesDigest(role)) return "no_seat";
       yield* rsvpChangeService.setDigest(weddingId, osnProfileId, false);
       return "stopped";

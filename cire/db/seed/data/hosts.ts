@@ -1,22 +1,30 @@
-// Co-hosts on the sample wedding. Consumed only by cire/db/seed/generate.ts.
+// Everyone seated on the sample wedding. Consumed by cire/db/seed/generate.ts.
 //
-// The OWNER is not a row here — ownership lives in `weddings.owner_osn_profile_id`
-// (DEV_OWNER_PROFILE_ID). `wedding_hosts` holds the people the owner has SHARED
-// the wedding with, and the app only ever writes `editor` or `viewer` to it.
-// The live wedding has three; without them the organiser portal's sharing
-// surface renders empty on dev and its permission split goes untested.
+// The first row is the OWNER: ownership is a seat with role `owner`, held by
+// DEV_OWNER_PROFILE_ID under the fixed id DEV_OWNER_SEAT_ID, which
+// `scripts/cire-db-seed.sh` repoints at a real account. The rest are the people
+// the owner shared the wedding with. The live wedding has three; without them
+// the organiser portal's sharing surface renders empty on dev and its
+// permission split goes untested.
 //
 // The profile ids are fixed dev ids in the same `usr_*` shape OSN issues. No
 // real OSN profile exists on the dev tier, so these never resolve to an account
 // — that is fine: the portal reads them as opaque ids.
 
+import { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "./wedding";
+
 export type SeedHost = {
   readonly id: string;
   readonly osnProfileId: string;
-  readonly role: "editor" | "viewer";
+  readonly role: "owner" | "editor" | "viewer";
 };
 
 export const hosts = [
+  {
+    id: DEV_OWNER_SEAT_ID,
+    osnProfileId: DEV_OWNER_PROFILE_ID,
+    role: "owner",
+  },
   {
     id: "whost_d1f0c4a2-0000-4000-8000-000000000001",
     osnProfileId: "usr_dev_cohost_partner",

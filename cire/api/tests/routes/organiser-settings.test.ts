@@ -9,6 +9,7 @@ import type { TestDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const CO_HOST = "usr_cohost";
@@ -47,16 +48,14 @@ function buildApp() {
       createdAt: now,
     })
     .run();
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   db.insert(events)
     .values({
       id: OTHER_EVENT_ID,

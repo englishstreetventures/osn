@@ -1,12 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  directoryVendors,
-  vendorEnquiries,
-  vendors,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, directoryVendors, vendorEnquiries, vendors } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -22,6 +16,7 @@ import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -126,16 +121,14 @@ function makeFakeZap() {
 
 function seedOtherWedding(db: Db) {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: OTHER_OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OTHER_OWNER],
+  });
 }
 
 /** Two listings: DV_CLAIMED (ORG_OK, claimed by VENDOR), DV_OTHER (ORG_X). */
@@ -440,17 +433,15 @@ describe("POST /api/vendor/enquiries/:id/quote", () => {
     // A wedding that thinks in USD, plus a claimed-listing enquiry under it.
     const now = new Date();
     const usdWeddingId = "wed_usd";
-    db.insert(weddings)
-      .values({
-        id: usdWeddingId,
-        slug: "usd-wedding",
-        displayName: "USD Wedding",
-        ownerOsnProfileId: COUPLE,
-        currency: "USD",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: usdWeddingId,
+      slug: "usd-wedding",
+      displayName: "USD Wedding",
+      currency: "USD",
+      createdAt: now,
+      updatedAt: now,
+      owners: [COUPLE],
+    });
     const mine = seedProvisionedEnquiry(db, {
       weddingId: usdWeddingId,
       enquiryId: "enq_usd",

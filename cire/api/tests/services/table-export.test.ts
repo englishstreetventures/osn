@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -10,6 +10,7 @@ import { tableExportService } from "../../src/services/table-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -164,16 +165,14 @@ describe("tableExportService.guestsCsv", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const now = new Date();
-        db.insert(weddings)
-          .values({
-            id: "wed_empty",
-            slug: "empty-wedding",
-            displayName: "Empty Wedding",
-            ownerOsnProfileId: "usr_empty",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_empty",
+          slug: "empty-wedding",
+          displayName: "Empty Wedding",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_empty"],
+        });
 
         const csv = yield* tableExportService.guestsCsv("wed_empty");
         expect(lines(csv)).toEqual([
@@ -363,16 +362,14 @@ describe("tableExportService.eventsCsv", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const now = new Date();
-        db.insert(weddings)
-          .values({
-            id: "wed_empty",
-            slug: "empty-wedding",
-            displayName: "Empty Wedding",
-            ownerOsnProfileId: "usr_empty",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_empty",
+          slug: "empty-wedding",
+          displayName: "Empty Wedding",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_empty"],
+        });
 
         const csv = yield* tableExportService.eventsCsv("wed_empty");
         expect(lines(csv)).toEqual([

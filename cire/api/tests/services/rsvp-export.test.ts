@@ -1,14 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  events,
-  families,
-  guestEvents,
-  guests,
-  rsvps,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
 import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { and, eq, inArray } from "drizzle-orm";
@@ -22,6 +14,7 @@ import type { RsvpView } from "../../src/services/rsvp-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -368,16 +361,14 @@ describe("rsvpExportService.build", () => {
         const db = yield* DbService;
         const now = new Date();
         // A second, real wedding with its own family/guest.
-        db.insert(weddings)
-          .values({
-            id: "wed_other_scope",
-            slug: "other-scope",
-            displayName: "Other Scope",
-            ownerOsnProfileId: "usr_other",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_other_scope",
+          slug: "other-scope",
+          displayName: "Other Scope",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_other"],
+        });
         db.insert(families)
           .values({
             id: "fam_x",
@@ -954,16 +945,14 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     // another wedding, or in another household, yields no name.
     const { db, run, hindu } = setUp();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other-wedding",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other-wedding",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other"],
+    });
     db.insert(families)
       .values({
         id: "fam_other",

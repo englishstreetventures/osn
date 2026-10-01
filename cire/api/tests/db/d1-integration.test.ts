@@ -23,6 +23,7 @@ import {
   weddingFaqs,
   platformSales,
   weddingEntitlements,
+  weddingHosts,
   weddingInviteCustomisations,
   weddings,
   weddingUpgradePurchases,
@@ -58,9 +59,11 @@ import {
   OrgAlreadyHasListing,
 } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
+import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
+import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import {
@@ -77,6 +80,13 @@ import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
 import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
+import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
+import {
+  fullWeddingKeys,
+  fullWeddingStatements,
+  WEDDING_CHILD_TABLES,
+} from "../test-helpers/full-wedding";
+import { ownerSeat } from "../test-helpers/wedding";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // The rest of the suite runs on synchronous bun:sqlite; these exercise the
@@ -91,6 +101,7 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
+const MIGRATION_0076 = "0076_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -151,10 +162,13 @@ async function seed(): Promise<void> {
     id: BOOTSTRAP_WEDDING_ID,
     slug: "w",
     displayName: "W",
-    ownerOsnProfileId: "usr_test",
     createdAt: now,
     updatedAt: now,
   });
+  // Seated a minute back, so a change made during a test is after the seat.
+  await db
+    .insert(weddingHosts)
+    .values(ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_test", new Date(now.getTime() - 60_000)));
   await db.insert(events).values([
     {
       id: EVENT_A,
@@ -1757,7 +1771,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_blank",
           slug: "d1-blank",
           displayName: "Blank",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1765,7 +1778,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_full",
           slug: "d1-full",
           displayName: "Full",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1820,7 +1832,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_off",
           slug: "d1-off",
           displayName: "Off",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1828,7 +1839,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_on",
           slug: "d1-on",
           displayName: "On",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -2021,7 +2031,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_chain",
           slug: "chain",
           displayName: "Chain",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         });
@@ -2042,6 +2051,190 @@ describe("cire/api over real D1 (Miniflare)", () => {
       } finally {
         await chainMf.dispose();
       }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0076 on D1's own SQLite: owners become seats, nothing cascades",
+    async () => {
+      // Its own instance, built from the chain up to 0070, so the weddings the
+      // migration moves are rows that exist before it runs — including one
+      // whose owner already holds a seat, which takes the upsert branch.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = readdirSync(MIGRATIONS_DIR)
+          .filter((f) => f.endsWith(".sql"))
+          .toSorted();
+        const cut = files.indexOf(MIGRATION_0076);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at) VALUES ('wed_m1', 'm1', 'M1', 'usr_m1', 100, 100), ('wed_m2', 'm2', 'M2', 'usr_m2', 200, 200)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_keep', 'wed_m2', 'usr_m2', 'usr_x', 'viewer', 150), ('whost_ed', 'wed_m1', 'usr_ed', 'usr_m1', 'editor', 120)",
+          "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_m1', 'wed_m1', 'M-0001', 'M', 0, 0)",
+          "INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES ('g_m1', 'fam_m1', 'Ada', 0, 0)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        const statements = migrationStatements(MIGRATION_0076);
+        expect(statements).toHaveLength(3);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const seats = await chainD1
+          .prepare(
+            "SELECT id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at FROM wedding_hosts ORDER BY wedding_id, osn_profile_id",
+          )
+          .all<{
+            id: string;
+            wedding_id: string;
+            osn_profile_id: string;
+            added_by_osn_profile_id: string;
+            role: string;
+            created_at: number;
+          }>();
+        expect(seats.results.map((r) => [r.wedding_id, r.osn_profile_id, r.role])).toEqual([
+          ["wed_m1", "usr_ed", "editor"],
+          ["wed_m1", "usr_m1", "owner"],
+          ["wed_m2", "usr_m2", "owner"],
+        ]);
+        const minted = seats.results.find((r) => r.osn_profile_id === "usr_m1")!;
+        expect(minted.id).toMatch(
+          /^whost_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        expect(minted).toMatchObject({ added_by_osn_profile_id: "usr_m1", created_at: 100 });
+        // The owner who already held a seat keeps it — its id and history.
+        expect(seats.results.find((r) => r.osn_profile_id === "usr_m2")).toMatchObject({
+          id: "whost_keep",
+          added_by_osn_profile_id: "usr_x",
+          created_at: 150,
+        });
+
+        const columns = await chainD1
+          .prepare("PRAGMA table_info(weddings)")
+          .all<{ name: string }>();
+        expect(columns.results.map((c) => c.name)).not.toContain("owner_osn_profile_id");
+        const left = await chainD1
+          .prepare(
+            "SELECT (SELECT count(*) FROM weddings) AS w, (SELECT count(*) FROM families) AS f, (SELECT count(*) FROM guests) AS g",
+          )
+          .first<{ w: number; f: number; g: number }>();
+        expect(left).toEqual({ w: 2, f: 1, g: 1 });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guards the last owner and both seat ceilings over D1's batch path",
+    async () => {
+      // On D1 the role change and the removal each ride one atomic batch with
+      // the read that explains a refusal; bun:sqlite runs them one at a time.
+      // These are the results those batches hand back.
+      const seatRole = async (osnProfileId: string) =>
+        (
+          await db
+            .select({ role: weddingHosts.role })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.osnProfileId, osnProfileId))
+        )[0]?.role;
+
+      const added = await run(
+        hostsService.add({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          addedByOsnProfileId: "usr_test",
+          role: "owner",
+        }),
+      );
+      expect(added.role).toBe("owner");
+
+      // Two owners: one may step down, after which the other is the last.
+      await run(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          role: "editor",
+        }),
+      );
+      expect(await seatRole("usr_second")).toBe("editor");
+      const demote = await Effect.runPromiseExit(
+        hostsService
+          .setRole({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_test", role: "viewer" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(demote) && Cause.squash(demote.cause)).toMatchObject({
+        _tag: "LastOwner",
+      });
+
+      // The last owner's removal is refused and keeps their RSVP marker.
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_test", false));
+      const removal = await Effect.runPromiseExit(
+        hostsService
+          .remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_test" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(removal) && Cause.squash(removal.cause)).toMatchObject({
+        _tag: "LastOwner",
+      });
+      expect(await seatRole("usr_test")).toBe("owner");
+      expect(
+        await db.select().from(hostRsvpNotices).where(eq(hostRsvpNotices.osnProfileId, "usr_test")),
+      ).toHaveLength(1);
+
+      // A co-host's removal goes through, marker and all.
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_second", false));
+      await run(
+        hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+      );
+      expect(await seatRole("usr_second")).toBeUndefined();
+      expect(
+        await db
+          .select()
+          .from(hostRsvpNotices)
+          .where(eq(hostRsvpNotices.osnProfileId, "usr_second")),
+      ).toHaveLength(0);
+
+      // The seat cap, owners counted, inside the INSERT: fill the wedding with
+      // owners, then one more is refused.
+      const seated = await db
+        .select({ id: weddingHosts.id })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID));
+      for (let i = seated.length; i < MAX_HOSTS_PER_WEDDING; i += 1) {
+        await run(
+          hostsService.add({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: `usr_owner_${i}`,
+            addedByOsnProfileId: "usr_test",
+            role: "owner",
+          }),
+        );
+      }
+      const overCap = await Effect.runPromiseExit(
+        hostsService
+          .add({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_one_more",
+            addedByOsnProfileId: "usr_test",
+            role: "owner",
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(overCap) && Cause.squash(overCap.cause)).toMatchObject({
+        _tag: "HostConflict",
+        reason: "host_cap_reached",
+      });
     },
     MF_TIMEOUT_MS,
   );
@@ -2215,6 +2408,116 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+
+  it(
+    "soft-deletes and restores through one guarded D1 batch each, refusals included",
+    async () => {
+      const id = "wed_d1_life";
+      for (const statement of fullWeddingStatements(id, { owner: "usr_d1_owner" })) {
+        await db.run(statement);
+      }
+      // A gift checkout page from an hour ago can still be paid: the batch's
+      // refusal read names it, and nothing is written.
+      await db.run(
+        sql`UPDATE registry_contributions SET status = 'pending', stripe_checkout_session_id = ${`cs_${id}`}, created_at = ${Math.floor(Date.now() / 1000) - 3600} WHERE wedding_id = ${id}`,
+      );
+      const refused = await Effect.runPromiseExit(
+        weddingLifecycleService
+          .softDelete({ weddingId: id, osnProfileId: "usr_d1_owner", confirmSlug: `slug-${id}` })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(JSON.stringify(refused)).toContain('"reason":"gift_in_flight"');
+      const [live] = await db
+        .select({ deletedAt: weddings.deletedAt })
+        .from(weddings)
+        .where(eq(weddings.id, id));
+      expect(live!.deletedAt).toBeNull();
+
+      await db.run(
+        sql`UPDATE registry_contributions SET status = 'succeeded' WHERE wedding_id = ${id}`,
+      );
+      const deleted = await run(
+        weddingLifecycleService.softDelete({
+          weddingId: id,
+          osnProfileId: "usr_d1_owner",
+          confirmSlug: `slug-${id}`,
+        }),
+      );
+      expect(deleted.weddingId).toBe(id);
+      expect(
+        await run(weddingLifecycleService.restore({ weddingId: id, osnProfileId: "usr_d1_owner" })),
+      ).toEqual({
+        weddingId: id,
+      });
+      const [back] = await db
+        .select({ deletedAt: weddings.deletedAt })
+        .from(weddings)
+        .where(eq(weddings.id, id));
+      expect(back!.deletedAt).toBeNull();
+      await db.run(sql`DELETE FROM platform_sales WHERE purchase_id = ${`upg_${id}`}`);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "purges a past-window wedding on D1: the real key reads, the cascade, and the R2 reap",
+    async () => {
+      // The key reads run against real D1, which allows at most five terms in
+      // a compound SELECT; the purge reads each table once instead.
+      const gone = "wed_d1_gone";
+      const live = "wed_d1_live";
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      for (const statement of [
+        ...fullWeddingStatements(gone, { deletedAt: eightDaysAgo }),
+        ...fullWeddingStatements(live),
+      ]) {
+        await db.run(statement);
+      }
+      const reaped: string[] = [];
+      const bucket = { delete: (keys: string | string[]) => void reaped.push(...[keys].flat()) };
+
+      const result = await run(
+        maintenanceSweeps.purgeDeletedWeddings(new Date(), { sheets: bucket, assets: bucket }),
+      );
+      expect(result.purged).toBe(1);
+      expect(result.errors).toBe(0);
+
+      const keys = fullWeddingKeys(gone);
+      expect(reaped.toSorted()).toEqual([...keys.sheets, ...keys.assets].toSorted());
+      const remaining = await db
+        .select({ id: weddings.id })
+        .from(weddings)
+        .where(eq(weddings.id, gone));
+      expect(remaining).toEqual([]);
+      // The cascade ran on D1's enforced foreign keys: no table keeps a row
+      // naming the purged wedding, and the live one is whole.
+      for (const table of WEDDING_CHILD_TABLES) {
+        const direct = ["guests", "guest_events", "rsvps", "sessions", "payments"].includes(table);
+        if (direct) continue;
+        const [row] = await db.all<{ n: number }>(
+          sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${gone}'`),
+        );
+        expect({ table, n: row!.n }).toEqual({ table, n: 0 });
+        const [kept] = await db.all<{ n: number }>(
+          sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${live}'`),
+        );
+        expect({ table, n: kept!.n }).toEqual({ table, n: 1 });
+      }
+      const [orphans] = await db.all<{ n: number }>(
+        sql.raw(`SELECT count(*) AS n FROM guests WHERE family_id = 'fam_${gone}'`),
+      );
+      expect(orphans!.n).toBe(0);
+      const [sales] = await db.all<{ n: number }>(
+        sql.raw(
+          `SELECT count(*) AS n FROM platform_sales WHERE purchase_id IN ('upg_${gone}', 'upg_${live}')`,
+        ),
+      );
+      expect(sales!.n).toBe(2);
+      await db.run(sql`DELETE FROM platform_sales WHERE purchase_id LIKE 'upg_wed_d1_%'`);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   it(
     "runs migration 0073's data statements on D1's own SQLite",
     async () => {
@@ -2240,7 +2543,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id,
           slug: id,
           displayName: id,
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         });

@@ -29,6 +29,7 @@ import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Owner of the seeded sample wedding (see seedBootstrapWedding — the fixed local
 // dev id DEV_OWNER_PROFILE_ID).
@@ -62,16 +63,14 @@ function buildApp() {
 
 function seedOtherWedding(db: TestDb) {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: OTHER_OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OTHER_OWNER],
+  });
   db.insert(events)
     .values({
       id: "evt_other",
@@ -306,8 +305,16 @@ describe("POST /api/organiser/weddings", () => {
 
     // Persisted, owned by the caller.
     const [row] = db.select().from(weddings).where(eq(weddings.id, body.wedding.id)).all();
-    expect(row!.ownerOsnProfileId).toBe("usr_newcomer");
     expect(row!.codeStyle).toBe("secure");
+    // Owned through an `owner` seat — the only owner a new wedding has.
+    const seats = db
+      .select()
+      .from(weddingHosts)
+      .where(eq(weddingHosts.weddingId, body.wedding.id))
+      .all();
+    expect(seats.map((h) => [h.osnProfileId, h.role, h.addedByOsnProfileId])).toEqual([
+      ["usr_newcomer", "owner", "usr_newcomer"],
+    ]);
     // Every new wedding starts on the free tier.
     expect(row!.tier).toBe("ivory");
     expect(body.wedding).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
@@ -1271,12 +1278,12 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
     expect(body).toContain("Gluten free");
   });
 
-  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+  it("refuses an editor co-host with 403 forbidden: exports are owners' only", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await get(app, path, COHOST);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 });
 
@@ -1335,12 +1342,12 @@ describe("GET /api/organiser/weddings/:weddingId/guests.csv", () => {
     expect(body).not.toContain("Olive");
   });
 
-  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+  it("refuses an editor co-host with 403 forbidden: exports are owners' only", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await get(app, path, COHOST);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 });
 
@@ -1399,17 +1406,17 @@ describe("GET /api/organiser/weddings/:weddingId/events.csv", () => {
     expect(body).not.toContain("Other Party");
   });
 
-  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+  it("refuses an editor co-host with 403 forbidden: exports are owners' only", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await get(app, path, COHOST);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 });
 
 describe("organiser CSV exports read the wedding row once", () => {
-  // The filename carries the wedding's slug. The member gate already reads the
+  // The filename carries the wedding's slug. The owner gate already reads the
   // wedding row to authorise the caller, so the slug comes from that read
   // rather than a second one.
   const exportsByFilename = [
@@ -1673,18 +1680,18 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
     );
   });
 
-  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+  it("refuses an editor co-host with 403 forbidden: exports are owners' only", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await get(app, path, COHOST);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 
-  it("serves the CSV for a viewer co-host as well", async () => {
+  it("refuses a viewer co-host with 403 forbidden too", async () => {
     const { db, app } = buildApp();
-    // `weddingMember` admits every role, viewer included — the export is a read,
-    // and a viewer already sees the same log in the portal.
+    // The viewer sees the same log on screen; taking a copy away is an owner's
+    // call.
     db.insert(weddingHosts)
       .values({
         id: "whost_giftscsv_viewer",
@@ -1696,8 +1703,8 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
       })
       .run();
     const res = await get(app, path, "usr_viewer_giftscsv");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 });
 
@@ -1887,11 +1894,11 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
     expect((await guestsRes.text()).split("\r\n")[0]!.endsWith(",Family Code,Guest ID")).toBe(true);
   });
 
-  it("serves both sheets for a co-host too (weddingMember gate)", async () => {
+  it("refuses an editor co-host both sheets with 403: exports are owners' only", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
-    expect((await get(app, eventsPath, COHOST)).status).toBe(200);
-    expect((await get(app, guestsPath, COHOST)).status).toBe(200);
+    expect((await get(app, eventsPath, COHOST)).status).toBe(403);
+    expect((await get(app, guestsPath, COHOST)).status).toBe(403);
   });
 });
 

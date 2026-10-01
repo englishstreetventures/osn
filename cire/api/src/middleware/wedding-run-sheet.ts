@@ -36,8 +36,8 @@ const pass = (
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
   weddingRole: role as WeddingRole | undefined,
-  // The caller's own seat id, `undefined` for the owner (never rowed into
-  // wedding_hosts). A route filtering to `own` compares assignments against it.
+  // The caller's own seat id — every member holds one, owners included. A
+  // route filtering to `own` compares assignments against it.
   weddingHostId: (hostId ?? undefined) as string | undefined,
   weddingRunSheetScope: scope as RunSheetScope | undefined,
   // Read from the same wedding row, for a `weddingTier(db, min)` mounted
@@ -48,7 +48,7 @@ const pass = (
 
 /**
  * Authz gate for the day-of run sheet under
- * /api/organiser/weddings/:weddingId/*. Admits the OWNER, or a co-host whose
+ * /api/organiser/weddings/:weddingId/*. Admits every OWNER, or a co-host whose
  * role carries the `runSheet` capability — which, unlike the other two gates,
  * includes a `helper`.
  *
@@ -59,8 +59,8 @@ const pass = (
  *
  * Derives, beyond the usual `weddingId` / `weddingIsOwner` / `weddingRole`:
  *
- * - `weddingHostId` — the caller's own `wedding_hosts.id`, `undefined` for the
- *   owner.
+ * - `weddingHostId` — the caller's own `wedding_hosts.id`. Every member holds
+ *   a seat, owners included.
  * - `weddingRunSheetScope` — `own` or `full`, from `runSheetScopeFor()`. A
  *   route MUST narrow its response to this: `runSheetVisibleTo()` in
  *   `wedding-role.ts` is the filter, and returning the whole run sheet to a

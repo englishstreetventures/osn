@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { metricInviteAssetUploaded } from "../metrics";
 import type { ImageCrop } from "../schemas/invite";
 import { deleteAsset, storeAsset } from "./invite-assets";
@@ -74,7 +75,7 @@ export const eventImageService = {
           .select({ key: events.eventImageKey })
           .from(events)
           .innerJoin(weddings, eq(events.weddingId, weddings.id))
-          .where(and(eq(weddings.slug, slug), eq(events.id, eventId)))
+          .where(and(eq(weddings.slug, slug), eq(events.id, eventId), weddingIsLive))
           .all(),
       );
       if (!row) return yield* Effect.fail(new EventNotFound({ eventId }));
