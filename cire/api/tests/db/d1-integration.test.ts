@@ -40,7 +40,7 @@ import {
   runInD1Session,
   withD1Session,
 } from "../../src/db/d1-session";
-import { createD1Db, DbService } from "../../src/db/index";
+import { commitBatch, createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
@@ -2698,6 +2698,115 @@ describe("cire/api over real D1 (Miniflare)", () => {
         }),
       );
       expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  /** Seat a second owner on the seeded wedding. */
+  const seatSecondOwner = () =>
+    db.insert(weddingHosts).values(ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_second"));
+
+  const ownerIds = async () =>
+    (
+      await db
+        .select({ id: weddingHosts.osnProfileId })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.role, "owner"))
+    ).map((r) => r.id);
+
+  /** Run `effect` against D1 and keep its Exit, so two can race. */
+  const exitOf = <E>(effect: Effect.Effect<unknown, E, DbService>) =>
+    Effect.runPromiseExit(effect.pipe(Effect.asVoid, Effect.provideService(DbService, db)));
+
+  // The last-owner guard sits inside each writing statement, so it must hold
+  // when two owners act at the same moment, not only one after the other.
+  it(
+    "two owners demoting each other at once: one succeeds, the other gets LastOwner",
+    async () => {
+      await seatSecondOwner();
+      const results = await Promise.all(
+        ["usr_test", "usr_second"].map((profile) =>
+          exitOf(
+            hostsService.setRole({
+              weddingId: BOOTSTRAP_WEDDING_ID,
+              osnProfileId: profile,
+              role: "editor",
+            }),
+          ),
+        ),
+      );
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      const failed = results.find(Exit.isFailure);
+      expect(failed && Cause.squash(failed.cause)).toMatchObject({ _tag: "LastOwner" });
+      expect(await ownerIds()).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "two owners leaving at once: one leaves, the other is refused and keeps the wedding",
+    async () => {
+      await seatSecondOwner();
+      const results = await Promise.all(
+        ["usr_test", "usr_second"].map((profile) =>
+          exitOf(hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: profile })),
+        ),
+      );
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      expect(await ownerIds()).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "an owner stepping down while the other owner is removed leaves one owner",
+    async () => {
+      await seatSecondOwner();
+      const results = await Promise.all([
+        exitOf(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            role: "editor",
+          }),
+        ),
+        exitOf(
+          hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+        ),
+      ]);
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      expect(await ownerIds()).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a wedding insert and a failing owner-seat insert in one D1 batch leave no wedding behind",
+    async () => {
+      // The shape `createForOwner` commits: if the owner seat cannot be
+      // written, the wedding must not exist either. The seat collides with the
+      // seeded owner's on the one-seat-per-person index.
+      const [seeded] = await db
+        .select({ id: weddingHosts.id })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.osnProfileId, "usr_test"));
+      const now = new Date();
+      await expect(
+        commitBatch(db, [
+          db.insert(weddings).values({
+            id: "wed_d1_orphan",
+            slug: "d1-orphan",
+            displayName: "Orphan",
+            createdAt: now,
+            updatedAt: now,
+          }),
+          db.insert(weddingHosts).values({
+            ...ownerSeat("wed_d1_orphan", "usr_orphan", now),
+            id: seeded!.id,
+          }),
+        ]),
+      ).rejects.toThrow();
+      expect(await db.select().from(weddings).where(eq(weddings.id, "wed_d1_orphan"))).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
