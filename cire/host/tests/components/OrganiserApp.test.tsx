@@ -102,6 +102,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+      onLeftWedding?: () => void;
     }) => {
       const { authFetch } = useAuth();
       shellMounts += 1;
@@ -132,6 +133,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           >
             rename
           </button>
+          <button onClick={() => props.onLeftWedding?.()}>leave</button>
         </div>
       );
     },
@@ -602,6 +604,30 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     setCachedVendors("wed_a", [vendorRow("wed_a")]);
     expect(peekCachedVendors("wed_a")).toHaveLength(1);
+  });
+
+  it("drops a wedding the organiser leaves from the list, the route and the caches", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        { id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "editor" },
+        { id: "wed_b", slug: "b", displayName: "Bea & Cal", role: "viewer" },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(peekCachedVendors("wed_a")).toHaveLength(1);
+
+    fireEvent.click(screen.getByText("leave"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(window.location.hash).not.toContain("wed_a");
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    // Leaving is local: the list is not asked again.
+    expect(listCalls()).toBe(1);
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

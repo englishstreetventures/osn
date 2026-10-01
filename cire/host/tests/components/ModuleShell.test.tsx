@@ -118,9 +118,15 @@ vi.mock("../../src/components/HostsPanel", () => ({
   // connecting the API's weddingEditor() gate on POST /hosts to the portal's
   // add form, and with the mock reading only weddingId, reverting it to
   // `props.canManage` — switching the whole capability off for editors — left
-  // all 663 organiser tests green.
-  default: (p: { weddingId: string; canManage: boolean; canAdd: boolean }) => (
-    <div data-testid="hosts" data-can-manage={String(p.canManage)} data-can-add={String(p.canAdd)}>
+  // all 663 organiser tests green. `canLeave` is surfaced for the same reason:
+  // it is derived here, and nothing downstream can see a wrong derivation.
+  default: (p: { weddingId: string; canManage: boolean; canAdd: boolean; canLeave?: boolean }) => (
+    <div
+      data-testid="hosts"
+      data-can-manage={String(p.canManage)}
+      data-can-add={String(p.canAdd)}
+      data-can-leave={String(p.canLeave)}
+    >
       {p.weddingId}
     </div>
   ),
@@ -360,6 +366,7 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("hosts");
       expect(panel.getAttribute("data-can-add")).toBe("true");
       expect(panel.getAttribute("data-can-manage")).toBe("false");
+      expect(panel.getAttribute("data-can-leave")).toBe("true");
     });
 
     it("gives a viewer co-host neither", () => {
@@ -367,6 +374,7 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("hosts");
       expect(panel.getAttribute("data-can-add")).toBe("false");
       expect(panel.getAttribute("data-can-manage")).toBe("false");
+      expect(panel.getAttribute("data-can-leave")).toBe("true");
     });
 
     it("gives the owner both", () => {
@@ -374,6 +382,7 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("hosts");
       expect(panel.getAttribute("data-can-add")).toBe("true");
       expect(panel.getAttribute("data-can-manage")).toBe("true");
+      expect(panel.getAttribute("data-can-leave")).toBe("false");
     });
   });
 

@@ -170,6 +170,8 @@ interface ModuleShellProps {
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+  /** The organiser left this wedding from the co-host panel. */
+  onLeftWedding?: () => void;
   /** Entitlement keys active on this wedding (from the API list response).
    *  A module whose key is absent is locked: its nav row fades and offers the
    *  upgrade, and the module itself never renders — the shell coerces it to
@@ -684,13 +686,17 @@ export default function ModuleShell(props: ModuleShellProps) {
                   />
                 </Show>
                 <Show when={active() === "hosts"}>
-                  {/* Two flags, because the API has two gates here: adding a
-                  co-host is `weddingEditor()` (so `canEdit`), while changing a
-                  role or removing one stays `weddingOwner()`. */}
+                  {/* Three flags, because the API has three gates here: adding
+                  a co-host is `weddingEditor()` (so `canEdit`), changing a role
+                  or removing someone else stays `weddingOwner()`, and leaving
+                  is any co-host's — everyone who reaches this panel except the
+                  owner, who has no seat to leave. */}
                   <HostsPanel
                     weddingId={props.weddingId}
                     canManage={props.canManage}
                     canAdd={props.canEdit}
+                    canLeave={!props.canManage}
+                    onLeft={props.onLeftWedding}
                   />
                 </Show>
               </Show>
