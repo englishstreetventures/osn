@@ -10,7 +10,6 @@ import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
 import { ConsumeClaimBody, UpsertListingBody } from "../schemas/vendors";
 import type { createDirectoryService } from "../services/directory";
-import type { createEnquiryService } from "../services/enquiries";
 import type { OsnOrgMembershipResolver, OsnProfileOrgsResolver } from "../services/osn-bridge";
 
 // Sentinel parse hook — the handler parses by hand so a malformed payload
@@ -33,6 +32,12 @@ const orgHasListing = (set: { status?: number | string }) =>
   Effect.sync(() => {
     set.status = 409;
     return { error: "org_has_listing" };
+  });
+
+const awaitingConfirmation = (set: { status?: number | string }) =>
+  Effect.sync(() => {
+    set.status = 409;
+    return { error: "listing_awaiting_confirmation" };
   });
 
 const internal = (set: { status?: number | string }) =>
@@ -60,23 +65,16 @@ export interface VendorPortalDeps {
    * `GET /orgs` proxies this.
    */
   profileOrgs: OsnProfileOrgsResolver;
-  /**
-   * Couple-side enquiry BFF service. After a successful claim we flush any
-   * enquiries buffered against the just-claimed listing (`onVendorClaimed`) —
-   * best-effort (its error channel is `never`), so a flush hiccup never fails
-   * the claim itself.
-   */
-  enquiryService: ReturnType<typeof createEnquiryService>;
 }
 
 /**
  * Vendor-facing portal routes (Vendors Slice 1, platform Phase 2):
  *
  *   GET  /api/vendor/claims/:token              — preview (no auth required)
- *   POST /api/vendor/claims/:token/consume      — consume claim (osnAuth + org member gate)
+ *   POST /api/vendor/claims/:token/consume      — consume claim; held for an operator (osnAuth + org member gate)
  *   GET  /api/vendor/orgs                       — the caller's OSN orgs (osnAuth)
  *   GET  /api/vendor/orgs/:orgId/listing        — read listing (osnAuth + org member gate)
- *   PUT  /api/vendor/orgs/:orgId/listing        — upsert listing (osnAuth + org member gate)
+ *   PUT  /api/vendor/orgs/:orgId/listing        — upsert listing; 409 while a claim is held (osnAuth + org member gate)
  *
  * Mounted at /api/vendor (NOT under the wedding group — these are org-scoped,
  * not wedding-scoped). The claim preview is deliberately unauthenticated so the
@@ -95,7 +93,7 @@ export function createVendorPortalRoutes(
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
 ) {
-  const { directoryService, orgMembership, profileOrgs, enquiryService } = deps;
+  const { directoryService, orgMembership, profileOrgs } = deps;
 
   return (
     new Elysia({ prefix: "/api/vendor" })
@@ -136,17 +134,10 @@ export function createVendorPortalRoutes(
               const role = yield* Effect.promise(() => orgMembership(orgId, profileId));
               if (!role) return forbiddenNotMember(set);
 
+              // The claim is held for an operator: the listing comes back
+              // `awaitingConfirmation`, not live, and buffered enquiries stay
+              // buffered until the confirm's hand-off (daily cron).
               const listing = yield* directoryService.consumeClaim(params.token, orgId, profileId);
-
-              // Claim-flush: provision + send any enquiries buffered against this
-              // listing while it was unclaimed. Best-effort (error channel
-              // `never`) — a flush failure is logged inside the service and must
-              // not fail the claim, which already succeeded above.
-              yield* enquiryService.onVendorClaimed({
-                directoryVendorId: listing.id,
-                vendorProfileId: profileId,
-              });
-
               return { listing };
             }).pipe(
               Effect.provideService(DbService, db),
@@ -216,6 +207,7 @@ export function createVendorPortalRoutes(
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchTag("SchemaError", () => badRequest(set)),
+              Effect.catchTag("ListingAwaitingConfirmation", () => awaitingConfirmation(set)),
               Effect.catchDefect(() => internal(set)),
             ),
           );
