@@ -176,7 +176,8 @@ export default function RegistryImageField(props: {
   /** Revoke every candidate thumbnail and forget the set. */
   function clearCandidateThumbs() {
     thumbGeneration += 1;
-    for (const url of candidateThumbs().values()) if (url) URL.revokeObjectURL(url);
+    for (const objectUrl of candidateThumbs().values())
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     setCandidateThumbs(new Map());
   }
   onCleanup(clearCandidateThumbs);
