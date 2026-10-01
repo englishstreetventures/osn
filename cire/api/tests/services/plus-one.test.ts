@@ -5,6 +5,7 @@ import {
   families,
   guestEvents,
   guests,
+  rsvpChanges,
   rsvps,
   weddingEntitlements,
   weddings,
@@ -50,6 +51,21 @@ const failureOf = <A, E extends object>(eff: Effect.Effect<A, E, DbService>) =>
       Effect.match({ onFailure: (e): unknown => ({ ...e }), onSuccess: (): unknown => "ok" }),
     ),
   );
+
+/** The RSVP change log, oldest first, as the plus-one writes leave it. */
+function changeLog() {
+  return db
+    .select({
+      weddingId: rsvpChanges.weddingId,
+      familyId: rsvpChanges.familyId,
+      guestId: rsvpChanges.guestId,
+      eventId: rsvpChanges.eventId,
+      kind: rsvpChanges.kind,
+    })
+    .from(rsvpChanges)
+    .orderBy(rsvpChanges.seq)
+    .all();
+}
 
 function plusOnesOf(inviterId: string) {
   return db.select().from(guests).where(eq(guests.plusOneOfGuestId, inviterId)).all();
@@ -376,6 +392,7 @@ describe("plusOneService.save — a household rename", () => {
       await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" })),
     ).toBe("PlusOneGuestNotFound");
     expect(db.select().from(guests).where(eq(guests.firstName, "Alex")).all()).toEqual([]);
+    expect(changeLog()).toEqual([]);
   });
 
   it("clears a reply given between the read and the rename", async () => {
@@ -403,15 +420,15 @@ describe("plusOneService.save — a household rename", () => {
     expect(replyOf(samId)).toMatchObject({ dietary: "", dietaryConsentVersion: null });
   });
 
-  it("renames over dietary answers in one read and one batch of two", async () => {
+  it("renames over dietary answers in one read and one batch of three", async () => {
     const bo = guestNamed(db, "Bo");
     const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
     giveDietary(samId);
     const recorded = recordStatements(db);
     await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
-    // The context read, then the clear and the name write, which answers with
-    // its own row.
-    expect(recorded).toHaveLength(3);
+    // The context read, then the clear, the change row and the name write,
+    // which answers with its own row.
+    expect(recorded).toHaveLength(4);
   });
 
   /**
@@ -457,6 +474,7 @@ describe("buildCreatePlusOne — the double submit", () => {
     expect(db.select().from(guestEvents).where(eq(guestEvents.guestId, "g_loser")).all()).toEqual(
       [],
     );
+    expect(changeLog()).toEqual([]);
   });
 });
 
@@ -1262,12 +1280,13 @@ describe("plusOneService — the host-preview household", () => {
 });
 
 describe("plusOneService — statements per write", () => {
-  // Every guest write reads its whole context in ONE statement. Naming adds
-  // only the guest count (the cap comes from that context read) before a
-  // three-statement batch; a rename is one batch of two (clear any dietary
-  // answers, write the name and return it); an unchanged name writes nothing;
-  // a remove is one write; a remove with nothing named writes nothing.
-  it("names in four statements, renames in three, removes in two, and a repeat remove in one", async () => {
+  // Every guest write reads its whole context in ONE statement. Naming is
+  // then one batch (the guarded insert, the invitations, the change row and
+  // the read-back); a rename is one batch of three (clear any dietary answers,
+  // the change row, write the name and return it); an unchanged name writes
+  // nothing; a remove is one batch of two (the change row, the delete); a
+  // remove with nothing named writes nothing.
+  it("names in five statements, renames in four, removes in three, and a repeat remove in one", async () => {
     const bo = guestNamed(db, "Bo");
     allowPlusOne(db, bo.id);
     const recorded = recordStatements(db);
@@ -1278,16 +1297,17 @@ describe("plusOneService — statements per write", () => {
     };
     expect(
       // The context read, then one batch: the guarded insert, the invitation
-      // copy and the read-back. The insert checks the cap, so no count runs first.
+      // copy, the change row and the read-back. The insert checks the cap, so
+      // no count runs first.
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
+    ).toBe(5);
+    expect(
+      await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(4);
     expect(
       await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
-    ).toBe(3);
-    expect(
-      await count(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" })),
     ).toBe(1);
-    expect(await count(plusOneService.remove(bo.familyId, bo.id))).toBe(2);
+    expect(await count(plusOneService.remove(bo.familyId, bo.id))).toBe(3);
     expect(await count(plusOneService.remove(bo.familyId, bo.id))).toBe(1);
   });
 
@@ -1332,5 +1352,205 @@ describe("plusOneService — statements per write", () => {
       }),
     );
     expect(recorded).toHaveLength(2);
+  });
+});
+
+describe("plusOneService — the RSVP change log", () => {
+  const change = (
+    familyId: string,
+    guestId: string,
+    kind: "plus_one_added" | "plus_one_renamed" | "plus_one_removed",
+  ) => ({
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    familyId,
+    guestId,
+    eventId: null,
+    kind,
+  });
+
+  it("logs one row per household add, rename and remove, keyed on the inviter", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" }));
+    expect(changeLog()).toEqual([change(bo.familyId, bo.id, "plus_one_added")]);
+
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Samira", lastName: "" }));
+    await run(plusOneService.remove(bo.familyId, bo.id));
+    expect(changeLog()).toEqual([
+      change(bo.familyId, bo.id, "plus_one_added"),
+      change(bo.familyId, bo.id, "plus_one_renamed"),
+      change(bo.familyId, bo.id, "plus_one_removed"),
+    ]);
+  });
+
+  it("logs nothing for a rename to the same name, or a remove with nobody named", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam" });
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: " Sam ", lastName: "" }));
+    const ada = guestNamed(db, "Ada");
+    await run(plusOneService.remove(ada.familyId, ada.id));
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs nothing when a write is refused", async () => {
+    const bo = guestNamed(db, "Bo");
+    // No permission.
+    await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" }));
+    expect(changeLog()).toEqual([]);
+
+    // Past the deadline: name, rename and remove are all refused.
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    db.update(weddings)
+      .set({ rsvpDeadline: "2000-01-01", rsvpDeadlineTimezone: "UTC" })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    expect(
+      await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Pat", lastName: "" })),
+    ).toBe("PlusOneRsvpClosed");
+    expect(await tagOf(plusOneService.remove(bo.familyId, bo.id))).toBe("PlusOneRsvpClosed");
+    expect(plusOnesOf(bo.id).map((g) => g.id)).toEqual([samId]);
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs nothing for the host preview", async () => {
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "HOST-TEST-0002",
+        familyName: "Host",
+        kind: "host",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: "g_host",
+        familyId: "fam_host",
+        firstName: "Host",
+        plusOneAllowed: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    expect(
+      await tagOf(plusOneService.save("fam_host", "g_host", { firstName: "Sam", lastName: "" })),
+    ).toBe("PlusOnePreview");
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs nothing when the guest cap refuses a new plus-one", async () => {
+    const bo = guestNamed(db, "Bo");
+    allowPlusOne(db, bo.id);
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_fill",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "FILL-0002",
+        familyName: "Filler",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    const current = db
+      .select({ id: guests.id })
+      .from(guests)
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all().length;
+    for (let i = current; i < BASE_GUEST_CAP; i++) {
+      db.insert(guests)
+        .values({
+          id: `g_fill_${i}`,
+          familyId: "fam_fill",
+          firstName: `Filler${i}`,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    db.delete(weddingEntitlements)
+      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    expect(
+      await tagOf(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "" })),
+    ).toBe("CapacityExceeded");
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs nothing for the organiser's writes", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sma" });
+    await run(
+      plusOneService.renameAsOrganiser({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        inviterGuestId: bo.id,
+        name: { firstName: "Sam", lastName: "" },
+      }),
+    );
+    await run(
+      plusOneService.setGuestPermission({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: bo.id,
+        allowed: false,
+        removePlusOnes: confirmedIn(bo.familyId),
+      }),
+    );
+    expect(plusOnesOf(bo.id)).toEqual([]);
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs a rename of the last name alone", async () => {
+    const bo = guestNamed(db, "Bo");
+    seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Lee" });
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Sam", lastName: "Li" }));
+    expect(changeLog()).toEqual([change(bo.familyId, bo.id, "plus_one_renamed")]);
+  });
+
+  it("logs no rename when another device gave the same name first", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let raced = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!raced && sql.startsWith('insert into "rsvp_changes"')) {
+          raced = true;
+          prepare("update guests set first_name = 'Alex' where id = ?").run(samId);
+        }
+        return prepare(sql);
+      },
+    });
+    await run(plusOneService.save(bo.familyId, bo.id, { firstName: "Alex", lastName: "" }));
+    expect(raced).toBe(true);
+    expect(changeLog()).toEqual([]);
+  });
+
+  it("logs no removal when the plus-one is gone before the remove's batch", async () => {
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    // Another device removes Sam after this remove read its context.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    let raced = false;
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (!raced && sql.startsWith('insert into "rsvp_changes"')) {
+          raced = true;
+          prepare("delete from guests where id = ?").run(samId);
+        }
+        return prepare(sql);
+      },
+    });
+    expect(await run(plusOneService.remove(bo.familyId, bo.id))).toEqual({ removed: false });
+    expect(raced).toBe(true);
+    expect(changeLog()).toEqual([]);
   });
 });

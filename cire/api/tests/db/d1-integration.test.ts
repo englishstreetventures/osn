@@ -1252,6 +1252,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(guestEvents)
         .where(eq(guestEvents.guestId, rows[0]!.id));
       expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+      // The change row rides the batch that names them, so the skipped submit
+      // logs nothing.
+      const logged = await db
+        .select({ guestId: rsvpChanges.guestId, kind: rsvpChanges.kind })
+        .from(rsvpChanges);
+      expect(logged).toEqual([{ guestId: GUEST_1, kind: "plus_one_added" }]);
     },
     MF_TIMEOUT_MS,
   );
@@ -1997,6 +2003,49 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const [third] = await insert();
       expect(second!.seq).toBeGreaterThan(first!.seq);
       expect(third!.seq).toBeGreaterThan(second!.seq);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the card's summary and the table's rows from real changes",
+    async () => {
+      const at = new Date("2026-09-20T10:00:00Z");
+      const change = (
+        guestId: string,
+        eventId: string | null,
+        kind: "reply_new" | "plus_one_added",
+      ) => ({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: FAMILY_ID,
+        guestId,
+        eventId,
+        kind,
+        createdAt: at,
+      });
+      await db
+        .insert(rsvpChanges)
+        .values([
+          change(GUEST_1, EVENT_A, "reply_new"),
+          change(GUEST_2, EVENT_B, "reply_new"),
+          change(GUEST_1, null, "plus_one_added"),
+        ]);
+      const newest = await db.select({ seq: rsvpChanges.seq }).from(rsvpChanges);
+
+      const feed = await run(rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, "usr_b"));
+      expect(feed.households).toBe(1);
+      expect(feed.truncated).toBe(false);
+      expect(feed.items).toHaveLength(1);
+      expect(feed.items[0]!.kinds).toEqual(["reply_new", "plus_one_added"]);
+      expect(feed.items[0]!.at).toEqual(at);
+
+      const table = await run(rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, "usr_b"));
+      expect(table.rows).toEqual([
+        { guestId: GUEST_1, eventId: EVENT_A },
+        { guestId: GUEST_2, eventId: EVENT_B },
+        { guestId: GUEST_1, eventId: null },
+      ]);
+      expect(table.markSeq).toBe(Math.max(...newest.map((r) => r.seq)));
     },
     MF_TIMEOUT_MS,
   );

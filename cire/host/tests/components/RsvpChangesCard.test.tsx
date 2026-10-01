@@ -45,7 +45,6 @@ function json(body: unknown, status = 200) {
 }
 
 const FEED = {
-  markSeq: 12,
   households: 2,
   truncated: false,
   items: [
@@ -57,7 +56,6 @@ const FEED = {
     },
     { familyId: "f2", familyName: "Jones", kinds: ["reply_edited"], at: new Date().toISOString() },
   ],
-  rows: [{ guestId: "g1", eventId: "e1" }],
   digest: { available: true, enabled: true },
 };
 
