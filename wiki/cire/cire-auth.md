@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-28
+last-reviewed: 2026-10-01
 ---
 
 # Cire auth model
@@ -163,7 +163,7 @@ Four routes make up the surface, plus the middleware:
 | ------------------------------------------------------------------------------------------------- | ----- | ------ | ------ | --------- | ------------------------------- |
 | View guests / events / RSVPs dashboard, CSV exports, `GET /settings`, `GET /invite`, `GET /hosts` | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
 | Preview the invite (`POST /preview-code`)                                                         | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
-| Unseen RSVP changes (`GET /rsvp-changes`) and marking them seen (`POST /rsvp-changes/seen` — writes only the caller's own read marker) | ✅ | ✅ | ✅ | ❌ | `weddingMember()` |
+| Unseen RSVP changes (`GET /rsvp-changes`, `GET /rsvp-changes/rows`) and marking them seen (`POST /rsvp-changes/seen` — writes only the caller's own read marker) | ✅ | ✅ | ✅ | ❌ | `weddingMember()` |
 | The caller's own daily RSVP digest switch (`PUT /rsvp-changes/digest`) — only the owner and editors are sent the digest | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
 | The day-of run sheet                                                                              | ✅    | ✅     | ✅     | ✅ scoped | `weddingRunSheet()`             |
 | Changes — head / preview / apply / revert / list                                                  | ✅    | ✅     | ❌     | ❌        | `weddingEditor()`               |
