@@ -77,6 +77,7 @@ export default function ListingEditor(props: ListingEditorProps) {
   const [checked, setChecked] = createSignal<Record<string, boolean>>({});
 
   const [seeded, setSeeded] = createSignal(false);
+  const awaitingConfirmation = () => listing()?.awaitingConfirmation === true;
   const [saving, setSaving] = createSignal(false);
   // Set when a save comes back rejected, so the message lands on the field
   // rather than only in a toast that has since faded.
@@ -177,7 +178,13 @@ export default function ListingEditor(props: ListingEditorProps) {
           </h2>
         </div>
         <Show when={listing()}>
-          {(l) => <Chip tone={l().listed === "live" ? "success" : "neutral"}>{l().listed}</Chip>}
+          {(l) =>
+            l().awaitingConfirmation ? (
+              <Chip tone="pending">awaiting confirmation</Chip>
+            ) : (
+              <Chip tone={l().listed === "live" ? "success" : "neutral"}>{l().listed}</Chip>
+            )
+          }
         </Show>
       </div>
 
@@ -191,8 +198,17 @@ export default function ListingEditor(props: ListingEditorProps) {
         </Notice>
       </Show>
 
+      {/* A claim waiting for an operator: nothing to edit until it is confirmed,
+          and the server refuses a save, so the form stays away. */}
+      <Show when={awaitingConfirmation()}>
+        <Notice tone="info">
+          Awaiting confirmation. We check every claim by hand before {props.orgName} takes over this
+          listing. Until then it isn't live, and couples' enquiries wait here for you.
+        </Notice>
+      </Show>
+
       {/* Form — rendered once seeded (includes empty-form case for new orgs) */}
-      <Show when={!listing.loading && !listing.error && seeded()}>
+      <Show when={!listing.loading && !listing.error && seeded() && !awaitingConfirmation()}>
         <form class="flex flex-col gap-5" noValidate onSubmit={handleSave}>
           <Field
             label={

@@ -16,6 +16,7 @@ import { organiserOriginFrom } from "./lib/organiser-origin";
 import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
+import { claimReviewService } from "./services/claim-review";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
@@ -553,8 +554,8 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Eight
-  // independent jobs share the cron (seven when the digest has no transport):
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Nine
+  // independent jobs share the cron (eight when the digest has no transport):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -574,13 +575,16 @@ const handler: ExportedHandler<Env> = {
   //     non-empty bucket, and caps deletions per run. See asset-reconcile.ts.
   //  5. Expired vendor-claim tokens + 6. abandoned `preview` change rows (with
   //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
-  //  7. RSVP change-log rows past their 90-day window — services/rsvp-changes.ts.
-  //  8. The daily RSVP digest email to each wedding's owner and editors, sent
+  //  7. Vendor claims held for an operator: hand-off of confirmed listings'
+  //     buffered enquiries, and a daily count of those still waiting —
+  //     services/claim-review.ts.
+  //  8. RSVP change-log rows past their 90-day window — services/rsvp-changes.ts.
+  //  9. The daily RSVP digest email to each wedding's owner and editors, sent
   //     only when osn-api can be asked for addresses and Resend is configured
   //     — services/rsvp-digest.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles. All eight
+  // the other and the isolate stays alive until each delete settles. All nine
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
@@ -692,6 +696,28 @@ const handler: ExportedHandler<Env> = {
         maintenanceSweeps.sweepExpiredVendorClaims().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled vendor-claim sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Vendor claims held for an operator: hand confirmed listings their
+    // buffered enquiries, and log how many claims are still waiting. The zap
+    // client is built the same way `fetch` builds it; null leaves the
+    // enquiries buffered for a later run.
+    const handoffZap = await createZapChatClientFromEnv({
+      zapApiUrl: env.ZAP_API_URL,
+      arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+      arcKeyId: env.CIRE_API_ARC_KEY_ID,
+    });
+    runSweep(() =>
+      Effect.runPromise(
+        claimReviewService.sweep(handoffZap).pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled vendor claim review sweep failed", {
+              reason: err.reason,
+            }),
           ),
           Effect.provide(dbLayer),
         ),

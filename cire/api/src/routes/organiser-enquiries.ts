@@ -178,7 +178,7 @@ export const createOrganiserEnquiriesRoutes = (
                   const body = yield* Schema.decodeUnknownEffect(OpenBody)(raw);
                   // Single read of the listing — the union of what the claim
                   // gate, enquiry-open, and the email fields each need. The row
-                  // is passed down; the claim-mint gate (ownerOrgId !== null)
+                  // is passed down; the claim-mint gate (owned or pending)
                   // stays inside issueClaimForListing, not decided here.
                   const db_ = yield* DbService;
                   const [dv] = yield* dbQuery(() =>
@@ -186,6 +186,7 @@ export const createOrganiserEnquiriesRoutes = (
                       .select({
                         id: directoryVendors.id,
                         ownerOrgId: directoryVendors.ownerOrgId,
+                        reviewOrgId: directoryVendors.reviewOrgId,
                         email: directoryVendors.email,
                         name: directoryVendors.name,
                         phone: directoryVendors.phone,

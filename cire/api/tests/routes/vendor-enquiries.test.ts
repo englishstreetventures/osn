@@ -509,8 +509,8 @@ describe("POST /api/vendor/enquiries/:id/messages (reply)", () => {
   });
 });
 
-describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
-  it("flushes buffered enquiries: provisions chat + sends pending body", async () => {
+describe("claim hold and hand-off (POST /api/vendor/claims/:token/consume)", () => {
+  it("holds the claim with enquiries buffered, then hands them over once an operator confirms", async () => {
     const { app, db, fakeZap } = buildApp();
     // Seed an UNCLAIMED listing with a live claim token, plus a buffered enquiry.
     const now = new Date();
@@ -546,6 +546,7 @@ describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
         .issueClaimForListing({
           id: dvId,
           ownerOrgId: null,
+          reviewOrgId: null,
           email: "toclaim@vendor.test",
           name: "To Claim Florals",
           phone: null,
@@ -618,13 +619,44 @@ describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
       orgId: ORG_OK,
     });
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { listing: { awaitingConfirmation: boolean } };
+    expect(body.listing.awaitingConfirmation).toBe(true);
 
-    // The listing now records the claiming profile (central fix).
-    const dvRow = db.select().from(directoryVendors).where(eq(directoryVendors.id, dvId)).get();
-    expect(dvRow!.claimedByProfileId).toBe(VENDOR);
-    expect(dvRow!.ownerOrgId).toBe(ORG_OK);
+    // Held: the listing is not bound to the claimant, and nothing is handed over.
+    const held = db.select().from(directoryVendors).where(eq(directoryVendors.id, dvId)).get();
+    expect(held!.claimedByProfileId).toBeNull();
+    expect(held!.ownerOrgId).toBeNull();
+    expect(held!.reviewOrgId).toBe(ORG_OK);
+    expect(held!.reviewProfileId).toBe(VENDOR);
+    const buffered = db
+      .select()
+      .from(vendorEnquiries)
+      .where(eq(vendorEnquiries.id, enquiryId))
+      .get();
+    expect(buffered!.zapChatId).toBeNull();
+    expect(buffered!.pendingBody).toBe("please quote our spring wedding");
+    expect(fakeZap.provisions).toHaveLength(0);
 
-    // The buffered enquiry was flushed: chat provisioned + pending body cleared.
+    // The claimant cannot reach the buffered enquiry yet.
+    const list = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { enquiries: { id: string }[] };
+    expect(Array.isArray(listed.enquiries)).toBe(true);
+    expect(listed.enquiries.map((e) => e.id)).not.toContain(enquiryId);
+    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}`, VENDOR);
+    expect(thread.status).toBe(404);
+
+    // The operator confirms (the same UPDATE the review script sends), and the
+    // daily sweep hands the buffered enquiry over.
+    db.$client.exec(
+      `UPDATE directory_vendors SET owner_org_id = review_org_id, claimed_by_profile_id = review_profile_id, listed = 'live', review_org_id = NULL, review_profile_id = NULL, review_requested_at = NULL, updated_at = unixepoch() WHERE id = '${dvId}'`,
+    );
+    const { claimReviewService } = await import("../../src/services/claim-review");
+    const swept = await Effect.runPromise(
+      claimReviewService.sweep(fakeZap.client).pipe(Effect.provideService(DbService, db)),
+    );
+    expect(swept.handedOff).toBe(1);
+
     const enqRow = db.select().from(vendorEnquiries).where(eq(vendorEnquiries.id, enquiryId)).get();
     expect(enqRow!.zapChatId).not.toBeNull();
     expect(enqRow!.pendingBody).toBeNull();
