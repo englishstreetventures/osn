@@ -150,9 +150,11 @@ owners, each with an `owner` seat. Two consequences:
   (`weddings.deleted_by_osn_profile_id`). An access answer gives the
   requester their own seat and role, and for each wedding the fact that it has
   other owners and how many, but not their profile ids, handles or roles, and
-  not who added the requester's seat or deleted the wedding unless that was
-  the requester. Those identify a co-owner, whose rights Art. 15(4) protects;
-  the co-owner can ask for their own. Guest data under the wedding is not the
+  not who deleted the wedding unless that was the requester. Those identify a
+  co-owner, whose rights Art. 15(4) protects; the co-owner can ask for their
+  own. Who added the requester's seat **is** included: it is the source of
+  the requester's data (Art. 15(1)(g)), and the portal already shows it to
+  every member. Guest data under the wedding is not the
   owner's personal data, so it is not part of this answer at all: an owner
   reads and exports it in the portal, as a joint controller.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a

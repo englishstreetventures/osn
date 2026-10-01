@@ -99,6 +99,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   platform, except for the three decisions cire takes for every wedding alike
   (retention, security posture, telemetry — [[data-map]] §Controller /
   processor note). Each owner is themselves an OSN data subject.
+  **Open:** Art. 26 asks joint controllers for an arrangement setting out each
+  one's duties, with its essence available to guests, and Art. 28 asks for the
+  processor terms. Neither is written yet: the organiser terms do not name the
+  owners' duties or a point of contact, and the guest notice
+  (`cire/invites/src/pages/privacy.astro`, "Who decides what") does not say a
+  guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
   scaffold allows many weddings). We collect special-category data from a
   meaningful fraction of the guests who RSVP.
