@@ -180,9 +180,11 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     RSVP change log, so after a status-only save nothing in the database
     records that an organiser changed the status (splitting writer from
     consent basis would take a migration); and a guest an organiser marks as
-    declined keeps their dietary answer, which the caterer export still
-    prints, until the guest or an organiser clears it (the guest's own invite
-    clears it when they decline).
+    declined keeps their stored dietary answer until the guest or an
+    organiser clears it (the guest's own invite clears it when they decline).
+    The RSVP export leaves the dietary cell blank for any declined reply, so
+    the sheet that reaches caterers carries no requirement for someone who is
+    not coming (Art. 5(1)(c)).
     **A plus-one's dietary data** may be recorded by an organiser under an
     attestation of its own, which speaks of the plus-one:
     `ORGANISER_PLUS_ONE_DIETARY_ATTESTATION` in `@cire/dietary`, currently

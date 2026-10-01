@@ -735,7 +735,9 @@ export default function RsvpView(props: RsvpViewProps) {
         </Show>
 
         <Show when={formError()}>
-          <p class="text-error text-ui-sm">{formError()}</p>
+          <p role="alert" class="text-error text-ui-sm">
+            {formError()}
+          </p>
         </Show>
 
         <div class="flex items-center gap-2">

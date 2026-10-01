@@ -561,6 +561,11 @@ export const rsvpExportService = {
           if (!g.invited.has(e.id)) return "";
           const reply = rsvpByGuest.get(g.guestId)?.get(e.id);
           if (!reply) return "";
+          // A guest who is not coming needs no catering, so their requirement
+          // stays off the sheet the caterers get (Art. 5(1)(c)). The stored
+          // answer is untouched: a reply changed back to attending shows it
+          // again. An organiser's status-only decline keeps it stored.
+          if (reply.status === "declined") return "";
           // Presets and the "Other" text collapse into the ONE existing column,
           // so the sheet keeps its shape and an organiser's saved formulas
           // survive. `formatDietaryCell` is what keeps a preset-only answer from
