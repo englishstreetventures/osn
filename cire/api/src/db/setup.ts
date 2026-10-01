@@ -344,9 +344,14 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   lead_forward_email TEXT,
   claimed_by_profile_id TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  review_org_id TEXT,
+  review_profile_id TEXT,
+  review_requested_at INTEGER,
+  handoff_due_at INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS directory_vendors_owner_uniq ON directory_vendors(owner_org_id);
+CREATE UNIQUE INDEX IF NOT EXISTS directory_vendors_review_org_uniq ON directory_vendors(review_org_id);
 CREATE INDEX IF NOT EXISTS directory_vendors_listed_name_idx ON directory_vendors(listed, name, id);
 CREATE TABLE IF NOT EXISTS directory_vendor_categories (
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
