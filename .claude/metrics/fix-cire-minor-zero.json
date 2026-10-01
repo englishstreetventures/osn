@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1314,
+    "branch": "fix/cire-minor-zero",
+    "base_sha": "bf50c3be8487a98381fef82bb71a36e4f9a17642",
+    "head_sha": "b8fd2ddca552eb48d74d9b82d2b073c7c019670c",
+    "generated_at": "2026-10-01T03:23:11.791Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1272,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-10-01T03:17:50.792Z",
+    "last_ts": "2026-10-01T03:23:07.590Z",
+    "span_seconds": 317,
+    "active_seconds": 341,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.6807638999999996,
+    "tokens": {
+      "input": 118,
+      "output": 2104,
+      "thinking": 0,
+      "cache_write_5m": 217271,
+      "cache_write_1h": 0,
+      "cache_read": 3810778
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 10,
+          "output": 1420,
+          "thinking": 0,
+          "cache_write_5m": 7106,
+          "cache_write_1h": 0,
+          "cache_read": 115532
+        },
+        "usd_equivalent": 0.13772849999999998,
+        "messages": 5
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 108,
+          "output": 684,
+          "thinking": 0,
+          "cache_write_5m": 210165,
+          "cache_write_1h": 0,
+          "cache_read": 3695246
+        },
+        "usd_equivalent": 2.5430354,
+        "messages": 54
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 10,
+          "output": 1420,
+          "thinking": 0,
+          "cache_write_5m": 7106,
+          "cache_write_1h": 0,
+          "cache_read": 115532
+        },
+        "usd_equivalent": 0.13772849999999998,
+        "messages": 5
+      },
+      "subagent": {
+        "tokens": {
+          "input": 108,
+          "output": 684,
+          "thinking": 0,
+          "cache_write_5m": 210165,
+          "cache_write_1h": 0,
+          "cache_read": 3695246
+        },
+        "usd_equivalent": 2.5430354,
+        "messages": 54
+      }
+    },
+    "effort": {
+      "medium": 54
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 2,
+      "config": 0,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 162,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 3,
+        "deleted": 3
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 58,
+        "deleted": 13
+      }
+    },
+    "packages": [
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 51,
+      "Read": 4,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "StructuredOutput": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {
+      "general-purpose": 3
+    }
+  }
+}
