@@ -1,9 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import { DIETARY_PRESETS } from "@cire/dietary";
+import {
+  DIETARY_CONSENT_VERSION as SEED_DIETARY_CONSENT_VERSION,
+  ORGANISER_DIETARY_CONSENT_VERSION as SEED_ORGANISER_DIETARY_CONSENT_VERSION,
+} from "@cire/db/seed";
+import { DIETARY_PRESETS, ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { Schema } from "effect";
 
-import { BulkRsvpBody, OrganiserRsvpBody, RsvpBody } from "../../src/schemas/rsvp";
+import {
+  BulkRsvpBody,
+  DIETARY_CONSENT_VERSION,
+  OrganiserRsvpBody,
+  RsvpBody,
+} from "../../src/schemas/rsvp";
 
 // v4 replaces Either with Result: the tags are "Success"/"Failure", not
 // "Right"/"Left".
@@ -92,5 +101,16 @@ describe("dietary presets in the RSVP bodies", () => {
     expect(
       dec(OrganiserRsvpBody, { ...organiser, dietaryPresets: [...DIETARY_PRESETS, "nuts"] })._tag,
     ).toBe("Failure");
+  });
+});
+
+/**
+ * `@cire/db` cannot import these constants, so its seed holds copies. A copy
+ * that drifts seeds rows the live write path can no longer produce.
+ */
+describe("seeded consent versions", () => {
+  it("match the versions the API stamps", () => {
+    expect(SEED_DIETARY_CONSENT_VERSION).toBe(DIETARY_CONSENT_VERSION);
+    expect(SEED_ORGANISER_DIETARY_CONSENT_VERSION).toBe(ORGANISER_DIETARY_ATTESTATION.version);
   });
 });
