@@ -144,6 +144,21 @@ describe("PerHeadPanel", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it("refuses a price that rounds to zero cents, and keeps a price of 0", () => {
+    const { onSave } = panel(line());
+    const price = screen.getByLabelText(/Price per head/);
+    fireEvent.input(price, { target: { value: "0.004" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Amounts between 0 and \S*0\.01 are not allowed\./,
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.input(price, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith({ unitPriceMinor: 0 });
+  });
+
   it("offers a fixed amount only on a line that is already per head", () => {
     const { onUseFixed } = panel(line());
     fireEvent.click(screen.getByRole("button", { name: "Use a fixed amount" }));

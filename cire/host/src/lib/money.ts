@@ -106,15 +106,48 @@ export function formatMinor(
  * moment a wedding's primary currency is JPY. Reuses the memoised exponent, so
  * parsing constructs no extra formatter.
  *
- * Returns `null` for empty, non-numeric or negative input, so a caller rejects
- * rather than POSTing a `NaN` the schema would 400 on anyway.
+ * Rounds half-way amounts up by decimal rules, not by the binary product:
+ * `1.005 * 100` is `100.49999999999999` in floating point, so "1.005" AUD would
+ * come out at 100. The decimal point is shifted in the number's shortest string
+ * form instead, so "1.005" AUD is 101.
+ *
+ * Returns `null` for empty, non-numeric or negative input, and for a positive
+ * amount below half the currency's smallest unit (¥0.4, 0.0004 KWD), which
+ * would otherwise save as zero without a word. A typed 0 parses to 0. Callers
+ * show {@link belowSmallestUnitError} for that last case.
  */
 export function parseMinor(text: string, currency: string): number | null {
   const trimmed = text.trim();
   if (trimmed === "") return null;
   const units = Number(trimmed);
   if (!Number.isFinite(units) || units < 0) return null;
-  return Math.round(units * 10 ** exponentFor(currency));
+  const minor = unitsToMinor(units, exponentFor(currency));
+  if (minor === 0 && units > 0) return null;
+  return minor;
+}
+
+/** A non-negative major-unit amount in minor units, rounded half up by decimal rules. */
+function unitsToMinor(units: number, exponent: number): number {
+  const text = String(units);
+  // Exponent notation only appears below 1e-6, which rounds to 0 at any
+  // currency's exponent, or at 1e21 and above, which is already a whole number.
+  if (text.includes("e")) return Math.round(units * 10 ** exponent);
+  const [whole = "0", fraction = ""] = text.split(".");
+  const digits = fraction.padEnd(exponent + 1, "0");
+  const roundUp = digits.charAt(exponent) >= "5" ? 1 : 0;
+  return Number(whole + digits.slice(0, exponent)) + roundUp;
+}
+
+/**
+ * The message for a positive amount {@link parseMinor} refused because it
+ * rounds to zero minor units: "Amounts between 0 and ¥1 are not allowed."
+ * `null` when that is not why the text was refused.
+ */
+export function belowSmallestUnitError(text: string, currency: string): string | null {
+  const units = Number(text.trim());
+  if (!Number.isFinite(units) || units <= 0) return null;
+  if (unitsToMinor(units, exponentFor(currency)) !== 0) return null;
+  return `Amounts between 0 and ${formatMinor(1, currency)} are not allowed.`;
 }
 
 /**

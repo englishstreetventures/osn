@@ -5,6 +5,7 @@ import {
   formatMinor,
   formatMinorPair,
   minorToInput,
+  belowSmallestUnitError,
   parseMinor,
 } from "../../src/lib/money";
 
@@ -131,6 +132,59 @@ describe("parseMinor", () => {
     expect(parseMinor("   ", "AUD")).toBeNull();
     expect(parseMinor("free", "AUD")).toBeNull();
     expect(parseMinor("-5", "AUD")).toBeNull();
+  });
+
+  it("rounds half-way amounts up by decimal rules, not by the binary product", () => {
+    // `1.005 * 100` is 100.49999999999999 in floating point.
+    expect(parseMinor("1.005", "AUD")).toBe(101);
+    expect(parseMinor("1.015", "AUD")).toBe(102);
+    expect(parseMinor("12.345", "AUD")).toBe(1235);
+    expect(parseMinor("1.5", "JPY")).toBe(2);
+    expect(parseMinor("1.2345", "KWD")).toBe(1235);
+    expect(parseMinor("1.0049", "AUD")).toBe(100);
+  });
+
+  it("refuses a positive amount that rounds to zero minor units", () => {
+    expect(parseMinor("0.4", "JPY")).toBeNull();
+    expect(parseMinor("0.0004", "KWD")).toBeNull();
+    expect(parseMinor("0.004", "AUD")).toBeNull();
+    expect(parseMinor("1e-9", "AUD")).toBeNull();
+  });
+
+  it("keeps a huge amount in exponent notation whole", () => {
+    expect(parseMinor("1e21", "JPY")).toBe(1e21);
+  });
+
+  it("keeps a typed zero, and a fraction that rounds up to one minor unit", () => {
+    expect(parseMinor("0", "AUD")).toBe(0);
+    expect(parseMinor("0.00", "JPY")).toBe(0);
+    expect(parseMinor("0.5", "JPY")).toBe(1);
+    expect(parseMinor("0.005", "AUD")).toBe(1);
+  });
+});
+
+describe("belowSmallestUnitError", () => {
+  afterEach(() => {
+    __resetMoneyFormatters();
+    vi.restoreAllMocks();
+  });
+
+  it("names the currency's smallest unit for an amount that rounds to zero", () => {
+    expect(belowSmallestUnitError("0.4", "JPY")).toMatch(
+      /^Amounts between 0 and .*1 are not allowed\.$/,
+    );
+    expect(belowSmallestUnitError("0.4", "JPY")).toMatch(/¥|JPY/);
+    const kwd = belowSmallestUnitError("0.0004", "KWD");
+    expect(kwd).toMatch(/0\.001/);
+    expect(kwd).toMatch(/KWD/);
+  });
+
+  it("is null for anything parseMinor refuses for another reason, or accepts", () => {
+    expect(belowSmallestUnitError("", "JPY")).toBeNull();
+    expect(belowSmallestUnitError("0", "JPY")).toBeNull();
+    expect(belowSmallestUnitError("-0.4", "JPY")).toBeNull();
+    expect(belowSmallestUnitError("free", "JPY")).toBeNull();
+    expect(belowSmallestUnitError("0.5", "JPY")).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import { Input } from "@shared/ui/ui/input";
 import { createSignal, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
-import { formatMinor, minorToInput, parseMinor } from "../lib/money";
+import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 
 /** What a per-head save sends. `eventIds` is left out unless the organiser
  *  changed the events, so a price edit never rewrites them: `null` counts every
@@ -111,7 +111,10 @@ export function PerHeadPanel(props: {
     e.preventDefault();
     const unitPriceMinor = parseMinor(price(), props.currency);
     if (unitPriceMinor === null) {
-      setError("Enter a price per head of zero or more.");
+      setError(
+        belowSmallestUnitError(price(), props.currency) ??
+          "Enter a price per head of zero or more.",
+      );
       return;
     }
     const change: PerHeadChange = { unitPriceMinor };

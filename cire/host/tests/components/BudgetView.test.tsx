@@ -757,6 +757,66 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       expect(label).toHaveValue("Deposit");
     });
 
+    it("refuses a positive amount below the smallest unit in every money input, naming it", async () => {
+      // ¥0.4 rounds to ¥0; saving it would record a figure nobody typed.
+      setCachedBudget(
+        "wed_1",
+        snap({ currency: "JPY", budgetTotalMinor: 500_000, items: [line()] }),
+      );
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await screen.findByText("Reception venue");
+      const tooSmall = /Amounts between 0 and (¥|JPY ?)1 are not allowed\./;
+
+      fireEvent.change(screen.getByLabelText("Actual"), { target: { value: "0.4" } });
+      expect(screen.getByRole("alert")).toHaveTextContent(tooSmall);
+
+      fireEvent.input(screen.getByPlaceholderText(/caterer, venue/i), {
+        target: { value: "Cake" },
+      });
+      const estimate = screen.getByLabelText("Estimate (optional)");
+      fireEvent.input(estimate, { target: { value: "0.4" } });
+      fireEvent.submit(formOf(estimate));
+      expect(screen.getByRole("alert")).toHaveTextContent(tooSmall);
+
+      fireEvent.click(screen.getByRole("button", { name: "payments (0)" }));
+      fireEvent.input(screen.getByLabelText("Payment label"), { target: { value: "Deposit" } });
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "0.4" } });
+      fireEvent.submit(formOf(amount));
+      expect(screen.getByRole("alert")).toHaveTextContent(tooSmall);
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit budget" }));
+      fireEvent.input(screen.getByLabelText("Total budget (JPY)"), { target: { value: "0.4" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(screen.getByRole("alert")).toHaveTextContent(tooSmall);
+
+      expect(authFetch).not.toHaveBeenCalled();
+    });
+
+    it("still saves a typed 0", async () => {
+      const stored = line();
+      setCachedBudget("wed_1", snap({ currency: "JPY", items: [stored] }));
+      authFetch.mockResolvedValueOnce(json({ item: { ...stored, actualMinor: 0 } }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      await screen.findByText("Reception venue");
+      fireEvent.change(screen.getByLabelText("Actual"), { target: { value: "0" } });
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+      expect(sentBody(0)).toEqual({ actualMinor: 0 });
+    });
+
+    it("asks for a label first when a payment has none and too small an amount", async () => {
+      setCachedBudget("wed_1", snap({ currency: "JPY", items: [line()] }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "payments (0)" }));
+      const amount = screen.getByLabelText("Amount");
+      fireEvent.input(amount, { target: { value: "0.4" } });
+      fireEvent.submit(formOf(amount));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A payment needs a label and a positive amount.",
+      );
+      expect(authFetch).not.toHaveBeenCalled();
+    });
+
     it("refuses a payment with no label, keeping the amount", async () => {
       setCachedBudget("wed_1", snap({ items: [line()] }));
       render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
