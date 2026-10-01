@@ -921,7 +921,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
-      // `consent_source='organiser_attested'`. weddingEditor()-gated.
+      // `consent_source='organiser_attested'` unless the save is status-only,
+      // which keeps the stored dietary answer's source. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
       // Guest-side RSVP changes since each organiser last looked, their read
       // marker, and their daily digest switch. Feed + marker admit every role

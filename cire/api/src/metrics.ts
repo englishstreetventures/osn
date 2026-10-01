@@ -242,8 +242,17 @@ export type HostAddResult =
   | "disabled"
   | "error";
 
-/** Outcome of removing a co-host. */
-export type HostRemoveResult = "ok" | "error";
+/** Outcome of removing a co-host. `owner_refused` is the owner calling the
+ *  self-leave route: an owner is never rowed in as a co-host, so has no seat
+ *  to leave. */
+export type HostRemoveResult = "ok" | "owner_refused" | "error";
+
+/**
+ * Which route removed the seat — not the caller's role. `owner` is the owner
+ * removing someone (`DELETE /hosts/:osnProfileId`); `self` is the self-leave
+ * route (`DELETE /hosts/me`), including the owner's refused attempt at it.
+ */
+export type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a co-host's role (editor ↔ viewer). */
 export type HostRoleChangeResult = "ok" | "not_found" | "error";
@@ -321,8 +330,9 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  `guest` (written through the invite — a guest's own reply, or one the
  *  household typed for their plus-one) vs `organiser` (phone/paper RSVP
  *  recorded on the guest's behalf). An organiser's write usually stamps
- *  `consent_source='organiser_attested'`; a status-only one for a plus-one
- *  keeps the household's `inviter_attested` and still counts as `organiser`. */
+ *  `consent_source='organiser_attested'`; a status-only one over a reply holding
+ *  dietary data keeps that reply's source (`guest` or `inviter_attested`) and
+ *  still counts as `organiser`. */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
@@ -501,7 +511,7 @@ type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult };
-type HostRemovedAttrs = { result: HostRemoveResult };
+type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
@@ -852,7 +862,7 @@ const hostAdded = createCounter<HostAddedAttrs>({
 
 const hostRemoved = createCounter<HostRemovedAttrs>({
   name: CIRE_METRICS.hostRemoved,
-  description: "Co-host removals, by outcome",
+  description: "Co-host removals, by outcome and by route (owner removal or self-leave)",
   unit: "{host}",
 });
 
@@ -1116,7 +1126,8 @@ export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefus
 
 export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
 
-export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+export const metricHostRemoved = (result: HostRemoveResult, actor: HostRemoveActor): void =>
+  hostRemoved.inc({ result, actor });
 
 export const metricHostRoleChanged = (result: HostRoleChangeResult): void =>
   hostRoleChanged.inc({ result });

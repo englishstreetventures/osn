@@ -459,7 +459,9 @@ export const payments = sqliteTable(
 );
 
 // Vendors Slice 1 (platform Phase 2, migration 0040).
-// directory_vendors: the global business listing (one per OSN org).
+// directory_vendors: the global business listing. An org owns at most one:
+// `owner_org_id` is unique, and SQLite lets any number of rows hold NULL, so
+// unclaimed listings are unaffected.
 export const directoryVendors = sqliteTable(
   "directory_vendors",
   {
@@ -487,7 +489,7 @@ export const directoryVendors = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    index("directory_vendors_owner_idx").on(t.ownerOrgId),
+    uniqueIndex("directory_vendors_owner_uniq").on(t.ownerOrgId),
     // Browse runs `WHERE listed='live' … ORDER BY name, id` — the composite
     // serves filter + order in one b-tree walk (migration 0053 replaced the
     // single-column `listed` index, whose prefix this still covers).
@@ -995,9 +997,12 @@ export const rsvps = sqliteTable(
     // Plain text with no CHECK constraint, so a new value needs no DDL. One
     // column carries both facts because the writer and the consent-attester are
     // the same principal, with one exception: an organiser's status-only
-    // recording for a plus-one keeps `'inviter_attested'` while the row holds
-    // the household's dietary answer or its consent record. The column then
-    // names the dietary data's basis, not who wrote the status. Legacy rows back-fill to `'guest'` (the form was the only
+    // recording keeps the stored source (`'guest'` or `'inviter_attested'`)
+    // while the row holds a dietary answer or its consent record. The column
+    // then names the dietary data's basis, not who wrote the status. An
+    // organiser's dietary answer for a plus-one is `'organiser_attested'`,
+    // stamped with the organiser's plus-one attestation version. Legacy rows
+    // back-fill to `'guest'` (the form was the only
     // writer pre-0037). The dashboard reads this to badge organiser-entered
     // answers distinctly and show they overwrite a prior guest reply.
     consentSource: text("consent_source", {

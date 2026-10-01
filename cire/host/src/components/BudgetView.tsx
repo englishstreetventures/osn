@@ -31,7 +31,7 @@ import {
   setCachedBudget,
 } from "../lib/budget-store";
 import { haptic } from "../lib/haptics";
-import { formatMinor, minorToInput, parseMinor } from "../lib/money";
+import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
@@ -162,7 +162,7 @@ export default function BudgetView(props: BudgetViewProps) {
     // Empty means no estimate; anything else `parseMinor` refused is an error.
     if (raw !== "" && minor === null) {
       haptic("reject");
-      setError("Estimate must be a positive amount.");
+      setError(belowSmallestUnitError(raw, currency()) ?? "Estimate must be a positive amount.");
       return;
     }
     const body =
@@ -198,7 +198,7 @@ export default function BudgetView(props: BudgetViewProps) {
     const minor = raw.trim() === "" ? null : parseMinor(raw, currency());
     if (raw.trim() !== "" && minor === null) {
       haptic("reject");
-      setError("Amounts must be positive.");
+      setError(belowSmallestUnitError(raw, currency()) ?? "Amounts must be positive.");
       return;
     }
     // Optimistic.
@@ -352,7 +352,10 @@ export default function BudgetView(props: BudgetViewProps) {
     const amount = parseMinor(amountText, currency());
     if (!label.trim() || amount === null) {
       haptic("reject");
-      setError("A payment needs a label and a positive amount.");
+      setError(
+        (label.trim() ? belowSmallestUnitError(amountText, currency()) : null) ??
+          "A payment needs a label and a positive amount.",
+      );
       return false;
     }
     void postPayment(item, label.trim(), amount, dueAt);
@@ -456,7 +459,7 @@ export default function BudgetView(props: BudgetViewProps) {
     const minor = draft.trim() === "" ? null : parseMinor(draft, currency());
     if (draft.trim() !== "" && minor === null) {
       haptic("reject");
-      setError("Budget must be a positive amount.");
+      setError(belowSmallestUnitError(draft, currency()) ?? "Budget must be a positive amount.");
       return;
     }
     patchSnap((s) => ({ ...s, budgetTotalMinor: minor }));

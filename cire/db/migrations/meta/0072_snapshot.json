@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "88b2813d-fc1a-4225-9494-6c79c2971250",
-  "prevId": "767cb12e-be48-4a6d-abae-d3cc81bfd65e",
+  "id": "e07855e2-83af-4c18-92dd-9a3db4448801",
+  "prevId": "88b2813d-fc1a-4225-9494-6c79c2971250",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -1161,6 +1161,31 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "link_thumb_transforms": {
+      "name": "link_thumb_transforms",
+      "columns": {
+        "period": {
+          "name": "period",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used": {
+          "name": "used",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
+import {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+} from "@cire/dietary";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -476,6 +479,7 @@ describe("RsvpView", () => {
       dietaryPresets: [],
       dietaryConsent: true,
       dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+      dietaryAttestedName: "",
     });
   });
 
@@ -530,6 +534,7 @@ describe("RsvpView", () => {
       dietaryPresets: ["halal"],
       dietaryConsent: true,
       dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+      dietaryAttestedName: "",
     });
   });
 
@@ -555,15 +560,13 @@ describe("RsvpView", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("editor edits an existing reply (prefilled, overwrites)", async () => {
+  it("editor changes only the status of an existing reply: no attestation, a status-only body", async () => {
     // Narrow, so the prefilled preset is a checkbox on the page rather than a
     // label inside a closed popover trigger.
     restoreViewport = mockViewport(false);
     authFetchMock
       .mockResolvedValueOnce(json(VIEW))
-      .mockResolvedValueOnce(
-        json({ rsvp: { status: "declined", consentSource: "organiser_attested" } }),
-      )
+      .mockResolvedValueOnce(json({ rsvp: { status: "declined", consentSource: "guest" } }))
       .mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
 
@@ -575,37 +578,93 @@ describe("RsvpView", () => {
     expect(status.value).toBe("attending");
 
     // Ada's stored answer is `["gluten"]`, so the editor opens with that preset
-    // ticked and the attestation already made — a row that carries dietary data
-    // was consented to when it was recorded.
+    // ticked, says a save keeps it, and asks for no attestation: nothing new is
+    // being stored.
     expect(
       (screen.getByRole("checkbox", { name: "Gluten / coeliac" }) as HTMLInputElement).checked,
     ).toBe(true);
-    const consent = screen.getByLabelText(/I confirm the guest consented/i) as HTMLInputElement;
-    expect(consent.checked).toBe(true);
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+    const save = screen.getByRole("button", { name: /Save reply/i });
+    expect(describedText(save)).toContain("Saving without changing these");
+    expect(describedText(save)).toContain("Gluten");
 
     fireEvent.change(status, { target: { value: "declined" } });
-    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    fireEvent.click(save);
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/g1/rsvps/evt_1");
-    // The WHOLE body, not just the status. This is the one place on this
-    // surface where Art. 9 data can be lost rather than miscounted: an
-    // organiser opening a reply to change its status must not silently wipe
-    // the guest's stored requirement, and a status-only assertion cannot tell
-    // a preserving save from a destroying one.
-    const body = JSON.parse(putCall[1]?.body as string) as {
-      status: string;
-      dietary: string;
-      dietaryPresets: readonly string[];
-      dietaryConsent: boolean;
-    };
-    expect(body).toEqual({
-      status: "declined",
+    // The WHOLE body. No dietary field is what tells the API to keep the
+    // guest's answer and their own consent record; resending the answer would
+    // restamp it as an attestation nobody made.
+    expect(JSON.parse(putCall[1]?.body as string)).toEqual({ status: "declined" });
+  });
+
+  it("editor treats an answer edited and put back as unedited", async () => {
+    restoreViewport = mockViewport(false);
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(json({ rsvp: { status: "maybe", consentSource: "guest" } }))
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    await screen.findByLabelText(/Status/i);
+
+    const dairy = screen.getByRole("checkbox", { name: "Dairy" });
+    fireEvent.click(dairy);
+    expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
+    fireEvent.click(dairy);
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+    // Only whitespace added to the free text is no edit either.
+    fireEvent.input(screen.getByLabelText(/Anything else/i), { target: { value: "  " } });
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
+      status: "maybe",
+    });
+  });
+
+  it("editor asks for a fresh, unticked attestation once an existing answer is edited", async () => {
+    restoreViewport = mockViewport(false);
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(
+        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
+      )
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    await screen.findByLabelText(/Status/i);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dairy" }));
+    const consent = screen.getByLabelText(/I confirm the guest consented/i) as HTMLInputElement;
+    expect(consent.checked).toBe(false);
+    expect(screen.queryByText(/Saving without changing these/i)).toBeNull();
+
+    // Unticked, the save is refused before any PUT.
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/Confirm the guest consented before storing/i)).toBeTruthy(),
+    );
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(consent);
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
+      status: "attending",
       dietary: "",
-      dietaryPresets: ["gluten"],
+      dietaryPresets: ["gluten", "dairy"],
       dietaryConsent: true,
       dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+      dietaryAttestedName: "",
     });
   });
 
@@ -631,6 +690,7 @@ describe("RsvpView", () => {
     await screen.findByLabelText(/Status/i);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Dairy" }));
+    fireEvent.click(screen.getByLabelText(/I confirm the guest consented/i));
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
@@ -640,7 +700,7 @@ describe("RsvpView", () => {
     expect(body.dietaryPresets).toEqual(["gluten", "dairy", "a_future_key"]);
   });
 
-  it("editor shows a stored preset key this build does not know, and unticking it drops the attestation", async () => {
+  it("editor shows a stored preset key this build does not know, and unticking it clears with no attestation", async () => {
     // The organiser's side of the rule the guest sheet follows: a key missing
     // from this build's vocabulary is still a dietary requirement, so it shows as
     // a checked pill. Unticked, the row has no dietary data left, so there is
@@ -663,7 +723,8 @@ describe("RsvpView", () => {
 
     const pill = screen.getByRole("checkbox", { name: "A future key" }) as HTMLInputElement;
     expect(pill.checked).toBe(true);
-    expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
+    // Unedited, the stored answer is kept as given, with no new attestation.
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
 
     fireEvent.click(pill);
     expect(pill.checked).toBe(false);
@@ -961,7 +1022,7 @@ describe("RsvpView — plus-ones", () => {
     expect(findRow("Bo Jones")).toBeUndefined();
   });
 
-  it("records a plus-one's reply as a status only", async () => {
+  it("records a plus-one's reply as a status only when the dietary fields are left alone", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
       .mockResolvedValueOnce(json({ rsvp: { status: "declined" } }))
@@ -971,29 +1032,84 @@ describe("RsvpView — plus-ones", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
     const status = await screen.findByLabelText(/Status/i);
-    expect(screen.getByText(/can't be recorded here for a plus-one/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    // Nothing stored to keep, so no note, and Save says only what it is.
-    expect(screen.queryByText(/dietary requirements their household gave stay/i)).toBeNull();
-    const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
-    expect(described).toContain("can't be recorded here for a plus-one");
-    expect(described).not.toContain("stay");
+    expect(screen.getByLabelText(/Anything else/i)).toBeTruthy();
+    // Nothing stored to keep, so no note, and nothing typed, so no attestation.
+    expect(screen.queryByText(/Saving without changing these/i)).toBeNull();
+    expect(screen.queryByLabelText(/I confirm the plus-one consented/i)).toBeNull();
 
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/p2/rsvps/evt_1");
-    // No dietary field at all: that is what tells the API to keep the
-    // household's answer.
     expect(JSON.parse(putCall[1]?.body as string)).toEqual({ status: "declined" });
   });
 
+  it("records a plus-one's dietary requirements under the plus-one's own attestation", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
+      .mockResolvedValueOnce(json({ rsvp: { status: "attending" } }))
+      .mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "No shellfish" },
+    });
+    // The plus-one's wording, never the guest's.
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+    const consent = screen.getByLabelText(
+      ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.text,
+    ) as HTMLInputElement;
+    expect(consent.checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/Confirm the plus-one consented before storing/i)).toBeTruthy(),
+    );
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(consent);
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
+      status: "attending",
+      dietary: "No shellfish",
+      dietaryPresets: [],
+      dietaryConsent: true,
+      dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+      dietaryAttestedName: "Kit Moss",
+    });
+  });
+
+  it.each([
+    ["plus_one_changed", 409],
+    ["plus_one_dietary_unavailable", 422],
+    ["dietary_attestation_mismatch", 422],
+    ["dietary_attestation_outdated", 422],
+  ] as const)(
+    "asks for a reload when the API refuses the plus-one's attestation with %s",
+    async (error, status) => {
+      authFetchMock
+        .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
+        .mockResolvedValueOnce(json({ error }, status));
+      render(() => <RsvpView weddingId="wed_a" canEdit />);
+      await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
+      fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+        target: { value: "No shellfish" },
+      });
+      fireEvent.click(screen.getByLabelText(ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.text));
+      fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+      expect(await screen.findByText(/This page is out of date/i)).toBeTruthy();
+    },
+  );
+
   for (const [what, presets, text, named] of [
     ["picked from the list", ["vegetarian"], "", "Vegetarian"],
-    // Free text is the case that matters most: the form pre-fills it, so only
-    // the plus-one guard keeps it out of the PUT the API would refuse.
     ["typed", [], "No shellfish", "No shellfish"],
     // Worded as the row's Dietary cell words it, so the note names what the
     // host can see.
@@ -1014,16 +1130,14 @@ describe("RsvpView — plus-ones", () => {
       await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
 
       fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
-      const note = await screen.findByText(/dietary requirements their household gave stay/i);
+      const note = await screen.findByText(/Saving without changing these/i);
       expect(note.textContent).toContain(named);
-      expect(screen.queryByText(/clears/i)).toBeNull();
-      // Save carries both sentences, so it is heard where the host decides.
+      // Save carries the note, so it is heard where the host decides.
       const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
-      expect(described).toContain("can't be recorded here for a plus-one");
       expect(described).toContain(named);
-      // No attestation to tick for data this path will not store.
-      expect(screen.queryByRole("checkbox")).toBeNull();
-      expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
+      // The fields hold what the household gave, and nothing new is attested.
+      expect((screen.getByLabelText(/Anything else/i) as HTMLTextAreaElement).value).toBe(text);
+      expect(screen.queryByLabelText(/I confirm the plus-one consented/i)).toBeNull();
 
       fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
       fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
@@ -1041,16 +1155,16 @@ describe("RsvpView — plus-ones", () => {
     expect(within(rowOf("Kit Moss")).getByText("Plus-one of another guest")).toBeTruthy();
   });
 
-  it("still offers the dietary fields on an ordinary guest's row", async () => {
+  it("offers the guest's wording, not the plus-one's, on an ordinary guest's row", async () => {
     authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(findRow("Bo Jones")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Edit reply for Bo Jones" }));
-    expect(await screen.findByLabelText(/Anything else/i)).toBeTruthy();
-    expect(screen.queryByText(/can't be recorded here for a plus-one/i)).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /Save reply/i }).hasAttribute("aria-describedby"),
-    ).toBe(false);
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "No shellfish" },
+    });
+    expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/I confirm the plus-one consented/i)).toBeNull();
   });
 });
