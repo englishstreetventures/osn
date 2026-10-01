@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-01
 ---
 
 # OIDC provider
@@ -153,7 +153,7 @@ Three tables in `@osn/db` (migration `0002_wet_gamora`):
 | `is_first_party` | `1` |
 | `owner_account_id` | null — a platform client, owned by nobody, so account erasure cannot disable it |
 
-The redirect URI points at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api production Worker and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
+The redirect URI points at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api production Worker and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. cire-api also derives the key for its RSVP digest stop links from this secret ([[cire-rsvp-changes]]), so a rotation voids the stop links in emails already sent. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
 
 ## Rate limits
 

@@ -9,13 +9,13 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
+import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { organiserRsvpService } from "../../src/services/organiser-rsvp";
 
 // Ada (Testfamily) is invited to catholic + hindu + reception, NOT mehendi.
@@ -219,7 +219,7 @@ describe("organiserRsvpService.record", () => {
       .get();
     expect(row?.dietary).toBe("Coeliac");
     expect(row?.at).toBeInstanceOf(Date);
-    expect(row?.version).toBe(DIETARY_CONSENT_VERSION);
+    expect(row?.version).toBe(ORGANISER_DIETARY_ATTESTATION.version);
     expect(row?.source).toBe("organiser_attested");
   });
 

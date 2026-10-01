@@ -15,7 +15,7 @@ export { hosts } from "./hosts";
 export type { SeedHost } from "./hosts";
 export { registryClaims, registryItems, registrySettings } from "./registry";
 export type { SeedRegistryClaim, SeedRegistryItem, SeedRegistrySettings } from "./registry";
-export { DIETARY_CONSENT_VERSION, rsvps } from "./rsvps";
+export { DIETARY_CONSENT_VERSION, ORGANISER_DIETARY_CONSENT_VERSION, rsvps } from "./rsvps";
 export type { SeedRsvp } from "./rsvps";
 export { tasks } from "./tasks";
 export type { SeedTask } from "./tasks";

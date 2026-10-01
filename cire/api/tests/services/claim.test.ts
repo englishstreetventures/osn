@@ -10,7 +10,7 @@ import {
   weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
+import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -886,7 +886,7 @@ describe("plus-ones in the claim payload and the organiser guest read", () => {
         })
         .run();
     reply(bo.id, first, "guest", DIETARY_CONSENT_VERSION);
-    reply(bo.id, second, "organiser_attested", DIETARY_CONSENT_VERSION);
+    reply(bo.id, second, "organiser_attested", ORGANISER_DIETARY_ATTESTATION.version);
     reply(samId, first, "inviter_attested", PLUS_ONE_DIETARY_ATTESTATION.version);
     reply(samId, second, "inviter_attested", DIETARY_CONSENT_VERSION);
 

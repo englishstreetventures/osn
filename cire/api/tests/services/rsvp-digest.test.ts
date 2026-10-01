@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -17,6 +17,7 @@ import { Effect, Layer } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { deriveDigestStopKey, verifyDigestStopToken } from "../../src/lib/digest-stop";
 import { CIRE_METRICS } from "../../src/metrics";
 import type { OsnOrganiserEmailLookup } from "../../src/services/osn-bridge";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
@@ -125,7 +126,11 @@ async function run(
   db: TestDb,
   layer: Layer.Layer<EmailService>,
   lookup: OsnOrganiserEmailLookup,
-  opts: { maxEmails?: number; now?: Date } = {},
+  opts: {
+    maxEmails?: number;
+    now?: Date;
+    stopLinks?: { apiOrigin: string; secret: string };
+  } = {},
 ): Promise<RsvpDigestResult> {
   return Effect.runPromise(
     rsvpDigestService
@@ -178,6 +183,57 @@ describe("rsvpDigestService.sendDailyDigests", () => {
         rsvpUrl: `${ORIGIN}/#/w/${BOOTSTRAP_WEDDING_ID}/guests/rsvps`,
       },
     });
+  });
+
+  it("gives each email a stop link signed for its own recipient and wedding", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const key = await deriveDigestStopKey("test-secret");
+    const { sent, layer } = transport();
+    await run(db, layer, lookupOf(ADDRESSES).lookup, {
+      stopLinks: { apiOrigin: "https://api.example.test", secret: "test-secret" },
+    });
+    expect(sent).toHaveLength(3);
+    const byAddress = Object.fromEntries(Object.entries(ADDRESSES).map(([id, to]) => [to, id]));
+    for (const email of sent) {
+      if (email.template !== "rsvp-change-digest") throw new Error("unexpected template");
+      const url = new URL(email.data.stopUrl ?? "");
+      expect(url.origin + url.pathname).toBe("https://api.example.test/api/rsvp-digest/stop");
+      expect(await verifyDigestStopToken(key, url.searchParams.get("t") ?? "")).toEqual({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: byAddress[email.to]!,
+      });
+    }
+  });
+
+  it("still sends every email, without a stop link, when signing fails", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const sign = spyOn(crypto.subtle, "sign").mockRejectedValue(new Error("no signing today"));
+    try {
+      const { sent, layer } = transport();
+      const result = await run(db, layer, lookupOf(ADDRESSES).lookup, {
+        stopLinks: { apiOrigin: "https://api.example.test", secret: "test-secret" },
+      });
+      expect(result.sent).toBe(3);
+      for (const email of sent) {
+        if (email.template !== "rsvp-change-digest") throw new Error("unexpected template");
+        expect(email.data.stopUrl).toBeUndefined();
+      }
+    } finally {
+      sign.mockRestore();
+    }
+  });
+
+  it("sends no stop link without a signing key", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "reply_new");
+    const { sent, layer } = transport();
+    await run(db, layer, lookupOf(ADDRESSES).lookup);
+    for (const email of sent) {
+      if (email.template !== "rsvp-change-digest") throw new Error("unexpected template");
+      expect(email.data.stopUrl).toBeUndefined();
+    }
   });
 
   it("sends nothing on a day with no changes, and asks osn-api for nothing", async () => {
