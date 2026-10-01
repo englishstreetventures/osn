@@ -53,7 +53,7 @@ hue. The same moves in sRGB hex shift hue, and the greens drift blue.
 properties existing:
 
 - the invite preview — `previews.tsx` and `PaletteField.tsx` write
-  `style={{ color: "var(--color-gold)" }}` and rely on the *nearest* scope
+  `style={{ color: "var(--color-gold)" }}` and rely on the _nearest_ scope
   defining it (the invite's own palette inside a preview, the portal's ramp
   outside one);
 - anything reading a token from JavaScript through `getComputedStyle`.
@@ -69,29 +69,29 @@ be used as a class somewhere too, which means the invite preview works by luck;
 
 ### The tokens
 
-| Token | Role |
-|---|---|
-| `--bg` | the page |
-| `--bg-deep` | what the page recedes to behind a sticky bar or under a scrim |
-| `--surface` | a card |
-| `--surface-raised` | a menu or popover above a card |
-| `--surface-sunk` | a well — an input, a code block |
-| `--border` | a hairline; decoration only, **no contrast contract** |
-| `--border-strong` | the visible boundary of an unfilled control; **≥ 3:1** |
-| `--text` | body ink; **≥ 4.5:1** |
-| `--text-muted` | secondary ink; **≥ 4.5:1** |
-| `--text-faint` | large text, ornament, disabled; **≥ 3:1** |
-| `--brand` | a *fill* — a primary button's ground, an active row's wash |
-| `--brand-hi` | the hover fill |
-| `--brand-ink` | the brand as readable ink on a ground |
-| `--brand-wash` | the brand at low alpha behind an active row |
-| `--on-brand` | what sits on top of a brand fill |
-| `--gold` | metal — rules, ornament, the seal |
-| `--gold-dim` | the same metal, fading out |
-| `--gold-ink` | gold as readable ink; **≥ 4.5:1** |
-| `--success` / `--warn` / `--error` | status; separate from the accent, as status colour always should be |
-| `--focus` | the focus ring |
-| `--inner-lip`, `--elev-1`, `--elev-2` | depth |
+| Token                                 | Role                                                                |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `--bg`                                | the page                                                            |
+| `--bg-deep`                           | what the page recedes to behind a sticky bar or under a scrim       |
+| `--surface`                           | a card                                                              |
+| `--surface-raised`                    | a menu or popover above a card                                      |
+| `--surface-sunk`                      | a well — an input, a code block                                     |
+| `--border`                            | a hairline; decoration only, **no contrast contract**               |
+| `--border-strong`                     | the visible boundary of an unfilled control; **≥ 3:1**              |
+| `--text`                              | body ink; **≥ 4.5:1**                                               |
+| `--text-muted`                        | secondary ink; **≥ 4.5:1**                                          |
+| `--text-faint`                        | large text, ornament, disabled; **≥ 3:1**                           |
+| `--brand`                             | a _fill_ — a primary button's ground, an active row's wash          |
+| `--brand-hi`                          | the hover fill                                                      |
+| `--brand-ink`                         | the brand as readable ink on a ground                               |
+| `--brand-wash`                        | the brand at low alpha behind an active row                         |
+| `--on-brand`                          | what sits on top of a brand fill                                    |
+| `--gold`                              | metal — rules, ornament, the seal                                   |
+| `--gold-dim`                          | the same metal, fading out                                          |
+| `--gold-ink`                          | gold as readable ink; **≥ 4.5:1**                                   |
+| `--success` / `--warn` / `--error`    | status; separate from the accent, as status colour always should be |
+| `--focus`                             | the focus ring                                                      |
+| `--inner-lip`, `--elev-1`, `--elev-2` | depth                                                               |
 
 Three of these are worth stating outright, because they are the ones that get
 misused:
@@ -149,9 +149,9 @@ a DNS lookup, a TLS handshake and a render-blocking round trip to a third party
 before a signed-in dashboard could paint — and told Google about every host who
 opened it.
 
-| Family | Variable | Tailwind | Used for |
-|---|---|---|---|
-| Schibsted Grotesk | `--font-ui` | `font-body` | everything |
+| Family             | Variable       | Tailwind       | Used for                                           |
+| ------------------ | -------------- | -------------- | -------------------------------------------------- |
+| Schibsted Grotesk  | `--font-ui`    | `font-body`    | everything                                         |
 | Cormorant Garamond | `--font-flair` | `font-display` | the wordmark, a wedding's name, the invite preview |
 
 Cormorant is **rationed to three things**. A portal is read as data — guest
@@ -186,11 +186,11 @@ rather than a rectangle. `--elev-1` and `--elev-2` are the two drop shadows.
 package by design**.
 
 ```css
---dur-fast: calc(120ms * var(--motion-scale));   /* a hover, a press */
---dur-base: calc(200ms * var(--motion-scale));   /* a panel swap, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale));   /* a sheet, a modal */
---ease-out:    cubic-bezier(0.22, 1, 0.36, 1);   /* something arriving */
---ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);   /* something moving between two places */
+--dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
+--dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal */
+--ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 ```
 
 Every duration is scaled by `--motion-scale`, so the fixtures page can slow the
@@ -231,13 +231,13 @@ hold focus.
 
 The portal has two jobs to do with width, and they want different tools.
 
-**Container queries** decide *shape* — rail or sheet, one column or two, agenda
+**Container queries** decide _shape_ — rail or sheet, one column or two, agenda
 above the stats or beside them. Named containers: `@container/frame`, `/page`,
 `/shell`, `/panel`, `/builder`, `/card`, `/enquiries`. There are **no viewport
 media queries in the shell**. Each surface measures the box it was actually
 given, so a 600px-wide panel behaves like a phone even on a 2560px monitor.
 
-**Intrinsic values** decide *scale*, through two utilities:
+**Intrinsic values** decide _scale_, through two utilities:
 
 - `page-frame` — the page's own width. Gutters grow with the frame's inline size;
   the measure runs to `--page-max` (default 100rem). The top bar and everything
@@ -290,15 +290,15 @@ plain template literals, because Tailwind's scanner reads source as text and a
 class that is computed at runtime emits no CSS at all — silently. Composition is
 by variant map, and the caller's own `class` is appended last.
 
-| Part | What it is |
-| --- | --- |
-| `Button` | Four variants — `primary`, `outline`, `quiet`, `danger` — and three sizes, `sm`, `md`, `icon`. `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so. |
-| `Card`, `cardClass`, `CardEyebrow`, `CardCta` | The raised surface, plus its two furnishings. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
-| `Notice` | Four tones. Error, warn and success each carry a distinct glyph plus an `sr-only` word; `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
-| `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
-| `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
-| `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | The five tables as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. |
+| Part                                          | What it is                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`                                      | Four variants — `primary`, `outline`, `quiet`, `danger` — and three sizes, `sm`, `md`, `icon`. `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so.                                                                            |
+| `Card`, `cardClass`, `CardEyebrow`, `CardCta` | The raised surface, plus its two furnishings. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it.           |
+| `Notice`                                      | Four tones. Error, warn and success each carry a distinct glyph plus an `sr-only` word; `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
+| `EmptyState`                                  | A title, an optional line of prose, and the one thing to do about it.                                                                                                                                                                                                                                                                     |
+| `Meter`, `meterPct`                           | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero.                                                                                                                                                               |
+| `Stat`                                        | A figure, then what it is, then an optional hint.                                                                                                                                                                                                                                                                                         |
+| `Table`, `Th`, `Td`                           | The five tables as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required.                                                                                                                          |
 
 ### Two rules that apply to all of them
 
