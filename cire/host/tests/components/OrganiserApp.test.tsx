@@ -43,7 +43,11 @@ vi.mock("@shared/rp-auth/solid", async () => {
   };
 });
 
-vi.mock("@shared/toast", () => ({ Toaster: () => null }));
+vi.mock("@shared/toast", () => ({
+  Toaster: () => null,
+  // The helper screen's leave control toasts its outcome.
+  toast: { success: () => {}, error: () => {} },
+}));
 
 vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
@@ -281,6 +285,27 @@ describe("OrganiserApp Dashboard", () => {
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();
+  });
+
+  it("lets a helper leave from the run-sheet screen, which drops the wedding", async () => {
+    // A helper never reaches the co-host panel, so the run-sheet screen is the
+    // only place their leave control can live.
+    authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(JSON.stringify({ left: true }));
+      return listResponse([{ id: "wed_h", slug: "h", displayName: "Helped", role: "helper" }]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
+
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("0"));
+    expect(screen.queryByText(/Helper access/i)).toBeNull();
+    const del = authFetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+    expect(String(del?.[0])).toBe("https://api.test/api/organiser/weddings/wed_h/hosts/me");
   });
 
   it("treats a role it has never heard of as the narrowest one, not as an editor", async () => {
