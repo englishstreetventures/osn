@@ -1,12 +1,4 @@
-import {
-  events,
-  families,
-  guests,
-  guestEvents,
-  rsvps,
-  weddings,
-  weddingEntitlements,
-} from "@cire/db";
+import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, ne } from "drizzle-orm";
@@ -34,15 +26,10 @@ import type {
   ParsedEvent,
   Provenance,
 } from "../schemas/import";
-import {
-  entitlementService,
-  CapacityExceeded,
-  BASE_GUEST_CAP,
-  CAPACITY_ENTITLEMENT_KEYS,
-} from "./entitlements";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
+import { BASE_GUEST_CAP, CapacityExceeded, capForTier, normaliseTier, tierService } from "./tiers";
 
 // ── Tagged errors ─────────────────────────────────────────────────────────────
 
@@ -664,7 +651,7 @@ export function diffAgainstDb(
     // miss means the draft was built against state that no longer exists, and
     // because that path has no name fallback the miss would reconcile as a
     // destructive remove+create rather than an update — see StaleDesiredState.
-    // Refused BEFORE the link/RSVP/entitlement reads below: nothing downstream
+    // Refused BEFORE the link/RSVP/tier reads below: nothing downstream
     // can make the plan safe, so they would be work spent on a plan we discard.
     //
     // Attendance names count too. The link pass skips a name that resolves to
@@ -835,18 +822,17 @@ export function diffAgainstDb(
     }
 
     // ── Capacity preview warning (non-blocking) ──────────────────────────────
-    // Warn early when this plan would breach the derived cap. The hard atomic
+    // Warn early when this plan would breach the tier's cap. The hard atomic
     // block lives in applyImport — this warning lets the preview UI surface the
     // issue before the organiser commits. Host-preview families are excluded from
-    // the current-guest count (same join + ne(kind,'host') as entitlementService).
+    // the current-guest count (same join + ne(kind,'host') as tierService).
     //
-    // `derivedCap` rides on the returned plan so `applyImport` doesn't re-scan
-    // the SAME entitlement rows a second time in the SAME request — see
-    // `applyImport`'s call to `assertGuestCapacity`. It's set ONLY when this
-    // block actually ran the entitlement query below; the pre-check branch
-    // proves the cap can't matter without ever learning its real value,
-    // so it leaves `derivedCap` unset and `applyImport` falls back to its own
-    // (still cheap, still narrowed) query — correct either way, per
+    // `derivedCap` rides on the returned plan so `applyImport` doesn't read the
+    // SAME tier a second time in the SAME request — see `applyImport`'s call to
+    // `assertGuestCapacity`. It's set ONLY when this block actually ran the
+    // tier read below; the pre-check branch proves the cap can't matter without
+    // ever learning its real value, so it leaves `derivedCap` unset and
+    // `applyImport` falls back to its own read — correct either way, per
     // `assertGuestCapacity`'s "never a way to skip the check" contract.
     let derivedCap: number | undefined;
     if (guestCreates.length > 0) {
@@ -860,24 +846,13 @@ export function diffAgainstDb(
       // `resulting` can only rise as far as `currentRealGuests +
       // guestCreates.length` (removes only ever bring it DOWN), and the cap can
       // never fall below `BASE_GUEST_CAP` — so once that upper bound sits at or
-      // under the floor, no entitlement row on earth could make this breach.
-      // Skip the query entirely rather than fetch rows whose answer is moot.
+      // under the floor, no tier could make this breach. Skip the read
+      // entirely rather than fetch an answer that is moot.
       if (currentRealGuests + guestCreates.length > BASE_GUEST_CAP) {
-        // Only the two capacity keys can raise the cap above the floor —
-        // narrow the scan instead of pulling every entitlement row.
-        const entRows = yield* dbQuery(() =>
-          db
-            .select({ e: weddingEntitlements.entitlement })
-            .from(weddingEntitlements)
-            .where(
-              and(
-                eq(weddingEntitlements.weddingId, weddingId),
-                inArray(weddingEntitlements.entitlement, CAPACITY_ENTITLEMENT_KEYS),
-              ),
-            )
-            .all(),
+        const tierRows = yield* dbQuery(() =>
+          db.select({ tier: weddings.tier }).from(weddings).where(eq(weddings.id, weddingId)).all(),
         );
-        derivedCap = entitlementService.deriveCap((entRows as { e: string }[]).map((r) => r.e));
+        derivedCap = capForTier(normaliseTier(tierRows[0]?.tier));
         if (resulting > derivedCap) {
           warnings.push(
             `This import brings you to ${resulting} guests; your plan is capped at ${derivedCap}. Upgrade to add more.`,
@@ -1206,7 +1181,7 @@ export function applyImport(
       );
     }
 
-    // Capacity gate — enforce the wedding's derived guest ceiling on the NET new
+    // Capacity gate — enforce the wedding's tier guest ceiling on the NET new
     // guests this plan introduces, before any write. Atomic: a breach fails the
     // whole apply, nothing is committed. We pass the NET delta (creates minus
     // removals) so a churn import that removes K guests and adds K guests at cap
@@ -1215,14 +1190,14 @@ export function applyImport(
     const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
     if (netGuestDelta > 0) {
       // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
-      // own preview warning already ran the entitlement query — lets
-      // this skip a second scan of the same rows. Absent (a plan built before
+      // own preview warning already read the tier — lets this skip a second
+      // read of the same row. Absent (a plan built before
       // this field existed, the pre-check branch that proved the cap
       // couldn't matter without learning it, or any other caller of
       // `applyImport`), `assertGuestCapacity` runs its own query and enforces
       // exactly as it always has — a missing cap is never a reason to skip
       // the check.
-      yield* entitlementService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
+      yield* tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
     }
 
     statements.push(...finalize);

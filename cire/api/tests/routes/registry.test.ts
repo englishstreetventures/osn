@@ -5,7 +5,6 @@ import {
   families,
   registryContributions,
   registrySettings,
-  weddingEntitlements,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -22,7 +21,8 @@ import type {
   RegistryItemDto,
   RegistrySnapshot,
 } from "../../src/services/registry";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import type { Tier } from "../../src/services/tiers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import type { RecordedStatement } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -40,18 +40,17 @@ beforeAll(async () => {
 });
 
 /**
- * `grantRegistry` defaults to FALSE — the opposite of the other module tests, and
- * deliberately so. Shipping locked is the headline property of this feature, so
- * the default fixture is the production one (no grant anywhere), and a test that
- * wants the feature has to say so.
+ * `tier` defaults to IVORY — the opposite of the other module tests, and
+ * deliberately so. Every new wedding starts there, so the default fixture is
+ * the locked one, and a test that wants the registry has to say so.
  */
 function buildApp({
-  grantRegistry = false,
+  tier = "ivory",
   linkPreview,
   assets,
   seed,
 }: {
-  grantRegistry?: boolean;
+  tier?: Tier;
   linkPreview?: LinkPreviewOptions;
   assets?: ReturnType<typeof createAssetsStub>;
   /** Rows the route then has to read back. This fixture owns its database and
@@ -92,19 +91,7 @@ function buildApp({
     })
     .run();
 
-  if (grantRegistry) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
 
   seed?.(db);
 
@@ -170,17 +157,16 @@ function seedGifts(db: ReturnType<typeof createDb>, n: number): void {
   }
 }
 
-/** Create one item on an entitled app and return it. */
+/** Create one item on a Gold wedding's app and return it. */
 async function seedItem(app: App): Promise<RegistryItemDto> {
   const res = await req(app, "POST", `${base}/items`, EDITOR, ITEM);
   expect(res.status).toBe(200);
   return ((await res.json()) as { item: RegistryItemDto }).item;
 }
 
-describe("registry ships locked", () => {
-  // This block is the point of the whole PR: with no entitlement row — which is
-  // every wedding in production — nothing is reachable. If any of these ever go
-  // green as 200, the feature has silently launched.
+describe("the registry is a Gold module", () => {
+  // On Ivory — where every wedding starts — nothing is reachable. If any of
+  // these ever go green as 200, the registry has silently become free.
   const routes: Array<[string, string, unknown?]> = [
     ["GET", base],
     ["GET", `${base}/gifts`],
@@ -198,14 +184,20 @@ describe("registry ships locked", () => {
   ];
 
   for (const [method, path, body] of routes) {
-    it(`${method} ${path.replace(base, "…")} → 402 payment_required`, async () => {
+    it(`${method} ${path.replace(base, "…")} → 402 payment_required on Ivory`, async () => {
       const res = await req(buildApp(), method, path, OWNER, body);
       expect(res.status).toBe(402);
-      expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "registry" });
+      expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "gold" });
     });
   }
 
-  it("401 without a token, before the entitlement gate is consulted", async () => {
+  it("opens on Gold and on Crimson", async () => {
+    for (const tier of ["gold", "crimson"] as const) {
+      expect((await req(buildApp({ tier }), "GET", base, VIEWER)).status, tier).toBe(200);
+    }
+  });
+
+  it("401 without a token, before the tier gate is consulted", async () => {
     expect((await req(buildApp(), "GET", base, undefined)).status).toBe(401);
   });
 
@@ -216,9 +208,9 @@ describe("registry ships locked", () => {
   });
 });
 
-describe("registry routes (entitled)", () => {
+describe("registry routes (Gold)", () => {
   it("viewer may read, editor may write, viewer may not write", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     expect((await req(app, "GET", base, VIEWER)).status).toBe(200);
 
     const viewerWrite = await req(app, "POST", `${base}/items`, VIEWER, ITEM);
@@ -229,7 +221,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("reads back an unpublished, empty registry", async () => {
-    const res = await req(buildApp({ grantRegistry: true }), "GET", base, OWNER);
+    const res = await req(buildApp({ tier: "gold" }), "GET", base, OWNER);
     const body = (await res.json()) as RegistrySnapshot;
     expect(body.settings.published).toBe(false);
     expect(body.items).toEqual([]);
@@ -254,7 +246,7 @@ describe("registry routes (entitled)", () => {
       contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 17_500 }] },
     };
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         const now = new Date();
         db.insert(registrySettings)
@@ -276,7 +268,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("runs the item lifecycle end to end", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const item = await seedItem(app);
     expect(item.title).toBe("Copper pan");
     expect(item.quantityWanted).toBe(2);
@@ -295,9 +287,9 @@ describe("registry routes (entitled)", () => {
   });
 
   it("404s an item id from another wedding", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const item = await seedItem(app);
-    // wed_other has no entitlement, so its own routes 402 — the tenancy check
+    // wed_other is on Ivory, so its own routes 402 — the tenancy check
     // that matters is that BOOTSTRAP's route refuses an id it does not own.
     const res = await req(app, "PATCH", `${base}/items/reg_not_mine`, EDITOR, { title: "x" });
     expect(res.status).toBe(404);
@@ -311,7 +303,7 @@ describe("registry routes (entitled)", () => {
     // `external_url` reaches an <a href> on the guest site. A javascript: or
     // data: value there is a script sink, so the scheme is
     // checked at the boundary, not just the shape.
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     for (const externalUrl of [
       "javascript:alert(1)",
       "data:text/html,<script>alert(1)</script>",
@@ -329,7 +321,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("rejects a malformed body and an out-of-range quantity", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     expect((await req(app, "POST", `${base}/items`, EDITOR, { title: "" })).status).toBe(400);
     expect(
       (await req(app, "POST", `${base}/items`, EDITOR, { title: "T", quantityWanted: 0 })).status,
@@ -351,7 +343,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("reorders items", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const a = await seedItem(app);
     const bRes = await req(app, "POST", `${base}/items`, EDITOR, { title: "Kettle" });
     const b = ((await bRes.json()) as { item: RegistryItemDto }).item;
@@ -365,7 +357,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("saves settings but refuses to enable cash gifts without a live Stripe account", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const saved = await req(app, "PUT", `${base}/settings`, EDITOR, {
       published: true,
       message: "No boxed gifts please",
@@ -385,7 +377,7 @@ describe("registry routes (entitled)", () => {
 
   it("refuses cash gifts priced in a currency Stripe would not settle", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         const now = new Date();
         // The account takes charges, but Stripe settles it in US dollars while
@@ -413,7 +405,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("lets a stale tab change what it touched and nothing else, and refuses a field that moved", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     // Both organisers open the settings on a published list with an address.
     await req(app, "PUT", `${base}/settings`, OWNER, {
       published: true,
@@ -460,7 +452,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("lets only an owner or editor save the settings", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     await req(app, "PUT", `${base}/settings`, OWNER, { published: true });
 
     expect(
@@ -478,7 +470,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("400s a malformed `expected`, and answers an empty save with the row", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     await req(app, "PUT", `${base}/settings`, OWNER, { headline: "Ours" });
 
     const bad = await req(app, "PUT", `${base}/settings`, EDITOR, {
@@ -496,7 +488,7 @@ describe("registry routes (entitled)", () => {
 
   it("tells a co-host whether an account is connected, never its id or the payouts flag", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         const now = new Date();
         db.insert(registrySettings)
@@ -545,7 +537,7 @@ describe("registry routes (entitled)", () => {
     // The schema pins the SHAPE (`assets/<segment>/registry-<name>`), so only the
     // service can tell whose upload it is. A distinct code, not the generic 400,
     // because the portal has to explain this one.
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const foreign = await req(app, "POST", `${base}/items`, EDITOR, {
       title: "T",
       imageKey: "assets/wed_other/registry-abc",
@@ -572,7 +564,7 @@ describe("registry routes (entitled)", () => {
     // The wedding half of the key is right, so the ownership check passes —
     // what stops it is the slot. Without that, an editor could point an item at
     // their own invite hero and have deleting the item reap the hero's object.
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const created = await req(app, "POST", `${base}/items`, EDITOR, {
       title: "T",
       imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/hero-0000`,
@@ -589,18 +581,18 @@ describe("registry routes (entitled)", () => {
   });
 
   it("carries page one of the gift log and says whether another page exists", async () => {
-    const empty = buildApp({ grantRegistry: true });
+    const empty = buildApp({ tier: "gold" });
     const none = (await (await req(empty, "GET", base, OWNER)).json()) as RegistrySnapshot;
     expect(none.giftsHasMore).toBe(false);
 
-    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const app = buildApp({ tier: "gold", seed: (db) => seedGifts(db, 52) });
     const first = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
     expect(first.gifts).toHaveLength(50);
     expect(first.giftsHasMore).toBe(true);
   });
 
   it("400s an unknown gift kind in the path rather than guessing a table", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const res = await req(app, "POST", `${base}/gifts/wishes/rcl_x/thanked`, EDITOR, {
       thanked: true,
     });
@@ -608,7 +600,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("404s a thank-you for a gift that is not this wedding's", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     const res = await req(app, "POST", `${base}/gifts/claim/rcl_nope/thanked`, EDITOR, {
       thanked: true,
     });
@@ -668,7 +660,7 @@ describe("POST /registry/gifts/:kind/:giftId/note-hidden", () => {
   function appWithNote(extra?: (db: TestDb) => void) {
     let handle: TestDb | undefined;
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         handle = db;
         seedNote(db);
@@ -848,7 +840,7 @@ describe("GET /registry/gifts", () => {
   it("answers a further page with the gift log alone, from the gift-log reads alone", async () => {
     let statements: RecordedStatement[] = [];
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         seedGifts(db, 52);
         statements = recordStatements(db);
@@ -876,7 +868,7 @@ describe("GET /registry/gifts", () => {
   });
 
   it("walks the log page by page and says when it has run out", async () => {
-    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const app = buildApp({ tier: "gold", seed: (db) => seedGifts(db, 52) });
     const first = (await (await req(app, "GET", `${base}/gifts`, OWNER)).json()) as GiftPage;
     expect(first.gifts).toHaveLength(50);
     expect(first.giftsHasMore).toBe(true);
@@ -892,7 +884,7 @@ describe("GET /registry/gifts", () => {
   it("reads a junk offset as page one, not as whatever digits it starts with", async () => {
     // The offset is caller-supplied. `parseInt("1e9")` is 1, which would quietly
     // skip the newest gift; anything but plain digits has to mean page one.
-    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 52) });
+    const app = buildApp({ tier: "gold", seed: (db) => seedGifts(db, 52) });
     const pageOne = (await (await req(app, "GET", `${base}/gifts`, OWNER)).json()) as GiftPage;
     for (const raw of ["abc", "-3", "1e9", "", "2.5", "0x10"]) {
       const res = await req(app, "GET", `${base}/gifts?offset=${raw}`, OWNER);
@@ -902,7 +894,7 @@ describe("GET /registry/gifts", () => {
   });
 
   it("answers an offset past the end with an empty last page", async () => {
-    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 3) });
+    const app = buildApp({ tier: "gold", seed: (db) => seedGifts(db, 3) });
     const body = (await (
       await req(app, "GET", `${base}/gifts?offset=999999`, OWNER)
     ).json()) as GiftPage;
@@ -910,7 +902,7 @@ describe("GET /registry/gifts", () => {
   });
 
   it("is a member read: a stranger gets 403", async () => {
-    const app = buildApp({ grantRegistry: true });
+    const app = buildApp({ tier: "gold" });
     expect((await req(app, "GET", `${base}/gifts`, STRANGER)).status).toBe(403);
     expect((await req(app, "GET", `${base}/gifts`, undefined)).status).toBe(401);
   });
@@ -920,7 +912,7 @@ describe("GET /registry/gifts", () => {
   it("serves a page to an organiser session cookie and refuses a dead one", async () => {
     let token: Promise<string> = Promise.resolve("");
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         seedGifts(db, 1);
         token = seedOrganiserSession(db, OWNER);
@@ -944,7 +936,7 @@ describe("GET /registry/gifts", () => {
 
   it("answers a failed read with a plain 500, never a partial page", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       seed: (db) => {
         seedGifts(db, 3);
         // Every D1 error reaches the handler as a defect; breaking one of the
@@ -960,7 +952,7 @@ describe("GET /registry/gifts", () => {
   it("marks the gift log uncacheable on both reads that carry it", async () => {
     // Guest-written notes and amounts against named households: the same class
     // of payload `gifts.csv` already refuses to let anything on the path keep.
-    const app = buildApp({ grantRegistry: true, seed: (db) => seedGifts(db, 1) });
+    const app = buildApp({ tier: "gold", seed: (db) => seedGifts(db, 1) });
     for (const path of [base, `${base}/gifts`, `${base}/gifts?offset=1`]) {
       const res = await req(app, "GET", path, OWNER);
       expect(res.status).toBe(200);
@@ -996,28 +988,28 @@ describe("POST /registry/link-preview", () => {
     );
 
   it("401 without a token", async () => {
-    const res = await req(buildApp({ grantRegistry: true }), "POST", previewPath, undefined, {
+    const res = await req(buildApp({ tier: "gold" }), "POST", previewPath, undefined, {
       url: "https://shop.example/pan",
     });
     expect(res.status).toBe(401);
   });
 
   it("403 for a viewer — a read-only co-host cannot spend our outbound budget", async () => {
-    const app = buildApp({ grantRegistry: true, linkPreview: okOptions() });
+    const app = buildApp({ tier: "gold", linkPreview: okOptions() });
     const res = await req(app, "POST", previewPath, VIEWER, { url: "https://shop.example/pan" });
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: string }).error).toBe("read_only_role");
   });
 
   it("403 for a stranger", async () => {
-    const app = buildApp({ grantRegistry: true, linkPreview: okOptions() });
+    const app = buildApp({ tier: "gold", linkPreview: okOptions() });
     expect(
       (await req(app, "POST", previewPath, STRANGER, { url: "https://shop.example/pan" })).status,
     ).toBe(403);
   });
 
   it("returns the title, site name and ranked images", async () => {
-    const app = buildApp({ grantRegistry: true, linkPreview: okOptions() });
+    const app = buildApp({ tier: "gold", linkPreview: okOptions() });
     const res = await req(app, "POST", previewPath, EDITOR, { url: "https://shop.example/pan" });
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({
@@ -1030,7 +1022,7 @@ describe("POST /registry/link-preview", () => {
   it("400s a non-https or malformed url at the boundary, before any fetch", async () => {
     let fetched = 0;
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       linkPreview: {
         fetchImpl: (() => {
           fetched += 1;
@@ -1058,7 +1050,7 @@ describe("POST /registry/link-preview", () => {
     // The code is stable and machine-readable; the RULE that fired is not
     // disclosed, or this becomes an internal-network scanner with an oracle.
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       linkPreview: options(() => new Response("", { status: 200 }), ["169.254.169.254"]),
     });
     const res = await req(app, "POST", previewPath, EDITOR, { url: "https://rebind.example/pan" });
@@ -1068,7 +1060,7 @@ describe("POST /registry/link-preview", () => {
 
   it("502s when the page cannot be fetched", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       linkPreview: options(() => new Response("nope", { status: 500 })),
     });
     const res = await req(app, "POST", previewPath, EDITOR, { url: "https://shop.example/pan" });
@@ -1078,7 +1070,7 @@ describe("POST /registry/link-preview", () => {
 
   it("415s a document that is not HTML", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       linkPreview: options(
         () =>
           new Response("%PDF-1.7", { status: 200, headers: { "content-type": "application/pdf" } }),
@@ -1093,7 +1085,7 @@ describe("POST /registry/link-preview", () => {
 
   it("422s an HTML page with no usable image", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       linkPreview: options(
         () =>
           new Response("<title>Bare</title>", {
@@ -1123,16 +1115,7 @@ describe("POST /registry/link-preview", () => {
         createdAt: now,
       })
       .run();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     const app = createApp(db, {
       osnTestKey: auth.key,
       registryPreviewLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
@@ -1188,7 +1171,7 @@ describe("registry image saves", () => {
 
   it("stores an upload and hands back a key the item routes accept", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     const res = await upload(app, PNG, EDITOR);
     expect(res.status).toBe(200);
     const saved = (await res.json()) as { imageKey: string; imageUrl: string };
@@ -1209,7 +1192,7 @@ describe("registry image saves", () => {
 
   it("rejects a disallowed format on its signature, not on the header it claims", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     // Both of these arrive as `Content-Type: image/png`.
     expect((await upload(app, GIF, EDITOR)).status).toBe(415);
     const lying = await upload(app, HTML, EDITOR);
@@ -1220,7 +1203,7 @@ describe("registry image saves", () => {
 
   it("413s an over-cap upload on the declared length AND on the real one", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
 
     // A lie big enough to refuse before reading a byte.
     const preCheck = await upload(app, PNG, EDITOR, "image/png", String(MAX_IMAGE_BYTES + 1));
@@ -1251,13 +1234,13 @@ describe("registry image saves", () => {
   });
 
   it("400s an empty upload body", async () => {
-    const app = buildApp({ grantRegistry: true, assets: createAssetsStub() });
+    const app = buildApp({ tier: "gold", assets: createAssetsStub() });
     expect((await upload(app, new Uint8Array(0), EDITOR)).status).toBe(400);
   });
 
   it("copies a picked candidate into R2 and stores no url", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets, linkPreview: remote(PNG) });
+    const app = buildApp({ tier: "gold", assets, linkPreview: remote(PNG) });
     const res = await req(app, "POST", fromUrlPath, EDITOR, { url: "https://cdn.example/pan.png" });
     expect(res.status).toBe(200);
     const saved = (await res.json()) as { imageKey: string; imageUrl: string };
@@ -1272,7 +1255,7 @@ describe("registry image saves", () => {
     // client-controlled, and nothing in it proves a preview ever ran.
     const assets = createAssetsStub();
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       assets,
       linkPreview: remote(PNG, { status: 200 }, ["169.254.169.254"]),
     });
@@ -1288,7 +1271,7 @@ describe("registry image saves", () => {
   it("400s a non-https candidate at the boundary, before any fetch", async () => {
     let fetched = 0;
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       assets: createAssetsStub(),
       linkPreview: {
         fetchImpl: (() => {
@@ -1315,7 +1298,7 @@ describe("registry image saves", () => {
   it("415s a candidate url that serves a document rather than an image", async () => {
     const assets = createAssetsStub();
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       assets,
       // A 200 and an `image/png` header over HTML — the sniff is the only honest
       // signal in the response.
@@ -1329,7 +1312,7 @@ describe("registry image saves", () => {
 
   it("502s when the candidate cannot be fetched", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       assets: createAssetsStub(),
       linkPreview: remote("gone", { status: 404, headers: { "content-type": "text/plain" } }),
     });
@@ -1340,7 +1323,7 @@ describe("registry image saves", () => {
 
   it("401 unauthenticated, 403 for a viewer, 403 for a stranger", async () => {
     const app = buildApp({
-      grantRegistry: true,
+      tier: "gold",
       assets: createAssetsStub(),
       linkPreview: remote(PNG),
     });
@@ -1373,16 +1356,7 @@ describe("registry image saves", () => {
         createdAt: now,
       })
       .run();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     const app = createApp(db, {
       osnTestKey: auth.key,
       assets: createAssetsStub(),
@@ -1427,7 +1401,7 @@ describe("GET /registry/image/:name", () => {
   }
 
   it("serves the bytes to any member, viewer included", async () => {
-    const app = buildApp({ grantRegistry: true, assets: createAssetsStub() });
+    const app = buildApp({ tier: "gold", assets: createAssetsStub() });
     const key = await uploadOne(app);
     const res = await req(app, "GET", `${base}/image/${nameOf(key)}`, VIEWER);
     expect(res.status).toBe(200);
@@ -1439,7 +1413,7 @@ describe("GET /registry/image/:name", () => {
 
   it("404s a name that is not a registry key, and never leaves the wedding's prefix", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     const key = await uploadOne(app);
     // Plant an object under ANOTHER wedding and try to reach it by every spelling
     // a client controls. The key is rebuilt server-side, so none of these can.
@@ -1461,13 +1435,13 @@ describe("GET /registry/image/:name", () => {
   });
 
   it("404s a well-formed name with no object behind it", async () => {
-    const app = buildApp({ grantRegistry: true, assets: createAssetsStub() });
+    const app = buildApp({ tier: "gold", assets: createAssetsStub() });
     const res = await req(app, "GET", `${base}/image/registry-does-not-exist`, EDITOR);
     expect(res.status).toBe(404);
   });
 
   it("401 unauthenticated, 403 for a stranger", async () => {
-    const app = buildApp({ grantRegistry: true, assets: createAssetsStub() });
+    const app = buildApp({ tier: "gold", assets: createAssetsStub() });
     const key = await uploadOne(app);
     expect((await req(app, "GET", `${base}/image/${nameOf(key)}`, undefined)).status).toBe(401);
     expect((await req(app, "GET", `${base}/image/${nameOf(key)}`, STRANGER)).status).toBe(403);
@@ -1479,7 +1453,7 @@ describe("deleting an item reaps its image", () => {
 
   it("removes the R2 object, because D1's cascade stops at the row", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     const uploaded = await appRequest(app, `${base}/image`, {
       method: "POST",
       headers: {
@@ -1501,7 +1475,7 @@ describe("deleting an item reaps its image", () => {
     // The same picture can back two items. The reap fires on the LAST
     // reference, not the first delete — otherwise the survivor loses its picture.
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     const uploaded = await appRequest(app, `${base}/image`, {
       method: "POST",
       headers: {
@@ -1526,7 +1500,7 @@ describe("deleting an item reaps its image", () => {
 
   it("still deletes an item that never had an image", async () => {
     const assets = createAssetsStub();
-    const app = buildApp({ grantRegistry: true, assets });
+    const app = buildApp({ tier: "gold", assets });
     const item = await seedItem(app);
     expect((await req(app, "DELETE", `${base}/items/${item.id}`, EDITOR)).status).toBe(200);
   });

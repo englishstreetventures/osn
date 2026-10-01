@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps, weddingEntitlements } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, rsvps } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -9,12 +9,12 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import type { ParsedEvent, ParsedFamily } from "../../src/schemas/import";
-import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import type { DiffOptions } from "../../src/services/import";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
-import { recordStatements } from "../test-helpers";
+import { BASE_GUEST_CAP } from "../../src/services/tiers";
+import { recordStatements, setTier } from "../test-helpers";
 import { eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 // A plus-one is the household's, not the organiser's: the change pipeline never
@@ -196,9 +196,7 @@ describe("diffAgainstDb — plus-ones", () => {
         })
         .run();
     }
-    db.delete(weddingEntitlements)
-      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
 
     const { ev, fam } = await draftOf(db);
     const oneMore = fam.map((f) =>

@@ -25,7 +25,7 @@ import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -194,62 +194,81 @@ describe("GET /api/organiser/weddings", () => {
     expect(body.weddings).toEqual([]);
   });
 
-  it("attaches entitlements and guestCap=100 when no capacity pack is granted", async () => {
-    const { db, app } = buildApp();
-    // Grant a non-capacity entitlement so entitlements array is non-empty.
+  type Listed = { id: string; tier: string; entitlements: string[]; guestCap: number };
+  async function listed(app: ReturnType<typeof buildApp>["app"]): Promise<Listed> {
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { weddings: Listed[] };
+    return body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
+  }
+
+  function grant(db: TestDb, entitlement: "premium_templates" | "vendors" | "capacity_500") {
     db.insert(weddingEntitlements)
       .values({
         weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "vendors",
+        entitlement,
         source: "comp",
         grantedAt: new Date(),
         grantedBy: "usr_admin",
         providerRef: null,
       })
       .run();
-    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      weddings: { id: string; entitlements: string[]; guestCap: number }[];
-    };
-    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
-    expect(w.entitlements).toContain("vendors");
-    // No capacity pack → default 100 cap.
-    expect(w.guestCap).toBe(100);
-  });
+  }
 
-  it("derives guestCap=500 from a capacity_500 entitlement", async () => {
-    const { db, app } = buildApp();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "capacity_500",
-        source: "comp",
-        grantedAt: new Date(),
-        grantedBy: "usr_admin",
-        providerRef: null,
-      })
-      .run();
-    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      weddings: { id: string; entitlements: string[]; guestCap: number }[];
-    };
-    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
-    expect(w.entitlements).toContain("capacity_500");
-    expect(w.guestCap).toBe(500);
-  });
-
-  it("returns empty entitlements and guestCap=100 when no entitlement is granted", async () => {
+  it("returns tier ivory, no entitlements and guestCap 100 for a wedding on the free tier", async () => {
     const { app } = buildApp();
-    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      weddings: { id: string; entitlements: string[]; guestCap: number }[];
-    };
-    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
-    expect(w.entitlements).toEqual([]);
-    expect(w.guestCap).toBe(100);
+    expect(await listed(app)).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
+  });
+
+  it("returns the tier, its guest cap and the legacy keys it stands for", async () => {
+    const { db, app } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    expect(await listed(app)).toMatchObject({
+      tier: "gold",
+      entitlements: ["registry", "capacity_500"],
+      guestCap: 500,
+    });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    expect(await listed(app)).toMatchObject({
+      tier: "crimson",
+      entitlements: ["vendors", "registry", "capacity_1000", "premium_templates"],
+      guestCap: 1000,
+    });
+  });
+
+  it("adds a held premium_templates row below Crimson", async () => {
+    const { db, app } = buildApp();
+    grant(db, "premium_templates");
+    expect((await listed(app)).entitlements).toEqual(["premium_templates"]);
+  });
+
+  // A legacy row is what migration 0071 read to set the tier; after it, the
+  // tier alone says what the wedding has.
+  it("ignores every legacy entitlement row other than premium_templates", async () => {
+    const { db, app } = buildApp();
+    grant(db, "vendors");
+    grant(db, "capacity_500");
+    expect(await listed(app)).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
+  });
+
+  it("returns the tier for a co-hosted wedding too", async () => {
+    const { db, app } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_list_tier",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_cohost_tier",
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await get(app, "/api/organiser/weddings", "usr_cohost_tier");
+    const body = (await res.json()) as { weddings: Listed[] };
+    expect(body.weddings).toEqual([
+      expect.objectContaining({ id: BOOTSTRAP_WEDDING_ID, tier: "crimson", guestCap: 1000 }),
+    ]);
   });
 });
 
@@ -289,6 +308,9 @@ describe("POST /api/organiser/weddings", () => {
     const [row] = db.select().from(weddings).where(eq(weddings.id, body.wedding.id)).all();
     expect(row!.ownerOsnProfileId).toBe("usr_newcomer");
     expect(row!.codeStyle).toBe("secure");
+    // Every new wedding starts on the free tier.
+    expect(row!.tier).toBe("ivory");
+    expect(body.wedding).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
   });
 
   it("defaults to the secure code style when codeStyle is omitted", async () => {
@@ -1579,20 +1601,19 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
     expect(body).not.toContain("Someone Elses Kettle");
   });
 
-  // The export carries no `registry` entitlement gate, on purpose: the gift log
-  // is the couple's own record, and they must be able to take it away even
-  // when the wedding holds no `registry` row. A plain entitlement gate added to
-  // the export group breaks this test, and that is the test's job.
-  it("exports the couple's gifts for a wedding that holds no registry entitlement", async () => {
+  // The export carries no Gold tier gate, on purpose: the gift log is the
+  // couple's own record, and they must be able to take it away even when the
+  // wedding has dropped below Gold. A tier gate added to the export group
+  // breaks this test, and that is the test's job.
+  it("exports the couple's gifts for a wedding below Gold", async () => {
     const { db, app } = buildApp();
     seedGifts(db);
-    const held = db
-      .select()
-      .from(weddingEntitlements)
-      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
-      .all()
-      .map((row) => row.entitlement);
-    expect(held).not.toContain("registry");
+    const [wedding] = db
+      .select({ tier: weddings.tier })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(wedding!.tier).toBe("ivory");
 
     const res = await get(app, path, BOOTSTRAP_OWNER);
     expect(res.status).toBe(200);

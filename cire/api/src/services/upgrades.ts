@@ -1,10 +1,10 @@
 /**
- * Buying a capability.
+ * Buying a plan tier.
  *
  * Everything below exists to stop one of two failures, both of which are
  * invisible in a happy-path test and expensive in production:
  *
- *  - **Charging twice for one entitlement.** A webhook can lag — seconds
+ *  - **Charging twice for one tier.** A webhook can lag — seconds
  *    normally, days if the Worker answered 500 and Stripe is retrying. An
  *    organiser who paid, saw nothing unlock, and pressed Upgrade again must not
  *    be handed a second payment page.
@@ -17,15 +17,15 @@
  * The orderings here are load-bearing. See the comments at each one.
  */
 
-import { weddingEntitlements, weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatchesReturning, type Db, DbService, dbQuery } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
-import { entitlementService } from "./entitlements";
 import type { StripeClient } from "./stripe";
-import type { PurchasableEntitlement, UpgradeCatalogue } from "./upgrade-catalogue";
+import { normaliseTier, type PaidTier, tierAtLeast, tierService } from "./tiers";
+import type { UpgradeCatalogue } from "./upgrade-catalogue";
 
 /** A purchase attempt that cannot proceed, and why. */
 export class UpgradeConflict extends Data.TaggedError("UpgradeConflict")<{
@@ -38,7 +38,7 @@ export class UpgradeConflict extends Data.TaggedError("UpgradeConflict")<{
 
 /** The upgrade could not be sold here: no Stripe Price is configured for it. */
 export class UpgradeUnavailable extends Data.TaggedError("UpgradeUnavailable")<{
-  readonly entitlement: string;
+  readonly tier: PaidTier;
 }> {}
 
 /** A write that failed for a reason that is not a conflict. */
@@ -64,19 +64,42 @@ export class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError
  *
  * MATCHED ON COLUMNS, NOT THE INDEX NAME. SQLite names the columns a conflict
  * was on and never the index that enforced it — a violation of the partial
- * one-pending index reports `UNIQUE constraint failed:
- * wedding_upgrade_purchases.wedding_id, wedding_upgrade_purchases.entitlement`.
- * Matching on the index name instead looks right, is what the index is called
- * in every other file, and can never fire: the caller then gets a 500 where the
- * contract says 409, and the organiser is told to try again on the one path
- * whose whole purpose is telling them to wait.
+ * one-pending index, which is on the wedding alone, reports `UNIQUE constraint
+ * failed: wedding_upgrade_purchases.wedding_id`. Matching on the index name
+ * instead looks right, is what the index is called in every other file, and
+ * can never fire: the caller then gets a 500 where the contract says 409, and
+ * the organiser is told to try again on the one path whose whole purpose is
+ * telling them to wait.
  */
 export function upgradeConflictReason(message: string): "processing" | "session_taken" | null {
   if (!message.includes("UNIQUE constraint failed")) return null;
   // Checked first: a session conflict names that column alone, and the
-  // one-pending pair must not swallow it.
+  // one-pending index must not swallow it.
   if (message.includes("checkout_session_id")) return "session_taken";
-  return message.includes("wedding_id") && message.includes("entitlement") ? "processing" : null;
+  return message.includes("wedding_upgrade_purchases.wedding_id") ? "processing" : null;
+}
+
+/**
+ * The tier a purchase row's product grants, or `null` when it names none.
+ *
+ * `gold` and `crimson` are the products sold today. The legacy entitlement keys
+ * are rows written before tiers, and each grants the tier that replaced it — a
+ * paid `vendors` session is Crimson, a paid `registry` one Gold — so a session
+ * opened before the switch still settles into what its money now buys.
+ */
+export function tierForProduct(product: string): PaidTier | null {
+  switch (product) {
+    case "gold":
+    case "registry":
+    case "capacity_500":
+      return "gold";
+    case "crimson":
+    case "vendors":
+    case "capacity_1000":
+      return "crimson";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -95,8 +118,8 @@ export const STALE_PENDING_MS = 60_000;
 
 export interface StartPurchaseInput {
   weddingId: string;
-  entitlement: PurchasableEntitlement;
-  /** The owner who pressed Upgrade. Recorded, and used as the grant's actor. */
+  tier: PaidTier;
+  /** The owner who pressed Upgrade. Recorded on the purchase row. */
   actorProfileId: string;
   /**
    * Built from the purchase id, which does not exist until this call mints it —
@@ -142,25 +165,22 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const newId = deps.newId ?? ((prefix: string) => `${prefix}_${crypto.randomUUID()}`);
 
   /**
-   * Both questions `startPurchase` opens with, in one statement.
-   *
-   * "Does the wedding already hold this?" and "is there a live attempt at it?"
-   * are keyed on the same two arguments and neither produces the other's key,
-   * so running them in sequence was an artefact of the `yield*` order rather
-   * than a data dependency — two D1 round trips on every press where one does.
-   * The `EXISTS` column is the `directory.ts` `inWedding` idiom.
+   * Both questions `startPurchase` opens with, in one statement: the tier the
+   * wedding is on now, and whether any purchase of it is in flight.
    *
    * Anchored on `weddings` because the role gate has already proved that row
    * exists, and the LEFT JOIN can fan out to at most one row:
-   * `wedding_upgrade_purchases_one_pending_uniq` makes a second pending row for
-   * the same (wedding, entitlement) impossible.
+   * `wedding_upgrade_purchases_one_pending_uniq` allows one pending row per
+   * wedding, whatever it buys.
    */
-  const openingRead = (db: Db, weddingId: string, entitlement: PurchasableEntitlement) =>
+  const openingRead = (db: Db, weddingId: string) =>
     dbQuery(() =>
       db
         .select({
-          held: sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} e WHERE e.wedding_id = ${weddingId} AND e.entitlement = ${entitlement})`,
+          tier: weddings.tier,
           id: weddingUpgradePurchases.id,
+          product: weddingUpgradePurchases.entitlement,
+          fromTier: weddingUpgradePurchases.fromTier,
           sessionId: weddingUpgradePurchases.checkoutSessionId,
           createdAt: weddingUpgradePurchases.createdAt,
         })
@@ -169,7 +189,6 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           weddingUpgradePurchases,
           and(
             eq(weddingUpgradePurchases.weddingId, weddings.id),
-            eq(weddingUpgradePurchases.entitlement, entitlement),
             eq(weddingUpgradePurchases.status, "pending"),
           ),
         )
@@ -179,13 +198,19 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       Effect.map((rows) => {
         const row = rows[0];
         return {
-          held: Boolean(row?.held),
+          tier: normaliseTier(row?.tier),
           // A LEFT JOIN with no match leaves the purchase columns null, which
           // is "no live attempt" — distinct from "no wedding", which the gate
           // already ruled out.
           pending:
-            row && row.id !== null && row.createdAt !== null
-              ? { id: row.id, sessionId: row.sessionId, createdAt: row.createdAt }
+            row && row.id !== null && row.product !== null && row.createdAt !== null
+              ? {
+                  id: row.id,
+                  product: row.product,
+                  fromTier: row.fromTier,
+                  sessionId: row.sessionId,
+                  createdAt: row.createdAt,
+                }
               : null,
         };
       }),
@@ -233,24 +258,34 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         const db = yield* DbService;
 
         // 1. One statement answers both opening questions — see `openingRead`.
-        const opening = yield* openingRead(db, input.weddingId, input.entitlement);
+        const opening = yield* openingRead(db, input.weddingId);
+        const from = opening.tier;
+        const started = (result: Parameters<typeof metricUpgradeCheckoutStarted>[2]) =>
+          metricUpgradeCheckoutStarted(input.tier, from, result);
 
-        // Nothing to sell if the wedding already has it.
-        if (opening.held) {
-          metricUpgradeCheckoutStarted(input.entitlement, "already_held");
+        // Nothing to sell if the wedding is already there, or past it.
+        if (tierAtLeast(from, input.tier)) {
+          started("already_held");
           return yield* Effect.fail(new UpgradeConflict({ reason: "already_held" }));
         }
 
-        const priceId = deps.catalogue.priceIdFor(input.entitlement);
+        const priceId = deps.catalogue.priceIdFor(input.tier, from);
         if (priceId === null) {
-          metricUpgradeCheckoutStarted(input.entitlement, "unconfigured");
-          return yield* Effect.fail(new UpgradeUnavailable({ entitlement: input.entitlement }));
+          started("unconfigured");
+          return yield* Effect.fail(new UpgradeUnavailable({ tier: input.tier }));
         }
 
         // 2. Resolve any live attempt BEFORE inserting. The partial unique
         //    index is the backstop behind this, not the control flow.
         const existing = opening.pending;
         if (existing !== null) {
+          // The same product at the same Price is the same purchase: its open
+          // page is this press's page too. Anything else — the other tier, the
+          // same tier priced from a tier the wedding has since left, or a
+          // legacy per-module row — must never be handed out for this press,
+          // or a Crimson click lands on a Gold payment page.
+          const samePurchase = existing.product === input.tier && existing.fromTier === from;
+
           if (existing.sessionId !== null) {
             const probe = yield* deps.stripe
               .retrievePlatformCheckoutSession(existing.sessionId)
@@ -267,27 +302,51 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 ),
               );
 
-            if (probe.status === "open") {
-              metricUpgradeCheckoutStarted(input.entitlement, "reused");
-              return { purchaseId: existing.id, url: probe.url, reused: true };
-            }
             if (probe.status === "complete" || probe.status === "unknown") {
               // THE DOUBLE-CHARGE GUARD. A complete session means the money has
               // very likely moved and the webhook is merely late. Treating it as
               // dead — which a nullable probe result would force — closes a row
-              // that was paid and sells the same entitlement again.
-              metricUpgradeCheckoutStarted(input.entitlement, "processing");
+              // that was paid and sells again. The same holds when the paid
+              // session bought a different tier: the wedding's tier is about to
+              // move, and the price of this press with it.
+              started("processing");
               return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
             }
-            // Only `expired` is safe to replace.
+            if (probe.status === "open") {
+              if (samePurchase) {
+                started("reused");
+                return { purchaseId: existing.id, url: probe.url, reused: true };
+              }
+              // Another product's page is still payable. Close it at Stripe
+              // before opening this one, so the two can never both be paid. A
+              // refusal means it may have completed in the meantime — wait.
+              const expired = yield* deps.stripe
+                .expirePlatformCheckoutSession(existing.sessionId)
+                .pipe(
+                  Effect.as(true),
+                  Effect.catch((e: unknown) =>
+                    Effect.logError("upgrade session expire failed", {
+                      purchaseId: existing.id,
+                      reason: String(e),
+                    }).pipe(Effect.as(false)),
+                  ),
+                );
+              if (!expired) {
+                started("processing");
+                return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
+              }
+            }
+            // `expired` from the probe, or expired just now by us: safe to
+            // replace.
             yield* closePending(db, existing.id, { sessionId: existing.sessionId }, "expired");
           } else {
             // Session-less: either another request's in-flight attempt, or one
             // whose Stripe call died. Age is the only thing that tells them
-            // apart, so inside the window this waits rather than stealing.
+            // apart, so inside the window this waits rather than stealing —
+            // whatever that attempt is buying.
             const age = now() - existing.createdAt.getTime();
             if (age < STALE_PENDING_MS) {
-              metricUpgradeCheckoutStarted(input.entitlement, "processing");
+              started("processing");
               return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
             }
             yield* closePending(db, existing.id, { sessionId: null }, "failed");
@@ -296,6 +355,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
 
         // 3. Insert through tryPromise, not dbQuery: a partial-index conflict
         //    must land in the error channel as a 409, not as a defect (a 500).
+        //    `from` ranks below `input.tier`, so it is Ivory or Gold.
+        const fromTier = from === "gold" ? "gold" : "ivory";
         const purchaseId = newId("upg");
         const createdAt = new Date(now());
         yield* Effect.tryPromise({
@@ -306,7 +367,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 .values({
                   id: purchaseId,
                   weddingId: input.weddingId,
-                  entitlement: input.entitlement,
+                  entitlement: input.tier,
+                  fromTier,
                   status: "pending",
                   createdByOsnProfileId: input.actorProfileId,
                   createdAt,
@@ -359,18 +421,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             .all(),
         );
         if (changedNone(attached)) {
-          metricUpgradeCheckoutStarted(input.entitlement, "processing");
+          started("processing");
           return yield* Effect.fail(new UpgradeConflict({ reason: "processing" }));
         }
 
-        metricUpgradeCheckoutStarted(input.entitlement, "ok");
+        started("ok");
         return { purchaseId, url: session.url, reused: false };
       }).pipe(Effect.withSpan("cire.upgrade.startPurchase"));
     },
 
     /**
-     * Settle a purchase from a verified webhook delivery. The ONLY place an
-     * entitlement is granted from a payment.
+     * Settle a purchase from a verified webhook delivery. The ONLY place a tier
+     * is granted from a payment.
      *
      * ORDER: verify → paid? → grant → sales → flip.
      *
@@ -379,11 +441,16 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
      * NOTHING short-circuits on "this row already reads succeeded". That state
      * is exactly what a delivery dying between the flip and the grant leaves
      * behind, so treating it as nothing-to-do would strand a customer who paid
-     * with no entitlement and no further chance to get one.
+     * with no tier and no further chance to get one.
      *
      * The order then makes the window as small as it can be — a crash after the
      * flip has nothing left to lose, and the conditional UPDATE is only ever
      * reporting whether THIS delivery was the first, never gating the work.
+     *
+     * A paid purchase whose product maps to no tier is a DEFECT, not an answer:
+     * the delivery is answered 500 so Stripe keeps retrying it while someone
+     * looks, because a 2xx would end the only record that money arrived for
+     * nothing.
      */
     settlePurchase(input: SettleInput): Effect.Effect<SettleOutcome, never, DbService> {
       return Effect.gen(function* () {
@@ -393,10 +460,9 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             .select({
               id: weddingUpgradePurchases.id,
               weddingId: weddingUpgradePurchases.weddingId,
-              entitlement: weddingUpgradePurchases.entitlement,
+              product: weddingUpgradePurchases.entitlement,
               status: weddingUpgradePurchases.status,
               sessionId: weddingUpgradePurchases.checkoutSessionId,
-              buyer: weddingUpgradePurchases.createdByOsnProfileId,
             })
             .from(weddingUpgradePurchases)
             .where(eq(weddingUpgradePurchases.id, input.purchaseId))
@@ -424,14 +490,23 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           return "unknown";
         }
 
-        const entitlement = row.entitlement as PurchasableEntitlement;
+        const tier = tierForProduct(row.product);
 
         if (!input.paid) {
           // Card-only sessions cannot complete unpaid, so this should never
           // fire — but granting on an unpaid session is the one mistake that
           // cannot be undone by a retry, so the check stays.
-          metricUpgradePurchaseSettled(entitlement, "unpaid");
+          metricUpgradePurchaseSettled(tier ?? "unmapped", "unpaid");
           return "unpaid";
+        }
+
+        if (tier === null) {
+          metricUpgradePurchaseSettled("unmapped", "defect");
+          yield* Effect.logError("upgrade settle unmappable product", {
+            purchaseId: row.id,
+            product: row.product,
+          });
+          return yield* Effect.die(new Error("upgrade purchase names no tier"));
         }
 
         // ONE ROUND TRIP for all three writes. D1 runs a batch atomically and
@@ -444,14 +519,15 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           commitGroupedBatchesReturning(
             db,
             [
-              // Idempotent on its own primary key.
+              // Only ever raises the tier, so a replay — or a late delivery for
+              // a lower tier than the wedding has since reached — changes
+              // nothing.
               [
-                entitlementService.grantStatement(db, row.weddingId, entitlement, {
+                tierService.tierGrantStatement(db, row.weddingId, tier, {
                   source: "purchase",
-                  // A webhook has no actor of its own; the buyer is the honest
-                  // answer and is what the audit column is for.
-                  grantedBy: row.buyer,
-                  providerRef: input.checkoutSessionId,
+                  // A webhook has no actor of its own. The purchase names the
+                  // buyer, so the grant names the purchase.
+                  grantedBy: `stripe:${row.id}`,
                 }),
               ],
               // Keyed on the purchase, so a redelivery writes one row.
@@ -461,7 +537,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                   .values({
                     id: newId("sal"),
                     purchaseId: row.id,
-                    entitlement,
+                    entitlement: row.product,
                     amountMinor: input.paidAmountMinor ?? 0,
                     currency: input.paidCurrency?.toUpperCase() ?? "",
                     settledAt: new Date(now()),
@@ -470,7 +546,9 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               ],
             ],
             // The tail. Zero rows back means a previous delivery already did
-            // all of the above.
+            // all of the above. An `expired` row flips too: a session can be
+            // paid in the moment before it is expired, and the money is then
+            // as real as any other.
             db
               .update(weddingUpgradePurchases)
               .set({
@@ -484,7 +562,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               .where(
                 and(
                   eq(weddingUpgradePurchases.id, row.id),
-                  eq(weddingUpgradePurchases.status, "pending"),
+                  inArray(weddingUpgradePurchases.status, ["pending", "expired"]),
                 ),
               )
               .returning({ id: weddingUpgradePurchases.id }),
@@ -492,7 +570,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         );
 
         const outcome: SettleOutcome = changedNone(flipped) ? "replayed" : "granted";
-        metricUpgradePurchaseSettled(entitlement, outcome === "granted" ? "granted" : "replayed");
+        metricUpgradePurchaseSettled(tier, outcome === "granted" ? "granted" : "replayed");
         return outcome;
       }).pipe(Effect.withSpan("cire.upgrade.settlePurchase"));
     },
@@ -519,16 +597,14 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             // The metric's label comes back with the write. An expiry is the
             // ordinary end of an abandoned checkout, so re-reading the row we
             // just wrote would spend a round trip on every one of them.
-            .returning({ entitlement: weddingUpgradePurchases.entitlement })
+            .returning({ product: weddingUpgradePurchases.entitlement })
             .all(),
         );
         if (changedNone(changed)) return "ignored";
-        const entitlement = (changed as { entitlement: string }[])[0]?.entitlement as
-          | PurchasableEntitlement
-          | undefined;
-        if (entitlement) {
+        const product = (changed as { product: string }[])[0]?.product;
+        if (product !== undefined) {
           metricUpgradePurchaseSettled(
-            entitlement,
+            tierForProduct(product) ?? "unmapped",
             input.status === "failed" ? "failed" : "expired",
           );
         }
@@ -539,18 +615,20 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     /**
      * A purchase's state, for the page the organiser returns to. Scoped to the
      * wedding, so an id belonging to another wedding is simply not found.
+     * `tier` is what the purchase buys — `null` only for a legacy product that
+     * maps to no tier.
      */
     purchaseStatus(
       weddingId: string,
       purchaseId: string,
-    ): Effect.Effect<{ status: string; entitlement: string } | null, never, DbService> {
+    ): Effect.Effect<{ status: string; tier: PaidTier | null } | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         const rows = yield* dbQuery(() =>
           db
             .select({
               status: weddingUpgradePurchases.status,
-              entitlement: weddingUpgradePurchases.entitlement,
+              product: weddingUpgradePurchases.entitlement,
             })
             .from(weddingUpgradePurchases)
             .where(
@@ -561,7 +639,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             )
             .all(),
         );
-        return rows[0] ?? null;
+        const row = rows[0];
+        return row ? { status: row.status, tier: tierForProduct(row.product) } : null;
       }).pipe(Effect.withSpan("cire.upgrade.purchaseStatus"));
     },
   };

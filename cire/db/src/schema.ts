@@ -116,8 +116,10 @@ export const weddings = sqliteTable(
     // `tier_source` says how the wedding reached its tier — `purchase` (a
     // settled Stripe checkout), `comp` (an operator grant) or `migration` (lifted
     // from its legacy `wedding_entitlements` rows by 0071) — and
-    // `tier_granted_by` who: the buying profile, or the operator named on the
-    // grant. Both NULL on a wedding that has never left `ivory`.
+    // `tier_granted_by` what: `stripe:<purchase id>` for a purchase (the buyer
+    // is on that purchase row), `script:<operator>` for a comp. Both NULL on a
+    // wedding that has never left `ivory`, and `tier_granted_by` NULL on a
+    // migrated one.
     tier: text("tier", { enum: ["ivory", "gold", "crimson"] })
       .notNull()
       .default("ivory"),
@@ -1519,9 +1521,9 @@ export const weddingUpgradePurchases = sqliteTable(
     // for. Null while pending.
     amountMinor: integer("amount_minor"),
     currency: text("currency"),
-    // Who pressed buy. Also what the tier grant records as
-    // `weddings.tier_granted_by`: a webhook has no actor of its own, and the
-    // buyer is the honest answer.
+    // Who pressed buy. A webhook has no actor of its own, so the tier grant
+    // records this purchase (`weddings.tier_granted_by = 'stripe:<id>'`) and
+    // the buyer is read from here.
     createdByOsnProfileId: text("created_by_osn_profile_id").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

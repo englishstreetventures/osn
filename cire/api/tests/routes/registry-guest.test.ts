@@ -6,7 +6,6 @@ import {
   registryClaims,
   registryItems,
   registrySettings,
-  weddingEntitlements,
   weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -24,7 +23,8 @@ import type {
 } from "../../src/services/invite-image-transform";
 import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import type { Tier } from "../../src/services/tiers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 
 const SLUG = "cire-wedding";
 const OTHER_WEDDING_ID = "wed_other";
@@ -106,8 +106,8 @@ async function withCaches<T>(stub: CacheStorage, fn: () => Promise<T>): Promise<
  * Two weddings, both with a registry, so every cross-tenant assertion has a real
  * target rather than a fabricated id.
  *
- * The bootstrap wedding's gates are the knobs — `entitled` and `published` — and
- * BOTH default to on, the opposite of `registry.test.ts`. That file's subject is
+ * The bootstrap wedding's gates are the knobs — `tier` and `published` — and
+ * BOTH default to open (Gold, published), the opposite of `registry.test.ts`. That file's subject is
  * the feature staying locked; this one's is what a guest sees once a couple has
  * deliberately opened it, so the interesting fixture here is the open one and
  * every locked case says so explicitly.
@@ -117,7 +117,7 @@ async function withCaches<T>(stub: CacheStorage, fn: () => Promise<T>): Promise<
  */
 function buildApp(
   opts: {
-    entitled?: boolean;
+    tier?: Tier;
     /** False: the couple never saved the registry, so it has no settings row. */
     opened?: boolean;
     published?: boolean;
@@ -130,7 +130,7 @@ function buildApp(
   } = {},
 ) {
   const {
-    entitled = true,
+    tier = "gold",
     opened = true,
     published = true,
     shippingAddress = null,
@@ -165,21 +165,8 @@ function buildApp(
     })
     .run();
 
-  for (const weddingId of entitled
-    ? [BOOTSTRAP_WEDDING_ID, OTHER_WEDDING_ID]
-    : [OTHER_WEDDING_ID]) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: "usr_dev_bootstrap_owner",
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+  setTier(db, OTHER_WEDDING_ID, "gold");
 
   if (opened) {
     db.insert(registrySettings)
@@ -335,9 +322,9 @@ describe("the guest registry is one 404, whatever the reason", () => {
   // from the gated routes to any guest who holds a code for one wedding.
   const scenarios = [
     ["an unknown slug", () => buildApp(), "no-such-wedding"],
-    ["a wedding without the entitlement", () => buildApp({ entitled: false }), SLUG],
+    ["a wedding below Gold", () => buildApp({ tier: "ivory" }), SLUG],
     ["an unpublished registry", () => buildApp({ published: false }), SLUG],
-    // Entitled, but the couple never saved the registry: no settings row, which
+    // On Gold, but the couple never saved the registry: no settings row, which
     // reads as the defaults (unpublished), never as a fault.
     ["a registry never opened", () => buildApp({ opened: false }), SLUG],
   ] as const;
@@ -391,7 +378,7 @@ describe("the guest registry is one 404, whatever the reason", () => {
     for (const [opts, slug, visible] of [
       [{}, SLUG, true],
       [{ opened: false }, SLUG, false],
-      [{ entitled: false }, SLUG, false],
+      [{ tier: "ivory" }, SLUG, false],
       [{}, "no-such-wedding", false],
     ] as const) {
       const { db } = buildApp(opts);
@@ -740,7 +727,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
     const res = await claim(app, foreign, { quantity: 1 });
     expect(res.status).toBe(404);
-    // The SAME code an unpublished or unentitled registry gives. The
+    // The SAME code an unpublished or below-Gold registry gives. The
     // family is checked BEFORE the item, so a holder of any valid cookie learns
     // neither whether this wedding has a list nor whether the item id they
     // guessed exists on it.
@@ -850,17 +837,8 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
           .run(),
     ],
     [
-      "the wedding loses the entitlement",
-      (db: ReturnType<typeof buildApp>["db"]) =>
-        db
-          .delete(weddingEntitlements)
-          .where(
-            and(
-              eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID),
-              eq(weddingEntitlements.entitlement, "registry"),
-            ),
-          )
-          .run(),
+      "the wedding drops below Gold",
+      (db: ReturnType<typeof buildApp>["db"]) => setTier(db, BOOTSTRAP_WEDDING_ID, "ivory"),
     ],
     [
       // The list stays published: the gate checks that an item of this wedding
@@ -1014,7 +992,7 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     plant(assets, `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`);
     const statements = recordStatements(db);
     expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
-    // Slug, entitlement, settings and item in one read: this route runs it on
+    // Slug, tier, settings and item in one read: this route runs it on
     // every image request that reaches the Worker, dozens to a page.
     expect(statements).toHaveLength(1);
     // bun:sqlite's planner, not D1's, but the same engine: the item check is a

@@ -31,6 +31,7 @@ import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
+import type { PaidTier, Tier } from "./services/tiers";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const CIRE_METRICS = {
@@ -135,15 +136,20 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
-  // Self-serve upgrades. `entitlement` is a closed set of capability keys and
-  // never a wedding, purchase or profile id — the whole point of the two
+  // Self-serve upgrades. `tier` and `from_tier` are closed sets of plan tiers
+  // and never a wedding, purchase or profile id — the whole point of the two
   // counters is that a spike is visible without anything per-tenant reaching
   // an attribute. `started` is what an organiser pressed; `settled` is what
   // Stripe's webhook concluded, and the gap between the two IS the health
-  // signal (money taken with no entitlement granted shows up as started
-  // without settled).
+  // signal (money taken with no tier granted shows up as started without
+  // settled).
   upgradeCheckoutStarted: "cire.upgrade.checkout.started",
   upgradePurchaseSettled: "cire.upgrade.purchase.settled",
+  // The tier gate refusing a request (402 `payment_required`), by the tier the
+  // route needs. The portal hides a locked module, so this is a backstop: a
+  // sustained count means a portal build is still calling a module it should
+  // show as locked.
+  tierGatePaymentRequired: "cire.tier.gate.payment_required",
   // Link preview — the one outbound fetch a user's input aims. The result
   // attribute is how a spike in refused destinations becomes visible.
   registryLinkPreview: "cire.registry.link_preview",
@@ -366,23 +372,17 @@ type RegistryItemWriteAttrs = { action: RegistryItemAction };
  *  want to read. */
 export type RegistryGiftAction = "thanked" | "unthanked" | "note_hidden" | "note_unhidden";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
-/** Which capability an upgrade counter is about. Deliberately the full
- *  entitlement key set rather than only the two sold today, so making another
- *  purchasable is a catalogue change and not a metrics migration. Bounded and
- *  closed: this is the only dimension either upgrade counter carries. */
-export type UpgradeEntitlement =
-  | "premium_templates"
-  | "vendors"
-  | "ai"
-  | "capacity_500"
-  | "capacity_1000"
-  | "registry";
+/** Which tier an upgrade counter is about. `unmapped` is a purchase row whose
+ *  product names no tier — only ever counted beside the `defect` outcome. */
+export type UpgradeTier = PaidTier | "unmapped";
 /** How an attempt to start a checkout ended. `reused` and `processing` are the
  *  two that keep a customer from paying twice and are worth watching apart:
  *  `reused` handed back a payment page still open, `processing` refused because
  *  a paid session has not been settled by the webhook yet. A sustained rise in
  *  `processing` means deliveries are lagging, not that organisers are confused.
- *  `unconfigured` is a key with no Stripe Price in this deployment. */
+ *  `unconfigured` is a tier with no Stripe Price in this deployment for the
+ *  tier the wedding is on now. `already_held` is a wedding already on that tier
+ *  or above it. */
 export type UpgradeCheckoutResult =
   | "ok"
   | "reused"
@@ -391,26 +391,34 @@ export type UpgradeCheckoutResult =
   | "unconfigured"
   | "error";
 type UpgradeCheckoutStartedAttrs = {
-  entitlement: UpgradeEntitlement;
+  tier: PaidTier;
+  /** The tier the wedding was on when the organiser pressed buy. */
+  from_tier: Tier;
   result: UpgradeCheckoutResult;
 };
 /** What the webhook concluded about a purchase. `granted` is the only one that
- *  moved an entitlement; `replayed` is Stripe's ordinary redelivery and is
+ *  could move a tier; `replayed` is Stripe's ordinary redelivery and is
  *  expected, not a fault. `unknown` is an event this deployment has no purchase
  *  row for — on a platform endpoint shared with whatever else the account does,
  *  that is a normal outcome rather than an error. `unpaid` should be zero while
- *  sessions are card-only; a non-zero count means that restriction slipped. */
+ *  sessions are card-only; a non-zero count means that restriction slipped.
+ *  `defect` is a paid purchase whose product maps to no tier: the delivery is
+ *  answered 500 so Stripe retries it, and every count is a customer who paid
+ *  and holds nothing until someone looks. */
 export type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
   | "unpaid"
   | "failed"
   | "expired"
-  | "unknown";
+  | "unknown"
+  | "defect";
 type UpgradePurchaseSettledAttrs = {
-  entitlement: UpgradeEntitlement;
+  tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;
 };
+/** The tier a gated route needs. Bounded to the two paid tiers. */
+type TierGatePaymentRequiredAttrs = { required_tier: PaidTier };
 /** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
  *  destination — a sustained rise in it is someone probing, not a shop being
  *  slow, which is why it is its own value rather than folded into a failure. */
@@ -598,14 +606,20 @@ const registryGift = createCounter<RegistryGiftAttrs>({
 
 const upgradeCheckoutStarted = createCounter<UpgradeCheckoutStartedAttrs>({
   name: CIRE_METRICS.upgradeCheckoutStarted,
-  description: "Self-serve upgrade checkouts started, by entitlement and outcome",
+  description: "Self-serve upgrade checkouts started, by tier, starting tier and outcome",
   unit: "{attempt}",
 });
 
 const upgradePurchaseSettled = createCounter<UpgradePurchaseSettledAttrs>({
   name: CIRE_METRICS.upgradePurchaseSettled,
-  description: "Upgrade purchases settled by the platform webhook, by entitlement and outcome",
+  description: "Upgrade purchases settled by the platform webhook, by tier and outcome",
   unit: "{purchase}",
+});
+
+const tierGatePaymentRequired = createCounter<TierGatePaymentRequiredAttrs>({
+  name: CIRE_METRICS.tierGatePaymentRequired,
+  description: "Requests the tier gate refused with 402, by the tier the route needs",
+  unit: "{request}",
 });
 
 const registryLinkPreview = createCounter<RegistryLinkPreviewAttrs>({
@@ -952,14 +966,18 @@ export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
 
 export const metricUpgradeCheckoutStarted = (
-  entitlement: UpgradeEntitlement,
+  tier: PaidTier,
+  fromTier: Tier,
   result: UpgradeCheckoutResult,
-): void => upgradeCheckoutStarted.inc({ entitlement, result });
+): void => upgradeCheckoutStarted.inc({ tier, from_tier: fromTier, result });
 
 export const metricUpgradePurchaseSettled = (
-  entitlement: UpgradeEntitlement,
+  tier: UpgradeTier,
   outcome: UpgradeSettleOutcome,
-): void => upgradePurchaseSettled.inc({ entitlement, outcome });
+): void => upgradePurchaseSettled.inc({ tier, outcome });
+
+export const metricTierGatePaymentRequired = (requiredTier: PaidTier): void =>
+  tierGatePaymentRequired.inc({ required_tier: requiredTier });
 
 export const metricRegistryLinkPreview = (result: RegistryLinkPreviewResult): void =>
   registryLinkPreview.inc({ result });

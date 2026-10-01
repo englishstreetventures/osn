@@ -369,7 +369,7 @@ export function imageResponseHeaders(
  * That is safe because the cache key is synthetic — `buildTransformCacheKey` mints
  * a URL from the slot, variant, format and SERVER-derived version, and no inbound
  * request URL can name it — and because the lookup happens after auth, the role
- * gate and the entitlement check. `public` here means "this per-colo store may hold
+ * gate and the tier check. `public` here means "this per-colo store may hold
  * it", not "any proxy may"; nothing between us and the browser ever sees this
  * header.
  *

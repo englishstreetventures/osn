@@ -675,6 +675,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: string;
         displayName: string;
         role: string;
+        tier: string;
         entitlements: string[];
         guestCap: number;
       }[];
@@ -687,6 +688,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: "hosts-wedding",
         displayName: "Hosts Wedding",
         role: "editor",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
       },
@@ -713,6 +715,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: string;
         displayName: string;
         role: string;
+        tier: string;
         entitlements: string[];
         guestCap: number;
       }[];
@@ -723,6 +726,7 @@ describe("co-host dashboard access (weddingMember)", () => {
         slug: "hosts-wedding",
         displayName: "Hosts Wedding",
         role: "viewer",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
       },

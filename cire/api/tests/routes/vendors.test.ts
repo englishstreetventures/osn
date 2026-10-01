@@ -1,13 +1,14 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { createDirectoryService } from "../../src/services/directory";
+import type { Tier } from "../../src/services/tiers";
 import type { VendorDto } from "../../src/services/vendors";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -21,7 +22,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
+function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -56,33 +57,11 @@ function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
     })
     .run();
 
-  // Grant the `vendors` entitlement so the route gate passes (unless opted out
-  // for an explicit 402-test that must exercise the un-entitled path).
-  if (grantVendors) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-    // Also grant for wed_other so tenancy tests involving usr_bob's wedding pass.
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: "wed_other",
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: "usr_bob",
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  // Vendors is a Crimson module: put the wedding on it so the route gate passes
+  // (unless a 402 test asks for a lower tier), and usr_bob's wedding too, for
+  // the tenancy tests.
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+  setTier(db, "wed_other", "crimson");
 
   const { layer: logEmailLayer } = makeLogEmailLive();
   const directoryService = createDirectoryService({
@@ -252,29 +231,33 @@ describe("vendor CRM routes", () => {
     expect(((await res.json()) as { error: string }).error).toBe("vendor_not_found");
   });
 
-  // ── Entitlement gate (Task 4) ──────────────────────────────────────────────
+  // ── Tier gate ──────────────────────────────────────────────────────────────
 
-  it("GET /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
-    const res = await req(buildApp({ grantVendors: false }), "GET", base, OWNER);
-    expect(res.status).toBe(402);
-    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
+  const crimsonRequired = { error: "payment_required", tier: "crimson" };
+
+  it("GET /vendors → 402 naming Crimson on an Ivory wedding, and on a Gold one", async () => {
+    for (const tier of ["ivory", "gold"] as const) {
+      const res = await req(buildApp({ tier }), "GET", base, OWNER);
+      expect(res.status, tier).toBe(402);
+      expect(await jsonBody(res)).toEqual(crimsonRequired);
+    }
   });
 
-  it("POST /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
-    const res = await req(buildApp({ grantVendors: false }), "POST", base, EDITOR, VENDOR);
+  it("POST /vendors → 402 naming Crimson on a Gold wedding", async () => {
+    const res = await req(buildApp({ tier: "gold" }), "POST", base, EDITOR, VENDOR);
     expect(res.status).toBe(402);
-    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual(crimsonRequired);
   });
 
   it("a VIEWER still gets 403 (role wins over 402) on the write route", async () => {
-    // weddingEditor fires before weddingEntitlement → viewer gets 403, not 402.
-    const res = await req(buildApp({ grantVendors: false }), "POST", base, VIEWER, VENDOR);
+    // weddingEditor fires before weddingTier → viewer gets 403, not 402.
+    const res = await req(buildApp({ tier: "ivory" }), "POST", base, VIEWER, VENDOR);
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: string }).error).toBe("read_only_role");
   });
 
-  it("with the `vendors` entitlement granted, GET /vendors passes the gate (not 402)", async () => {
+  it("on Crimson, GET /vendors passes the gate", async () => {
     const res = await req(buildApp(), "GET", base, OWNER);
-    expect(res.status).not.toBe(402);
+    expect(res.status).toBe(200);
   });
 });

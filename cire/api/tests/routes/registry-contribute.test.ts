@@ -6,7 +6,6 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
-  weddingEntitlements,
   weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -20,7 +19,7 @@ import {
   type CreateCheckoutSessionInput,
   type StripeClient,
 } from "../../src/services/stripe";
-import { appRequest, jsonBody, recordStatements, TEST_ORIGIN } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier, TEST_ORIGIN } from "../test-helpers";
 
 /**
  * A guest giving money.
@@ -70,6 +69,7 @@ function stripeStub(
     createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePlatformCheckoutSession: () =>
       Effect.fail(new StripeError({ reason: "not used here" })),
+    expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     createCheckoutSession(input) {
       sessions.push(input);
@@ -132,19 +132,9 @@ function buildApp({
       updatedAt: now,
     })
     .run();
-  // The registry module is entitlement-gated; without this every route here
-  // answers the same 404 an unpublished list does.
-  db.insert(weddingEntitlements)
-    .values({
-      weddingId: BOOTSTRAP_WEDDING_ID,
-      entitlement: "registry",
-      source: "comp",
-      grantedAt: now,
-      grantedBy: "usr_dev_bootstrap_owner",
-      providerRef: null,
-    })
-    .onConflictDoNothing()
-    .run();
+  // The registry is a Gold module; below it every route here answers the same
+  // 404 an unpublished list does.
+  setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
   db.insert(registrySettings)
     .values({
       weddingId: BOOTSTRAP_WEDDING_ID,

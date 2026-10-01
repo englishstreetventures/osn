@@ -21,9 +21,11 @@ import {
   vendorClaims,
   vendors,
   weddingFaqs,
+  platformSales,
   weddingEntitlements,
   weddingInviteCustomisations,
   weddings,
+  weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
 import { EmailService, type SendEmailInput } from "@shared/email";
@@ -51,7 +53,6 @@ import {
 } from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
-import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
@@ -67,7 +68,11 @@ import { type GiftSummaryNotice, retentionService } from "../../src/services/ret
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
+import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
+import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
+import { createUpgradeService } from "../../src/services/upgrades";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // The rest of the suite runs on synchronous bun:sqlite; these exercise the
@@ -81,6 +86,7 @@ import { tasksService } from "../../src/services/tasks";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
+const MIGRATION_0071 = "0071_wedding_tiers.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -251,6 +257,7 @@ beforeEach(async () => {
     tasks,
     registrySettings,
     weddingFaqs,
+    platformSales,
     weddings,
   ]) {
     await db.delete(table);
@@ -866,14 +873,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const now = new Date();
       const visible = (eff: Effect.Effect<string, unknown, DbService>) =>
         Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
-      await db.insert(weddingEntitlements).values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: "usr_test",
-      });
-      // Entitled, never opened: no settings row reads as unpublished.
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      // On Gold, never opened: no settings row reads as unpublished.
       expect(Exit.isFailure(await visible(registryGuestService.visibleWeddingId("w")))).toBe(true);
 
       await db.insert(registrySettings).values({
@@ -2115,6 +2116,139 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect((await digest()).sent).toBe(0);
       const [notice] = await db.select().from(hostRsvpNotices);
       expect(notice).toMatchObject({ osnProfileId: "usr_test", digestEnabled: true, seenSeq: 0 });
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "runs migration 0071's data statements on D1's own SQLite",
+    async () => {
+      // The schema comes from the test DDL, which already has the tier columns
+      // and the narrowed index, so only the migration's UPDATEs are replayed:
+      // what is proven is that D1 accepts them (`unixepoch()` included) and
+      // that they lift each wedding to the tier its legacy rows paid for.
+      const updates = migrationStatements(MIGRATION_0071).filter((stmt) =>
+        stmt.startsWith("UPDATE"),
+      );
+      expect(updates).toHaveLength(3);
+
+      const stamp = new Date(1_790_000_000_000);
+      const lifted = [
+        ["wed_d1_vendors", "vendors"],
+        ["wed_d1_registry", "registry"],
+        ["wed_d1_both", "registry"],
+        ["wed_d1_both", "capacity_1000"],
+        ["wed_d1_templates", "premium_templates"],
+      ] as const;
+      for (const id of new Set(lifted.map(([w]) => w))) {
+        await db.insert(weddings).values({
+          id,
+          slug: id,
+          displayName: id,
+          ownerOsnProfileId: "usr_test",
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+      for (const [weddingId, entitlement] of lifted) {
+        await db.insert(weddingEntitlements).values({
+          weddingId,
+          entitlement,
+          source: "comp",
+          grantedAt: stamp,
+          grantedBy: "usr_test",
+        });
+      }
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1_legacy",
+        weddingId: "wed_d1_vendors",
+        entitlement: "vendors",
+        status: "pending",
+        createdByOsnProfileId: "usr_test",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+
+      for (const stmt of updates) await d1.prepare(stmt).run();
+
+      const tiers = await db
+        .select({ id: weddings.id, tier: weddings.tier, source: weddings.tierSource })
+        .from(weddings)
+        .where(sql`${weddings.id} LIKE 'wed_d1_%'`)
+        .orderBy(asc(weddings.id));
+      expect(tiers).toEqual([
+        { id: "wed_d1_both", tier: "crimson", source: "migration" },
+        { id: "wed_d1_registry", tier: "gold", source: "migration" },
+        { id: "wed_d1_templates", tier: "ivory", source: null },
+        { id: "wed_d1_vendors", tier: "crimson", source: "migration" },
+      ]);
+      const [purchase] = await db
+        .select({
+          status: weddingUpgradePurchases.status,
+          updatedAt: weddingUpgradePurchases.updatedAt,
+        })
+        .from(weddingUpgradePurchases)
+        .where(eq(weddingUpgradePurchases.id, "upg_d1_legacy"));
+      expect(purchase?.status).toBe("expired");
+      expect(purchase!.updatedAt.getTime()).toBeGreaterThan(stamp.getTime());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "settles an upgrade on D1: the tier grant, the sale and the flip in one batch",
+    async () => {
+      // The grant is an UPDATE of `weddings` riding in the same D1 batch as the
+      // sales insert and the RETURNING flip, read back through D1's row
+      // mapping — the shape bun:sqlite chains instead of batching.
+      const stripe = {} as StripeClient;
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+      });
+      const now = new Date();
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "crimson",
+        fromTier: "ivory",
+        status: "pending",
+        checkoutSessionId: "cs_d1",
+        createdByOsnProfileId: "usr_test",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const settle = () =>
+        run(
+          upgrades.settlePurchase({
+            purchaseId: "upg_d1",
+            checkoutSessionId: "cs_d1",
+            paid: true,
+            paidAmountMinor: 9900,
+            paidCurrency: "aud",
+            paymentIntentId: "pi_d1",
+          }),
+        );
+
+      expect(await settle()).toBe("granted");
+      expect(await settle()).toBe("replayed");
+      expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
+      const [wedding] = await db
+        .select({ source: weddings.tierSource, by: weddings.tierGrantedBy })
+        .from(weddings)
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      expect(wedding).toEqual({ source: "purchase", by: "stripe:upg_d1" });
+      expect(await db.select({ id: platformSales.purchaseId }).from(platformSales)).toEqual([
+        { id: "upg_d1" },
+      ]);
+
+      // A later, lower grant changes nothing on D1 either.
+      await run(
+        tierService.grant(BOOTSTRAP_WEDDING_ID, "gold", {
+          source: "comp",
+          grantedBy: "script:ops",
+        }),
+      );
+      expect(await run(tierService.tierOf(BOOTSTRAP_WEDDING_ID))).toBe("crimson");
     },
     MF_TIMEOUT_MS,
   );

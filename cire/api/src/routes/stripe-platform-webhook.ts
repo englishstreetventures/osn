@@ -28,7 +28,7 @@
  *
  * **`event.account` must be ABSENT.** Belt and braces behind the separate
  * secret: a Connect event misdelivered here names an account, and an account
- * naming itself must never be able to grant a platform entitlement. It is also
+ * naming itself must never be able to grant a plan tier. It is also
  * what keeps a connected account from forging a `client_reference_id` that
  * looks like one of ours.
  *

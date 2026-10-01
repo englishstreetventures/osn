@@ -8,7 +8,6 @@ import {
   guestEvents,
   imports,
   organiserSessions,
-  weddingEntitlements,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -23,7 +22,7 @@ import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -2179,15 +2178,7 @@ describe("POST /changes/revert — restores only the half the change saved", () 
 
   it("answers 402 and changes nothing when a guests revert would pass a cap that shrank since", async () => {
     const { app, db } = buildApp();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "capacity_500",
-        source: "comp",
-        grantedBy: "test",
-        grantedAt: new Date(),
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     const guestRows = (n: number) =>
       Array.from({ length: n }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`);
     const header = "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception";
@@ -2204,14 +2195,16 @@ describe("POST /changes/revert — restores only the half the change saved", () 
     });
     const trimId = ((await trim.clone().json()) as { changeId: string }).changeId;
     await applyChange(app, trim);
-    // …and then the upgrade goes.
-    db.delete(weddingEntitlements)
-      .where(eq(weddingEntitlements.weddingId, BOOTSTRAP_WEDDING_ID))
-      .run();
+    // …and then the wedding drops back to Ivory.
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
 
     const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: trimId });
     expect(res.status).toBe(402);
-    expect(await jsonBody(res)).toMatchObject({ error: "payment_required", limit: 100 });
+    expect(await jsonBody(res)).toMatchObject({
+      error: "payment_required",
+      tier: "gold",
+      limit: 100,
+    });
     expect(db.select().from(guests).all()).toHaveLength(100);
     const [row] = db
       .select({ status: imports.status })
@@ -2620,7 +2613,7 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
   it("applying a change that would exceed the cap returns 402 with payment_required body and persists no guests", async () => {
     const { app, db } = buildApp();
 
-    // Preview + apply 101 guests (cap is 100, no capacity entitlement).
+    // Preview + apply 101 guests (cap is 100 on Ivory).
     const guestsCsv = buildLargeGuestsCsv(101);
 
     const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
@@ -2633,10 +2626,15 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
     expect(applyRes.status).toBe(402);
     const body = (await applyRes.json()) as Record<string, unknown>;
-    expect(body.error).toBe("payment_required");
-    expect(body.entitlement).toBe("capacity");
-    expect(body.limit).toBe(100);
-    expect(typeof body.current).toBe("number");
+    expect(body).toEqual({
+      error: "payment_required",
+      // The lowest tier whose cap holds 101 guests.
+      tier: "gold",
+      // Kept for a portal build that reads it rather than `tier`.
+      entitlement: "capacity",
+      limit: 100,
+      current: 0,
+    });
 
     // Atomic: no guests were persisted.
     expect(db.select().from(guests).all()).toHaveLength(0);
@@ -2663,32 +2661,14 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(402);
     expect(await headOf(app)).toBe("0");
 
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "capacity_500",
-        source: "comp",
-        grantedAt: new Date(),
-        grantedBy: "usr_admin",
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
     expect(db.select().from(guests).all()).toHaveLength(101);
   });
 
-  it("applying a change within cap succeeds; upgraded wedding (capacity_500) admits up to 500", async () => {
+  it("applying a change within cap succeeds; a Gold wedding admits up to 500", async () => {
     const { app, db } = buildApp();
-
-    // Grant capacity_500 to the bootstrap wedding.
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "capacity_500",
-        source: "comp",
-        grantedAt: new Date(),
-        grantedBy: "usr_admin",
-      })
-      .run();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
 
     // 101 guests < 500 → should succeed.
     const guestsCsv = buildLargeGuestsCsv(101);
@@ -2701,6 +2681,24 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
     expect(applyRes.status).toBe(200);
     expect(db.select().from(guests).all()).toHaveLength(101);
+  });
+
+  it("names Crimson past 500 on Gold, and no tier past 1000", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const refused = async (n: number) => {
+      const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: buildLargeGuestsCsv(n),
+      });
+      const { changeId } = (await previewRes.json()) as { changeId: string };
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(402);
+      return (await res.json()) as { tier: string | null; limit: number };
+    };
+    expect(await refused(501)).toMatchObject({ tier: "crimson", limit: 500 });
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    expect(await refused(1001)).toMatchObject({ tier: null, limit: 1000 });
   });
 });
 
