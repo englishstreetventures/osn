@@ -512,6 +512,28 @@ describe("<AuthorizePage />", () => {
       );
     });
 
+    it("shows a failed Cancel on the account screen itself", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      mocks.submitDecision.mockRejectedValue(new Error("Network down."));
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Cancel"));
+
+      expect((await screen.findByRole("alert")).textContent).toBe("Network down.");
+      expect(screen.getByText("Use another account")).toBeDefined();
+    });
+
+    it("asks for a profile after switching to an account with several", async () => {
+      mocks.getContext.mockResolvedValueOnce(context());
+      mocks.getContext.mockResolvedValue(context({ profiles: [carol, bob] }));
+
+      renderPage(SELECT);
+      fireEvent.click(await screen.findByText("Use another account"));
+      fireEvent.click(await screen.findByText("finish sign-in"));
+
+      expect(await screen.findByText("Choose a profile")).toBeDefined();
+    });
+
     it("skips the account screen after a sign-in on this page", async () => {
       mocks.getContext.mockResolvedValueOnce(context({ signedIn: false, profiles: [] }));
       mocks.getContext.mockResolvedValue(context());
