@@ -1,152 +1,193 @@
 import Button from "@cire/ui/button";
 import { createAuthFetch, isAuthExpired, startSignIn } from "@shared/rp-auth";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Match, Show, Switch } from "solid-js";
 
-import { isPlusOne } from "./plus-one";
-import type { AccountLinkState, FamilyMember } from "./types";
+import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
 
 /**
- * Guest-facing "Link my Pulse account" affordance, shown in the claim and
- * welcome panel (`LoginSection`) after a guest claims their invite, when the
- * claim payload says linking is offered. Purely ADDITIVE: the core invite never
- * depends on this — every failure path (OSN unreachable, sign-in expired)
- * degrades to a quiet control rather than breaking the claimed invite.
+ * Guest-facing "Link your musubi account" box, shown in the claim and welcome
+ * panel (`LoginSection`) once the household has said who is at the keyboard
+ * ("Who are you?"). Purely ADDITIVE: the core invite never depends on this —
+ * every failure path degrades to a quiet control rather than breaking the
+ * claimed invite.
  *
- * It makes no request to draw itself. The claim or restore response that
- * opened the invite already says which seats are linked and whether this
- * browser is signed in to OSN (`state`), so the box appears in the same pass as
- * the welcome panel and never pushes events that are already on screen.
+ * It makes no request to draw itself. The claim or restore response (or the
+ * member choice) already says whether the member is linked, whether this
+ * browser is signed in to musubi, and — when it is safe to show — which
+ * account that is (`state.account`).
  *
- * Flow:
- *   1. Signed out, the guest signs in with their musubi account. That is a
- *      redirect to the identity app and back — the invite origin cannot run the
- *      passkey ceremony itself, because the credential is bound to the
- *      `musubi.social` RP ID. cire-api takes the code and sets its own session
- *      cookie, and the restore that reopens the invite reports it.
- *   2. Signed in, the guest picks WHICH household member they are, then we
- *      `POST /api/account/link` with `{ guestId }` — the cire OSN session cookie
- *      names the account, the `cire_session` guest cookie binds the household,
- *      and both ride along on `credentials: "include"`.
- *   3. Per-member linked/unlinked indicators start from `state`; an unlink
- *      control issues `DELETE /api/account/link/:guestId`.
+ * What it shows, for the chosen member:
+ *
+ * | Member linked? | Signed in? | Account matches? | Shows |
+ * |---|---|---|---|
+ * | no | no | — | "Sign in with musubi" |
+ * | no | yes | — | picture, name and `@handle`: "Link {name} to @handle?" |
+ * | yes | yes | yes | picture, name and `@handle` |
+ * | yes | yes | no | "{name} is linked to a different musubi account" — no account shown |
+ * | yes | no | — | "{name} · linked to musubi" |
+ *
+ * Every sign-in sends `prompt=select_account`, so musubi always shows which
+ * account is signed in, with "Use another account", and never re-grants
+ * silently as whoever last used this browser. "Not you?" is the household
+ * panel's one control (`onNotYou`): it clears the member and ends this
+ * browser's cire musubi sign-in.
+ *
+ * The picture loads from musubi's avatar host. The guest site's CSP does not
+ * list one (musubi hosts no pictures yet), so under an enforced policy the
+ * image fails to load and the box falls back to the account's initial.
  */
-
 interface PulseAccountLinkProps {
   /** cire-api origin (same value the rest of the invite islands fetch from). */
   apiUrl: string;
-  /** The household members from the claim response — the seats to pick from. */
-  members: FamilyMember[];
-  /**
-   * The household's link state from the claim response. Read once, when the
-   * box is created: after that, link and unlink update it here, and a later
-   * copy of the same payload (an RSVP save spreads the result) must not undo
-   * them.
-   */
+  /** The household member this session chose. */
+  member: FamilyMember;
+  /** The household's link state, as the page holds it. */
   state: AccountLinkState;
+  /** The member is now linked (201, or 409 — linked either way). */
+  onLinked: (guestId: string) => void;
+  /** The member's link is gone. */
+  onUnlinked: (guestId: string) => void;
+  /** "Not you?" — clear the member and end the musubi sign-in. */
+  onNotYou: () => void;
   /**
    * Placement on the panel that hosts it — width, centring and spacing. The
-   * component owns only its own surface, since the claim and welcome panel's
-   * layout decides where it sits.
+   * component owns only its own surface.
    */
   class?: string;
+}
+
+/** The account's picture, or its initial when there is none or it will not load. */
+function AccountPicture(props: { account: SignedInAccount }) {
+  const [failed, setFailed] = createSignal(false);
+  const initial = () =>
+    (props.account.displayName ?? props.account.handle ?? "?").trim().charAt(0).toUpperCase() ||
+    "?";
+  return (
+    <Show
+      when={props.account.avatarUrl !== null && !failed()}
+      fallback={
+        <span
+          class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
+          aria-hidden="true"
+        >
+          {initial()}
+        </span>
+      }
+    >
+      <img
+        src={props.account.avatarUrl ?? undefined}
+        alt=""
+        width="40"
+        height="40"
+        referrerpolicy="no-referrer"
+        class="size-10 shrink-0 rounded-full object-cover"
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  );
+}
+
+/** Picture, display name and `@handle`, side by side. */
+function AccountCard(props: { account: SignedInAccount }) {
+  return (
+    <div class="flex items-center gap-3">
+      <AccountPicture account={props.account} />
+      <span class="flex min-w-0 flex-col">
+        <Show when={props.account.displayName}>
+          {(name) => <span class="text-text text-ui-base truncate font-light">{name()}</span>}
+        </Show>
+        <Show when={props.account.handle}>
+          {(handle) => (
+            <span class="text-text-muted text-ui-sm truncate font-light">@{handle()}</span>
+          )}
+        </Show>
+      </span>
+    </div>
+  );
 }
 
 export function PulseAccountLink(props: PulseAccountLinkProps) {
   // Sends the cire OSN session cookie and throws `AuthExpiredError` on a 401.
   const authFetch = createAuthFetch({ apiBase: props.apiUrl });
 
-  // Seeded once from the claim payload (see `state`), then kept here.
-  const [signedIn, setSignedIn] = createSignal(props.state.signedIn);
-  const [linked, setLinked] = createSignal<Set<string>>(new Set(props.state.linkedGuestIds));
-
-  // The member the guest selected to link (their seat). Null until chosen.
-  const [selected, setSelected] = createSignal<string | null>(null);
   const [linking, setLinking] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // A sign-in that lapsed since the invite loaded: offer sign-in again.
+  const [expired, setExpired] = createSignal(false);
 
-  const isLinked = (guestId: string) => linked().has(guestId);
+  const linked = () => props.state.linkedGuestIds.includes(props.member.guestId);
+  const signedIn = () => props.state.signedIn && !expired();
+  const account = () => (signedIn() ? props.state.account : undefined);
+  const handleLabel = () => {
+    const handle = account()?.handle;
+    return handle ? `@${handle}` : "this account";
+  };
 
-  /**
-   * The seats to pick from: the household the couple invited. A plus-one's
-   * seat was typed in by the member who brought them, not by someone holding
-   * the code, and goes when that member removes them, so it is not offered.
-   * One already linked stays listed — its radio is disabled like any linked
-   * seat — so its Unlink is still within reach.
-   */
-  const seats = () => props.members.filter((m) => !isPlusOne(m) || isLinked(m.guestId));
-
-  /** Add/remove a guest id from the linked set immutably (so signals react). */
-  function setLinkedFor(guestId: string, value: boolean) {
-    setLinked((prev) => {
-      const next = new Set(prev);
-      if (value) next.add(guestId);
-      else next.delete(guestId);
-      return next;
-    });
+  function signIn() {
+    startSignIn({ apiBase: props.apiUrl }, window.location.href, { prompt: "select_account" });
   }
 
-  async function linkMember(guestId: string) {
+  async function link() {
     setError(null);
     setLinking(true);
     try {
-      // authFetch sends the cire OSN session cookie and throws on 401; the
-      // cire_session guest cookie rides along on the same credentialed request.
+      // No body: the server links the member this session chose. The guest
+      // and OSN cookies ride the same credentialed request.
       const res = await authFetch(`${props.apiUrl}/api/account/link`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ guestId }),
       });
       if (res.status === 201 || res.status === 409) {
-        // 409 already-linked is success-shaped here: the seat IS linked, so
-        // reflect it rather than surfacing an error.
-        setLinkedFor(guestId, true);
-        setSelected(null);
+        // 409 already-linked is success-shaped here — unless the server
+        // says no member is chosen, which the page fixes by asking again.
+        const code = res.status === 409 ? await failureCode(res) : undefined;
+        if (code === "member_required") {
+          props.onNotYou();
+          return;
+        }
+        props.onLinked(props.member.guestId);
         return;
       }
       if (res.status === 503) {
         setError("Account linking isn't available right now.");
         return;
       }
-      if (res.status === 403) {
-        setError("That isn't one of your household's guests.");
-        return;
-      }
       setError("Couldn't link your account. Please try again.");
     } catch (err) {
       if (isAuthExpired(err)) {
-        // The cire OSN session lapsed since the invite loaded: offer sign-in
-        // again, and say why.
-        setSignedIn(false);
+        setExpired(true);
         setError("Your sign-in expired. Please sign in again.");
         return;
       }
-      // Offline or unreachable: the sign-in may be fine, so keep the picker.
       setError("Couldn't link your account. Please try again.");
     } finally {
       setLinking(false);
     }
   }
 
-  async function unlinkMember(guestId: string) {
+  async function unlink() {
     setError(null);
-    // Optimistic: flip the indicator immediately; the DELETE is idempotent.
-    setLinkedFor(guestId, false);
+    const guestId = props.member.guestId;
     try {
       const res = await fetch(`${props.apiUrl}/api/account/link/${encodeURIComponent(guestId)}`, {
         method: "DELETE",
         credentials: "include",
       });
-      if (!res.ok && res.status !== 404) {
-        // Revert on a real failure (404 is fine — already gone).
-        setLinkedFor(guestId, true);
-        setError("Couldn't unlink. Please try again.");
+      if (res.ok || res.status === 404) {
+        props.onUnlinked(guestId);
+        return;
       }
+      setError("Couldn't unlink. Please try again.");
     } catch {
-      setLinkedFor(guestId, true);
       setError("Couldn't unlink. Please try again.");
     }
   }
+
+  const notYouButton = () => (
+    <Button variant="subtle" size="sm" type="button" onClick={() => props.onNotYou()}>
+      Not you?
+    </Button>
+  );
 
   return (
     <section
@@ -157,110 +198,91 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
         id="pulse-link-heading"
         class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
       >
-        Link your Pulse account
+        Link your musubi account
       </h3>
       <p class="text-text-muted text-ui-sm leading-ui-normal mb-4 font-light">
-        Connect your OSN account so this invitation appears in Pulse. Optional — your invite works
-        either way.
+        Connect your musubi account so this invitation appears in Pulse. Optional — your invite
+        works either way.
       </p>
 
-      <Show
-        when={signedIn()}
-        fallback={
-          // Sign-in is a full-page trip to the identity app and back: the
-          // guest cookie survives it, so they return to the claimed invite
-          // with this panel signed in.
-          <div class="flex flex-col gap-3">
-            <Show when={error()}>
-              <p class="text-error text-ui-sm" role="alert">
-                {error()}
-              </p>
-            </Show>
-            <Button
-              variant="cta"
-              type="button"
-              onClick={() => startSignIn({ apiBase: props.apiUrl }, window.location.href)}
-              class="self-start"
-            >
-              Sign in with musubi
-            </Button>
-          </div>
-        }
-      >
-        {/* Signed in to OSN — pick which household member you are, then link. */}
-        <p class="text-text text-ui-sm mb-3 font-light">Which guest are you?</p>
-        <ul class="flex flex-col gap-2" aria-label="Household members">
-          <For each={seats()}>
-            {(member) => (
-              // Wraps rather than overflows: inside the narrow panel layout
-              // on a phone the row has about 200px, less than a name plus
-              // the linked state and its Unlink button need on one line.
-              <li class="border-border/60 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-sm border px-3 py-2">
-                <span class="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="pulse-link-member"
-                    class="accent-gold"
-                    checked={selected() === member.guestId}
-                    disabled={isLinked(member.guestId) || linking()}
-                    onChange={() => setSelected(member.guestId)}
-                    id={`pulse-link-${member.guestId}`}
-                  />
-                  <label
-                    for={`pulse-link-${member.guestId}`}
-                    // The radio is a sibling, not a child, so the base
-                    // label rule can't reach it — say "clickable" here.
-                    class="text-text text-ui-base cursor-pointer font-light"
-                  >
-                    {member.firstName} {member.lastName}
-                  </label>
-                </span>
-                <Show
-                  when={isLinked(member.guestId)}
-                  fallback={
-                    <span class="text-text-muted font-body text-ui-xs tracking-ui-wider uppercase">
-                      Not linked
-                    </span>
-                  }
-                >
-                  <span class="flex items-center gap-2">
-                    <output class="text-gold-ink font-body text-ui-xs tracking-ui-wider uppercase">
-                      ✓ Linked
-                    </output>
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      type="button"
-                      onClick={() => void unlinkMember(member.guestId)}
-                    >
-                      Unlink
-                    </Button>
-                  </span>
-                </Show>
-              </li>
-            )}
-          </For>
-        </ul>
-
-        <Show when={error()}>
-          <p class="text-error text-ui-sm mt-3" role="alert">
-            {error()}
+      <Switch>
+        {/* Linked, and this browser is signed in as that account. */}
+        <Match when={linked() && account()}>
+          {(acct) => (
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <AccountCard account={acct()} />
+              <span class="flex items-center gap-2">
+                <output class="text-gold-ink font-body text-ui-xs tracking-ui-wider uppercase">
+                  ✓ Linked
+                </output>
+                <Button variant="subtle" size="sm" type="button" onClick={() => void unlink()}>
+                  Unlink
+                </Button>
+                {notYouButton()}
+              </span>
+            </div>
+          )}
+        </Match>
+        {/* Linked, signed in as someone else: show neither account. */}
+        <Match when={linked() && signedIn()}>
+          <p class="text-text text-ui-sm mb-3 font-light">
+            {props.member.firstName} is linked to a different musubi account.
           </p>
-        </Show>
+          {notYouButton()}
+        </Match>
+        {/* Linked, not signed in on this browser. */}
+        <Match when={linked()}>
+          <div class="flex flex-wrap items-center gap-3">
+            <p class="text-text text-ui-sm font-light">
+              {props.member.firstName} · linked to musubi
+            </p>
+            <Button variant="subtle" size="sm" type="button" onClick={() => void unlink()}>
+              Unlink
+            </Button>
+            {notYouButton()}
+          </div>
+        </Match>
+        {/* Not linked, signed in: name the account before anything is bound. */}
+        <Match when={account()}>
+          {(acct) => (
+            <div class="flex flex-col gap-3">
+              <AccountCard account={acct()} />
+              <p class="text-text text-ui-sm font-light">
+                Link {props.member.firstName} to {handleLabel()}?
+              </p>
+              <span class="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="cta"
+                  type="button"
+                  onClick={() => void link()}
+                  disabled={linking()}
+                >
+                  {linking() ? "Linking…" : "Link"}
+                </Button>
+                {notYouButton()}
+              </span>
+            </div>
+          )}
+        </Match>
+        {/* Not linked, not signed in (or signed in with no account to show). */}
+        <Match when={true}>
+          <Button variant="cta" type="button" onClick={signIn} class="self-start">
+            Sign in with musubi
+          </Button>
+        </Match>
+      </Switch>
 
-        <Button
-          variant="cta"
-          type="button"
-          onClick={() => {
-            const id = selected();
-            if (id) void linkMember(id);
-          }}
-          disabled={!selected() || linking()}
-          class="mt-4"
-        >
-          {linking() ? "Linking…" : "Link my account"}
-        </Button>
+      <Show when={error()}>
+        <p class="text-error text-ui-sm mt-3" role="alert">
+          {error()}
+        </p>
       </Show>
     </section>
   );
+}
+
+/** The machine-readable `error` code of a refusal, if its body has one. */
+async function failureCode(res: Response): Promise<string | undefined> {
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  return typeof body?.error === "string" ? body.error : undefined;
 }

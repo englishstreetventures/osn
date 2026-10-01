@@ -85,9 +85,34 @@ interface RsvpModalProps {
    * is driven by the recorded data (`responded`), not by this cue.
    */
   onConfirmed?: () => void;
+  /**
+   * The household has the member step on and has not said who is answering
+   * ("Who are you?" in the welcome panel). Save stays disabled, with a line
+   * pointing there; the server refuses the write the same way (409).
+   */
+  memberRequired?: boolean;
+  /**
+   * The server refused the save with 409 `member_required`: the page shows
+   * the member step. Only reached when the payload's flag read and the
+   * write's disagreed.
+   */
+  onMemberRequired?: () => void;
 }
 
 type Attending = "attending" | "declined" | null;
+
+/** What the sheet says while nobody has said who is answering. */
+const MEMBER_REQUIRED_COPY = "Choose who you are under the welcome above, then reply.";
+
+/** Who sent this member's stored reply to this event, for "Answered by". */
+function answeredBy(
+  rsvps: ReadonlyArray<RsvpSummary>,
+  guestId: string,
+  eventId: string,
+): string | null {
+  const row = rsvps.find((r) => r.guestId === guestId && r.eventId === eventId);
+  return row?.submittedBy?.firstName ?? null;
+}
 
 /** The machine-readable `error` code of a refusal, if its body has one. */
 async function failureCode(res: Response): Promise<string | undefined> {
@@ -395,6 +420,8 @@ export function RsvpModal(props: RsvpModalProps) {
     // Past the deadline there is no submit button to press; a form-level Enter
     // could still fire this, and the server would refuse it anyway.
     if (props.closed) return;
+    // Nobody has said who is answering; the line above Save says where to.
+    if (props.memberRequired && !props.preview) return;
 
     // The household no longer has to finish the whole party in one sitting —
     // whichever members have an answer get sent, and anyone left at `null` is
@@ -554,8 +581,16 @@ export function RsvpModal(props: RsvpModalProps) {
             ? "RSVPs have closed for this wedding. Please contact the couple directly."
             : "You're not authorised to RSVP for one of those guests.",
         );
-      } else if (res.status === 409 && (await failureCode(res)) === "plus_one_changed") {
-        setError("Your guest's name has changed since this page opened. Please reload the page.");
+      } else if (res.status === 409) {
+        const code = await failureCode(res);
+        if (code === "member_required") {
+          setError(MEMBER_REQUIRED_COPY);
+          props.onMemberRequired?.();
+        } else if (code === "plus_one_changed") {
+          setError("Your guest's name has changed since this page opened. Please reload the page.");
+        } else {
+          setError("Something went wrong. Please try again.");
+        }
       } else if (
         res.status === 422 &&
         (await failureCode(res)) === "plus_one_dietary_unavailable"
@@ -642,6 +677,16 @@ export function RsvpModal(props: RsvpModalProps) {
               <fieldset class="border-border m-0 min-w-0 rounded-sm border px-5 pt-0 pb-5">
                 <legend class="font-display text-text text-ui-md mb-3 font-normal italic">
                   {member.firstName} {member.lastName}
+                  <Show when={answeredBy(priorRsvps, guestId, props.event.id)}>
+                    {(name) => (
+                      <>
+                        {" "}
+                        <span class="font-body text-text-muted text-ui-xs block not-italic">
+                          Answered by {name()}
+                        </span>
+                      </>
+                    )}
+                  </Show>
                   <Show when={guestOf(member)}>
                     {(label) => (
                       <>
@@ -825,6 +870,12 @@ export function RsvpModal(props: RsvpModalProps) {
           {saved() ? `Your RSVP for ${props.event.name} has been saved.` : ""}
         </p>
 
+        <Show when={props.memberRequired && !props.closed && !props.preview}>
+          <p class="text-text-muted text-ui-sm" id="rsvp-member-required">
+            {MEMBER_REQUIRED_COPY}
+          </p>
+        </Show>
+
         {/* Sits flush on the sheet's bottom edge — the panel drops its own
             bottom padding (`flushBottom`) rather than this bar cancelling it
             with a negative margin: `bottom: 0` resolves against the scrollport,
@@ -882,7 +933,8 @@ export function RsvpModal(props: RsvpModalProps) {
                 "cursor-pointer": !saved(),
                 "cursor-default": saved(),
               }}
-              disabled={loading()}
+              disabled={loading() || (props.memberRequired === true && !props.preview)}
+              aria-describedby={props.memberRequired ? "rsvp-member-required" : undefined}
               // Not `disabled`: this button holds keyboard focus at the moment
               // the reply lands, and disabling a focused control drops focus to
               // `<body>` — outside an `aria-modal` dialog, with no keyboard way

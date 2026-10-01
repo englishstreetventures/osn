@@ -18,7 +18,7 @@ import type {
 vi.mock("../../src/components/PulseAccountLink", () => ({
   PulseAccountLink: (props: {
     apiUrl: string;
-    members: FamilyMember[];
+    member: FamilyMember;
     state: AccountLinkState;
     class?: string;
   }) => (
@@ -26,7 +26,7 @@ vi.mock("../../src/components/PulseAccountLink", () => ({
       data-testid="pulse-account-link-stub"
       class={props.class}
       data-api-url={props.apiUrl}
-      data-members={props.members.map((m) => m.guestId).join(",")}
+      data-member={props.member.guestId}
       data-signed-in={String(props.state.signedIn)}
       data-linked={props.state.linkedGuestIds.join(",")}
     />
@@ -109,12 +109,19 @@ function result(members: FamilyMember[], familyName = "Okafor"): ClaimResult {
   return { publicId: "OKAFOR-LILY-AB12CD", familyName, members, events: [], rsvps: [] };
 }
 
-/** A claim payload that offers this household account linking. */
+/**
+ * A claim payload that offers this household account linking, with the
+ * member step on and its first member chosen.
+ */
 function offeringLink(
   claim: ClaimResult,
   state: { signedIn: boolean; linkedGuestIds: string[] } = { signedIn: false, linkedGuestIds: [] },
 ): ClaimResult {
-  return { ...claim, accountLink: { enabled: true, ...state } };
+  return {
+    ...claim,
+    accountLink: { enabled: true, ...state },
+    member: { guestId: claim.members[0]?.guestId ?? "" },
+  };
 }
 
 const noop = () => {};
@@ -687,6 +694,7 @@ describe("LoginSection household controls", () => {
         apiUrl="http://x"
         result={offeringLink(result([member("Chidi"), member("Ada")]))}
         onClaimed={noop}
+        onMemberChange={noop}
         onSignOut={noop}
       />
     ));
@@ -695,8 +703,8 @@ describe("LoginSection household controls", () => {
     const welcome = getByText(/Welcome, the Okafor Family/).parentElement as HTMLElement;
     expect(welcome.contains(link)).toBe(true);
     expect(container.querySelector("form")!.contains(link)).toBe(false);
-    // The seats it offers are this household's.
-    expect(link.dataset.members).toBe("g-Chidi,g-Ada");
+    // It binds the member the household chose.
+    expect(link.dataset.member).toBe("g-Chidi");
     // Sign-out ends the session, so it closes the panel.
     const signOut = getByText(/Sign out/);
     expect(link.compareDocumentPosition(signOut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -715,6 +723,7 @@ describe("LoginSection household controls", () => {
           apiUrl="http://x"
           result={offeringLink(result([member("Chidi")]))}
           onClaimed={noop}
+          onMemberChange={noop}
           layout={layout}
         />
       ));
@@ -735,6 +744,7 @@ describe("LoginSection household controls", () => {
           linkedGuestIds: ["g-Ada"],
         })}
         onClaimed={noop}
+        onMemberChange={noop}
       />
     ));
     const link = await findByTestId("pulse-account-link-stub");
@@ -794,6 +804,7 @@ describe("LoginSection plus-one prompt", () => {
         apiUrl="https://api.test"
         result={offeringLink(result([permitted(), member("Ada")]))}
         onClaimed={noop}
+        onMemberChange={noop}
         onSignOut={noop}
         onPlusOneChange={onPlusOneChange}
       />
