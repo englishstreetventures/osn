@@ -61,7 +61,9 @@ export interface RsvpExportRow {
    *     own household.
    *   - "household" — the guest is a plus-one and at least one reply was the
    *     household's (`consent_source='inviter_attested'`): answered on the
-   *     plus-one's behalf, on the household's word.
+   *     plus-one's behalf, on the household's word. A host may have changed
+   *     that reply's status since; its dietary answer is still the
+   *     household's, which is what this records.
    *   - "organiser" — at least one reply was organiser-recorded
    *     (`consent_source='organiser_attested'`), so the dietary/consent story is
    *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
