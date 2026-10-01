@@ -1,11 +1,14 @@
-// The operator tool's SQL runs against a real SQLite table here, through a
-// runner that stands in for `wrangler d1 execute --json` and returns the same
-// shape (one result object per statement, `meta.changes` on writes). So these
-// tests prove the statements themselves — the checks, the guarded UPDATEs and
-// `unixepoch()` — not just the strings.
+// The operator tool's SQL runs here against SQLite built from cire's real
+// migrations, through a runner that stands in for `wrangler d1 execute --json`
+// and returns its shape (one result object per statement, rows in `results`,
+// no `meta.changes`, as a local run gives). So these tests prove the statements
+// against the schema production has — the checks, the guarded UPDATEs with
+// RETURNING — not just the strings.
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   confirmSql,
@@ -17,29 +20,21 @@ import {
   type Runner,
 } from "../cire-vendor-claim-review";
 
-const DDL = `
-CREATE TABLE directory_vendors (
-  id TEXT PRIMARY KEY,
-  owner_org_id TEXT,
-  name TEXT NOT NULL,
-  email TEXT,
-  website TEXT,
-  listed TEXT NOT NULL DEFAULT 'draft',
-  claimed_by_profile_id TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  review_org_id TEXT,
-  review_profile_id TEXT,
-  review_requested_at INTEGER,
-  handoff_due_at INTEGER
-);
-CREATE UNIQUE INDEX directory_vendors_owner_uniq ON directory_vendors(owner_org_id);
-CREATE UNIQUE INDEX directory_vendors_review_org_uniq ON directory_vendors(review_org_id);
-`;
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "cire", "db", "migrations");
+
+/** The cire schema as production has it: every migration, in name order. */
+function migratedDb(): Database {
+  const db = new Database(":memory:");
+  for (const file of readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .toSorted()) {
+    db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+  }
+  return db;
+}
 
 function setup() {
-  const db = new Database(":memory:");
-  db.exec(DDL);
+  const db = migratedDb();
   db.run(
     `INSERT INTO directory_vendors (id, name, email, website, created_at, updated_at, review_org_id, review_profile_id, review_requested_at)
      VALUES ('dv_pending', 'Bloom', 'hi@bloom.test', 'bloom.test', 0, 0, 'org_v', 'usr_v', 100)`,
@@ -50,9 +45,7 @@ function setup() {
   const sent: string[] = [];
   const runner: Runner = async (_env, sql) => {
     sent.push(sql);
-    if (/^select/i.test(sql)) return [{ results: db.query(sql).all(), meta: { changes: 0 } }];
-    const res = db.run(sql);
-    return [{ results: [], meta: { changes: res.changes } }];
+    return [{ results: db.query(sql).all() }];
   };
   const lines: string[] = [];
   return { db, runner, sent, lines, print: (l: string) => lines.push(l) };
@@ -117,6 +110,7 @@ describe("run", () => {
   });
 
   test("confirm --apply moves the claim into the owner columns and makes it live", async () => {
+    // updated_at is written in seconds, the unit Drizzle's `mode: "timestamp"` reads.
     const t = setup();
     expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], t.runner, t.print)).toBe(
       0,
@@ -128,8 +122,7 @@ describe("run", () => {
     expect(r.review_org_id).toBeNull();
     expect(r.review_profile_id).toBeNull();
     expect(r.review_requested_at).toBeNull();
-    // Seconds, the unit Drizzle's `mode: "timestamp"` reads.
-    expect(Math.abs((r.handoff_due_at as number) - Date.now() / 1000)).toBeLessThan(60);
+    expect(Math.abs((r.updated_at as number) - Date.now() / 1000)).toBeLessThan(60);
   });
 
   test("reject --apply clears the claim and leaves the listing unowned", async () => {
@@ -141,7 +134,6 @@ describe("run", () => {
     expect(r.review_org_id).toBeNull();
     expect(r.owner_org_id).toBeNull();
     expect(r.listed).toBe("draft");
-    expect(r.handoff_due_at).toBeNull();
   });
 
   test("refuses a listing with no pending claim, or none at all", async () => {

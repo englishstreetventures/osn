@@ -330,6 +330,7 @@ describe("directoryService.issueClaimForListing", () => {
       directoryService.issueClaimForListing({
         id: dvId,
         ownerOrgId: "org_owner",
+        reviewOrgId: null,
         email: "owned@vendor.com",
         name: "Owned Listing",
         phone: null,

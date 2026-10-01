@@ -514,10 +514,6 @@ export const directoryVendors = sqliteTable(
     reviewOrgId: text("review_org_id"),
     reviewProfileId: text("review_profile_id"),
     reviewRequestedAt: integer("review_requested_at", { mode: "timestamp" }),
-    // Set by an operator's confirm: the enquiries buffered while the listing was
-    // unclaimed still need handing to the vendor. The daily cron does that and
-    // clears it.
-    handoffDueAt: integer("handoff_due_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

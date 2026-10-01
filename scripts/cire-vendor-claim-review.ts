@@ -18,10 +18,13 @@
  * the claim, runs every check and prints the SQL it would send.
  *
  * Confirm moves the pending org and profile into `owner_org_id` and
- * `claimed_by_profile_id`, puts the listing live and stamps `handoff_due_at`;
- * the daily cron then hands the vendor the enquiries couples sent while the
- * listing was unclaimed. Reject clears the pending claim, which leaves the
- * listing unowned and claimable again.
+ * `claimed_by_profile_id` and puts the listing live; the daily cron (04:00
+ * UTC) then hands the vendor the enquiries couples sent while the listing was
+ * unclaimed. Reject clears the pending claim, which leaves the listing unowned
+ * and claimable again.
+ *
+ * It runs the wrangler installed in `cire/api` (the version whose `--json`
+ * output it reads), from that directory, against `cire/api/wrangler.toml`.
  *
  * `wrangler d1 execute --command` takes no bound parameters, so every value
  * that reaches SQL is checked against a strict pattern first (`ID_PATTERN`),
@@ -105,14 +108,14 @@ export const confirmSql = (listingId: string, orgId: string, profileId: string):
   "UPDATE directory_vendors SET owner_org_id = review_org_id, " +
   "claimed_by_profile_id = review_profile_id, listed = 'live', " +
   "review_org_id = NULL, review_profile_id = NULL, review_requested_at = NULL, " +
-  "handoff_due_at = unixepoch(), updated_at = unixepoch() " +
+  "updated_at = unixepoch() " +
   `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)} ` +
-  `AND review_profile_id = ${quote(profileId)} AND owner_org_id IS NULL;`;
+  `AND review_profile_id = ${quote(profileId)} AND owner_org_id IS NULL RETURNING id;`;
 
 export const rejectSql = (listingId: string, orgId: string): string =>
   "UPDATE directory_vendors SET review_org_id = NULL, review_profile_id = NULL, " +
   "review_requested_at = NULL, updated_at = unixepoch() " +
-  `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)};`;
+  `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)} RETURNING id;`;
 
 export interface ClaimRow {
   id: string;
@@ -142,10 +145,13 @@ export function refusal(command: "confirm" | "reject", row: ClaimRow | undefined
   return null;
 }
 
-/** One statement's result, as `wrangler d1 execute --json` prints it. */
+/**
+ * One statement's result, as `wrangler d1 execute --json` prints it: an array
+ * with one entry per statement. Local runs carry no `meta.changes`, so writes
+ * use `RETURNING` and are counted by the rows they return.
+ */
 interface D1Result {
   results?: unknown[];
-  meta?: { changes?: number };
 }
 
 /** Runs one SQL statement on the tier and returns wrangler's parsed `--json` output. */
@@ -153,27 +159,16 @@ export type Runner = (env: Env, sql: string) => Promise<D1Result[]>;
 
 export const wranglerRunner: Runner = async (env, sql) => {
   const proc = Bun.spawn(
-    [
-      "bunx",
-      "wrangler",
-      "--config",
-      "cire/api/wrangler.toml",
-      "d1",
-      "execute",
-      ...targetArgs(env),
-      "--json",
-      "--command",
-      sql,
-    ],
-    { cwd: new URL("..", import.meta.url).pathname, stdout: "pipe", stderr: "inherit" },
+    ["bunx", "wrangler", "d1", "execute", ...targetArgs(env), "--json", "--command", sql],
+    { cwd: new URL("../cire/api", import.meta.url).pathname, stdout: "pipe", stderr: "inherit" },
   );
   const out = await new Response(proc.stdout).text();
-  if ((await proc.exited) !== 0) throw new Error("wrangler d1 execute failed");
+  if ((await proc.exited) !== 0)
+    throw new Error(`wrangler d1 execute failed: ${out.slice(0, 500)}`);
   return JSON.parse(out) as D1Result[];
 };
 
 const firstResults = (out: D1Result[]): unknown[] => out[0]?.results ?? [];
-const changes = (out: D1Result[]): number => out.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
 
 /** The whole tool, with the output and the wrangler call passed in. Returns the exit code. */
 export async function run(
@@ -216,7 +211,7 @@ export async function run(
     return 0;
   }
 
-  const changed = changes(await runner(args.env, sql));
+  const changed = firstResults(await runner(args.env, sql)).length;
   if (changed !== 1) {
     print(
       `${args.command} changed ${changed} rows; the claim changed after the check. Run it again.`,
