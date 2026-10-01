@@ -93,4 +93,20 @@ describe("dietary presets in the RSVP bodies", () => {
       dec(OrganiserRsvpBody, { ...organiser, dietaryPresets: [...DIETARY_PRESETS, "nuts"] })._tag,
     ).toBe("Failure");
   });
+
+  it("leaves the organiser body's dietary fields absent when the body omits them", () => {
+    const statusOnly = dec(OrganiserRsvpBody, { status: "maybe" });
+    expect(statusOnly).toMatchObject({
+      _tag: "Success",
+      success: { status: "maybe", dietaryConsent: false },
+    });
+    if (statusOnly._tag !== "Success") throw new Error("unreachable");
+    expect("dietary" in statusOnly.success).toBe(false);
+    expect("dietaryPresets" in statusOnly.success).toBe(false);
+
+    const presetsOnly = dec(OrganiserRsvpBody, { status: "maybe", dietaryPresets: [] });
+    if (presetsOnly._tag !== "Success") throw new Error("expected success");
+    expect(presetsOnly.success.dietaryPresets).toEqual([]);
+    expect("dietary" in presetsOnly.success).toBe(false);
+  });
 });

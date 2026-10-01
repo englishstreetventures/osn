@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, events, guests, rsvps, weddings, weddingHosts } from "@cire/db";
+import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -288,5 +289,52 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
       .where(eq(rsvps.guestId, samId))
       .get();
     expect(row?.presets).toBe("");
+  });
+
+  it("keeps the household's dietary answer on a status-only body, and replaces it once a dietary field is sent", async () => {
+    const { db, app } = buildApp();
+    const samId = seedPlusOne(db, guestByName(db, "Ada"), { firstName: "Sam" });
+    const hindu = eventBySlug(db, "hindu");
+    const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${samId}/rsvps/${hindu}`;
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietaryPresets: "halal",
+        dietaryConsentAt: new Date(),
+        dietaryConsentVersion: PLUS_ONE_DIETARY_ATTESTATION.version,
+        consentSource: "inviter_attested",
+        createdAt: new Date(),
+      })
+      .run();
+    const stored = () =>
+      db
+        .select({
+          status: rsvps.status,
+          presets: rsvps.dietaryPresets,
+          source: rsvps.consentSource,
+        })
+        .from(rsvps)
+        .where(eq(rsvps.guestId, samId))
+        .get();
+
+    const kept = await put(app, path, OWNER, { status: "maybe" });
+    expect(kept.status).toBe(200);
+    expect(((await kept.json()) as { rsvp: unknown }).rsvp).toEqual({
+      guestId: samId,
+      eventId: hindu,
+      status: "maybe",
+      dietary: "",
+      dietaryPresets: ["halal"],
+      consentSource: "inviter_attested",
+    });
+    expect(stored()).toEqual({ status: "maybe", presets: "halal", source: "inviter_attested" });
+
+    // One dietary field is enough to make it a dietary edit.
+    const replaced = await put(app, path, OWNER, { status: "declined", dietaryPresets: [] });
+    expect(replaced.status).toBe(200);
+    expect(stored()).toEqual({ status: "declined", presets: "", source: "organiser_attested" });
   });
 });

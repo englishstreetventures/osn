@@ -83,10 +83,15 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // data (the Art. 9(2)(a) evidence for `consent_source='organiser_attested'`
 // — see [[wiki/compliance/dpia/cire-guest-data]], organiser-attested
 // variant). Same caps and consent gate as the guest path.
+//
+// `dietary` and `dietaryPresets` stay absent when the body omits them: a body
+// with neither is a status-only reply, which for a plus-one keeps the
+// household's dietary answer (see `organiserRsvpService.record`). Either one
+// present makes it a dietary edit, the other counting as empty.
 export const OrganiserRsvpBody = Schema.Struct({
   status: Schema.Literals(["attending", "declined", "maybe"]),
-  dietary: DietaryText.pipe(Schema.withDecodingDefaultType(Effect.succeed(""))),
-  dietaryPresets: DietaryPresets.pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
+  dietary: Schema.optionalKey(DietaryText),
+  dietaryPresets: Schema.optionalKey(DietaryPresets),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
 });
 export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;

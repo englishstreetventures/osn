@@ -935,7 +935,7 @@ describe("RsvpView — plus-ones", () => {
     expect(findRow("Bo Jones")).toBeUndefined();
   });
 
-  it("records a plus-one's reply without the dietary fields the organiser path refuses", async () => {
+  it("records a plus-one's reply as a status only", async () => {
     authFetchMock
       .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
       .mockResolvedValueOnce(json({ rsvp: { status: "declined" } }))
@@ -948,23 +948,20 @@ describe("RsvpView — plus-ones", () => {
     expect(screen.getByText(/can't be recorded here for a plus-one/i)).toBeTruthy();
     expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
-    // Nothing stored to lose, so no warning, and Save says only what it is.
-    expect(screen.queryByText(/clears the dietary requirements/i)).toBeNull();
+    // Nothing stored to keep, so no note, and Save says only what it is.
+    expect(screen.queryByText(/dietary requirements their household gave stay/i)).toBeNull();
     const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
     expect(described).toContain("can't be recorded here for a plus-one");
-    expect(described).not.toContain("clears");
+    expect(described).not.toContain("stay");
 
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
     const putCall = authFetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/api/organiser/weddings/wed_a/guests/p2/rsvps/evt_1");
-    expect(JSON.parse(putCall[1]?.body as string)).toEqual({
-      status: "declined",
-      dietary: "",
-      dietaryPresets: [],
-      dietaryConsent: false,
-    });
+    // No dietary field at all: that is what tells the API to keep the
+    // household's answer.
+    expect(JSON.parse(putCall[1]?.body as string)).toEqual({ status: "declined" });
   });
 
   for (const [what, presets, text, named] of [
@@ -972,7 +969,7 @@ describe("RsvpView — plus-ones", () => {
     // Free text is the case that matters most: the form pre-fills it, so only
     // the plus-one guard keeps it out of the PUT the API would refuse.
     ["typed", [], "No shellfish", "No shellfish"],
-    // Worded as the row's Dietary cell words it, so the warning names what the
+    // Worded as the row's Dietary cell words it, so the note names what the
     // host can see.
     [
       "picked and typed",
@@ -981,7 +978,7 @@ describe("RsvpView — plus-ones", () => {
       "Vegetarian; Other; No shellfish",
     ],
   ] as const) {
-    it(`warns, naming them, before a save clears requirements the household ${what}`, async () => {
+    it(`says, naming them, that a save keeps requirements the household ${what}`, async () => {
       const view = withSamDietary([...presets], text);
       authFetchMock
         .mockResolvedValueOnce(json(view))
@@ -991,8 +988,9 @@ describe("RsvpView — plus-ones", () => {
       await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
 
       fireEvent.click(screen.getByRole("button", { name: "Edit reply for Sam Lee" }));
-      const warning = await screen.findByText(/clears the dietary requirements/i);
-      expect(warning.textContent).toContain(named);
+      const note = await screen.findByText(/dietary requirements their household gave stay/i);
+      expect(note.textContent).toContain(named);
+      expect(screen.queryByText(/clears/i)).toBeNull();
       // Save carries both sentences, so it is heard where the host decides.
       const described = describedText(screen.getByRole("button", { name: /Save reply/i }));
       expect(described).toContain("can't be recorded here for a plus-one");
@@ -1006,9 +1004,6 @@ describe("RsvpView — plus-ones", () => {
       await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
       expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
         status: "maybe",
-        dietary: "",
-        dietaryPresets: [],
-        dietaryConsent: false,
       });
     });
   }

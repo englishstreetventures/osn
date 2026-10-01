@@ -8,6 +8,10 @@
  * and its dietary consent is recorded as organiser-attested, not guest-given
  * (Art. 9(2)(a); see [[wiki/compliance/dpia/cire-guest-data]] → C-H2).
  *
+ * One exception: a status-only recording for a plus-one sets the status and
+ * keeps the dietary answer the household gave, with its consent record and
+ * its `consent_source` (`rsvpService.recordStatus`).
+ *
  * TENANCY: the route gate (`weddingEditor()`) proves the caller may write
  * `weddingId`. This service ADDITIONALLY re-validates, in wedding scope, that:
  *   - the guest belongs to a `kind='guest'` family under `weddingId` (a
@@ -54,10 +58,11 @@ export interface OrganiserRsvpInput {
   guestId: string;
   eventId: string;
   status: "attending" | "declined" | "maybe";
-  dietary: string;
-  /** The guest's picks from the closed vocabulary, as recorded by the organiser
-   *  from a phone or paper reply. */
-  dietaryPresets: readonly DietaryPreset[];
+  /** The dietary answer as recorded by the organiser from a phone or paper
+   *  reply: free text and picks from the closed vocabulary. `null` when the
+   *  organiser recorded a status only — for a plus-one that keeps the
+   *  household's answer; for any other guest it records none. */
+  dietary: { text: string; presets: readonly DietaryPreset[] } | null;
   /** Whether the organiser attests the guest consented to storing their dietary
    *  requirements. Only meaningful when there IS dietary data — presets or free
    *  text, both special-category (the route collapses those); stamps the
@@ -82,11 +87,13 @@ export const organiserRsvpService = {
     GuestNotInWedding | EventNotInWedding | GuestNotInvitedToEvent | PlusOneDietaryUnavailable,
     DbService
   > {
-    const { weddingId, guestId, eventId, status, dietary, dietaryPresets } = input;
-    // Consent authority is organiser-attested for every row this endpoint
-    // writes; the consent record is only stamped when there IS dietary data to
-    // authorise — presets or free text (mirrors the guest path — clearing the
-    // whole answer clears it).
+    const { weddingId, guestId, eventId, status } = input;
+    const dietary = input.dietary?.text ?? "";
+    const dietaryPresets = input.dietary?.presets ?? [];
+    // Consent authority is organiser-attested for every dietary answer this
+    // endpoint writes; the consent record is only stamped when there IS
+    // dietary data to authorise — presets or free text (mirrors the guest
+    // path — clearing the whole answer clears it).
     const consentSource: ConsentSource = "organiser_attested";
     const dietaryConsent =
       (dietary.length > 0 || dietaryPresets.length > 0) && input.dietaryConsent;
@@ -137,6 +144,14 @@ export const organiserRsvpService = {
           .all(),
       );
       if (!invite) return yield* Effect.fail(new GuestNotInvitedToEvent());
+
+      // A status-only reply for a plus-one: their dietary answer is the
+      // household's, given on the invite under its own attestation, so it
+      // stays, with its consent record and source.
+      if (guestRow.plusOneOf !== null && input.dietary === null) {
+        const stored = yield* rsvpService.recordStatus({ guestId, eventId, status });
+        return { guestId, eventId, ...stored };
+      }
 
       // Upsert through the shared write path (same `(guest_id, event_id)`
       // conflict target + dietary-consent stamping the guest path uses), with
