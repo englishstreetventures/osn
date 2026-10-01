@@ -1,16 +1,5 @@
 import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
-import {
-  and,
-  asc,
-  count,
-  eq,
-  getTableColumns,
-  ne,
-  notExists,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, asc, eq, getTableColumns, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
@@ -463,27 +452,25 @@ export const hostsService = {
             role: weddingHosts.role,
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+            // The window runs before LIMIT, so every row carries the wedding's
+            // true seat count, not the number returned.
+            total: sql<number>`count(*) over ()`,
           })
           .from(weddingHosts)
           .where(eq(weddingHosts.weddingId, weddingId))
           .orderBy(asc(weddingHosts.createdAt))
-          // Defensive ceiling (P-I1): a wedding has a handful of hosts; bounds
-          // the worst-case payload if a row ever accumulates pathologically many.
+          // Defensive ceiling: a wedding has a handful of seats; this bounds
+          // the payload if one ever holds pathologically many.
           .limit(LIST_CEILING)
           .all(),
       );
-      // Counted in the same parallel step rather than derived from `rows.length`,
-      // which would report the ceiling as the truth exactly when it isn't.
-      const [total] = yield* dbQuery(() =>
-        db
-          .select({ count: count() })
-          .from(weddingHosts)
-          .where(eq(weddingHosts.weddingId, weddingId))
-          .all(),
-      );
       return {
-        hosts: rows.map((row) => ({ ...row, role: normaliseHostRole(row.role) })),
-        total: total?.count ?? rows.length,
+        hosts: rows.map(({ total: _total, ...row }) => ({
+          ...row,
+          role: normaliseHostRole(row.role),
+        })),
+        // No row means no seat, so the count is 0.
+        total: rows[0]?.total ?? 0,
       };
     }).pipe(Effect.withSpan("cire.host.list"));
   },
