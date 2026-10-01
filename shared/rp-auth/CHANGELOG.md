@@ -1,5 +1,11 @@
 # @shared/rp-auth
 
+## 0.2.6
+
+### Patch Changes
+
+- 7fee8dc: `signOut` now resolves `true` when the server confirmed the sign-out and `false` on a network failure or any non-2xx status. It still never throws.
+
 ## 0.2.5
 
 ### Patch Changes
