@@ -362,6 +362,40 @@ describe("return visit: the account the box may show", () => {
     expect(state).not.toHaveProperty("account");
   });
 
+  it("asks osn-api once for a profile across repeat restores", async () => {
+    const asked: string[] = [];
+    const counted: OsnAccountResolver = async (profileId) => {
+      asked.push(profileId);
+      return { ok: true, accountId: "acc_usr_bob" };
+    };
+    const { db, app } = buildApp(true, counted);
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    linkRow(db, guestId(db, "Bo"), "usr_bob");
+    const org = await signIn(db, "usr_alice");
+    asked.length = 0;
+    expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
+    expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
+    expect(asked).toEqual(["usr_alice"]);
+  });
+
+  it("aborts the lookup's request once the wait is over", async () => {
+    let signal: AbortSignal | undefined;
+    const stalled = buildApp(true, (_profileId, options) => {
+      signal = options?.signal;
+      return new Promise(() => {});
+    });
+    const a = await claim(stalled.app, SAMPLETON);
+    await call(stalled.app, "POST", "/api/claim/member", a.cookie, {
+      guestId: guestId(stalled.db, "Bo"),
+    });
+    linkRow(stalled.db, guestId(stalled.db, "Bo"), "usr_bob");
+    const org = await signIn(stalled.db, "usr_alice");
+    signal = undefined;
+    await linkState(stalled.app, `${a.cookie}; ${org}`);
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("shows no account when signed out", async () => {
     const { db, app } = buildApp();
     const { cookie } = await claim(app, SAMPLETON);

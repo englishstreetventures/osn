@@ -100,6 +100,7 @@ import type {
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
+import { cacheAccountResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 import type { StripeClient } from "./services/stripe";
 import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
@@ -746,7 +747,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const accountLinking: AccountLinking = {
     flags,
     canLink: resolveOsnAccountId !== undefined,
-    resolveAccountId: resolveOsnAccountId,
+    // Cached: the member match runs on every restore and RSVP, and a profile's
+    // account never changes. The link POST keeps the uncached resolver, since
+    // it writes the account id it gets.
+    resolveAccountId: resolveOsnAccountId && cacheAccountResolver(resolveOsnAccountId),
     // musubi serves profile pictures from its own identity host, the OIDC
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),
