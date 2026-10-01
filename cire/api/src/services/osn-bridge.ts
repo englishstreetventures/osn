@@ -579,8 +579,9 @@ export async function createOrganiserEmailResolverFromEnv(env: {
 }
 
 /**
- * The status-keeping lookup from raw env material, for the RSVP digest. `null`
- * when any piece is absent, which means no digest that run.
+ * The status-keeping lookup from raw env material, for the RSVP digest and the
+ * owner notices. `null` when any piece is absent, which means no digest that
+ * run and no owner notices from that app.
  */
 export async function createOrganiserEmailLookupFromEnv(env: {
   osnApiUrl?: string;

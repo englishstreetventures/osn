@@ -23,7 +23,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Email Transport
@@ -102,6 +102,8 @@ cire-api sends from the same catalogue:
 | `vendor-claim-invite` | `{ claimUrl, vendorName }` | the vendor directory's claim invite |
 | `registry-gift-summary` | `RegistryGiftSummaryData` (aggregates only) | the retention sweep, as it deletes a wedding's guest data |
 | `rsvp-change-digest` | `{ weddingName, households, counts, rsvpUrl }` — counts per kind of change, no guest name | the daily RSVP digest cron — see [[cire-rsvp-changes]] |
+| `wedding-owner-change` | `WeddingOwnerChangeData` — wedding name, who acted, who was removed or demoted, the new role, which copy this is (`subject`, `actor`, `owner`) | an owner removed or demoted, to the person affected, the actor and every other owner — see [[cire-auth]] |
+| `wedding-delete-started` | `WeddingDeleteStartedData` — wedding name, who deleted it, the restore deadline | an owner deleting a wedding, to every other owner — see [[cire-auth]] |
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 
 `otp-recovery` is the only OTP template sent from an **unauthenticated**

@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Cire auth model
@@ -207,6 +207,8 @@ A wedding can have more than one owner, and they are **equals**: there is no "re
 Each guard sits **inside the statement that writes**, as a `WHERE` that counts the seats it competes with, because D1 offers no transaction across two requests: two owners removing each other at the same moment leave one of them, never neither. A refused change writes nothing, and a read of the seat rides in the same batch so the refusal names the reason the write saw. A removal deletes the person's RSVP read marker (`host_rsvp_notices`) ahead of the seat and under the same guard, so a refused removal keeps both and a batch that fails part-way never leaves a seat without its marker.
 
 **Deleting the wedding** takes one owner's confirmation, not every owner's: any owner holds every owner power, and a second confirmation would let one partner hold the wedding hostage from the other. The confirmation is the wedding's slug, typed exactly, and the delete is soft: any owner — not only the one who deleted it — can restore it for 7 days. See [Soft-deleted weddings](#soft-deleted-weddings).
+
+**Owners are told when another owner acts on ownership.** Removing or demoting an owner — the caller's own step-down and an owner leaving through `DELETE /hosts/me` included — emails the person affected, the owner who did it, and every other remaining owner; deleting the wedding emails every other owner, with the restore deadline. Each email names who acted, so a change made from a session someone else is using reaches the real owner too. One email per distinct address, all in one Resend batch call, sent after the write commits (through `waitUntil`) and never able to fail the request. A refused change, a promotion and a co-host's removal send nothing. A throttle keyed by wedding and by the acting owner (10 notices an hour each) keeps a promote/demote loop from spending the mail allowance; it is the in-memory limiter, so it holds per Worker isolate. No notice goes out unless the deployment has both the ARC key (for the address lookup) and `RESEND_API_KEY`. Code: [`lib/owner-notice-email.ts`](../../cire/api/src/lib/owner-notice-email.ts); templates `wedding-owner-change` and `wedding-delete-started` ([[email]]).
 
 **Mail meant for "the owner" goes to every owner**: the daily RSVP digest (every owner and editor, [[cire-rsvp-changes]]) and the retention sweep's parting gift summary, which is sent once per distinct address so two owners sharing an inbox get it once, each send isolated so one bounce costs no other owner their copy.
 
