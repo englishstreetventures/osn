@@ -75,11 +75,11 @@ Elysia plugins in `cire/api/src/middleware/`, all scoped `derive` + `onBeforeHan
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
 | `osn-auth.ts` | `osnAuth` — organiser JWT, via the shared Elysia adapter |
-| `wedding-owner.ts` | owner only — codes, settings, removing/demoting a co-host, delete |
+| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, removing or demoting any seat, delete |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, adding a co-host |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
 | `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
-| `wedding-role.ts` | not a gate — the policy the three role gates ask. Exhaustive over the role enum, so a new role fails `check` until decided |
+| `wedding-role.ts` | not a gate — the policy every role gate asks, and `assignableRolesFor()`, which roles a caller may grant. Exhaustive over the role enum, so a new role fails `check` until decided |
 | `rate-limit.ts`, `turnstile.ts` | abuse gates |
 
 Pick the gate from the roles matrix in [[cire-auth]], not by guessing from the
@@ -217,6 +217,16 @@ DDL in `cire/api/src/db/setup.ts`, which the whole `@cire/api` suite boots
 against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
+
+**Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
+Check what `db:generate` wrote before keeping it: a `__new_<table>` rebuild drops
+the table, and D1 enforces foreign keys, so the drop cascades into every child
+table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
+and each statement needs its own `--> statement-breakpoint`, because
+`d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
+step that has to run before the drop goes at the top of the same file.
+`0071_wedding_owners.sql` is the example, and `migration-0071.test.ts` is the
+shape of its test: seed rows before the migration, then prove nothing cascaded.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `deploy.yml`, so the site can reach

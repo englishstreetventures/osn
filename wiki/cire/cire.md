@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # Cire
@@ -65,7 +65,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 ## Data model
 
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multiple weddings per organiser are live (#147) — there is no longer a single seeded wedding.
-- `weddings.owner_osn_profile_id` stores the owning OSN profile id as an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). `wedding_hosts(wedding_id, osn_profile_id, …)` (#148) records co-hosts; unique per `(wedding_id, osn_profile_id)`. Owner + co-hosts are the `weddingMember()` set.
+- `wedding_hosts(wedding_id, osn_profile_id, role, …)` (#148) holds every organiser's **seat**, unique per `(wedding_id, osn_profile_id)`. A wedding's owners are its seats with role `owner` — it can have up to four, all equal, and always at least one (migration `0071` moved ownership here from the dropped `weddings.owner_osn_profile_id`). The profile id is an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). See [[cire-auth#Equal owners]].
 - A **plus-one** is an ordinary `guests` row whose `plus_one_of_guest_id` names the guest who brought them; `guests.plus_one_allowed` is the organiser's permission (migration 0066). The household names them on the invite; the change pipeline never matches one. See [[cire-plus-ones]].
 - `rsvp_changes` logs each guest-side RSVP change (ids, kind, time; `seq` AUTOINCREMENT cursor; cascades with the household and wedding, purged at 90 days) and `host_rsvp_notices` keeps each organiser's read marker and digest switch per wedding (migration 0068). See [[cire-rsvp-changes]].
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].

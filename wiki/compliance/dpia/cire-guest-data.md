@@ -97,14 +97,25 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 - **Who can widen the recipient set (2026-08-01).** Adding a co-host moved from
   owner-only to `weddingEditor()`, so an `editor` can seat another OSN account —
   and every seat, at any role, reads this field plus the household claim codes.
-  Assessed as acceptable: `editor` is the ceiling anyone can grant (no seat
-  outranks its creator), removal and demotion stay owner-only, seats are capped
+  Assessed as acceptable: an editor can grant at most `editor` (no seat they
+  create outranks them; only an owner can make an owner), removal and demotion
+  stay owner-only, seats are capped
   per wedding below the list's read ceiling so the owner's view can never
   silently truncate, and each row records who created it. **Residual:** a new
   seat is live immediately with no notification to the owner, so "the owner can
   always revoke it" depends on them noticing. Tracked as `S-M2` in
   `englishstventures/osn-tracker`; the mitigation is an owner notification on a
   seat created by someone else.
+- **Several owners (2026-10-01).** A wedding can have up to four owners, all
+  equal, so an owner can seat another person with every owner power — the
+  guest list and its dietary field, the claim codes, billing, the registry's
+  payout account, and the power to remove every other seat, its creator's
+  included. Assessed as acceptable: both partners owning their wedding is the
+  intended model, only an owner can make an owner (an editor asking is refused
+  with 403), the portal asks before granting it, owners are capped at four, and
+  a wedding never loses its last owner. Mail about the wedding's data — the
+  RSVP digest and the retention sweep's parting gift summary — goes to every
+  owner. See [[cire-auth]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed

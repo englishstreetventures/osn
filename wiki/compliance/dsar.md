@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # DSAR Runbook
@@ -121,13 +121,17 @@ The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout
 
 Cire runs its **own** Cloudflare D1 + R2, separate from `osn/db` (see
 [[cire]], [[cire-auth]]). The wedding and its guest data are linked to the
-organiser's OSN account only by `weddings.owner_osn_profile_id` — an opaque
-profile-id string with **no cross-DB FK**. Two consequences:
+organiser's OSN account only by their seat, `wedding_hosts.osn_profile_id` — an
+opaque profile-id string with **no cross-DB FK**. A wedding can have several
+owners, each with an `owner` seat. Two consequences:
 
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
-  reaches their cire data via that `owner_osn_profile_id`: export/erasure can
+  reaches their cire data via their `wedding_hosts` seats: export/erasure can
   query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs.
+  `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs. On a
+  wedding with another owner, erasing one owner removes their seat and leaves
+  the wedding to the others; the last owner's seat cannot be removed through
+  the API, so erasing a sole owner means erasing the wedding.
   This needs an ARC bridge to `@cire/api` that mirrors the
   pulse/zap pattern — **not built yet** (cire/api has no
   `internal/account-deleted` or export endpoint, and does not carry
