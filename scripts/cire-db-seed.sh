@@ -70,7 +70,9 @@ if [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
   # stray apostrophe closes the literal and the rest of the value runs as SQL
   # against the whole database. Profile ids are `usr_` + url-safe base64, so an
   # exact match on that shape costs nothing and removes the question.
-  if ! printf '%s' "$CIRE_DEV_OWNER_PROFILE_ID" | grep -qE '^usr_[A-Za-z0-9_-]+$'; then
+  # `[[ =~ ]]` matches the whole value; grep matches line by line and would
+  # pass a value whose second line carries SQL.
+  if ! [[ "$CIRE_DEV_OWNER_PROFILE_ID" =~ ^usr_[A-Za-z0-9_-]+$ ]]; then
     echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID='${CIRE_DEV_OWNER_PROFILE_ID}' is not a profile id (expected usr_ followed by letters, digits, - or _). Refusing." >&2
     exit 1
   fi
