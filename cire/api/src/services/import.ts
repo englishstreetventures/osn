@@ -221,16 +221,18 @@ export function diffAgainstDb(
     const manageEvents = scope !== "guests";
     const manageGuests = scope !== "events";
 
-    // The wedding's claim-code tier drives every NEW family code minted by
-    // this import. Read once; default to `secure` if the row is somehow absent
-    // (defensive — `weddingId` is always a real, owned wedding here). Skipped
-    // entirely when the guest half isn't managed: its only consumer is
-    // `generateFamilyCode` in the familyCreates loop, and that loop is provably
-    // empty under `scope: "events"` (`desiredFamilies` is `[]` by construction).
+    // The wedding's claim-code style drives every NEW family code minted by
+    // this import, and its plan tier sets the guest cap the preview warns
+    // against — both on the one row, read once. Default to `secure` if the row
+    // is somehow absent (defensive — `weddingId` is always a real, owned
+    // wedding here). Skipped entirely when the guest half isn't managed: its
+    // consumers are `generateFamilyCode` in the familyCreates loop and the cap
+    // check on `guestCreates`, and both are provably empty under
+    // `scope: "events"` (`desiredFamilies` is `[]` by construction).
     const [weddingRow] = manageGuests
       ? yield* dbQuery(() =>
           db
-            .select({ codeStyle: weddings.codeStyle })
+            .select({ codeStyle: weddings.codeStyle, tier: weddings.tier })
             .from(weddings)
             .where(eq(weddings.id, weddingId))
             .all(),
@@ -829,11 +831,10 @@ export function diffAgainstDb(
     //
     // `derivedCap` rides on the returned plan so `applyImport` doesn't read the
     // SAME tier a second time in the SAME request — see `applyImport`'s call to
-    // `assertGuestCapacity`. It's set ONLY when this block actually ran the
-    // tier read below; the pre-check branch proves the cap can't matter without
-    // ever learning its real value, so it leaves `derivedCap` unset and
-    // `applyImport` falls back to its own read — correct either way, per
-    // `assertGuestCapacity`'s "never a way to skip the check" contract.
+    // `assertGuestCapacity`. It's set ONLY when the plan can pass the floor; the
+    // pre-check branch proves the cap can't matter, so it leaves `derivedCap`
+    // unset and `applyImport` falls back to its own read — correct either way,
+    // per `assertGuestCapacity`'s "never a way to skip the check" contract.
     let derivedCap: number | undefined;
     if (guestCreates.length > 0) {
       // `existingGuestRows` was already fetched above with ne(families.kind,
@@ -846,13 +847,10 @@ export function diffAgainstDb(
       // `resulting` can only rise as far as `currentRealGuests +
       // guestCreates.length` (removes only ever bring it DOWN), and the cap can
       // never fall below `BASE_GUEST_CAP` — so once that upper bound sits at or
-      // under the floor, no tier could make this breach. Skip the read
-      // entirely rather than fetch an answer that is moot.
+      // under the floor, no tier could make this breach, and the cap is left
+      // for `applyImport` to settle rather than computed for nothing.
       if (currentRealGuests + guestCreates.length > BASE_GUEST_CAP) {
-        const tierRows = yield* dbQuery(() =>
-          db.select({ tier: weddings.tier }).from(weddings).where(eq(weddings.id, weddingId)).all(),
-        );
-        derivedCap = capForTier(normaliseTier(tierRows[0]?.tier));
+        derivedCap = capForTier(normaliseTier(weddingRow?.tier));
         if (resulting > derivedCap) {
           warnings.push(
             `This import brings you to ${resulting} guests; your plan is capped at ${derivedCap}. Upgrade to add more.`,

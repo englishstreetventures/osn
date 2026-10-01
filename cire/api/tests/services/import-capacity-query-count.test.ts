@@ -10,10 +10,11 @@ import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { countingDb, setTier } from "../test-helpers";
 
 /**
- * Proves two query-skipping guarantees. `diffAgainstDb` skips the tier read
- * entirely when the import can't possibly breach the floor cap. `applyImport`
- * skips its OWN tier read when the plan already carries a `derivedCap` from
- * the SAME request's preview, instead of reading it again.
+ * What the guest-cap check costs an import. `diffAgainstDb` reads the tier on
+ * the wedding row it already reads for the claim-code style, so crossing the
+ * 100-guest floor costs no statement of its own, and below the floor the cap
+ * is not computed at all. `applyImport` enforces against the plan's
+ * `derivedCap` when the same request's preview computed one.
  *
  * `countingDb` counts `.select()` calls, the entry point of every read this
  * codebase issues — there is no query-log to assert on directly, so this is
@@ -34,8 +35,8 @@ function planCreatingNGuests(n: number): ParsedFamily[] {
   ];
 }
 
-describe("P-I2: diffAgainstDb's capacity pre-check", () => {
-  it("skips the tier read when existing+new guests can't exceed the floor (100)", async () => {
+describe("diffAgainstDb's capacity pre-check", () => {
+  it("reads the tier on the wedding row it already reads, so crossing the floor costs nothing", async () => {
     const raw = createDb(":memory:");
     seedBootstrapWedding(raw);
     const { db: counted, selectCount } = countingDb(raw);
@@ -49,9 +50,9 @@ describe("P-I2: diffAgainstDb's capacity pre-check", () => {
     );
     const afterSmall = selectCount() - before;
 
-    // Same shape, but enough new guests to cross the floor (0 + 101 > 100) —
-    // this run MUST read the tier, so the two counts differ by
-    // exactly one query: the one the pre-check skipped above.
+    // Same shape, but enough new guests to cross the floor (0 + 101 > 100).
+    // This run needs the tier, and finds it on the row the claim-code read
+    // already fetched: the two runs issue the same statements.
     const raw2 = createDb(":memory:");
     seedBootstrapWedding(raw2);
     const { db: counted2, selectCount: selectCount2 } = countingDb(raw2);
@@ -63,7 +64,7 @@ describe("P-I2: diffAgainstDb's capacity pre-check", () => {
     );
     const afterLarge = selectCount2() - before2;
 
-    expect(afterLarge - afterSmall).toBe(1);
+    expect(afterLarge - afterSmall).toBe(0);
     expect(plan.derivedCap).toBeUndefined();
     expect(plan.warnings).toEqual([]);
   });
@@ -100,34 +101,61 @@ describe("P-I2: diffAgainstDb's capacity pre-check", () => {
   });
 });
 
-describe("P-W2: applyImport reuses diffAgainstDb's derivedCap", () => {
-  it("does not re-read the tier when the plan already carries derivedCap", async () => {
+describe("applyImport reuses diffAgainstDb's derivedCap", () => {
+  it("enforces against the plan's derivedCap rather than reading the tier again", async () => {
+    // Previewed on Gold, so the plan carries a cap of 500. The wedding is then
+    // put back on Ivory before the apply: an apply that read the tier again
+    // would refuse 101 guests, one that uses the plan's cap admits them.
     const raw = createDb(":memory:");
     seedBootstrapWedding(raw);
-    // Gold, so the preview's own read resolves to a real, non-default cap —
-    // proves applyImport actually USES the threaded value rather than
-    // coincidentally landing on the same number via its own fallback read.
     setTier(raw, BOOTSTRAP_WEDDING_ID, "gold");
-
     const plan = await Effect.runPromise(
       diffAgainstDb([], planCreatingNGuests(101), BOOTSTRAP_WEDDING_ID).pipe(
         Effect.provideService(DbService, raw),
       ),
     );
     expect(plan.derivedCap).toBe(500);
+    setTier(raw, BOOTSTRAP_WEDDING_ID, "ivory");
 
-    const { db: counted, selectCount } = countingDb(raw);
-    const before = selectCount();
     const exit = await Effect.runPromiseExit(
       applyImport("imp_derived_cap", plan, BOOTSTRAP_WEDDING_ID).pipe(
-        Effect.provideService(DbService, counted),
+        Effect.provideService(DbService, raw),
       ),
     );
     expect(Exit.isSuccess(exit)).toBe(true);
 
-    // Build the SAME plan by hand, minus derivedCap, and apply it against an
-    // identically-seeded Gold DB to measure the queries applyImport issues
-    // WITHOUT a threaded cap — the difference is the read the plan saved.
+    // The same plan without its cap, on an identical Ivory wedding, is refused:
+    // the difference above is the threaded value, not the tier.
+    const rawBaseline = createDb(":memory:");
+    seedBootstrapWedding(rawBaseline);
+    const { derivedCap: _derivedCap, ...planWithoutCap } = plan;
+    void _derivedCap;
+    const exitBaseline = await Effect.runPromiseExit(
+      applyImport("imp_no_derived_cap", planWithoutCap as ImportPlan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, rawBaseline),
+      ),
+    );
+    expect(Exit.isFailure(exitBaseline)).toBe(true);
+  });
+
+  it("costs the same statements with or without derivedCap: the fallback tier read rides the count", async () => {
+    const raw = createDb(":memory:");
+    seedBootstrapWedding(raw);
+    setTier(raw, BOOTSTRAP_WEDDING_ID, "gold");
+    const plan = await Effect.runPromise(
+      diffAgainstDb([], planCreatingNGuests(101), BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, raw),
+      ),
+    );
+    const { db: counted, selectCount } = countingDb(raw);
+    const before = selectCount();
+    await Effect.runPromise(
+      applyImport("imp_with_cap", plan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, counted),
+      ),
+    );
+    const withCap = selectCount() - before;
+
     const rawBaseline = createDb(":memory:");
     seedBootstrapWedding(rawBaseline);
     setTier(rawBaseline, BOOTSTRAP_WEDDING_ID, "gold");
@@ -135,14 +163,12 @@ describe("P-W2: applyImport reuses diffAgainstDb's derivedCap", () => {
     void _derivedCap;
     const { db: countedBaseline, selectCount: selectCountBaseline } = countingDb(rawBaseline);
     const beforeBaseline = selectCountBaseline();
-    const exitBaseline = await Effect.runPromiseExit(
-      applyImport("imp_no_derived_cap", planWithoutCap as ImportPlan, BOOTSTRAP_WEDDING_ID).pipe(
+    await Effect.runPromise(
+      applyImport("imp_without_cap", planWithoutCap as ImportPlan, BOOTSTRAP_WEDDING_ID).pipe(
         Effect.provideService(DbService, countedBaseline),
       ),
     );
-    expect(Exit.isSuccess(exitBaseline)).toBe(true);
-
-    expect(selectCountBaseline() - beforeBaseline - (selectCount() - before)).toBe(1);
+    expect(selectCountBaseline() - beforeBaseline).toBe(withCap);
   });
 
   it("keeps enforcing the cap when derivedCap is ABSENT from the plan — never a way to skip the check", async () => {

@@ -23,7 +23,7 @@ import {
   tiersBelow,
 } from "../../src/services/tiers";
 import type { Tier } from "../../src/services/tiers";
-import { setTier } from "../test-helpers";
+import { recordStatements, setTier } from "../test-helpers";
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -212,6 +212,31 @@ describe("tierService.hasPremiumTemplates", () => {
     grantPremiumTemplates(db, holder);
     expect(await run(db, tierService.hasPremiumTemplates(other))).toBe(false);
   });
+
+  describe("with the tier a role gate already read", () => {
+    it("answers Crimson without a statement", async () => {
+      const db = createDb();
+      const w = seedWedding(db, "wed_c", "crimson");
+      const statements = recordStatements(db);
+      expect(await run(db, tierService.hasPremiumTemplates(w, "crimson"))).toBe(true);
+      expect(statements).toEqual([]);
+    });
+
+    it("below Crimson, reads only the entitlement row", async () => {
+      const db = createDb();
+      const bought = seedWedding(db, "wed_b", "gold");
+      const plain = seedWedding(db, "wed_p", "gold");
+      grantPremiumTemplates(db, bought);
+      const statements = recordStatements(db);
+      expect(await run(db, tierService.hasPremiumTemplates(bought, "gold"))).toBe(true);
+      expect(await run(db, tierService.hasPremiumTemplates(plain, "ivory"))).toBe(false);
+      expect(statements).toHaveLength(2);
+      for (const s of statements) {
+        expect(s.sql).toContain('"wedding_entitlements"');
+        expect(s.sql).not.toContain('from "weddings"');
+      }
+    });
+  });
 });
 
 describe("tierService.premiumTemplateHolders", () => {
@@ -287,6 +312,75 @@ describe("tierService.assertGuestCapacity", () => {
         .run();
     }
     expect(Exit.isFailure(await assert(db, w, 101))).toBe(true);
+  });
+
+  it("reads the tier and counts the guests in one statement", async () => {
+    const db = createDb();
+    const w = seedWedding(db);
+    const now = new Date();
+    db.insert(families)
+      .values([
+        {
+          id: "fam_guest",
+          weddingId: w,
+          publicId: "G-1",
+          familyName: "G",
+          kind: "guest",
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "fam_host",
+          weddingId: w,
+          publicId: "H-1",
+          familyName: "H",
+          kind: "host",
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .run();
+    db.insert(guests)
+      .values([
+        {
+          id: "g_1",
+          familyId: "fam_guest",
+          firstName: "A",
+          lastName: "G",
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "g_2",
+          familyId: "fam_guest",
+          firstName: "B",
+          lastName: "G",
+          sortOrder: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "g_h",
+          familyId: "fam_host",
+          firstName: "H",
+          lastName: "H",
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .run();
+
+    const statements = recordStatements(db);
+    expect(Exit.isSuccess(await assert(db, w, 98))).toBe(true);
+    expect(statements).toHaveLength(1);
+
+    // The host-preview household still does not count: two real guests.
+    const err = await run(db, tierService.assertGuestCapacity(w, 99).pipe(Effect.flip));
+    expect({ limit: err.limit, current: err.current }).toEqual({ limit: 100, current: 2 });
   });
 
   describe("precomputedCap", () => {

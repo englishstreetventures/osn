@@ -1,5 +1,6 @@
 import { families, guests, weddingEntitlements, weddings } from "@cire/db";
-import { and, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
+import { and, type Column, eq, getTableName, inArray, ne, type SQL, sql } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { type Db, DbService, dbQuery } from "../db";
@@ -107,7 +108,26 @@ function guestCapSql(weddingId: string): SQL<number> {
  * table, and `id` then names more than one table.
  */
 export function roomForOneMoreGuest(weddingId: string): SQL {
-  return sql`(SELECT count(*) FROM ${guests} INNER JOIN ${families} ON ${guests.familyId} = ${families.id} WHERE ${families.weddingId} = ${weddingId} AND ${families.kind} <> 'host') < ${guestCapSql(weddingId)}`;
+  return sql`${realGuestCountSql(weddingId)} < ${guestCapSql(weddingId)}`;
+}
+
+/**
+ * `table.column`, spelled out. Drizzle writes a column interpolated into `sql`
+ * without its table when the fragment sits in a select list, and `id` then
+ * names more than one table; a qualified name reads the same column wherever
+ * the fragment is used.
+ */
+function qualified(table: SQLiteTable, column: Column): SQL {
+  return sql`${sql.identifier(getTableName(table))}.${sql.identifier(column.name)}`;
+}
+
+/**
+ * Real guests on a wedding as a scalar SQL subquery: the synthetic host-preview
+ * family is excluded, and a plus-one counts. Its columns are qualified, so it
+ * is safe in a select list as well as a WHERE.
+ */
+function realGuestCountSql(weddingId: string): SQL<number> {
+  return sql<number>`(SELECT count(*) FROM ${guests} INNER JOIN ${families} ON ${qualified(guests, guests.familyId)} = ${qualified(families, families.id)} WHERE ${qualified(families, families.weddingId)} = ${weddingId} AND ${qualified(families, families.kind)} <> 'host')`;
 }
 
 /** Count real guests on a wedding, EXCLUDING the synthetic host-preview family. */
@@ -120,6 +140,26 @@ function countGuests(db: Db, weddingId: string): Effect.Effect<number, never, ne
       .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
       .all(),
   ).pipe(Effect.map((rows) => (rows[0]?.n as number) ?? 0));
+}
+
+/** The wedding's tier and its real guest count, in one statement. A wedding
+ *  that does not exist reads as Ivory with no guests. */
+function tierAndGuestCount(
+  db: Db,
+  weddingId: string,
+): Effect.Effect<{ tier: Tier; current: number }, never, never> {
+  return dbQuery(() =>
+    db
+      .select({ tier: weddings.tier, n: realGuestCountSql(weddingId) })
+      .from(weddings)
+      .where(eq(weddings.id, weddingId))
+      .all(),
+  ).pipe(
+    Effect.map((rows) => ({
+      tier: normaliseTier(rows[0]?.tier),
+      current: Number(rows[0]?.n ?? 0),
+    })),
+  );
 }
 
 /** Who moved a wedding to a tier, as `weddings.tier_source` and
@@ -196,11 +236,35 @@ export const tierService = {
   /**
    * Whether the wedding may use a premium invite template: Crimson includes
    * them, and a wedding below it may hold the one-off `premium_templates`
-   * entitlement. One statement for both.
+   * entitlement.
+   *
+   * `knownTier` is the tier a role gate already read from the wedding row in
+   * the same request. Given it, a Crimson wedding costs no statement, and one
+   * below Crimson costs only the probe of its entitlement row. Without it, the
+   * tier and the probe come back in one statement.
    */
-  hasPremiumTemplates(weddingId: string): Effect.Effect<boolean, never, DbService> {
+  hasPremiumTemplates(
+    weddingId: string,
+    knownTier?: Tier,
+  ): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
+      if (knownTier !== undefined && tierAtLeast(knownTier, "crimson")) return true;
       const db = yield* DbService;
+      if (knownTier !== undefined) {
+        const held = yield* dbQuery(() =>
+          db
+            .select({ weddingId: weddingEntitlements.weddingId })
+            .from(weddingEntitlements)
+            .where(
+              and(
+                eq(weddingEntitlements.weddingId, weddingId),
+                eq(weddingEntitlements.entitlement, "premium_templates"),
+              ),
+            )
+            .all(),
+        );
+        return held.length > 0;
+      }
       const rows = yield* dbQuery(() =>
         db
           .select({
@@ -247,11 +311,12 @@ export const tierService = {
    * Fail with {@link CapacityExceeded} when `incomingNewGuests` more real
    * guests would take the wedding past its tier's cap.
    *
-   * `precomputedCap`, when given, skips this function's own tier read and
-   * enforces against that cap instead — `applyImport` already has it from
-   * `diffAgainstDb`'s preview in the same request. A given cap is NEVER a way
-   * to skip the check, only to skip re-reading the tier; omitted, this reads
-   * it and enforces exactly the same.
+   * `precomputedCap`, when given, skips reading the tier and enforces against
+   * that cap instead — `applyImport` already has it from `diffAgainstDb`'s
+   * preview in the same request — so the check is a count alone. A given cap
+   * is NEVER a way to skip the check, only to skip re-reading the tier;
+   * omitted, the tier and the count come back in one statement and the check
+   * is exactly the same.
    */
   assertGuestCapacity(
     weddingId: string,
@@ -260,14 +325,16 @@ export const tierService = {
   ): Effect.Effect<void, CapacityExceeded, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      let cap = precomputedCap;
-      if (cap === undefined) {
-        const rows = yield* dbQuery(() =>
-          db.select({ tier: weddings.tier }).from(weddings).where(eq(weddings.id, weddingId)).all(),
-        );
-        cap = capForTier(normaliseTier(rows[0]?.tier));
+      let cap: number;
+      let current: number;
+      if (precomputedCap === undefined) {
+        const read = yield* tierAndGuestCount(db, weddingId);
+        cap = capForTier(read.tier);
+        current = read.current;
+      } else {
+        cap = precomputedCap;
+        current = yield* countGuests(db, weddingId);
       }
-      const current = yield* countGuests(db, weddingId);
       if (current + incomingNewGuests > cap) {
         return yield* Effect.fail(
           new CapacityExceeded({

@@ -430,7 +430,7 @@ export const createInviteOrganiserRoutes = (
         // locked cards out, but the server is the gate).
         .put(
           "/invite/design",
-          async ({ request, weddingId, weddingSlug, set }) => {
+          async ({ request, weddingId, weddingSlug, weddingTier, set }) => {
             if (!weddingId || !weddingSlug) {
               set.status = 500;
               return { error: "Internal error" };
@@ -446,8 +446,9 @@ export const createInviteOrganiserRoutes = (
                 }
                 if (design.tier === "premium") {
                   // Crimson includes every premium design; a wedding below it
-                  // needs the one-off `premium_templates` entitlement.
-                  const entitled = yield* tierService.hasPremiumTemplates(weddingId);
+                  // needs the one-off `premium_templates` entitlement. The tier
+                  // is the one `weddingEditor` read with the caller's role.
+                  const entitled = yield* tierService.hasPremiumTemplates(weddingId, weddingTier);
                   if (!entitled) {
                     set.status = 403;
                     return { error: "premium_design" };
