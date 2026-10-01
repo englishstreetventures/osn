@@ -41,6 +41,14 @@ export type RsvpFilterKey = "all" | RsvpRowStatus;
  *  plus-one — the household that brought them. */
 export type ConsentSource = "guest" | "organiser_attested" | "inviter_attested";
 
+/** The household member who sent a reply, and whether through a linked musubi
+ *  account. */
+export interface ReplySubmitter {
+  guestId: string;
+  firstName: string;
+  viaLink: boolean;
+}
+
 /** What a plus-one's marker says when the API names no inviter. */
 export const UNNAMED_INVITER = "another guest";
 
@@ -76,6 +84,8 @@ export interface RsvpFilterGuest extends PlusOneLink {
    */
   dietaryPresets: readonly string[];
   consentSource: ConsentSource;
+  /** Who sent the reply; absent from an API that predates member attribution. */
+  submittedBy?: ReplySubmitter | null;
 }
 
 export interface RsvpFilterInvitedGuest extends PlusOneLink {
@@ -104,6 +114,9 @@ export interface RsvpRow {
   dietaryPresets: readonly string[];
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
+  /** Null on a row nobody has answered for, and on a reply with no member
+   *  recorded. */
+  submittedBy: ReplySubmitter | null;
   /** Set on a plus-one's row: the guest id of the member who brought them. */
   plusOneOf: string | null;
   /** That member's full name; null when the row is not a plus-one's, or the
@@ -168,6 +181,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       dietary: guest.dietary,
       dietaryPresets: guest.dietaryPresets,
       consentSource: guest.consentSource,
+      submittedBy: guest.submittedBy ?? null,
       ...link,
       responded: true,
       search: haystack(guest, link),
@@ -185,6 +199,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       dietary: "",
       dietaryPresets: [],
       consentSource: null,
+      submittedBy: null,
       ...link,
       responded: false,
       search: haystack(guest, link),

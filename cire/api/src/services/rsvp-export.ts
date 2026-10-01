@@ -144,6 +144,11 @@ export interface RsvpViewGuest {
    *  entry under this event — a reply kept after the household was dropped
    *  from the event, say. */
   plusOneOfName: string | null;
+  /** The household member who sent this reply, with whether the write came
+   *  through a linked musubi account. Null for an organiser's write, a reply
+   *  from before member attribution, or a member since removed. Never a handle
+   *  or account detail. */
+  submittedBy: { guestId: string; firstName: string; viaLink: boolean } | null;
 }
 
 /** An invited guest with no reply yet — the pool an organiser can record a
@@ -199,9 +204,16 @@ export const rsvpExportService = {
       // the one it hangs off. Only a plus-one's row has a key to join on, so
       // the rest cost no lookup.
       const inviter = alias(guests, "inviter");
+      const submitter = alias(guests, "submitter");
       const inviterOf = and(
         eq(guests.plusOneOfGuestId, inviter.id),
         eq(inviter.familyId, guests.familyId),
+      );
+      // The member who answered, held to the same household for the same
+      // reason: a stray id never pulls in a name from another family.
+      const submitterOf = and(
+        eq(submitter.id, rsvps.submittedByGuestId),
+        eq(submitter.familyId, guests.familyId),
       );
 
       // All four reads are independently wedding-scoped — collapse them to one
@@ -234,6 +246,9 @@ export const rsvpExportService = {
                 dietary: rsvps.dietary,
                 dietaryPresets: rsvps.dietaryPresets,
                 consentSource: rsvps.consentSource,
+                submittedByGuestId: rsvps.submittedByGuestId,
+                submittedViaLink: rsvps.submittedViaLink,
+                submittedByFirstName: submitter.firstName,
                 firstName: guests.firstName,
                 lastName: guests.lastName,
                 sortOrder: guests.sortOrder,
@@ -247,6 +262,7 @@ export const rsvpExportService = {
               .innerJoin(guests, eq(rsvps.guestId, guests.id))
               .innerJoin(families, eq(guests.familyId, families.id))
               .leftJoin(inviter, inviterOf)
+              .leftJoin(submitter, submitterOf)
               .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
               .all(),
           ),
@@ -320,6 +336,14 @@ export const rsvpExportService = {
           consentSource: row.consentSource,
           plusOneOf: row.plusOneOf,
           plusOneOfName: inviterName(row),
+          submittedBy:
+            row.submittedByGuestId !== null && row.submittedByFirstName !== null
+              ? {
+                  guestId: row.submittedByGuestId,
+                  firstName: row.submittedByFirstName,
+                  viaLink: row.submittedViaLink,
+                }
+              : null,
           sortOrder: row.sortOrder,
         });
         if (row.status === "attending") acc.attending += 1;

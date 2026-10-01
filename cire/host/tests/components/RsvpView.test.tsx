@@ -168,6 +168,25 @@ describe("RsvpView", () => {
     restoreViewport = () => {};
   });
 
+  it("shows who answered, marking a reply sent through a linked account", async () => {
+    const view = structuredClone(VIEW);
+    view.events[0]!.guests[0] = {
+      ...view.events[0]!.guests[0]!,
+      submittedBy: { guestId: "g9", firstName: "Maya", viaLink: true },
+    } as never;
+    view.events[0]!.guests[1] = {
+      ...view.events[0]!.guests[1]!,
+      submittedBy: { guestId: "g8", firstName: "Sam", viaLink: false },
+    } as never;
+    authFetchMock.mockResolvedValueOnce(json(view));
+    render(() => <RsvpView weddingId="wed_a" />);
+
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    expect(screen.getByText(/Answered by Maya/)).toBeTruthy();
+    expect(screen.getByText(/Answered by Sam/)).toBeTruthy();
+    expect(screen.getAllByText("linked musubi")).toHaveLength(1);
+  });
+
   it("renders RSVPs grouped by event with correct counts", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);

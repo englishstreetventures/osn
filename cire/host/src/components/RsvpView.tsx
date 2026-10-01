@@ -572,6 +572,22 @@ export default function RsvpView(props: RsvpViewProps) {
                                       Household-entered
                                     </span>
                                   </Show>
+                                  <Show when={row.submittedBy}>
+                                    {(by) => (
+                                      <span class="font-body text-text-muted text-ui-xs mt-0.5 block">
+                                        Answered by {by().firstName}
+                                        <Show when={by().viaLink}>
+                                          {" "}
+                                          <span
+                                            class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase"
+                                            title="Sent from a signed-in linked musubi account"
+                                          >
+                                            linked musubi
+                                          </span>
+                                        </Show>
+                                      </span>
+                                    )}
+                                  </Show>
                                   {/* Its own line, and free to wrap: the column
                                       is fixed, and an inviter's name is as long
                                       as any guest's. */}
