@@ -8,6 +8,7 @@ import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
+import { type Tier, TIER_LABEL } from "../lib/tiers";
 import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";
 
@@ -55,11 +56,11 @@ const rowLocked = "text-text-faint cursor-default";
 const DWELL_MS = 3000;
 
 /**
- * A nav row for a module this wedding is not entitled to.
+ * A nav row for a module this wedding's tier does not include.
  *
  * The row itself looks like every other row and carries the same content; what
  * changes is that it navigates nowhere, reads as locked to assistive tech, and
- * opens a popover offering the upgrade.
+ * opens a popover naming the tier that includes it and offering the upgrade.
  *
  * Three ways in, because no one of them covers every surface:
  *
@@ -75,8 +76,9 @@ const DWELL_MS = 3000;
  *   pointer-leave to close the card with and tapping the row again is the
  *   obvious way out.
  *
- * The lock is announced in the accessible name, not in the popover, so a
- * screen-reader user hears it while tabbing rather than having to dwell.
+ * The lock, and the tier that lifts it, are announced in the accessible name,
+ * not only in the popover, so a screen-reader user hears both while tabbing
+ * rather than having to dwell.
  */
 function LockedRow(props: {
   mod: ModuleDef;
@@ -118,7 +120,7 @@ function LockedRow(props: {
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="button"
         aria-expanded={open()}
-        aria-label={`${props.mod.label} — locked. Upgrade to unlock.`}
+        aria-label={`${props.mod.label} — locked. Included with ${TIER_LABEL[lock().tier]}.`}
         onClick={() => setOpen((was) => !was)}
         class={props.rowClass}
       >
@@ -130,6 +132,11 @@ function LockedRow(props: {
           the nav's control list. */}
       <HoverCard.Portal>
         <HoverCard.Content class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none">
+          {/* `gold-ink`, not `gold`: this is small text that has to be read,
+              and gold has no contrast contract (`styles/global.css`). */}
+          <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
+            Included with {TIER_LABEL[lock().tier]}
+          </p>
           <p class="font-display text-text text-ui-md leading-tight font-light">{lock().title}</p>
           <p class="text-text-muted text-ui-sm leading-snug">{lock().blurb}</p>
           <Button
@@ -145,7 +152,7 @@ function LockedRow(props: {
             }}
             class="mt-1"
           >
-            Upgrade
+            Upgrade to {TIER_LABEL[lock().tier]}
           </Button>
         </HoverCard.Content>
       </HoverCard.Portal>
@@ -174,14 +181,15 @@ function LockedRow(props: {
  * Only one surface is laid out at a time — the other is `display: none`, so
  * assistive tech sees one nav, never a duplicate.
  *
- * A module the wedding is not entitled to keeps its row on both surfaces. It is
- * faded, navigates nowhere, and offers the upgrade instead — see
+ * A module the wedding's tier does not include keeps its row on both surfaces.
+ * It is faded, navigates nowhere, and offers the upgrade instead — see
  * {@link LockedRow}.
  */
 export default function ModuleSidebar(props: {
   active: Module;
   weddingId: string;
-  entitlements: readonly string[];
+  /** The wedding's plan tier — what decides which rows are locked. */
+  tier: Tier;
   onSelect: (module: Module) => void;
 }) {
   const [sheetOpen, setSheetOpen] = createSignal(false);
@@ -248,7 +256,7 @@ export default function ModuleSidebar(props: {
         <For each={MODULE_NAV}>
           {(mod) => {
             const isActive = () => props.active === mod.id;
-            const locked = () => isModuleLocked(mod.id, props.entitlements);
+            const locked = () => isModuleLocked(mod.id, props.tier);
             const Body = () => (
               <>
                 <ModuleIcon
@@ -262,8 +270,8 @@ export default function ModuleSidebar(props: {
             // `Show`, not a ternary. `MODULE_NAV` never changes, so `For` runs
             // this callback once per module and a ternary between two elements
             // would be resolved once and for all — a wedding switched underneath
-            // the rail, or an entitlement granted mid-session, would leave the
-            // row showing the previous wedding's lock.
+            // the rail, or a tier raised mid-session, would leave the row
+            // showing the previous lock.
             return (
               <Show
                 when={locked()}
@@ -346,7 +354,7 @@ export default function ModuleSidebar(props: {
                 <For each={MODULE_NAV}>
                   {(mod) => {
                     const isActive = () => props.active === mod.id;
-                    const locked = () => isModuleLocked(mod.id, props.entitlements);
+                    const locked = () => isModuleLocked(mod.id, props.tier);
                     const Body = () => (
                       <>
                         <ModuleIcon
@@ -402,14 +410,17 @@ export default function ModuleSidebar(props: {
 
       {/* One dialog for the whole nav, driven by which row asked for it. Keyed
           on the module so switching offers remounts rather than reusing a
-          dialog still holding the previous module's submitting state. */}
+          dialog still holding the previous module's submitting state. It sells
+          the tier the row's lock names, and sends the organiser back to the
+          module they asked for. */}
       <Show when={upgrading()}>
         {(mod) => (
           <UpgradeDialog
             open
             weddingId={props.weddingId}
-            entitlement={mod().lock!.entitlement}
-            title={mod().lock!.title}
+            tier={mod().lock!.tier}
+            module={mod().id}
+            title={TIER_LABEL[mod().lock!.tier]}
             blurb={mod().lock!.blurb}
             onClose={() => setUpgrading(null)}
           />

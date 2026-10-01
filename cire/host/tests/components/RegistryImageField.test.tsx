@@ -226,6 +226,7 @@ describe("RegistryImageField — the link path", () => {
   it.each([
     [400, { error: "blocked_url" }, /can't be opened from here/],
     [400, { error: "Missing or invalid fields" }, /full https:\/\/ address/],
+    [402, { error: "payment_required", tier: "gold" }, /comes with Gold/],
     [415, { error: "unsupported_content_type" }, /isn't a web page we can read/],
     [429, { error: "Too many requests" }, /Wait a minute/],
     [502, { error: "preview_fetch_failed" }, /couldn't reach that page/],

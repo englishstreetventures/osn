@@ -9,7 +9,7 @@
  *  - **The thumbnail is fetched, not linked.** Invite images are served by a
  *    PUBLIC route (`/api/invite/:slug/image/:slot`), so `ImageField` can put the
  *    URL straight in an `<img src>`. A registry image is served behind
- *    `osnAuth` + the role gate + the entitlement and answered `private`, so the
+ *    `osnAuth` + the role gate + the Gold tier gate and answered `private`, so the
  *    browser's own image load — which carries no Authorization header — would
  *    get a 401. It is read with `authFetch` into an object URL instead, revoked
  *    when it is replaced or the field goes away.
@@ -177,7 +177,7 @@ export default function RegistryImageField(props: {
           ? "That link can't be opened from here. Check the address, or upload a photo instead."
           : "A link must be a full https:// address.";
       case 402:
-        return "The gift registry isn't part of this wedding's plan yet.";
+        return "The gift registry comes with Gold, and this wedding isn't on it yet.";
       case 403:
         return "You have read-only access to this wedding.";
       case 413:

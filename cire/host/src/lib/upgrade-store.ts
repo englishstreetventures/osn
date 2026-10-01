@@ -1,16 +1,16 @@
 // A `weddingId`-keyed cache for the upgrade catalogue — sibling of
 // `budget-store.ts`. Fetch-lift so opening two locked modules in a row does not
-// re-price them, and so every locked nav row shares ONE fetch.
+// re-price the tiers, and so every locked nav row shares ONE fetch.
 //
 // Effect is deliberately NOT imported (frontend code).
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
-import type { CatalogueEntry } from "./upgrade-api";
+import type { Catalogue } from "./upgrade-api";
 import { isWeddingClosed } from "./wedding-scope";
 
 interface CacheEntry {
-  catalogue: Accessor<CatalogueEntry[] | null>;
-  setCatalogue: Setter<CatalogueEntry[] | null>;
+  catalogue: Accessor<Catalogue | null>;
+  setCatalogue: Setter<Catalogue | null>;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -18,8 +18,8 @@ const cache = new Map<string, CacheEntry>();
 function entryFor(weddingId: string): CacheEntry {
   let entry = cache.get(weddingId);
   if (!entry) {
-    const [catalogue, setEntries] = createSignal<CatalogueEntry[] | null>(null);
-    entry = { catalogue, setCatalogue: setEntries };
+    const [catalogue, setCatalogueSignal] = createSignal<Catalogue | null>(null);
+    entry = { catalogue, setCatalogue: setCatalogueSignal };
     cache.set(weddingId, entry);
   }
   return entry;
@@ -27,15 +27,15 @@ function entryFor(weddingId: string): CacheEntry {
 
 /** The subscribing read. Mints the entry, so a tracked read always has a signal
  *  to register a dependency on even before the fetch lands. */
-export function catalogueAccessor(weddingId: string): Accessor<CatalogueEntry[] | null> {
+export function catalogueAccessor(weddingId: string): Accessor<Catalogue | null> {
   return entryFor(weddingId).catalogue;
 }
 
 /** Ignored for a closed wedding (see `wedding-scope.ts`): the dialog that
  *  asked for the prices has already been torn down. */
-export function setCatalogue(weddingId: string, entries: CatalogueEntry[]): void {
+export function setCatalogue(weddingId: string, catalogue: Catalogue): void {
   if (isWeddingClosed(weddingId)) return;
-  entryFor(weddingId).setCatalogue(entries);
+  entryFor(weddingId).setCatalogue(catalogue);
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
@@ -45,7 +45,8 @@ export function hasCachedCatalogue(weddingId: string): boolean {
 }
 
 /** Drop a wedding's cached prices — after a purchase settles, so the dialog
- *  cannot keep offering something the wedding now holds. */
+ *  cannot keep offering a tier the wedding is now on, or pricing a move from
+ *  the tier it has just left. */
 export function invalidateCatalogue(weddingId: string): void {
   cache.get(weddingId)?.setCatalogue(null);
 }

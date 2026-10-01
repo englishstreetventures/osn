@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { MODULES, type Module } from "../../src/lib/dashboard-route";
 import { isModuleLocked, MODULE_NAV, moduleDef } from "../../src/lib/module-nav";
+import { TIERS } from "../../src/lib/tiers";
+
+const PAID_TIERS = TIERS.filter((tier) => tier !== "ivory");
 
 /**
  * The nav table and the lock predicate every surface reads — the rail, the
@@ -27,17 +30,27 @@ describe("MODULE_NAV", () => {
     expect(new Set(icons).size).toBe(MODULE_NAV.length);
   });
 
-  it("gates exactly the two paid modules", () => {
-    const gated = MODULE_NAV.filter((mod) => mod.lock !== undefined).map((mod) => mod.id);
-    expect(gated).toEqual(["vendors", "registry"]);
+  it("gates the Gold modules and the Crimson module, and nothing else", () => {
+    const gated = Object.fromEntries(
+      MODULE_NAV.filter((mod) => mod.lock !== undefined).map((mod) => [mod.id, mod.lock!.tier]),
+    );
+    // The same split as the API's tier gate: budget, the checklist and the
+    // registry at Gold, vendors at Crimson. A module that disagrees would be
+    // offered to a wedding the API then answers 402.
+    expect(gated).toEqual({
+      checklist: "gold",
+      budget: "gold",
+      registry: "gold",
+      vendors: "crimson",
+    });
   });
 
-  it("names a real entitlement key on every lock, with copy to show", () => {
+  it("names a paid tier on every lock, with copy to show", () => {
     for (const mod of MODULE_NAV) {
       if (!mod.lock) continue;
-      // The key is what `isModuleLocked` compares against the wedding's rows;
-      // a typo here locks the module for everyone, for ever, with no error.
-      expect(mod.lock.entitlement, `${mod.id} lock key`).toBe(mod.id);
+      // The tier is what `isModuleLocked` ranks the wedding's against; a value
+      // that is not a paid tier locks the module for everyone, or no one.
+      expect(PAID_TIERS, `${mod.id} lock tier`).toContain(mod.lock.tier);
       expect(mod.lock.title.length, `${mod.id} lock title`).toBeGreaterThan(0);
       expect(mod.lock.blurb.length, `${mod.id} lock blurb`).toBeGreaterThan(0);
     }
@@ -45,27 +58,31 @@ describe("MODULE_NAV", () => {
 });
 
 describe("isModuleLocked", () => {
-  it("locks a gated module the wedding has no row for", () => {
-    expect(isModuleLocked("vendors", [])).toBe(true);
-    expect(isModuleLocked("registry", [])).toBe(true);
+  it("locks every gated module on Ivory", () => {
+    for (const id of ["checklist", "budget", "registry", "vendors"] as const) {
+      expect(isModuleLocked(id, "ivory"), `${id} on Ivory`).toBe(true);
+    }
   });
 
-  it("unlocks a gated module once its own key is held", () => {
-    expect(isModuleLocked("vendors", ["vendors"])).toBe(false);
-    expect(isModuleLocked("registry", ["registry"])).toBe(false);
+  it("opens the Gold modules on Gold and keeps Vendors locked", () => {
+    expect(isModuleLocked("checklist", "gold")).toBe(false);
+    expect(isModuleLocked("budget", "gold")).toBe(false);
+    expect(isModuleLocked("registry", "gold")).toBe(false);
+    expect(isModuleLocked("vendors", "gold")).toBe(true);
   });
 
-  it("reads only its own key, not the size of the entitlement set", () => {
-    // A wedding on a paid plan still has no claim on a module it did not buy.
-    const other = ["premium_templates", "ai", "capacity_1000", "registry"];
-    expect(isModuleLocked("vendors", other)).toBe(true);
-    expect(isModuleLocked("registry", other)).toBe(false);
+  it("opens everything on Crimson, because a higher tier includes the lower", () => {
+    for (const mod of MODULE_NAV) {
+      expect(isModuleLocked(mod.id, "crimson"), `${mod.id} on Crimson`).toBe(false);
+    }
   });
 
-  it("never locks an ungated module, whatever the wedding holds", () => {
+  it("never locks an ungated module, whatever the tier", () => {
     for (const mod of MODULE_NAV) {
       if (mod.lock) continue;
-      expect(isModuleLocked(mod.id, []), `${mod.id} with no entitlements`).toBe(false);
+      for (const tier of TIERS) {
+        expect(isModuleLocked(mod.id, tier), `${mod.id} on ${tier}`).toBe(false);
+      }
     }
   });
 
@@ -76,6 +93,6 @@ describe("isModuleLocked", () => {
     // module") is what keeps it unreachable in practice.
     const unknown = "gifts-received" as Module;
     expect(moduleDef(unknown)).toBe(MODULE_NAV[0]);
-    expect(isModuleLocked(unknown, [])).toBe(false);
+    expect(isModuleLocked(unknown, "ivory")).toBe(false);
   });
 });

@@ -25,6 +25,7 @@ const wedding = (id: string, displayName: string, slug: string): WeddingSummary 
   slug,
   displayName,
   role: "owner",
+  tier: "ivory",
   entitlements: [],
   guestCap: 100,
 });
@@ -107,19 +108,35 @@ describe("CommandPalette", () => {
     }
   });
 
-  it("omits a module the wedding is not entitled to", () => {
+  it("omits every module the wedding's tier does not include", () => {
     // A palette row that lands somewhere else is worse than no row: the shell
     // coerces a locked module back to Overview. The faded nav row is where the
     // upgrade is offered.
     mount();
-    expect(screen.queryByText("Vendors")).toBeNull();
-    expect(screen.queryByText("Registry")).toBeNull();
+    for (const label of ["Checklist", "Budget", "Vendors", "Registry"]) {
+      expect(screen.queryByText(label), `${label} row`).toBeNull();
+    }
   });
 
-  it("offers a module once its entitlement is held", () => {
-    mount({ wedding: { ...RUTH, entitlements: ["vendors", "registry"] } });
+  it("offers the Gold modules on Gold, and Vendors only on Crimson", () => {
+    mount({ wedding: { ...RUTH, tier: "gold" } });
+    for (const label of ["Checklist", "Budget", "Registry"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    expect(screen.queryByText("Vendors")).toBeNull();
+    cleanup();
+
+    mount({ wedding: { ...RUTH, tier: "crimson" } });
     expect(screen.getByText("Vendors")).toBeTruthy();
-    expect(screen.getByText("Registry")).toBeTruthy();
+  });
+
+  it("reads the tier from the legacy keys when the API sent none", () => {
+    // An API that predates tiers lists entitlement keys only; `vendors` was
+    // the Crimson pack.
+    const { tier: _omitted, ...legacy } = RUTH;
+    mount({ wedding: { ...legacy, entitlements: ["vendors", "registry"] } });
+    expect(screen.getByText("Vendors")).toBeTruthy();
+    expect(screen.getByText("Budget")).toBeTruthy();
   });
 
   it("drops the module group when no wedding is open", () => {
