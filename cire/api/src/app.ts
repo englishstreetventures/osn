@@ -593,6 +593,15 @@ export interface AppOptions {
   flags?: FeatureFlags;
 }
 
+/** `[origin]` of a URL, or `[]` when it does not parse. */
+function originOf(url: string): string[] {
+  try {
+    return [new URL(url).origin];
+  } catch {
+    return [];
+  }
+}
+
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
@@ -725,6 +734,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
     flags,
     canLink: resolveOsnAccountId !== undefined,
     resolveAccountId: resolveOsnAccountId,
+    // musubi serves profile pictures from its own identity host, the OIDC
+    // issuer; no other avatar host is shown on the guest site.
+    avatarOrigins: originOf(osnIssuerUrl),
   };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -1049,7 +1061,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.
-      .use(createAccountLinkRoutes(db, accountLinkLimiter))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, resolveOsnAccountId))
       .use(
         createAccountLinkPostRoute(
           db,

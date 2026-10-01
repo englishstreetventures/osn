@@ -46,7 +46,9 @@ afterEach(() => {
 
 describe("RsvpModal and the member step", () => {
   it("keeps Save disabled, and says why, until the household says who is answering", () => {
-    vi.stubGlobal("fetch", vi.fn());
+    const fetchMock = vi.fn();
+    const fetchSpy = () => fetchMock;
+    vi.stubGlobal("fetch", fetchMock);
     render(() => (
       <RsvpModal
         event={event}
@@ -57,8 +59,13 @@ describe("RsvpModal and the member step", () => {
       />
     ));
     const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    // Focusable, so the reason is reachable: aria-disabled, not disabled.
+    expect(save.disabled).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(save.getAttribute("aria-describedby")).toBe("rsvp-member-required");
     expect(screen.getByText(/Choose who you are/)).toBeTruthy();
+    fireEvent.click(save);
+    expect(fetchSpy()).not.toHaveBeenCalled();
   });
 
   it("hands the page the member step on a 409 member_required", async () => {

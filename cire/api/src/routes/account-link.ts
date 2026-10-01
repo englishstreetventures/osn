@@ -6,7 +6,7 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { ACCOUNT_LINKING_FLAG } from "../lib/account-linking";
-import { buildSessionCookie, parseSessionToken } from "../lib/cookie";
+import { buildSessionCookie, parseOrganiserSessionToken, parseSessionToken } from "../lib/cookie";
 import {
   measureAccountLinkResolve,
   metricAccountLinkRequest,
@@ -44,23 +44,49 @@ class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
  * Both instances share a per-IP `limiter` so a session can't drive unbounded
  * membership probes or unlink churn.
  */
-export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
+export const createAccountLinkRoutes = (
+  db: Db,
+  limiter: RateLimiterBackend,
+  resolveOsnAccountId?: OsnAccountResolver,
+) =>
   new Elysia({ prefix: PREFIX })
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
-    // DELETE /api/account/link/:guestId — remove an invitee's link, scoped to
-    // the caller's household. Idempotent.
-    .delete("/:guestId", ({ familyId, params, set }) => {
+    // DELETE /api/account/link/:guestId — remove a link. Only the account a
+    // seat is bound to may release it: the seat must be the member this
+    // session chose, and a live link must match this browser's musubi
+    // sign-in. Otherwise anyone holding the household code could unlink a
+    // member and relink the seat to their own account, which would make
+    // `rsvps.submitted_via_link` claim "signed in as" for the wrong person.
+    // Idempotent: a seat with no link answers 200.
+    .delete("/:guestId", ({ familyId, memberGuestId, params, request, set }) => {
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
       }
       const guestId = params.guestId;
+      if (guestId !== memberGuestId) {
+        metricAccountLinkUnlink("error");
+        set.status = 403;
+        return { error: "not_your_seat" };
+      }
       return runCire(
-        accountLinkService.unlink({ familyId, guestId }).pipe(
+        Effect.gen(function* () {
+          const { result } = yield* accountLinkService.memberMatch(
+            guestId,
+            parseOrganiserSessionToken(request.headers.get("cookie")),
+            resolveOsnAccountId,
+          );
+          if (result !== "match" && result !== "unlinked") {
+            yield* Effect.sync(() => metricAccountLinkUnlink("error"));
+            set.status = 403;
+            return { error: "not_linked_account" };
+          }
+          yield* accountLinkService.unlink({ familyId, guestId });
+          yield* Effect.sync(() => metricAccountLinkUnlink("ok"));
+          return { linked: false, guestId };
+        }).pipe(
           Effect.provideService(DbService, db),
-          Effect.tap(() => Effect.sync(() => metricAccountLinkUnlink("ok"))),
-          Effect.as({ linked: false, guestId }),
           Effect.catchTag("AccountLinkWriteError", () =>
             Effect.sync(() => {
               metricAccountLinkUnlink("error");

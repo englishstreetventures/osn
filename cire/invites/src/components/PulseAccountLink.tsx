@@ -24,7 +24,7 @@ import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
  * | no | yes | — | picture, name and `@handle`: "Link {name} to @handle?" |
  * | yes | yes | yes | picture, name and `@handle` |
  * | yes | yes | no | "{name} is linked to a different musubi account" — no account shown |
- * | yes | no | — | "{name} · linked to musubi" |
+ * | yes | no | — | "{name} · linked to musubi", and "Sign in to manage" |
  *
  * Every sign-in sends `prompt=select_account`, so musubi always shows which
  * account is signed in, with "Use another account", and never re-grants
@@ -32,9 +32,10 @@ import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
  * panel's one control (`onNotYou`): it clears the member and ends this
  * browser's cire musubi sign-in.
  *
- * The picture loads from musubi's avatar host. The guest site's CSP does not
- * list one (musubi hosts no pictures yet), so under an enforced policy the
- * image fails to load and the box falls back to the account's initial.
+ * The picture loads only from musubi's own host: cire-api drops any other
+ * avatar URL (the guest site's CSP is report-only and lists no avatar host).
+ * When there is none, or it fails to load, the box shows the account's
+ * initial.
  */
 interface PulseAccountLinkProps {
   /** cire-api origin (same value the rest of the invite islands fetch from). */
@@ -177,7 +178,11 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
         props.onUnlinked(guestId);
         return;
       }
-      setError("Couldn't unlink. Please try again.");
+      setError(
+        res.status === 403
+          ? "Only the musubi account this seat is linked to can unlink it."
+          : "Couldn't unlink. Please try again.",
+      );
     } catch {
       setError("Couldn't unlink. Please try again.");
     }
@@ -230,14 +235,15 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
           </p>
           {notYouButton()}
         </Match>
-        {/* Linked, not signed in on this browser. */}
+        {/* Linked, not signed in on this browser. Only the linked account can
+            release the seat, so managing it starts with signing in. */}
         <Match when={linked()}>
           <div class="flex flex-wrap items-center gap-3">
             <p class="text-text text-ui-sm font-light">
               {props.member.firstName} · linked to musubi
             </p>
-            <Button variant="subtle" size="sm" type="button" onClick={() => void unlink()}>
-              Unlink
+            <Button variant="subtle" size="sm" type="button" onClick={signIn}>
+              Sign in to manage
             </Button>
             {notYouButton()}
           </div>

@@ -24,6 +24,11 @@ export interface AccountLinking {
    * browser's sign-in is the account a household member is linked to.
    */
   resolveAccountId?: OsnAccountResolver;
+  /**
+   * Origins a musubi profile picture may load from on the guest site. Any
+   * other avatar URL is dropped, and the box shows the account's initial.
+   */
+  avatarOrigins?: readonly string[];
 }
 
 /**

@@ -12,6 +12,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
 import { hostCodeService } from "../../src/services/host-code";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -365,35 +366,72 @@ describe("POST /api/account/link — host preview", () => {
 });
 
 describe("DELETE /api/account/link/:guestId", () => {
-  it("removes a link and is idempotent", async () => {
+  /** A live `cire_org_session` for `profileId`, as the OIDC callback mints it. */
+  async function orgCookie(db: TestDb, profileId: string): Promise<string> {
+    const { token } = await Effect.runPromise(
+      organiserSessionService
+        .create({
+          osnProfileId: profileId,
+          osnSub: `sub_${profileId}`,
+          email: null,
+          handle: null,
+          displayName: null,
+          avatarUrl: null,
+        })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    return `cire_org_session=${token}`;
+  }
+
+  const del = (app: ReturnType<typeof createApp>, cookie: string, guestId: string) =>
+    app.fetch(
+      new Request(`http://localhost/api/account/link/${guestId}`, {
+        method: "DELETE",
+        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
+      }),
+    );
+
+  it("lets the linked account release its own seat, idempotently", async () => {
     const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const guestId = guestIdByName(db, "Bo");
     const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
-    // The link rotated the session — delete with the fresh cookie.
-    const cookie2 = rotatedCookie(linked, cookie);
+    // The link rotated the session — delete with the fresh cookie, signed in
+    // as the linked account.
+    const both = `${rotatedCookie(linked, cookie)}; ${await orgCookie(db, "usr_alice")}`;
 
-    const del = () =>
-      app.fetch(
-        new Request(`http://localhost/api/account/link/${guestId}`, {
-          method: "DELETE",
-          headers: { Cookie: cookie2, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
-        }),
-      );
-
-    const res1 = await del();
+    const res1 = await del(app, both, guestId);
     expect(res1.status).toBe(200);
     expect(await jsonBody(res1)).toEqual({ linked: false, guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
-
-    // Second delete still succeeds (idempotent).
-    expect((await del()).status).toBe(200);
+    expect((await del(app, both, guestId)).status).toBe(200);
   });
 
-  it("only unlinks within the caller's household", async () => {
+  it("refuses another account, or no sign-in, on the member's own seat", async () => {
+    const { db, app } = buildApp(async (profileId) => ({
+      ok: true,
+      accountId: `acc_${profileId}`,
+    }));
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bo = guestIdByName(db, "Bo");
+    const linked = await postLink(app, {
+      cookie,
+      bearer: await auth.sign("usr_alice"),
+      guestId: bo,
+    });
+    const session = rotatedCookie(linked, cookie);
+
+    const signedOut = await del(app, session, bo);
+    expect(signedOut.status).toBe(403);
+    const eve = await del(app, `${session}; ${await orgCookie(db, "usr_eve")}`, bo);
+    expect(eve.status).toBe(403);
+    expect(await jsonBody(eve)).toEqual({ error: "not_linked_account" });
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+  });
+
+  it("refuses a seat that is not the session's member, in or out of the household", async () => {
     const { db, app } = buildApp();
-    // Link Bo (Sampleton) as one household.
     const sampletonCookie = await claimCookie(app, SAMPLETON);
     const bo = guestIdByName(db, "Bo");
     await postLink(app, {
@@ -401,17 +439,13 @@ describe("DELETE /api/account/link/:guestId", () => {
       bearer: await auth.sign("usr_alice"),
       guestId: bo,
     });
+    const org = await orgCookie(db, "usr_alice");
 
-    // A different household (Testfamily) tries to delete Bo's link.
+    // A different household (Testfamily, member Ada) tries to delete Bo's link.
     const testfamilyCookie = await claimCookie(app, TESTFAMILY);
-    const res = await app.fetch(
-      new Request(`http://localhost/api/account/link/${bo}`, {
-        method: "DELETE",
-        headers: { Cookie: testfamilyCookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
-      }),
-    );
-    expect(res.status).toBe(200); // idempotent no-op, not an error
-    // Bo's link survives — the foreign household's scoped delete matched nothing.
+    const res = await del(app, `${testfamilyCookie}; ${org}`, bo);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "not_your_seat" });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
   });
 
@@ -463,8 +497,8 @@ describe("account-link rate limiting (S-L1)", () => {
         }),
       );
 
-    expect((await unlink()).status).toBe(200);
-    expect((await unlink()).status).toBe(200);
+    expect((await unlink()).status).not.toBe(429);
+    expect((await unlink()).status).not.toBe(429);
     const limited = await unlink();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("60");

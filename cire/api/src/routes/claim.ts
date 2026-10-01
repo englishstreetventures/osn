@@ -60,6 +60,7 @@ function accountLinkGate(
     osnSessionToken: parseOrganiserSessionToken(request.headers.get("cookie")),
     memberGuestId,
     resolveAccountId: linking.resolveAccountId,
+    avatarOrigins: linking.avatarOrigins,
   };
 }
 
@@ -419,13 +420,24 @@ export const createClaimMemberRoutes = (
             );
             if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
             if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
-            yield* sessionService.setMember(token, familyId, guestId);
-            yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
-            const state = yield* accountLinkService.householdState(
-              familyId,
-              parseOrganiserSessionToken(request.headers.get("cookie")),
-              { guestId, resolveAccountId: accountLinking.resolveAccountId },
+            // The write and the link state for the new member need nothing
+            // from each other, so they run together.
+            const [, state] = yield* Effect.all(
+              [
+                sessionService.setMember(token, familyId, guestId),
+                accountLinkService.householdState(
+                  familyId,
+                  parseOrganiserSessionToken(request.headers.get("cookie")),
+                  {
+                    guestId,
+                    resolveAccountId: accountLinking.resolveAccountId,
+                    avatarOrigins: accountLinking.avatarOrigins,
+                  },
+                ),
+              ],
+              { concurrency: "unbounded" },
             );
+            yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
             const { match: _match, ...accountLink } = state;
             return { member: { guestId }, accountLink };
           }).pipe(

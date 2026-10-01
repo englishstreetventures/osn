@@ -51,6 +51,7 @@ function buildApp(flagOn = true, resolver: OsnAccountResolver = ownAccount) {
     plusOneLimiter: limiter(),
     accountLinkLimiter: limiter(),
     resolveOsnAccountId: resolver,
+    osnIssuerUrl: "https://id.musubi.test",
     flags: createStaticFlags({ "cire.account-linking": flagOn }),
   });
   return { db, app };
@@ -108,7 +109,11 @@ const restore = (app: App, cookie: string) =>
   call(app, "GET", `/api/claim/session?slug=${SLUG}`, cookie);
 
 /** A live `cire_org_session` for `profileId`, as the OIDC callback mints it. */
-async function signIn(db: TestDb, profileId: string): Promise<string> {
+async function signIn(
+  db: TestDb,
+  profileId: string,
+  avatarUrl = "https://id.musubi.test/avatars/alice.png",
+): Promise<string> {
   const { token } = await Effect.runPromise(
     organiserSessionService
       .create({
@@ -117,7 +122,7 @@ async function signIn(db: TestDb, profileId: string): Promise<string> {
         email: null,
         handle: "alice",
         displayName: "Alice A",
-        avatarUrl: "https://avatars.example/alice.png",
+        avatarUrl,
       })
       .pipe(Effect.provideService(DbService, db)),
   );
@@ -212,6 +217,36 @@ describe("POST / DELETE /api/claim/member", () => {
     expect(none.status).toBe(401);
   });
 
+  it("answers 400 to a missing, mistyped or non-JSON body", async () => {
+    const { app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    for (const body of [{}, { guestId: 123 }, { guestId: "" }]) {
+      const res = await call(app, "POST", "/api/claim/member", cookie, body);
+      expect(res.status).toBe(400);
+    }
+    const raw = await app.fetch(
+      new Request("http://localhost/api/claim/member", {
+        method: "POST",
+        headers: { Cookie: cookie, "cf-connecting-ip": IP, Origin: ORIGIN },
+        body: "not json",
+      }),
+    );
+    expect(raw.status).toBe(400);
+  });
+
+  it("answers 401 to a cookie naming no live session, and DELETE clears nothing else", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    const bad = "cire_session=not-a-real-token";
+    const post = await call(app, "POST", "/api/claim/member", bad, { guestId: guestId(db, "Bo") });
+    expect(post.status).toBe(401);
+    expect((await call(app, "DELETE", "/api/claim/member", bad)).status).toBe(401);
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(
+      guestId(db, "Bo"),
+    );
+  });
+
   it("answers 404 with the flag off", async () => {
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
@@ -250,9 +285,19 @@ describe("return visit: the account the box may show", () => {
     expect(state.account).toEqual({
       displayName: "Alice A",
       handle: "alice",
-      avatarUrl: "https://avatars.example/alice.png",
+      avatarUrl: "https://id.musubi.test/avatars/alice.png",
       matchesMember: false,
     });
+  });
+
+  it("drops a picture from any host but musubi's own", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: guestId(db, "Bo") });
+    const org = await signIn(db, "usr_alice", "https://tracker.example/pixel.png");
+    const state = await linkState(app, `${cookie}; ${org}`);
+    expect(state.account?.["avatarUrl"]).toBeNull();
+    expect(state.account?.["handle"]).toBe("alice");
   });
 
   it("shows it, matched, for a member linked to this account", async () => {
@@ -303,6 +348,20 @@ describe("return visit: the account the box may show", () => {
     expect(state).not.toHaveProperty("account");
   });
 
+  it("reads a resolver that never answers as a mismatch, within the wait", async () => {
+    const stalled = buildApp(true, () => new Promise(() => {}));
+    const a = await claim(stalled.app, SAMPLETON);
+    await call(stalled.app, "POST", "/api/claim/member", a.cookie, {
+      guestId: guestId(stalled.db, "Bo"),
+    });
+    linkRow(stalled.db, guestId(stalled.db, "Bo"), "usr_bob");
+    const org = await signIn(stalled.db, "usr_alice");
+    const started = Date.now();
+    const state = await linkState(stalled.app, `${a.cookie}; ${org}`);
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(state).not.toHaveProperty("account");
+  });
+
   it("shows no account when signed out", async () => {
     const { db, app } = buildApp();
     const { cookie } = await claim(app, SAMPLETON);
@@ -336,6 +395,17 @@ describe("POST /api/rsvp and the member step", () => {
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "member_required" });
     expect(db.select().from(rsvps).all()).toHaveLength(0);
+  });
+
+  it("asks no choice of one member who brought a plus-one", async () => {
+    const { db, app } = buildApp();
+    const ada = guestId(db, "Ada");
+    seedPlusOne(db, ada, { firstName: "Sam" });
+    const { cookie, body } = await claim(app, TESTFAMILY);
+    expect((body as { member: unknown }).member).toEqual({ guestId: ada });
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(ada, firstEventOf(db, ada)));
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(ada);
   });
 
   it("stamps the sender on the reply, its change row and the read-back", async () => {

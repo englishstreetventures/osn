@@ -76,10 +76,18 @@ export interface HouseholdLinkState {
 export interface SignedInAccountView {
   displayName: string | null;
   handle: string | null;
-  /** An `https:` URL, or null. Any other scheme is dropped. */
+  /** An `https:` URL on musubi's own host, or null. Any other is dropped. */
   avatarUrl: string | null;
   /** True when the chosen member is linked to this account. */
   matchesMember: boolean;
+}
+
+/** Which member to compute the link state for, and how. */
+export interface MemberOptions {
+  guestId: string | null;
+  resolveAccountId?: OsnAccountResolver;
+  /** Hosts a profile picture may load from; any other is dropped. */
+  avatarOrigins?: readonly string[];
 }
 
 /** How this browser's sign-in compares with a member's link. */
@@ -89,11 +97,17 @@ export interface MemberMatch {
   session: ValidatedOrganiserSession | null;
 }
 
-/** `raw` when it is an `https:` URL, else null. */
-function httpsUrl(raw: string | null): string | null {
+/**
+ * `raw` when it is an `https:` URL on one of `origins` (musubi's own hosts),
+ * else null. The picture is fetched by whoever opens the invite, so a host the
+ * profile chose would learn their IP address; the guest site's CSP is
+ * report-only, so this check is the control.
+ */
+function allowedAvatar(raw: string | null, origins: readonly string[]): string | null {
   if (!raw) return null;
   try {
-    return new URL(raw).protocol === "https:" ? raw : null;
+    const url = new URL(raw);
+    return url.protocol === "https:" && origins.includes(url.origin) ? raw : null;
   } catch {
     return null;
   }
@@ -234,50 +248,12 @@ export const accountLinkService = {
   householdState(
     familyId: string,
     osnSessionToken: string | null,
-    member?: { guestId: string | null; resolveAccountId?: OsnAccountResolver },
+    member?: MemberOptions,
   ): Effect.Effect<HouseholdLinkState & { match?: AccountLinkMatchResult }, never, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const { links, session } = yield* Effect.all(
-        {
-          links: dbQuery(() =>
-            db
-              .select({
-                guestId: guestAccountLinks.guestId,
-                osnProfileId: guestAccountLinks.osnProfileId,
-                osnAccountId: guestAccountLinks.osnAccountId,
-              })
-              .from(guestAccountLinks)
-              .where(eq(guestAccountLinks.familyId, familyId))
-              .all(),
-          ),
-          session: liveSignIn(osnSessionToken),
-        },
-        { concurrency: "unbounded" },
-      );
-      const state: HouseholdLinkState & { match?: AccountLinkMatchResult } = {
-        enabled: true as const,
-        signedIn: session !== null,
-        linkedGuestIds: links.map((l) => l.guestId),
-      };
-      // Without the member step there is no member to compare against, and
-      // the payload keeps the shape it had before it.
-      if (!member) return state;
-      const memberId = member.guestId;
-      if (memberId === null) return state;
-      const link = links.find((l) => l.guestId === memberId) ?? null;
-      const result = yield* compareSignIn(link, session, member.resolveAccountId);
-      state.match = result;
-      if (session !== null && (result === "unlinked" || result === "match")) {
-        state.account = {
-          displayName: session.displayName,
-          handle: session.handle,
-          avatarUrl: httpsUrl(session.avatarUrl),
-          matchesMember: result === "match",
-        };
-      }
-      return state;
-    }).pipe(Effect.withSpan("cire.accountLink.householdState"));
+    return readLinkFacts(familyId, osnSessionToken).pipe(
+      Effect.flatMap((facts) => linkStateFor(facts, member)),
+      Effect.withSpan("cire.accountLink.householdState"),
+    );
   },
 
   /**
@@ -372,6 +348,74 @@ export const accountLinkService = {
     }).pipe(Effect.withSpan("cire.accountLink.listByAccount"));
   },
 };
+
+/**
+ * What a household's link state is computed from: its link rows and this
+ * request's live sign-in. Server-side only — the rows carry account ids.
+ */
+export interface LinkFacts {
+  links: { guestId: string; osnProfileId: string; osnAccountId: string }[];
+  session: ValidatedOrganiserSession | null;
+}
+
+/** Read the household's links and the request's sign-in, together. */
+export function readLinkFacts(
+  familyId: string,
+  osnSessionToken: string | null,
+): Effect.Effect<LinkFacts, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    return yield* Effect.all(
+      {
+        links: dbQuery(() =>
+          db
+            .select({
+              guestId: guestAccountLinks.guestId,
+              osnProfileId: guestAccountLinks.osnProfileId,
+              osnAccountId: guestAccountLinks.osnAccountId,
+            })
+            .from(guestAccountLinks)
+            .where(eq(guestAccountLinks.familyId, familyId))
+            .all(),
+        ),
+        session: liveSignIn(osnSessionToken),
+      },
+      { concurrency: "unbounded" },
+    );
+  });
+}
+
+/**
+ * The link state the payload carries, from facts already read — so a caller
+ * that learns the member later (a one-member household) reads nothing twice.
+ * Without `member` the state keeps the shape it had before the member step.
+ */
+export function linkStateFor(
+  { links, session }: LinkFacts,
+  member?: MemberOptions,
+): Effect.Effect<HouseholdLinkState & { match?: AccountLinkMatchResult }> {
+  return Effect.gen(function* () {
+    const state: HouseholdLinkState & { match?: AccountLinkMatchResult } = {
+      enabled: true as const,
+      signedIn: session !== null,
+      linkedGuestIds: links.map((l) => l.guestId),
+    };
+    const memberId = member?.guestId ?? null;
+    if (memberId === null) return state;
+    const link = links.find((l) => l.guestId === memberId) ?? null;
+    const result = yield* compareSignIn(link, session, member?.resolveAccountId);
+    state.match = result;
+    if (session !== null && (result === "unlinked" || result === "match")) {
+      state.account = {
+        displayName: session.displayName,
+        handle: session.handle,
+        avatarUrl: allowedAvatar(session.avatarUrl, member?.avatarOrigins ?? []),
+        matchesMember: result === "match",
+      };
+    }
+    return state;
+  });
+}
 
 /**
  * Compare a member's link with a live sign-in. A match is the same profile, or

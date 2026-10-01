@@ -108,6 +108,16 @@ export const createRsvpRoutes = (
           }
         }
 
+        // The same answer the claim payload gave (stale-ok, via `waitUntil`),
+        // so the page and this write agree whenever the payload's flag read
+        // finished in time. When it did not, the page met no "Who are you?"
+        // step; the 409 below brings it up (`member_required`). Started here
+        // so it overlaps the body read and the Turnstile check.
+        const memberStepRead =
+          accountLinking === undefined
+            ? Promise.resolve(false)
+            : isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
+
         const raw: unknown = await request.json().catch(() => null);
 
         // Turnstile bot gate (key-optional; no-op when unconfigured). The
@@ -119,14 +129,7 @@ export const createRsvpRoutes = (
           return { error: tsErr.error };
         }
 
-        // The same answer the claim payload gave (stale-ok, via `waitUntil`),
-        // so the page and this write agree whenever the payload's flag read
-        // finished in time. When it did not, the page met no "Who are you?"
-        // step; the 409 below brings it up (`member_required`).
-        const waitUntil = getWaitUntil(request);
-        const memberStep =
-          accountLinking !== undefined &&
-          (await isAccountLinkingOn(accountLinking, familyId, waitUntil));
+        const memberStep = await memberStepRead;
 
         return runCire(
           Effect.gen(function* () {
@@ -146,7 +149,24 @@ export const createRsvpRoutes = (
             // reject path buys one fewer round-trip on every accept path. Both sides are already index-served: guests_family_id_sort_idx
             // covers the family/guest join's WHERE, and guest_events' primary key
             // (guest_id, event_id) covers the LEFT JOIN probe.
-            const [[family], familyGuestEvents] = yield* Effect.all(
+            // Whether this request also carries the musubi sign-in the
+            // chosen member is linked to. Needs nothing the reads below
+            // return, so it runs beside them.
+            // The member only ever names a non-plus-one of this household
+            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
+            // the write checks again below rather than trust that.
+            const submittedByGuestId = memberStep ? memberGuestId : null;
+            const matchRead =
+              submittedByGuestId === null
+                ? Effect.succeed(false)
+                : accountLinkService
+                    .memberMatch(
+                      submittedByGuestId,
+                      parseOrganiserSessionToken(request.headers.get("cookie")),
+                      accountLinking?.resolveAccountId,
+                    )
+                    .pipe(Effect.map((m) => m.result === "match"));
+            const [[family], familyGuestEvents, submittedViaLink] = yield* Effect.all(
               [
                 // The household's own row plus its wedding's RSVP deadline — one
                 // join rather than two round-trips, since both gates below run on
@@ -199,6 +219,7 @@ export const createRsvpRoutes = (
                     .where(eq(guests.familyId, familyId))
                     .all(),
                 ),
+                matchRead,
               ],
               { concurrency: "unbounded" },
             );
@@ -241,6 +262,19 @@ export const createRsvpRoutes = (
             // guestId in the joined rows, including rows whose eventId is null
             // (a guest with no invitations still belongs to the family).
             const familyGuestIds = new Set(familyGuestEvents.map((row) => row.guestId));
+
+            // A session member that is not one of this household's own
+            // members is never stamped.
+            if (
+              submittedByGuestId !== null &&
+              !familyGuestEvents.some(
+                (row) => row.guestId === submittedByGuestId && row.plusOneOf === null,
+              )
+            ) {
+              set.status = 409;
+              yield* Effect.sync(() => metricRsvpBlocked("member_required"));
+              return { error: "member_required" };
+            }
 
             // With the member step on, a household of two or more must say who
             // is answering before it answers: each reply records its sender.
@@ -337,19 +371,6 @@ export const createRsvpRoutes = (
 
             // Normalised once, after every gate has passed: the write and the
             // preset counter below both read these replies.
-            // Who sent these replies, and whether this request also carried
-            // the musubi sign-in that member is linked to. Off, nothing new
-            // is stamped.
-            const submittedByGuestId = memberStep ? memberGuestId : null;
-            const submittedViaLink =
-              submittedByGuestId === null
-                ? false
-                : (yield* accountLinkService.memberMatch(
-                    submittedByGuestId,
-                    parseOrganiserSessionToken(request.headers.get("cookie")),
-                    accountLinking?.resolveAccountId,
-                  )).result === "match";
-
             const replies = body.rsvps.map((rsvp): RsvpInput => ({
               guestId: rsvp.guestId,
               eventId: rsvp.eventId,

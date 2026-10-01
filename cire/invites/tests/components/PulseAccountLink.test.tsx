@@ -170,9 +170,14 @@ describe("PulseAccountLink", () => {
     expect(screen.queryByText(/@/)).toBeNull();
   });
 
-  it("says the member is linked when this browser is signed out", () => {
+  it("says the member is linked when signed out, and offers sign-in to manage it", async () => {
     renderBox({ signedIn: false, linkedGuestIds: ["g-ada"] });
     expect(screen.getByText("Ada · linked to musubi")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Unlink" })).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in to manage" }));
+    expect(signInMock).toHaveBeenCalledWith({ apiBase: API }, window.location.href, {
+      prompt: "select_account",
+    });
   });
 
   it("hands 'Not you?' to the panel", async () => {

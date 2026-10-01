@@ -363,6 +363,8 @@ export function RsvpModal(props: RsvpModalProps) {
   // change their answer. (After a success the sheet is already closing; letting
   // the fields stay live would invite edits that could never be sent.)
   const locked = () => loading() || saved() || (props.closed ?? false);
+  // Save waits for "Who are you?"; preview never writes, so never waits.
+  const blockedByMember = () => props.memberRequired === true && props.preview !== true;
 
   // C-L2: the deadline can pass with this sheet open, and closing it unmounts
   // the submit button. If focus was ON that button, the browser drops focus to
@@ -421,7 +423,7 @@ export function RsvpModal(props: RsvpModalProps) {
     // could still fire this, and the server would refuse it anyway.
     if (props.closed) return;
     // Nobody has said who is answering; the line above Save says where to.
-    if (props.memberRequired && !props.preview) return;
+    if (blockedByMember()) return;
 
     // The household no longer has to finish the whole party in one sitting —
     // whichever members have an answer get sent, and anyone left at `null` is
@@ -870,7 +872,7 @@ export function RsvpModal(props: RsvpModalProps) {
           {saved() ? `Your RSVP for ${props.event.name} has been saved.` : ""}
         </p>
 
-        <Show when={props.memberRequired && !props.closed && !props.preview}>
+        <Show when={blockedByMember() && !props.closed}>
           <p class="text-text-muted text-ui-sm" id="rsvp-member-required">
             {MEMBER_REQUIRED_COPY}
           </p>
@@ -929,19 +931,22 @@ export function RsvpModal(props: RsvpModalProps) {
               type="submit"
               class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
-                "opacity-40": loading(),
+                "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),
                 "cursor-default": saved(),
               }}
-              disabled={loading() || (props.memberRequired === true && !props.preview)}
-              aria-describedby={props.memberRequired ? "rsvp-member-required" : undefined}
+              disabled={loading()}
+              // Not `disabled` while nobody has said who is answering: a
+              // disabled button takes no focus, so a keyboard or screen-reader
+              // user would never reach the reason. `handleSubmit` enforces it.
+              aria-describedby={blockedByMember() ? "rsvp-member-required" : undefined}
               // Not `disabled`: this button holds keyboard focus at the moment
               // the reply lands, and disabling a focused control drops focus to
               // `<body>` — outside an `aria-modal` dialog, with no keyboard way
               // back in (the same failure C-L2 documents below). `aria-disabled`
               // states the same thing without moving focus; `handleSubmit`
               // enforces it.
-              aria-disabled={saved() || undefined}
+              aria-disabled={saved() || blockedByMember() || undefined}
             >
               {saved() ? "Saved" : loading() ? "Saving…" : "Save"}
             </button>

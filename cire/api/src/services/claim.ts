@@ -30,7 +30,7 @@ import type {
   DressSwatch,
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
-import { accountLinkService } from "./account-link";
+import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -172,6 +172,8 @@ export interface AccountLinkGate {
   memberGuestId?: string | null;
   /** Resolves a profile to its account, to compare a sign-in with a link. */
   resolveAccountId?: OsnAccountResolver;
+  /** Hosts a profile picture may load from. */
+  avatarOrigins?: readonly string[];
 }
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
@@ -199,8 +201,9 @@ export const ACCOUNT_LINK_FLAG_WAIT = "250 millis";
 function accountLinkState(
   family: FamilyRow,
   gate: AccountLinkGate | undefined,
-): Effect.Effect<AccountLinkState & { match?: AccountLinkMatchResult }, never, DbService> {
-  if (!gate || family.kind === "host") return Effect.succeed(LINKING_OFF);
+): Effect.Effect<LinkStateRead, never, DbService> {
+  const off: LinkStateRead = { state: LINKING_OFF, facts: null };
+  if (!gate || family.kind === "host") return Effect.succeed(off);
   return Effect.promise(() => gate.enabledFor(family.id)).pipe(
     Effect.timeoutOrElse({
       duration: ACCOUNT_LINK_FLAG_WAIT,
@@ -209,25 +212,36 @@ function accountLinkState(
           Effect.as(false),
         ),
     }),
-    Effect.flatMap(
-      (
-        on,
-      ): Effect.Effect<AccountLinkState & { match?: AccountLinkMatchResult }, never, DbService> =>
-        on
-          ? accountLinkService.householdState(family.id, gate.osnSessionToken, {
-              guestId: gate.memberGuestId ?? null,
-              resolveAccountId: gate.resolveAccountId,
-            })
-          : Effect.succeed(LINKING_OFF),
+    Effect.flatMap((on): Effect.Effect<LinkStateRead, never, DbService> =>
+      on
+        ? readLinkFacts(family.id, gate.osnSessionToken).pipe(
+            Effect.flatMap((facts) =>
+              linkStateFor(facts, {
+                guestId: gate.memberGuestId ?? null,
+                resolveAccountId: gate.resolveAccountId,
+                avatarOrigins: gate.avatarOrigins,
+              }).pipe(Effect.map((state) => ({ state, facts }))),
+            ),
+          )
+        : Effect.succeed(off),
     ),
     // Inside this branch, not around the whole payload: a defect here must
     // never reach the `Effect.all` that joins it to the invite.
     Effect.catchCause(() =>
       Effect.logWarning("account link state unavailable; reporting linking off").pipe(
-        Effect.as(LINKING_OFF),
+        Effect.as(off),
       ),
     ),
   );
+}
+
+/**
+ * The link state, and the facts it was computed from — kept server-side so a
+ * member chosen after the read (a one-member household) costs no second read.
+ */
+interface LinkStateRead {
+  state: AccountLinkState & { match?: AccountLinkMatchResult };
+  facts: LinkFacts | null;
 }
 
 /**
@@ -253,7 +267,7 @@ function buildClaimResponse(
   return Effect.all([buildInvite(family), accountLinkState(family, gate)], {
     concurrency: "unbounded",
   }).pipe(
-    Effect.flatMap(([invite, linkState]) =>
+    Effect.flatMap(([invite, { state: linkState, facts }]) =>
       Effect.gen(function* () {
         // The member step rides the same flag answer as the link box, so the
         // two can never disagree within one payload. Off: the payload keeps
@@ -271,11 +285,12 @@ function buildClaimResponse(
         // chooses for it. The caller writes the choice to the session.
         if (member === null) {
           const only = singleChoosableMember(invite.members);
-          if (only !== null) {
+          if (only !== null && facts !== null) {
             member = only;
-            state = yield* accountLinkService.householdState(family.id, gate.osnSessionToken, {
+            state = yield* linkStateFor(facts, {
               guestId: member,
               resolveAccountId: gate.resolveAccountId,
+              avatarOrigins: gate.avatarOrigins,
             });
           }
         }
