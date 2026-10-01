@@ -17,7 +17,9 @@
  *    the count and the oldest claim's age to `alertOperator`, which the cron
  *    turns into one email: at most one a day, however many claims wait.
  *
- * Each hand-off costs two zap-api calls and one D1 write, and the cron's one
+ * Each hand-off costs two zap-api calls (provision and send, or on a retry
+ * that reuses its chat, list and send) and one D1 write. The reminder adds
+ * one Resend call. The cron's one
  * invocation shares the Free plan's per-invocation ceilings (50 external
  * subrequests, 50 D1 queries) with the other jobs
  * (`wiki/shared/free-tier-limits.md`). `HANDOFFS_PER_RUN` bounds the enquiries

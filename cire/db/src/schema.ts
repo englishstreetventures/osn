@@ -594,10 +594,10 @@ export const vendorEnquiries = sqliteTable(
     // Flushed into Zap + nulled when the vendor claims. Exactly one of
     // (zapChatId set) / (pendingBody set) holds for an open enquiry.
     pendingBody: text("pending_body"),
-    // A chat the hand-off provisioned but has not yet recorded as delivered.
-    // Set only while `pendingBody` is, read only by the hand-off, so a retry
-    // reuses the chat instead of provisioning another. Never a reader's
-    // signal that a thread exists: that is `zapChatId` alone.
+    // The chat a failed hand-off attempt provisioned, kept so the retry reuses
+    // it instead of provisioning another. Set only while `pendingBody` is and
+    // read only by the hand-off. Never a sign that a thread exists: that is
+    // `zapChatId` alone.
     handoffChatId: text("handoff_chat_id"),
     status: text("status", { enum: ["open", "quoted", "closed"] })
       .notNull()

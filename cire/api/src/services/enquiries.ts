@@ -27,7 +27,7 @@
 import { vendorEnquiries, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Data, Effect, type Types } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
@@ -183,43 +183,47 @@ const threadUrl = (base: string, enquiryId: string): string =>
  * failure is logged and answers false, never fails, so one bad enquiry cannot
  * stop the others.
  *
- * Three steps, each safe to repeat:
- *  1. Stage a chat. A chat staged by an earlier run (`handoffChatId`) is
- *     reused. Otherwise one is provisioned and recorded in `handoff_chat_id`
- *     before anything is sent, under a guard that matches only an open,
- *     undelivered enquiry with nothing staged; losing that guard answers
- *     false and sends nothing, so two runners never both send.
- *  2. Send the buffered body, unless a reused chat already holds a message.
- *     Nothing reaches a staged chat but this send (every reply path refuses
- *     while `zap_chat_id` is null), so a message there means an earlier run
- *     sent it and failed to record it.
+ *  1. Chat. A chat an earlier attempt provisioned (`handoffChatId`) is reused;
+ *     otherwise one is provisioned.
+ *  2. Send the buffered body, unless the reused chat already holds a message.
+ *     Nothing reaches that chat but this send (every reply path refuses while
+ *     `zap_chat_id` is null), so a message there means an earlier attempt sent
+ *     it and failed to record it.
  *  3. Record delivery: `zap_chat_id` set, `pending_body` and `handoff_chat_id`
  *     cleared, in one UPDATE that matches only while the enquiry is open with
- *     `zap_chat_id IS NULL`.
+ *     `zap_chat_id IS NULL`, so a second runner cannot overwrite the first's
+ *     chat and a thread the couple closed meanwhile is not marked delivered.
  *
- * `zap_chat_id` alone tells every reader that a thread exists, and it is set
- * only once the body is delivered, so an open enquiry never shows a chat while
- * its first message waits. A failure bumps `updated_at`, which moves the
- * enquiry to the back of the sweep's queue. The daily cron calls this
- * (`claimReviewService.sweep`) for listings an operator has confirmed;
- * nothing in the request path does.
+ * A failure after step 1 writes the chat to `handoff_chat_id` in the same
+ * UPDATE that bumps `updated_at` (which moves the enquiry to the back of the
+ * sweep's queue), so the retry reuses it rather than provisioning another.
+ * The success path stays one D1 write. `zap_chat_id` alone tells readers a
+ * thread exists, and it is set only once the body is delivered, so an open
+ * enquiry never shows a chat while its first message waits.
+ *
+ * The daily cron calls this (`claimReviewService.sweep`) for listings an
+ * operator has confirmed; nothing in the request path does.
  */
 export function flushBufferedEnquiry(
   zap: ZapChatClient,
   enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody" | "handoffChatId">,
   vendorProfileId: string,
 ): Effect.Effect<boolean, never, DbService> {
+  return Effect.suspend(() => flushOnce(zap, enq, vendorProfileId));
+}
+
+function flushOnce(
+  zap: ZapChatClient,
+  enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody" | "handoffChatId">,
+  vendorProfileId: string,
+): Effect.Effect<boolean, never, DbService> {
+  // The chat this attempt holds, for the failure path to keep.
+  let chatId: string | null = enq.handoffChatId;
   return Effect.gen(function* () {
     if (enq.pendingBody === null) return false;
     const body = enq.pendingBody;
     const db = yield* DbService;
-    const undelivered = and(
-      eq(vendorEnquiries.id, enq.id),
-      eq(vendorEnquiries.status, "open"),
-      isNull(vendorEnquiries.zapChatId),
-    );
 
-    let chatId = enq.handoffChatId ?? null;
     let alreadySent = false;
     if (chatId === null) {
       const provisioned = yield* Effect.promise(() =>
@@ -229,20 +233,10 @@ export function flushBufferedEnquiry(
           title: undefined,
         }),
       );
-      const staged = yield* dbQuery(() =>
-        db
-          .update(vendorEnquiries)
-          .set({ handoffChatId: provisioned.chatId })
-          .where(and(undelivered, isNull(vendorEnquiries.handoffChatId)))
-          .run(),
-      );
-      if (rowsChanged(staged) !== 1) return false;
       chatId = provisioned.chatId;
     } else {
-      const stagedChat = chatId;
-      const { messages } = yield* Effect.promise(() =>
-        zap.listC2bMessages(stagedChat, { limit: 1 }),
-      );
+      const reused = chatId;
+      const { messages } = yield* Effect.promise(() => zap.listC2bMessages(reused, { limit: 1 }));
       alreadySent = messages.length > 0;
     }
 
@@ -263,7 +257,13 @@ export function flushBufferedEnquiry(
           lastMessageAt: now,
           updatedAt: now,
         })
-        .where(undelivered)
+        .where(
+          and(
+            eq(vendorEnquiries.id, enq.id),
+            eq(vendorEnquiries.status, "open"),
+            isNull(vendorEnquiries.zapChatId),
+          ),
+        )
         .run(),
     );
     return rowsChanged(result) === 1;
@@ -273,13 +273,19 @@ export function flushBufferedEnquiry(
         yield* Effect.logError("[enquiries] buffered enquiry hand-off failed").pipe(
           Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
         );
-        // Move it to the back of the sweep's queue (ordered by `updated_at`),
-        // so an enquiry that keeps failing cannot hold every run's slots.
+        // Keep the chat for the retry, and move the enquiry to the back of the
+        // sweep's queue (ordered by `updated_at`) so one that keeps failing
+        // cannot hold every run's slots. The chat is kept only while the
+        // enquiry is still undelivered.
         const db = yield* DbService;
+        const kept = chatId;
         yield* dbQuery(() =>
           db
             .update(vendorEnquiries)
-            .set({ updatedAt: new Date() })
+            .set({
+              updatedAt: new Date(),
+              handoffChatId: sql`CASE WHEN ${vendorEnquiries.zapChatId} IS NULL THEN COALESCE(${kept}, ${vendorEnquiries.handoffChatId}) ELSE NULL END`,
+            })
             .where(eq(vendorEnquiries.id, enq.id))
             .run(),
         ).pipe(Effect.catchDefect(() => Effect.void));

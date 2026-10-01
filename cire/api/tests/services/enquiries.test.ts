@@ -681,14 +681,15 @@ describe("flushBufferedEnquiry", () => {
     const stale = readEnquiry(db, opened.value.id);
     await run(db, flushBufferedEnquiry(zap.client, stale, VENDOR_PROFILE_ID));
 
-    // A second runner holding the stale row cannot stage, so it sends nothing.
+    // A second runner holding the stale row provisions, but cannot overwrite.
     const second = await run(db, flushBufferedEnquiry(zap.client, stale, VENDOR_PROFILE_ID));
     expect(Exit.isSuccess(second) && second.value).toBe(false);
-    expect(readEnquiry(db, opened.value.id).zapChatId).toBe("chat_1");
-    expect(zap.sendCalls).toHaveLength(1);
+    const after = readEnquiry(db, opened.value.id);
+    expect(after.zapChatId).toBe("chat_1");
+    expect(after.handoffChatId).toBeNull();
   });
 
-  it("stages the chat before sending, so a failed send keeps no visible thread", async () => {
+  it("keeps the chat of a failed send for the retry, with no visible thread", async () => {
     const db = db0();
     const zap = fakeZap();
     const svc = createEnquiryService({

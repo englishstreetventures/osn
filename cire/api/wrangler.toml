@@ -81,6 +81,12 @@ ZAP_API_URL = "http://localhost:3002"
 # CIRE_INTERNAL_REVOKE_SECRET in `.dev.vars` (gitignored); in a deployed tier use
 # `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET`. Absent ⇒ the endpoint is
 # disabled (503). The SAME value must be provisioned on the osn-api side.
+#
+# CIRE_OPS_EMAIL — the operator address for the daily "vendor claims are
+# waiting for review" reminder (src/index.ts `scheduled`). A SECRET, never a
+# committed var: this repo is public and the address is a person's. Locally put
+# it in `.dev.vars`; in a deployed tier `wrangler secret put CIRE_OPS_EMAIL`.
+# Absent (or no RESEND_API_KEY) ⇒ no reminder; the cron's log line remains.
 
 # ── Stripe (KEY-OPTIONAL throughout) ─────────────────────────────────────────
 # TWO relationships with Stripe, and they are opposites. Keeping them apart is
@@ -296,6 +302,9 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 # default (localhost) applies and vendor-enquiry email delivery fails closed — a
 # dev deploy must never send real mail to a real vendor. The rest of the enquiry
 # flow still works; only the outbound send is inert.
+# CIRE_OPS_EMAIL (secret, see the top-level [vars] note) sends the daily
+# vendor-claim reminder from this tier when set:
+#   bunx wrangler secret put CIRE_OPS_EMAIL --env dev
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY unset ⇒ every flag serves its coded default with zero
 # network, which is the honest dev posture until a dev GrowthBook environment
@@ -438,6 +447,9 @@ ZAP_API_URL = "https://zap.cireweddings.com"
 # note). Provision as a secret, matching the value osn-api holds:
 #   bunx wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production
 # Absent ⇒ POST /internal/revoke-organiser-sessions answers 503 (disabled).
+# Operator address for the daily vendor-claim reminder (secret, see the
+# top-level [vars] note). Absent ⇒ no reminder, only the cron's log line:
+#   bunx wrangler secret put CIRE_OPS_EMAIL --env production
 # GrowthBook feature flags (KEY-OPTIONAL) — see the top-level [vars] note. Named
 # envs do NOT inherit top-level [vars], so GROWTHBOOK_API_HOST is redeclared
 # here; set GROWTHBOOK_CLIENT_KEY (var or `wrangler secret put ... --env
