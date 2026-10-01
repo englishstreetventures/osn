@@ -44,6 +44,13 @@ crons = ["0 4 * * *"]
 enabled = true
 head_sampling_rate = 1
 
+# Invocation records are OFF: each one stores the request URL, and the public
+# image and invite routes carry the wedding slug (the couple's names) in the path.
+# Application logs stay on and never name the slug. Every named env redeclares
+# this, since none inherit it.
+[observability.logs]
+invocation_logs = false
+
 [vars]
 # Deployment tier — local | dev | staging | production. Read two ways: through
 # `process.env` by `@shared/observability`'s `loadConfig` (log format + level),
@@ -371,6 +378,9 @@ binding = "IMAGES"
 enabled = true
 head_sampling_rate = 1
 
+[env.dev.observability.logs]
+invocation_logs = false
+
 # ═══ production tier ═════════════════════════════════════════════════════════
 # Deployed only after the manual approval on the `production` GitHub Environment.
 [env.production.vars]
@@ -509,6 +519,9 @@ binding = "IMAGES"
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+[env.production.observability.logs]
+invocation_logs = false
 
 # ── OpenTelemetry export ─────────────────────────────────────────────────────
 # Read by `@shared/observability` `loadConfig` (the

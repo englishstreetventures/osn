@@ -11,8 +11,10 @@
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
   // 7-day Workers Logs retention, 100% sampling (low guest-site volume). Mirrors
-  // cire-api's observability block.
-  "observability": { "enabled": true },
+  // cire-api's observability block. Invocation records are off: each stores the
+  // request URL, and `/<slug>` carries the wedding slug (the couple's names).
+  // Application logs stay on. There is no named env to repeat this in.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
   // The SSR build is minified (astro.config.mjs); upload source maps so a
   // production exception still symbolicates to a real source line. The
   // adapter never sets this itself (grepped `@astrojs/cloudflare/dist` for

@@ -569,7 +569,9 @@ export function serveTransformedImage(args: {
             slot: logSlot,
             variant,
             format,
-            reason: cause instanceof Error ? cause.message : String(cause),
+            // The error name is a fixed reason. `message` can echo the cache key, a URL
+            // holding the wedding slug.
+            reason: cause instanceof Error ? cause.name : "unknown",
           }),
         ),
       );
