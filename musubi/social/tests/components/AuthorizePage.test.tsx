@@ -446,6 +446,8 @@ describe("<AuthorizePage />", () => {
 
       renderPage(SELECT);
       fireEvent.click(await screen.findByText("Bob"));
+      expect(screen.getByText("Bob").closest("button")?.getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByText("Selected").closest("button")?.textContent).toContain("Bob");
       fireEvent.click(screen.getByText("Continue"));
 
       // The account screen settled the profile — no second picker.
@@ -494,6 +496,8 @@ describe("<AuthorizePage />", () => {
 
       expect(await screen.findByText("Use another account")).toBeDefined();
       expect(screen.queryByText("finish sign-in")).toBeNull();
+      // Back re-reads who is signed in rather than trusting the old screen.
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
     });
 
     it("treats Cancel on the account screen as a decision", async () => {

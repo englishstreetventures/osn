@@ -409,7 +409,18 @@ export function AuthorizePage() {
             </Suspense>
           </div>
           <Show when={switching()}>
-            <Button variant="secondary" class="mt-4 w-full" onClick={() => setSwitching(false)}>
+            {/* A sign-in can set the new session cookie before it reports
+                success, so the account screen re-reads who is signed in
+                rather than trusting what it showed before. */}
+            <Button
+              variant="secondary"
+              class="mt-4 w-full"
+              onClick={() => {
+                setSwitching(false);
+                setChosenId(null);
+                void refetch();
+              }}
+            >
               Back
             </Button>
           </Show>
@@ -441,10 +452,15 @@ export function AuthorizePage() {
                   <button
                     type="button"
                     aria-pressed={profile.id === selectedId()}
-                    class="border-border hover:bg-muted aria-pressed:border-foreground flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors"
+                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
                     onClick={() => setChosenId(profile.id)}
                   >
                     <ProfileRow profile={profile} />
+                    <Show when={profile.id === selectedId()}>
+                      <span class="text-foreground text-meta ml-auto shrink-0 font-medium">
+                        Selected
+                      </span>
+                    </Show>
                   </button>
                 )}
               </For>
