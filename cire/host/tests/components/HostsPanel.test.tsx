@@ -440,7 +440,7 @@ describe("HostsPanel", () => {
       expect(onLeft).not.toHaveBeenCalled();
     });
 
-    it("treats a 403 as already gone — the seat was removed elsewhere", async () => {
+    it("treats a 403 as already gone, and leaves the list to the dashboard's recheck", async () => {
       authFetchMock.mockResolvedValueOnce(hostsBody());
       authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
       const onLeft = vi.fn();
@@ -450,8 +450,12 @@ describe("HostsPanel", () => {
       await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
       fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
       fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
-      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      expect(String(toastSuccess.mock.calls[0]![0])).toMatch(/no longer a host/i);
       expect(toastError).not.toHaveBeenCalled();
+      // The 403 already triggered the dashboard's list recheck; a local drop
+      // would make it ask twice.
+      expect(onLeft).not.toHaveBeenCalled();
     });
 
     it("keeps the wedding and says why on a failure", async () => {
