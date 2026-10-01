@@ -1324,6 +1324,19 @@ describe("POST /registry/link-preview/image", () => {
     expect(await jsonBody(res)).toEqual({ error: code });
   });
 
+  it("stops fetching after repeated failed transforms, and answers as a failed one", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({ tier: "gold", linkPreview: options, images: imagesStub(true) });
+    for (let i = 0; i < 3; i++) {
+      expect((await thumb(app, EDITOR, { url: `${CANDIDATE}&n=${i}` })).status).toBe(502);
+    }
+    expect(fetched).toHaveLength(3);
+    const res = await thumb(app, EDITOR, { url: CANDIDATE });
+    expect(res.status).toBe(502);
+    expect(await jsonBody(res)).toEqual({ error: "thumbnail_failed" });
+    expect(fetched).toHaveLength(3);
+  });
+
   it("503s in a deployed tier with no Images binding rather than serve the raw bytes", async () => {
     const { fetched, options } = remote();
     const app = buildApp({

@@ -36,7 +36,8 @@ import {
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { linkPreviewService } from "../services/link-preview";
 import type { LinkPreviewOptions } from "../services/link-preview";
-import { linkThumbnailService } from "../services/link-thumbnail";
+import { createTransformBreaker, linkThumbnailService } from "../services/link-thumbnail";
+import type { TransformBreaker } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
@@ -580,6 +581,8 @@ export interface RegistryLinkThumbDeps {
   readonly requireTransform: boolean;
   /** Test seam: injectable fetch + DNS resolver, shared with the preview. */
   readonly linkPreviewOptions?: LinkPreviewOptions;
+  /** Test seam: the transform breaker. Defaults to one per factory call. */
+  readonly transformBreaker?: TransformBreaker;
 }
 
 /**
@@ -608,6 +611,8 @@ export interface RegistryLinkThumbDeps {
  *   LinkThumbTooLarge         → 413 `image_too_large`
  *   LinkThumbUnsupportedType  → 415 `unsupported_image_type`
  *   LinkThumbTransformFailed  → 502 `thumbnail_failed`
+ *   LinkThumbTransformPaused  → 502 `thumbnail_failed` (recent transforms
+ *                               failed, so no fetch is made; see the service)
  *   LinkThumbUnavailable      → 503 `thumbnail_unavailable`
  *   LinkThumbBudgetSpent      → 429 `thumbnail_budget_spent` (this month's
  *                               share of the Images quota; see the service)
@@ -616,8 +621,10 @@ export const createRegistryLinkThumbRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   deps: RegistryLinkThumbDeps,
-) =>
-  new Elysia({ prefix: "/api/organiser" })
+) => {
+  // One per app, and the app is built once per isolate.
+  const breaker = deps.transformBreaker ?? createTransformBreaker();
+  return new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
@@ -644,6 +651,7 @@ export const createRegistryLinkThumbRoutes = (
                   images: deps.images,
                   requireTransform: deps.requireTransform,
                   options: deps.linkPreviewOptions,
+                  breaker,
                 });
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -657,6 +665,7 @@ export const createRegistryLinkThumbRoutes = (
                   status(415, "unsupported_image_type"),
                 ),
                 Effect.catchTag("LinkThumbTransformFailed", () => status(502, "thumbnail_failed")),
+                Effect.catchTag("LinkThumbTransformPaused", () => status(502, "thumbnail_failed")),
                 Effect.catchTag("LinkThumbUnavailable", () => status(503, "thumbnail_unavailable")),
                 Effect.catchTag("LinkThumbBudgetSpent", () =>
                   status(429, "thumbnail_budget_spent"),
@@ -669,6 +678,7 @@ export const createRegistryLinkThumbRoutes = (
           manualParse,
         ),
     );
+};
 
 /** Options for {@link createRegistryImageRoutes}. */
 export interface RegistryImageDeps {

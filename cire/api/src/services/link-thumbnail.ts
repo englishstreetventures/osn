@@ -93,6 +93,9 @@ export class LinkThumbUnavailable extends Data.TaggedError("LinkThumbUnavailable
 /** This month's share of the Images quota is spent. */
 export class LinkThumbBudgetSpent extends Data.TaggedError("LinkThumbBudgetSpent") {}
 
+/** Recent transforms failed, so this one is not attempted (see {@link createTransformBreaker}). */
+export class LinkThumbTransformPaused extends Data.TaggedError("LinkThumbTransformPaused") {}
+
 /**
  * Transforms the picker may spend in one calendar month (UTC), across every
  * wedding: half of the 5,000 unique transformations the Images Free plan gives
@@ -107,7 +110,103 @@ export type LinkThumbError =
   | LinkThumbTooLarge
   | LinkThumbTransformFailed
   | LinkThumbUnavailable
-  | LinkThumbBudgetSpent;
+  | LinkThumbBudgetSpent
+  | LinkThumbTransformPaused;
+
+/**
+ * What the breaker says about one request: transform as normal, go as the one
+ * trial after a pause, or skip the fetch and the transform.
+ */
+export type TransformAdmission = "go" | "trial" | "paused";
+
+export interface TransformBreaker {
+  admit(): TransformAdmission;
+  /** The transform failed for a reason that is not the input's fault. */
+  failed(): void;
+  succeeded(): void;
+  /** A trial ended before reaching the transform, so it says nothing about Images. */
+  release(): void;
+}
+
+export interface TransformBreakerOptions {
+  /** Failures inside {@link TransformBreakerOptions.windowMs} that start a pause. */
+  readonly threshold?: number;
+  readonly windowMs?: number;
+  readonly pauseMs?: number;
+  readonly now?: () => number;
+}
+
+/**
+ * Stops spending fetches on thumbnails the Images binding cannot produce — a
+ * spent account quota or an outage. Three failed transforms inside 60 seconds
+ * pause the route's transforms for 60 seconds: a request answers 502 before
+ * the budget read and the fetch. When the pause ends, ONE request goes through
+ * as a trial while the rest stay paused; its failure starts another pause, its
+ * success clears the count. A trial that has not settled after a pause's length
+ * is treated as lost, so a dropped request cannot hold the route shut.
+ *
+ * The state lives in one isolate (the route factory builds one breaker per app,
+ * and the app is built once per isolate), so each isolate learns of an outage
+ * on its own, and the first trip can take as many failures as were in flight.
+ * A wrong pause costs thumbnails showing their "Picture N" label for a minute;
+ * picking and saving are unaffected.
+ */
+export function createTransformBreaker(options: TransformBreakerOptions = {}): TransformBreaker {
+  const { threshold = 3, windowMs = 60_000, pauseMs = 60_000, now = Date.now } = options;
+  let streak = 0;
+  let streakStart = 0;
+  let pausedUntil = 0;
+  let tripped = false;
+  let trialSince: number | null = null;
+
+  return {
+    admit() {
+      if (!tripped) return "go";
+      const t = now();
+      if (t < pausedUntil) return "paused";
+      if (trialSince !== null && t - trialSince < pauseMs) return "paused";
+      trialSince = t;
+      return "trial";
+    },
+    failed() {
+      const t = now();
+      trialSince = null;
+      if (tripped) {
+        pausedUntil = t + pauseMs;
+        return;
+      }
+      if (streak === 0 || t - streakStart > windowMs) {
+        streak = 1;
+        streakStart = t;
+      } else {
+        streak += 1;
+      }
+      if (streak >= threshold) {
+        tripped = true;
+        pausedUntil = t + pauseMs;
+      }
+    },
+    succeeded() {
+      streak = 0;
+      tripped = false;
+      pausedUntil = 0;
+      trialSince = null;
+    },
+    release() {
+      trialSince = null;
+    },
+  };
+}
+
+/**
+ * Did the binding refuse the input rather than fail on its own? Such a failure
+ * says nothing about the quota, so it does not count toward a pause. 9412 is
+ * the Images binding's "input is not an image" code (`ImagesBinding.info` in
+ * `@cloudflare/workers-types`).
+ */
+function isInputRejection(cause: unknown): boolean {
+  return typeof cause === "object" && cause !== null && "code" in cause && cause.code === 9412;
+}
 
 /**
  * Headers on every thumbnail. The bytes came from a host the caller chose, so
@@ -150,6 +249,8 @@ function resultOf(error: LinkThumbError): RegistryLinkThumbResult {
       return "unavailable";
     case "LinkThumbBudgetSpent":
       return "budget_spent";
+    case "LinkThumbTransformPaused":
+      return "transform_paused";
   }
 }
 
@@ -182,6 +283,8 @@ function logFailure(error: LinkThumbError): Effect.Effect<void> {
       return Effect.logError("link thumbnail refused: no Images binding in a deployed tier");
     case "LinkThumbBudgetSpent":
       return Effect.logWarning("link thumbnail refused: this month's transform budget is spent");
+    case "LinkThumbTransformPaused":
+      return Effect.logWarning("link thumbnail skipped: recent transforms failed");
   }
 }
 
@@ -241,6 +344,8 @@ export interface LinkThumbnailArgs {
   readonly options?: LinkPreviewOptions;
   /** Test seam: the monthly budget. Defaults to {@link MONTHLY_THUMB_TRANSFORMS}. */
   readonly monthlyTransforms?: number;
+  /** Pauses transforms after repeated failures. Absent ⇒ every request is attempted. */
+  readonly breaker?: TransformBreaker;
 }
 
 /** Fetch, check, re-encode and answer one thumbnail. */
@@ -253,6 +358,7 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
     requireTransform,
     options = {},
     monthlyTransforms = MONTHLY_THUMB_TRANSFORMS,
+    breaker,
   } = args;
   const {
     maxRedirects = DEFAULT_MAX_REDIRECTS,
@@ -260,6 +366,9 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
     fetchImpl = fetch,
     resolveHost = createDohResolver(fetchImpl),
   } = options;
+  // Set while this request holds the breaker's trial and has not reached the
+  // transform; a request that stops earlier frees the trial for the next one.
+  let unsettledTrial = false;
 
   return Effect.gen(function* () {
     if (!images && requireTransform) return yield* Effect.fail(new LinkThumbUnavailable());
@@ -284,6 +393,11 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
         return new Response(hit.body, { status: 200, headers });
       }
     }
+
+    // After a cache miss, so a stored thumbnail is still served while paused.
+    const admission = images && breaker ? breaker.admit() : "go";
+    if (admission === "paused") return yield* Effect.fail(new LinkThumbTransformPaused());
+    unsettledTrial = admission === "trial";
 
     if (images && !(yield* budgetLeft(monthlyTransforms))) {
       return yield* Effect.fail(new LinkThumbBudgetSpent());
@@ -342,9 +456,20 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
     if (!(yield* chargeTransform(monthlyTransforms))) {
       return yield* Effect.fail(new LinkThumbBudgetSpent());
     }
+    const trial = unsettledTrial;
+    unsettledTrial = false;
     const out = yield* transformAsset(images, { bytes, contentType }, "thumb", format).pipe(
+      Effect.tapError((error) =>
+        Effect.sync(() => {
+          if (!isInputRejection(error.cause)) breaker?.failed();
+          // An input the binding refused says nothing about Images, so a trial
+          // that hit one goes back for the next request to try.
+          else if (trial) breaker?.release();
+        }),
+      ),
       Effect.mapError(() => new LinkThumbTransformFailed()),
     );
+    breaker?.succeeded();
     metricRegistryLinkThumb("ok");
     const response = new Response(out.bytes, {
       status: 200,
@@ -368,6 +493,11 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
     }
     return response;
   }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        if (unsettledTrial) breaker?.release();
+      }),
+    ),
     Effect.tapError((error) =>
       logFailure(error).pipe(
         Effect.andThen(Effect.sync(() => metricRegistryLinkThumb(resultOf(error)))),
