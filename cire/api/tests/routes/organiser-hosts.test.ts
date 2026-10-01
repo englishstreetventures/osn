@@ -539,18 +539,12 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
       .run();
   }
 
-  const noticeIds = (db: Db) =>
-    db
-      .select({ id: hostRsvpNotices.osnProfileId })
-      .from(hostRsvpNotices)
-      .all()
+  const noticeIds = async (db: Db) =>
+    (await db.select({ id: hostRsvpNotices.osnProfileId }).from(hostRsvpNotices).all())
       .map((r) => r.id)
       .toSorted();
-  const seatIds = (db: Db) =>
-    db
-      .select({ id: weddingHosts.osnProfileId })
-      .from(weddingHosts)
-      .all()
+  const seatIds = async (db: Db) =>
+    (await db.select({ id: weddingHosts.osnProfileId }).from(weddingHosts).all())
       .map((r) => r.id)
       .toSorted();
 
@@ -578,8 +572,8 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     const res = await req(app, "DELETE", leavePath, COHOST);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ left: true });
-    expect(seatIds(db)).toEqual(["usr_carol"]);
-    expect(noticeIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
+    expect(await seatIds(db)).toEqual(["usr_carol"]);
+    expect(await noticeIds(db)).toEqual([OWNER, "usr_carol"].toSorted());
     expect(await counterValue("cire.host.removed", { result: "ok", actor: "self" })).toBe(
       before + 1,
     );
@@ -590,7 +584,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     seedHostSeat(db, COHOST, "viewer");
     const res = await req(app, "DELETE", leavePath, COHOST);
     expect(res.status).toBe(200);
-    expect(seatIds(db)).toEqual([]);
+    expect(await seatIds(db)).toEqual([]);
   });
 
   it("refuses the owner with 409 owner_cannot_leave and changes nothing", async () => {
@@ -609,8 +603,8 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     const res = await req(app, "DELETE", leavePath, OWNER);
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "owner_cannot_leave" });
-    expect(seatIds(db)).toEqual([COHOST]);
-    expect(noticeIds(db)).toEqual([COHOST, OWNER].toSorted());
+    expect(await seatIds(db)).toEqual([COHOST]);
+    expect(await noticeIds(db)).toEqual([COHOST, OWNER].toSorted());
     expect(
       await counterValue("cire.host.removed", { result: "owner_refused", actor: "self" }),
     ).toBe(before + 1);
@@ -621,7 +615,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     seedHostSeat(db, COHOST, "helper");
     const res = await req(app, "DELETE", leavePath, COHOST);
     expect(res.status).toBe(403);
-    expect(seatIds(db)).toEqual([COHOST]);
+    expect(await seatIds(db)).toEqual([COHOST]);
   });
 
   it("returns 403 on a second call, once the seat is gone", async () => {
@@ -654,7 +648,7 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     const res = await req(app, "DELETE", `${hostsPath}/meadow`, OWNER);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ removed: true, osnProfileId: "meadow" });
-    expect(seatIds(db)).toEqual([]);
+    expect(await seatIds(db)).toEqual([]);
   });
 });
 
