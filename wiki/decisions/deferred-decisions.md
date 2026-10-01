@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-10-01
 ---
 
 # Deferred decisions
@@ -57,7 +57,8 @@ A row graduates to an issue when its "Revisit When" lands.
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
 | SSR the restored invite (widen `cire_session` to `Domain=cireweddings.com`)? | Today the session restore (`GET /api/claim/session`) is a client-side fetch on island mount, because the cookie is host-scoped to `api.cireweddings.com` and the guest-site Worker never receives it. Painting a returning household's events into the FIRST HTML byte would need `Domain=cireweddings.com`, which hands the household session to every subdomain (`host.`, `vendor.`, the apex) — against the standing audit in `cire/api/src/lib/cookie.ts`. Alternative: have the guest-site Worker mint its own same-origin cookie mirroring the session, which is a second session store to keep in sync. Current call: **keep host-scoping**; the client-side restore already removes the retyping, and one RTT after hydration is not worth widening a credential's blast radius. | If invite open-latency is measured and the post-hydration restore is the bottleneck, or if a same-origin API path (API behind `invite.cireweddings.com/api/*`) lands and makes the question moot. Raised 2026-08-02 (`claude/invite-code-gating-hints-g8nw0o`). |
-| Free (invites) vs paid (management platform) tiering | Invites stay free; the management modules (Checklist, Budget, Vendors incl. the S3 directory browse) become a paid tier — needs a billing model + a tier gate wrapping the modules. Directory browse would become tier-gated. Own brainstorm. | Before the wedding-management platform is offered beyond the single live wedding. Surfaced during Vendors S3 review (2026-07-18). |
+| A fourth tier for destination and very large weddings | Above the three tiers in [cire onboarding epic #1294](https://github.com/englishstventures/osn/issues/1294): weddings past 1,000 guests, or held away from home, with cire's own selected wedding planners attached. Open: self-serve or by enquiry, its guest and people limits, and how planners are chosen and paid. | When a couple asks for a wedding the Management tier cannot hold, or when cire has planners to offer. Raised 2026-10-01. |
+| Free trials for paid tiers | A couple uses cire for six to twelve months, so a trial may give away a large share of the paid period for little gain. Parked; in the meantime the paid tiers are unlocked by purchase or by an owner-minted unlock code. | Once paid tiers have real couples and a conversion figure to compare against. Raised 2026-10-01. |
 | Venue-discovery sets the event location | A wedding may have no venue yet; the couple browses the directory (Vendors S3) to choose one. A later flow can let "add a venue vendor" optionally set the event's `location`/coords from the chosen listing (ties into `events.venue_vendor_id`). | With S5 geo directory-search + the "Venue link" platform item. |
 | Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity | After first import lands and real spreadsheet variation is observed |
 | Surname collision handling in publicId | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported |
@@ -95,6 +96,7 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 
 | Question | Resolution | Resolved |
 |---|---|---|
+| Free (invites) vs paid (management platform) tiering | Three tiers per wedding, with no per-module packs. The free tier holds the invite, guest list and RSVPs. The first paid tier adds budget, checklist, run sheet and registry. The second adds vendor management and premium templates. Each tier carries a guest cap and a people limit. Names, limits and the onboarding flow are in [#1294](https://github.com/englishstventures/osn/issues/1294). | 2026-10-01 |
 | Guest/event editor endpoint shape | **Batch draft-save (desired-state reconcile)**, not per-row `POST/PATCH/DELETE` — the editor submits a whole draft through the same preview → warnings → apply pipeline the import uses, with an ID-aware diff; per-row endpoints may land later as sugar over the same reconcile. Amends [[cire-platform-plan]] §3.3. See [[cire-guest-event-editor]] §3 + §11. | 2026-07-12 |
 | Editor checkpoint retention | **Keep the last 10 before-image snapshots** per wedding (R2 Free-tier cap); older change-history rows stay listed but lose revertability, marked in the UI. See [[cire-guest-event-editor]] §4. | 2026-07-12 |
 | Editor-created household code minting (pre-PR-4) | **Auto-mint claim codes**, exactly like the import, until platform PR 4 (code-less households) lands — then manual creation switches to code-less per the decided §3.2 model. See [[cire-guest-event-editor]] §11. | 2026-07-12 |
