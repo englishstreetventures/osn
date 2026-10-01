@@ -594,7 +594,26 @@ describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
       })
       .run();
 
-    // VENDOR consumes the claim into ORG_OK.
+    // ORG_OK already owns DV_CLAIMED, and an org owns at most one listing: the
+    // claim is refused with 409 and the token is left live.
+    const refused = await req(
+      app,
+      "POST",
+      `/api/vendor/claims/${claim!.claimToken}/consume`,
+      VENDOR,
+      { orgId: ORG_OK },
+    );
+    expect(refused.status).toBe(409);
+    expect((await refused.json()) as unknown).toEqual({ error: "org_has_listing" });
+    expect(
+      db.select().from(directoryVendors).where(eq(directoryVendors.id, dvId)).get()!.ownerOrgId,
+    ).toBeNull();
+
+    // Free ORG_OK, then the same token claims the listing.
+    db.update(directoryVendors)
+      .set({ ownerOrgId: null })
+      .where(eq(directoryVendors.ownerOrgId, ORG_OK))
+      .run();
     const res = await req(app, "POST", `/api/vendor/claims/${claim!.claimToken}/consume`, VENDOR, {
       orgId: ORG_OK,
     });

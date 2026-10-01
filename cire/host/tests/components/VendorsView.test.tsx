@@ -123,22 +123,45 @@ describe("VendorsView", () => {
     expect(screen.getByText(/vendor email.*claim invite/i)).toBeInTheDocument();
   });
 
-  it("surfaces the claimUrl returned by list-in-directory POST", async () => {
+  it("says the claim invite was emailed, and never shows a claim link", async () => {
     setCachedVendors("wed_1", [vendor({ id: "a", name: "Photo Studio" })]);
     authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ claimUrl: "https://host.cireweddings.com/claim/abc123" }), {
+      new Response(JSON.stringify({ directoryVendorId: "dv_1", invited: true }), {
         status: 200,
       }),
     );
     render(() => <VendorsView weddingId="wed_1" canEdit={true} canManage={true} />);
     await screen.findByText("Photo Studio");
     fireEvent.click(screen.getByRole("button", { name: /list.*directory/i }));
+    fireEvent.input(screen.getByLabelText(/vendor email.*claim invite/i), {
+      target: { value: "studio@example.com" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /list \+ invite/i }));
     await waitFor(() =>
-      expect(screen.getByText("https://host.cireweddings.com/claim/abc123")).toBeInTheDocument(),
+      expect(screen.getByText(/we emailed photo studio a link/i)).toBeInTheDocument(),
     );
+    expect(screen.getByText(/studio@example\.com/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/list-in-directory$/);
     expect(init.method).toBe("POST");
+  });
+
+  it("warns when the claim invite email did not send", async () => {
+    setCachedVendors("wed_1", [vendor({ id: "a", name: "Photo Studio" })]);
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ directoryVendorId: "dv_1", invited: false }), {
+        status: 200,
+      }),
+    );
+    render(() => <VendorsView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Photo Studio");
+    fireEvent.click(screen.getByRole("button", { name: /list.*directory/i }));
+    fireEvent.input(screen.getByLabelText(/vendor email.*claim invite/i), {
+      target: { value: "studio@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /list \+ invite/i }));
+    await waitFor(() => expect(screen.getByText(/did not send/i)).toBeInTheDocument());
+    expect(screen.queryByText(/we emailed/i)).not.toBeInTheDocument();
   });
 });

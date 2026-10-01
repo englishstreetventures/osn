@@ -21,11 +21,11 @@
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { likeContains } from "@shared/db-utils/search";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
-import { commitBatch, DbService, dbQuery } from "../db";
+import { commitBatch, commitBatchResults, DbService, dbQuery } from "../db";
 import { VendorNotInWedding } from "./vendors";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
@@ -35,6 +35,12 @@ export class ListingNotFound extends Data.TaggedError("ListingNotFound") {}
 
 /** Claim token is unknown, expired, or already consumed. 4xx-class. */
 export class ClaimInvalid extends Data.TaggedError("ClaimInvalid") {}
+
+/**
+ * The org a claim would bind to already owns a listing; an org owns at most
+ * one (`directory_vendors.owner_org_id` is unique). 409-class.
+ */
+export class OrgAlreadyHasListing extends Data.TaggedError("OrgAlreadyHasListing") {}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -215,6 +221,32 @@ function toDto(row: DvRow, categories: string[]): ListingDto {
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
+}
+
+/**
+ * Why a claim's bind batch threw. The one expected cause is the unique owner
+ * index: `orgId` gained a listing between the claim's pre-check and its bind.
+ * A fresh read says whether that happened — the driver's error message is not
+ * a reliable signal, since D1 does not carry SQLite's wording — and answers
+ * `OrgAlreadyHasListing`. Anything else stays a defect.
+ */
+function bindRefused(
+  orgId: string,
+  error: unknown,
+): Effect.Effect<never, OrgAlreadyHasListing, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [owned] = yield* dbQuery(() =>
+      db
+        .select({ id: directoryVendors.id })
+        .from(directoryVendors)
+        .where(eq(directoryVendors.ownerOrgId, orgId))
+        .limit(1)
+        .all(),
+    );
+    if (owned) return yield* Effect.fail(new OrgAlreadyHasListing());
+    return yield* Effect.die(error);
+  });
 }
 
 /**
@@ -531,7 +563,8 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
 
     /**
      * Validate an unconsumed, unexpired token and return listing summary.
-     * Returns null if the token is unknown, expired, or consumed.
+     * Returns null if the token is unknown, expired or consumed, or its listing
+     * is gone or already claimed.
      */
     getClaimPreview(
       token: string,
@@ -559,16 +592,22 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         if (claimRow.consumedAt !== null) return null;
         if (claimRow.expiresAt.getTime() < Date.now()) return null;
 
-        // Fetch the listing name
+        // Fetch the listing name. A listing that is already claimed has
+        // nothing left to claim, so its preview is null like a spent token's.
         const [dv] = yield* dbQuery(() =>
           db
-            .select({ id: directoryVendors.id, name: directoryVendors.name })
+            .select({
+              id: directoryVendors.id,
+              name: directoryVendors.name,
+              ownerOrgId: directoryVendors.ownerOrgId,
+            })
             .from(directoryVendors)
             .where(eq(directoryVendors.id, claimRow.directoryVendorId))
             .all(),
         );
         if (!dv) return null;
-        const dvRow = dv as { id: string; name: string };
+        const dvRow = dv as { id: string; name: string; ownerOrgId: string | null };
+        if (dvRow.ownerOrgId !== null) return null;
 
         return {
           directoryVendorId: claimRow.directoryVendorId,
@@ -580,7 +619,12 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     /**
      * Redeem a claim token: bind `owner_org_id=orgId` AND
      * `claimed_by_profile_id=claimingProfileId`, flip `listed='live'`, stamp
-     * `consumed_at`. Fails `ClaimInvalid` if unknown/expired/already consumed.
+     * `consumed_at`, and burn every other live token for the listing.
+     *
+     * Fails `ClaimInvalid` if the token is unknown, expired or consumed, or its
+     * listing is gone or already claimed. Fails `OrgAlreadyHasListing` if
+     * `orgId` already owns a listing; that check runs before the burn, so the
+     * token stays live for the vendor to pick another org.
      *
      * `claimedByProfileId` is load-bearing: the enquiry service decides
      * claimed-vs-unclaimed on it (`enquiries.open` branches on
@@ -592,29 +636,37 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
       token: string,
       orgId: string,
       claimingProfileId: string,
-    ): Effect.Effect<ListingDto, ClaimInvalid, DbService> {
+    ): Effect.Effect<ListingDto, ClaimInvalid | OrgAlreadyHasListing, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         const tokenHash = yield* hashToken(token);
 
-        const [claim] = yield* dbQuery(() =>
-          db.select().from(vendorClaims).where(eq(vendorClaims.tokenHash, tokenHash)).all(),
+        // One read answers every pre-check: the token, its listing's owner,
+        // and whether `orgId` already owns a listing. None of them fails by
+        // burning the token. The listing check runs before the org check, so a
+        // token for a claimed listing reads as invalid, not as an org conflict.
+        const [found] = yield* dbQuery(() =>
+          db
+            .select({
+              claim: vendorClaims,
+              listingId: directoryVendors.id,
+              listingOwner: directoryVendors.ownerOrgId,
+              orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId})`,
+            })
+            .from(vendorClaims)
+            .leftJoin(directoryVendors, eq(directoryVendors.id, vendorClaims.directoryVendorId))
+            .where(eq(vendorClaims.tokenHash, tokenHash))
+            .all(),
         );
-        if (!claim) return yield* Effect.fail(new ClaimInvalid());
-
-        const claimRow = claim as {
-          id: string;
-          directoryVendorId: string;
-          tokenHash: string;
-          email: string;
-          createdAt: Date;
-          expiresAt: Date;
-          consumedAt: Date | null;
-        };
+        if (!found) return yield* Effect.fail(new ClaimInvalid());
+        const claimRow = found.claim;
 
         if (claimRow.consumedAt !== null) return yield* Effect.fail(new ClaimInvalid());
         if (claimRow.expiresAt.getTime() < Date.now())
           return yield* Effect.fail(new ClaimInvalid());
+        if (found.listingId === null || found.listingOwner !== null)
+          return yield* Effect.fail(new ClaimInvalid());
+        if (found.orgHasListing) return yield* Effect.fail(new OrgAlreadyHasListing());
 
         const now = new Date();
 
@@ -641,36 +693,61 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
           return yield* Effect.fail(new ClaimInvalid());
         }
 
-        // Burn succeeded — now bind the listing. `claimedByProfileId` is set in
-        // the SAME UPDATE as `ownerOrgId` so the enquiry service reads this
-        // listing as CLAIMED immediately (never a bound-but-unclaimed window).
-        // RETURNING hands back the bound row, so nothing re-reads it.
+        // Burn succeeded — now bind the listing and burn its other live
+        // tokens, in one batch. The bind only matches an unowned listing, so a
+        // second token can never move a claimed listing to another org.
+        // `claimedByProfileId` is set in the SAME UPDATE as `ownerOrgId` so the
+        // enquiry service reads this listing as CLAIMED immediately. RETURNING
+        // hands back the bound row, so nothing re-reads it.
         //
-        // Only the bind and the category read run together, and only after
+        // The bind comes first in the batch: if it violates the unique owner
+        // index (`orgId` gained a listing after the pre-check), the batch
+        // stops before the other tokens are burned. On D1 the whole batch
+        // rolls back; this token stays burned either way, so that race fails
+        // closed with `OrgAlreadyHasListing`. Burning the other tokens when the
+        // bind matched nothing is harmless: they could no longer bind anything.
+        //
+        // Only the batch and the category read run together, and only after
         // the burn and its gate above: the bind must never start before the
         // burn has committed. The category read touches no claim or ownership
-        // state, and the bind does not write categories.
-        const [[bound], categories] = yield* Effect.all(
+        // state, and the batch does not write categories.
+        const [bindResults, categories] = yield* Effect.all(
           [
-            dbQuery(() =>
-              db
-                .update(directoryVendors)
-                .set({
-                  ownerOrgId: orgId,
-                  claimedByProfileId: claimingProfileId,
-                  listed: "live",
-                  updatedAt: now,
-                })
-                .where(eq(directoryVendors.id, claimRow.directoryVendorId))
-                .returning()
-                .all(),
-            ),
+            Effect.tryPromise(() =>
+              commitBatchResults(db, [
+                db
+                  .update(directoryVendors)
+                  .set({
+                    ownerOrgId: orgId,
+                    claimedByProfileId: claimingProfileId,
+                    listed: "live",
+                    updatedAt: now,
+                  })
+                  .where(
+                    and(
+                      eq(directoryVendors.id, claimRow.directoryVendorId),
+                      isNull(directoryVendors.ownerOrgId),
+                    ),
+                  )
+                  .returning(),
+                db
+                  .update(vendorClaims)
+                  .set({ consumedAt: now })
+                  .where(
+                    and(
+                      eq(vendorClaims.directoryVendorId, claimRow.directoryVendorId),
+                      isNull(vendorClaims.consumedAt),
+                    ),
+                  ),
+              ]),
+            ).pipe(Effect.catch((error) => bindRefused(orgId, error))),
             fetchCategories(claimRow.directoryVendorId),
           ],
           { concurrency: "unbounded" },
         );
-        // No row: the listing is gone. The token is already burned, so this
-        // fails closed.
+        const [bound] = bindResults[0] as DvRow[];
+        // No row: the listing is gone or was claimed after the pre-check. The
+        // token is already burned, so this fails closed.
         if (!bound) return yield* Effect.fail(new ClaimInvalid());
         return toDto(bound, categories);
       }).pipe(Effect.withSpan("cire.directory.consumeClaim"));
