@@ -89,7 +89,7 @@ export interface ListingDto {
   listed: string;
   /**
    * True while the listing is a redeemed claim waiting for an operator. It is
-   * then not live, and enquiries do not reach the claimant.
+   * then not live, and no enquiry chat reaches the claimant.
    */
   awaitingConfirmation: boolean;
   categories: string[];

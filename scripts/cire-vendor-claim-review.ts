@@ -134,7 +134,8 @@ export const confirmSql = (listingId: string, orgId: string, profileId: string):
 export const orgSql = (orgId: string, profileId: string): string =>
   "SELECT o.id, o.handle, o.name, " +
   `(SELECT m.role FROM organisation_members m WHERE m.organisation_id = o.id AND m.profile_id = ${quote(profileId)}) AS claimant_role, ` +
-  `(SELECT u.handle FROM users u WHERE u.id = ${quote(profileId)}) AS claimant_handle ` +
+  `(SELECT u.handle FROM users u WHERE u.id = ${quote(profileId)}) AS claimant_handle, ` +
+  `(SELECT a.email FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.id = ${quote(profileId)}) AS claimant_email ` +
   `FROM organisations o WHERE o.id = ${quote(orgId)};`;
 
 export interface OrgRow {
@@ -143,7 +144,23 @@ export interface OrgRow {
   name: string;
   claimant_role: string | null;
   claimant_handle: string | null;
+  claimant_email: string | null;
 }
+
+/** The host part of an email address or website, lower-cased, without `www.`. */
+export function domainOf(value: string | null): string | null {
+  if (!value) return null;
+  const at = value.lastIndexOf("@");
+  let host = at >= 0 ? value.slice(at + 1) : value.replace(/^[a-z]+:\/\//i, "").split(/[/?#:]/)[0]!;
+  host = host
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "");
+  return host.length > 0 ? host : null;
+}
+
+/** A DB value as the operator should read it: quoted, with control characters escaped. */
+const shown = (value: string | null): string => JSON.stringify(value);
 
 export const rejectSql = (listingId: string, orgId: string): string =>
   "UPDATE directory_vendors SET review_org_id = NULL, review_profile_id = NULL, " +
@@ -235,7 +252,7 @@ export async function run(
   }
   const claim = row!;
   print(
-    `Listing ${claim.id} "${claim.name}" (email ${claim.email ?? "none"}, website ${claim.website ?? "none"})`,
+    `Listing ${claim.id} ${shown(claim.name)} (email ${shown(claim.email)}, website ${shown(claim.website)}; both typed by the organiser)`,
   );
   print(`Claimed by org ${claim.review_org_id}, profile ${claim.review_profile_id}`);
 
@@ -247,14 +264,23 @@ export async function run(
       print("confirm refused: OSN has no organisation with that id");
       return 1;
     }
-    print(`Organisation "${org.name}" (@${org.handle})`);
+    print(`Organisation ${shown(org.name)} (handle ${shown(org.handle)})`);
     if (org.claimant_role === null) {
       print(
-        `confirm refused: profile ${claim.review_profile_id} is no longer a member of @${org.handle}; reject the claim`,
+        `confirm refused: profile ${claim.review_profile_id} is no longer a member of that organisation; reject the claim`,
       );
       return 1;
     }
-    print(`Claimant @${org.claimant_handle ?? "?"} is a ${org.claimant_role} of @${org.handle}`);
+    print(
+      `Claimant ${shown(org.claimant_handle)} (${org.claimant_role}), OSN account email ${shown(org.claimant_email)}`,
+    );
+    const claimant = domainOf(org.claimant_email);
+    const business = [domainOf(claim.website), domainOf(claim.email)].filter(Boolean);
+    print(
+      claimant && business.includes(claimant)
+        ? `The claimant's account email is at ${shown(claimant)}, a domain the organiser also typed for the listing. Not proof on its own: check it is the business's own domain, not a mail provider anyone can use.`
+        : `The claimant's account email domain matches neither the listing's website nor its email. Confirm only after checking with the business through contact details you find yourself.`,
+    );
   }
 
   const sql =
@@ -282,5 +308,7 @@ export async function run(
 }
 
 if (import.meta.main) {
-  process.exit(await run(Bun.argv.slice(2), wranglerRunner, (line) => console.log(line)));
+  process.exit(
+    await run(Bun.argv.slice(2), wranglerRunner, (line) => process.stdout.write(`${line}\n`)),
+  );
 }

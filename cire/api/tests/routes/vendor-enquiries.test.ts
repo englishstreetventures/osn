@@ -639,8 +639,12 @@ describe("claim hold and hand-off (POST /api/vendor/claims/:token/consume)", () 
 
     // The claimant cannot reach the buffered enquiry yet.
     const list = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
-    const listed = (await list.json()) as { enquiries?: { id: string }[] };
-    expect((listed.enquiries ?? []).map((e) => e.id)).not.toContain(enquiryId);
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { enquiries: { id: string }[] };
+    expect(Array.isArray(listed.enquiries)).toBe(true);
+    expect(listed.enquiries.map((e) => e.id)).not.toContain(enquiryId);
+    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}`, VENDOR);
+    expect(thread.status).toBe(404);
 
     // The operator confirms (the same UPDATE the review script sends), and the
     // daily sweep hands the buffered enquiry over.

@@ -610,6 +610,11 @@ export const vendorEnquiries = sqliteTable(
     index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt),
     // Vendor inbox: find a listing's enquiries.
     index("vendor_enquiries_directory_idx").on(t.directoryVendorId),
+    // The daily hand-off sweep's queue: only buffered enquiries, least
+    // recently tried first (a failed hand-off bumps `updated_at`).
+    index("vendor_enquiries_buffered_idx")
+      .on(t.updatedAt, t.id)
+      .where(sql`status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL`),
   ],
 );
 

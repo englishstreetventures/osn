@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import {
   confirmSql,
+  domainOf,
   parseArgs,
   rejectSql,
   run,
@@ -40,6 +41,9 @@ function setup() {
   osn.exec("PRAGMA foreign_keys = OFF;");
   osn.run(
     `INSERT INTO users (id, account_id, handle, created_at, updated_at) VALUES ('usr_v', 'acc_v', 'bloomvendor', 0, 0)`,
+  );
+  osn.run(
+    `INSERT INTO accounts (id, email, passkey_user_id, created_at, updated_at) VALUES ('acc_v', 'owner@bloom.test', 'pk_v', 0, 0)`,
   );
   osn.run(
     `INSERT INTO organisations (id, handle, name, owner_id, created_at, updated_at) VALUES ('org_v', 'bloom', 'Bloom Florals', 'usr_v', 0, 0)`,
@@ -85,9 +89,24 @@ describe("parseArgs", () => {
     expect(parseArgs(["reject", "dv_a' OR 1=1 --", "--env", "dev"])).toHaveProperty("error");
   });
 
+  test("refuses list with --apply or a listing id", () => {
+    expect(parseArgs(["list", "--env", "dev", "--apply"])).toHaveProperty("error");
+    expect(parseArgs(["list", "dv_a", "--env", "dev"])).toHaveProperty("error");
+    expect(parseArgs(["confirm", "dv_a", "dv_b", "--env", "dev"])).toHaveProperty("error");
+  });
+
   test("refuses an unknown env and an unknown flag", () => {
     expect(parseArgs(["list", "--env", "staging"])).toHaveProperty("error");
     expect(parseArgs(["list", "--env", "dev", "--force"])).toHaveProperty("error");
+  });
+});
+
+describe("domainOf", () => {
+  test("reads the host from an email or a website", () => {
+    expect(domainOf("Hi@Bloom.Test")).toBe("bloom.test");
+    expect(domainOf("https://www.bloom.test/about")).toBe("bloom.test");
+    expect(domainOf("bloom.test")).toBe("bloom.test");
+    expect(domainOf(null)).toBeNull();
   });
 });
 
@@ -123,6 +142,13 @@ describe("run", () => {
     expect(await run(["list", "--env", "dev"], t.runner, t.print)).toBe(0);
     expect(t.lines).toHaveLength(1);
     expect(t.lines[0]).toContain("dv_pending");
+  });
+
+  test("list says when nothing is waiting", async () => {
+    const t = setup();
+    t.db.run("UPDATE directory_vendors SET review_org_id = NULL, review_profile_id = NULL");
+    expect(await run(["list", "--env", "dev"], t.runner, t.print)).toBe(0);
+    expect(t.lines).toEqual(["No vendor claims are waiting for review."]);
   });
 
   test("confirm without --apply writes nothing", async () => {
@@ -181,8 +207,28 @@ describe("run", () => {
     const t = setup();
     expect(await run(["confirm", "dv_pending", "--env", "dev"], t.runner, t.print)).toBe(0);
     const out = t.lines.join("\n");
-    expect(out).toContain('Organisation "Bloom Florals" (@bloom)');
-    expect(out).toContain("Claimant @bloomvendor is a admin of @bloom");
+    expect(out).toContain('Organisation "Bloom Florals" (handle "bloom")');
+    expect(out).toContain('Claimant "bloomvendor" (admin), OSN account email "owner@bloom.test"');
+    expect(out).toContain('is at "bloom.test", a domain the organiser also typed');
+  });
+
+  test("confirm says when the claimant's email domain matches nothing on the listing", async () => {
+    const t = setup();
+    t.osn.run("UPDATE accounts SET email = 'someone@elsewhere.test'");
+    expect(await run(["confirm", "dv_pending", "--env", "dev"], t.runner, t.print)).toBe(0);
+    expect(t.lines.join("\n")).toContain("matches neither the listing's website nor its email");
+  });
+
+  test("prints stored strings escaped, so control characters cannot rewrite the terminal", async () => {
+    const t = setup();
+    t.db.run(
+      "UPDATE directory_vendors SET name = 'Bloom\r\u001b[2KConfirmed' WHERE id = 'dv_pending'",
+    );
+    await run(["confirm", "dv_pending", "--env", "dev"], t.runner, t.print);
+    const out = t.lines.join("\n");
+    expect(out).not.toContain("\r");
+    expect(out).not.toContain(String.fromCharCode(27));
+    expect(out).toContain(String.raw`"Bloom\r\u001b[2KConfirmed"`);
   });
 
   test("refuses to confirm when the claimant has left the organisation", async () => {
@@ -191,7 +237,7 @@ describe("run", () => {
     expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], t.runner, t.print)).toBe(
       1,
     );
-    expect(t.lines.join("\n")).toContain("no longer a member of @bloom");
+    expect(t.lines.join("\n")).toContain("no longer a member of that organisation");
     expect(row(t.db, "dv_pending").owner_org_id).toBeNull();
   });
 
@@ -202,6 +248,29 @@ describe("run", () => {
       1,
     );
     expect(t.lines.join("\n")).toContain("OSN has no organisation");
+  });
+
+  test("refuses to confirm a listing already owned", async () => {
+    const t = setup();
+    t.db.run("UPDATE directory_vendors SET owner_org_id = 'org_x' WHERE id = 'dv_pending'");
+    expect(await run(["confirm", "dv_pending", "--env", "dev", "--apply"], t.runner, t.print)).toBe(
+      1,
+    );
+    expect(t.lines.join("\n")).toContain("already owned by org_x");
+  });
+
+  test("reject reports a claim that changed between the check and the write", async () => {
+    const t = setup();
+    const racing: Runner = async (target, env, sql) => {
+      if (/^update/i.test(sql)) {
+        t.db.run(
+          "UPDATE directory_vendors SET review_org_id = 'org_other' WHERE id = 'dv_pending'",
+        );
+      }
+      return t.runner(target, env, sql);
+    };
+    expect(await run(["reject", "dv_pending", "--env", "dev", "--apply"], racing, t.print)).toBe(1);
+    expect(row(t.db, "dv_pending").review_org_id).toBe("org_other");
   });
 
   test("reports a claim that changed between the check and the write", async () => {

@@ -6,7 +6,6 @@ import {
   directoryVendors,
   vendorEnquiries,
   vendors,
-  weddings,
 } from "@cire/db";
 import type { SendEmailInput } from "@shared/email";
 import { eq } from "drizzle-orm";
@@ -625,6 +624,47 @@ describe("flushBufferedEnquiry", () => {
     const after = readEnquiry(db, opened.value.id);
     expect(after.zapChatId).toBeNull();
     expect(after.pendingBody).toBe("Are you free on our date?");
+  });
+
+  it("leaves the enquiry buffered when provisioning fails", async () => {
+    const db = db0();
+    const zap = fakeZap();
+    const email = fakeEmail();
+    const svc = createEnquiryService({
+      zap: zap.client,
+      sendEmail: email.sendEmail,
+      threadBaseUrl: THREAD_BASE,
+    });
+    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
+    if (!Exit.isSuccess(opened)) throw new Error("open failed");
+    const failing: ZapChatClient = {
+      ...zap.client,
+      provisionC2bChat: async () => {
+        throw new Error("zap down");
+      },
+    };
+    const res = await run(
+      db,
+      flushBufferedEnquiry(failing, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
+    );
+    expect(Exit.isSuccess(res) && res.value).toBe(false);
+    expect(readEnquiry(db, opened.value.id).pendingBody).toBe("Are you free on our date?");
+    expect(zap.sendCalls).toHaveLength(0);
+  });
+
+  it("does not provision for an enquiry with nothing buffered", async () => {
+    const db = db0();
+    const zap = fakeZap();
+    const res = await run(
+      db,
+      flushBufferedEnquiry(
+        zap.client,
+        { id: "enq_x", createdBy: "usr_x", pendingBody: null },
+        VENDOR_PROFILE_ID,
+      ),
+    );
+    expect(Exit.isSuccess(res) && res.value).toBe(false);
+    expect(zap.provisionCalls).toHaveLength(0);
   });
 
   it("does nothing for an enquiry already handed over", async () => {
