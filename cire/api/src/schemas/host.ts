@@ -2,15 +2,15 @@ import { Effect, Schema } from "effect";
 
 /** A seat's assignable role — mirrors `AssignableHostRole` in
  *  `services/hosts.ts`, which the route proves by passing a decoded `role`
- *  straight into `hostsService.add()`. `owner` is accepted here and refused
- *  per caller by the route (`assignableRolesFor()` — only an owner may grant
- *  it); the legacy `host` value is not accepted from clients. */
+ *  straight into `hostsService.add()`. `owner` is accepted: every route that
+ *  takes this is `weddingOwner()`, and only an owner makes an owner. The
+ *  legacy `host` value is not accepted from clients. */
 export const HostRoleSchema = Schema.Literals(["owner", "editor", "viewer", "helper"]);
 export type HostRoleSchema = Schema.Schema.Type<typeof HostRoleSchema>;
 
 /**
  * Body for `POST /api/organiser/weddings/:weddingId/hosts`. The wedding comes
- * from the route + editor gate; the inputs are the OSN handle to seat and the
+ * from the route + owner gate; the inputs are the OSN handle to seat and the
  * role to grant — `owner` included, which is how a second owner is invited.
  * osn-api owns handle normalisation (strips `@`, lowercases), so this just
  * trims and bounds the length — a handle is ≤30 chars, plus a possible `@`, so

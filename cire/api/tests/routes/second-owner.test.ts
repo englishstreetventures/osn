@@ -86,6 +86,11 @@ function buildApp() {
     stripe,
     upgradePrices: { crimsonFromGold: "price_cg" },
     upgradeLimiter: limiter(),
+    resolveOsnProfileByHandle: async (handle) => ({
+      ok: true,
+      profileId: `usr_${handle}`,
+      handle,
+    }),
     registryStripeLimiter: limiter(),
     hostLimiter: limiter(),
     remintLimiter: limiter(),
@@ -143,12 +148,6 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     ok: 200,
   },
   {
-    name: "mark a household's code shared",
-    method: "POST",
-    path: (f) => `/families/${f}/mark-shared`,
-    ok: 200,
-  },
-  {
     name: "re-mint every code",
     method: "POST",
     path: () => "/remint",
@@ -183,6 +182,13 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     ok: 200,
   },
   {
+    name: "add someone to the wedding",
+    method: "POST",
+    path: () => "/hosts",
+    body: { handle: "newcomer" },
+    ok: 201,
+  },
+  {
     name: "change a co-host's role",
     method: "PUT",
     path: () => `/hosts/${EDITOR}/role`,
@@ -190,6 +196,21 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     ok: 200,
   },
   { name: "remove a co-host", method: "DELETE", path: () => `/hosts/${EDITOR}`, ok: 200 },
+  ...(
+    [
+      "/rsvps.csv",
+      "/guests.csv",
+      "/events.csv",
+      "/gifts.csv",
+      "/export/events.csv",
+      "/export/guests.csv",
+    ] as const
+  ).map((path) => ({
+    name: `download ${path.slice(1)}`,
+    method: "GET",
+    path: () => path,
+    ok: 200,
+  })),
 ];
 
 describe("a wedding's second owner on every owner-only route", () => {
@@ -252,5 +273,15 @@ describe("a wedding's second owner on every owner-only route", () => {
     const res = await call(app, "DELETE", `/hosts/${SECOND}`, SECOND);
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "last_owner" });
+  });
+});
+
+describe("marking a household's code shared", () => {
+  it("is an editor's as well as an owner's: it records a send and changes no code", async () => {
+    for (const caller of [EDITOR, SECOND]) {
+      const { app, familyId } = buildApp();
+      const res = await call(app, "POST", `/families/${familyId}/mark-shared`, caller);
+      expect(res.status, caller).toBe(200);
+    }
   });
 });

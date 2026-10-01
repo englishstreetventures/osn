@@ -154,9 +154,9 @@ export const weddings = sqliteTable(
 // profile). A wedding's owners are its rows with role `owner`, and they are
 // equals — each holds every owner power, and none can be told apart as the
 // creator. The API keeps at least one owner on every wedding and at most
-// `MAX_OWNERS_PER_WEDDING` (`cire/api/src/services/hosts.ts`); both limits are
-// enforced inside the writing statement, since SQLite cannot express either as
-// a constraint.
+// `MAX_HOSTS_PER_WEDDING` rows, owners counted (`cire/api/src/services/hosts.ts`);
+// both limits are enforced inside the writing statement, since SQLite cannot
+// express either as a constraint.
 //
 // `osn_profile_id` is an OSN profile id (`usr_*`): an opaque cross-database
 // reference, deliberately NOT a foreign key (cire's D1 and osn's D1 are
@@ -165,10 +165,10 @@ export const weddings = sqliteTable(
 // (cire never sees the handle→id mapping otherwise). `added_by_osn_profile_id`
 // records who created the seat (audit only); a wedding's first owner seat names
 // its own holder. `role` is `owner` (manages the wedding itself: who helps,
-// claim codes, settings, billing, deletion), `editor` (full module writes — a
-// partner or hired planner), `viewer` (read-only across the dashboard) or
-// `helper` (the day-of run sheet and nothing else — not the guest list, not the
-// budget, not the RSVPs). `host` is LEGACY: migration 0031 rewrote every 'host'
+// claim codes, settings, billing, exports, deletion), `editor` (full module
+// writes — a partner or hired planner), `viewer` (read-only across the
+// dashboard) or `helper` (the day-of run sheet and nothing else — not the guest
+// list, not the budget, not the RSVPs). `host` is LEGACY: migration 0031 rewrote every 'host'
 // row to 'editor' and the app never writes it, but the value stays in the enum
 // because the column's DDL DEFAULT 'host' can't change without a table rebuild
 // — readers normalise a stray 'host' to 'editor'.

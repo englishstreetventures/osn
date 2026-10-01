@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
+import { hostRsvpNotices, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -9,7 +9,7 @@ import type { AppOptions } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
-import { MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
+import { MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
@@ -145,52 +145,53 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(403);
   });
 
-  it("lets an EDITOR co-host add another host, crediting THEM as the adder", async () => {
-    const { db, app } = buildApp();
+  it("refuses an editor at every role with 403 forbidden, before resolving the handle", async () => {
+    // Host management is owner-only: an editor seats no one, at any role.
+    let resolved = 0;
+    const { db, app } = buildApp({
+      resolveOsnProfileByHandle: async (handle) => {
+        resolved += 1;
+        return stubResolver(handle);
+      },
+    });
     seedHostSeat(db, COHOST, "editor");
+    for (const role of ["owner", "editor", "viewer", "helper"]) {
+      const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role });
+      expect(res.status, role).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    }
+    expect(resolved).toBe(0);
+    const rows = db
+      .select()
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
+      .all();
+    expect(rows).toEqual([]);
+  });
+
+  it("credits the owner who added the seat, a second owner included", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "owner");
 
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol" });
     expect(res.status).toBe(201);
-
-    // `added_by` is the caller, not the owner. Under the old owner-only gate
-    // the handler passed the caller's id for both roles, which was harmless
-    // only because they were the same person; an editor adding a host has to
-    // be recorded as the one who did it.
     const [row] = db
       .select({ addedBy: weddingHosts.addedByOsnProfileId, role: weddingHosts.role })
       .from(weddingHosts)
       .where(eq(weddingHosts.osnProfileId, "usr_carol"))
       .all();
-    // The role is the roleless-add default (`viewer`), which is what an editor
-    // seating someone without naming a role gets — the subject here is the
-    // attribution beside it.
     expect(row).toEqual({ addedBy: COHOST, role: "viewer" });
   });
 
-  it("lets an editor add a VIEWER too — anything up to their own role", async () => {
-    const { db, app } = buildApp();
-    seedHostSeat(db, COHOST, "editor");
-    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "viewer" });
-    expect(res.status).toBe(201);
-    // `editor` is the ceiling of what an editor can grant, so an editor
-    // granting `editor` is granting a PEER, not a superior.
-    const [row] = db
-      .select({ role: weddingHosts.role })
-      .from(weddingHosts)
-      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
-      .all();
-    expect(row?.role).toBe("viewer");
-  });
-
-  it("refuses an editor re-adding an OWNER at a lower role (409 already_host)", async () => {
+  it("refuses re-adding an OWNER at a lower role (409 already_host)", async () => {
     // An owner holds a seat like everyone else, so the unique seat index is
-    // what stops an editor seating the owner a second time as a viewer — after
-    // which removing "that viewer" would appear to strip the owner.
+    // what stops a second owner seating the first again as a viewer — after
+    // which removing "that viewer" would appear to strip an owner.
     const { db, app } = buildApp({
-      // A handle that resolves to the wedding's OWNER.
+      // A handle that resolves to the wedding's first OWNER.
       resolveOsnProfileByHandle: async () => ({ ok: true, profileId: OWNER, handle: "dave" }),
     });
-    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, COHOST, "owner");
 
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "dave" });
     expect(res.status).toBe(409);
@@ -201,33 +202,6 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
       .where(eq(weddingHosts.osnProfileId, OWNER))
       .all();
     expect(rows).toEqual([{ role: "owner" }]);
-  });
-
-  it("refuses an editor seating an OWNER (403 owner_role_forbidden) before resolving the handle", async () => {
-    // Only an owner may grant owner: an owner can remove every other seat, so
-    // an editor who could mint one could make themselves unremovable.
-    let resolved = 0;
-    const { db, app } = buildApp({
-      resolveOsnProfileByHandle: async (handle) => {
-        resolved += 1;
-        return stubResolver(handle);
-      },
-    });
-    seedHostSeat(db, COHOST, "editor");
-    const refusals = { result: "owner_role_forbidden", role: "owner" };
-    const before = await counterValue(CIRE_METRICS.hostAdded, refusals);
-
-    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "owner" });
-    expect(res.status).toBe(403);
-    expect(await jsonBody(res)).toEqual({ error: "owner_role_forbidden" });
-    expect(resolved).toBe(0);
-    expect(await counterValue(CIRE_METRICS.hostAdded, refusals)).toBe(before + 1);
-    const rows = db
-      .select()
-      .from(weddingHosts)
-      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
-      .all();
-    expect(rows).toEqual([]);
   });
 
   it("lets an owner invite a second owner through the same add", async () => {
@@ -253,20 +227,32 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(201);
   });
 
-  it("returns 409 owner_cap_reached once the wedding holds MAX_OWNERS_PER_WEDDING owners", async () => {
+  it("returns 409 host_cap_reached once the wedding holds MAX_HOSTS_PER_WEDDING seats, owners counted", async () => {
     const { db, app } = buildApp();
-    for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_owner_${i}`, "owner");
+    // The creator's seat plus 49 more, a second owner among them.
+    seedHostSeat(db, "usr_owner_1", "owner");
+    for (let i = 2; i < MAX_HOSTS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_seat_${i}`, "viewer");
+    const before = await counterValue(CIRE_METRICS.hostAdded, {
+      result: "host_cap_reached",
+      role: "owner",
+    });
     const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "owner" });
     expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "owner_cap_reached" });
+    expect(await jsonBody(res)).toEqual({ error: "host_cap_reached" });
+    expect(
+      await counterValue(CIRE_METRICS.hostAdded, { result: "host_cap_reached", role: "owner" }),
+    ).toBe(before + 1);
   });
 
-  it("returns 403 read_only_role for a VIEWER co-host trying to add a host", async () => {
+  it("returns 403 forbidden for a VIEWER or a HELPER trying to add a host", async () => {
     const { db, app } = buildApp();
     seedHostSeat(db, COHOST, "viewer");
-    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol" });
-    expect(res.status).toBe(403);
-    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+    seedHostSeat(db, "usr_helper", "helper");
+    for (const caller of [COHOST, "usr_helper"]) {
+      const res = await req(app, "POST", hostsPath, caller, { handle: "carol" });
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    }
   });
 
   it("returns 404 for an unknown wedding", async () => {
@@ -329,15 +315,6 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(201);
     const body = (await res.json()) as { host: { role: string } };
     expect(body.host.role).toBe("helper");
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
-    expect(row!.role).toBe("helper");
-  });
-
-  it("lets an EDITOR seat a helper — below their own ceiling, so not escalation", async () => {
-    const { db, app } = buildApp();
-    seedHostSeat(db, "usr_editor", "editor");
-    const res = await req(app, "POST", hostsPath, "usr_editor", { handle: "bob", role: "helper" });
-    expect(res.status).toBe(201);
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("helper");
   });
@@ -935,13 +912,12 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(asNewOwner.status).toBe(200);
   });
 
-  it("returns 409 owner_cap_reached for a promotion past the owner ceiling", async () => {
+  it("promotes a co-host to owner on a full wedding: a role change adds no seat", async () => {
     const { db, app } = buildApp();
-    for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_owner_${i}`, "owner");
     seedCohost(db, "editor");
+    for (let i = 2; i < MAX_HOSTS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_seat_${i}`, "viewer");
     const res = await req(app, "PUT", rolePath, OWNER, { role: "owner" });
-    expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "owner_cap_reached" });
+    expect(res.status).toBe(200);
   });
 
   it("lets an owner step down while another owner remains", async () => {

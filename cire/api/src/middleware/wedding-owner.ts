@@ -16,14 +16,17 @@ export interface GateError {
 
 const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
+  weddingSlug: undefined as string | undefined,
   weddingTier: undefined as Tier | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
-const pass = (weddingId: string, tier: Tier) => ({
+const pass = (weddingId: string, slug: string, tier: Tier) => ({
   weddingId: weddingId as string | undefined,
-  // Read in the same query as the caller's seat, for a `weddingTier(db, min)`
-  // mounted after this gate.
+  // Both read in the same query as the caller's seat: the slug names an
+  // export's download, and the tier is for a `weddingTier(db, min)` mounted
+  // after this gate.
+  weddingSlug: slug as string | undefined,
   weddingTier: tier as Tier | undefined,
   weddingGateError: undefined as GateError | undefined,
 });
@@ -36,9 +39,10 @@ const pass = (weddingId: string, tier: Tier) => ({
  * for unknown or soft-deleted weddings, 403 `forbidden` for everyone else —
  * always `forbidden`, never a role's own refusal string: a viewer's
  * `read_only_role` tells the portal to ask for editor access, which would not
- * open an owner-only route. Derives `weddingId` on success, and `weddingTier`
- * from the same query, so a `weddingTier(db, min)` mounted directly after this
- * gate costs no query of its own.
+ * open an owner-only route. Derives `weddingId` on success, and `weddingSlug`
+ * and `weddingTier` from the same query, so neither the exports' filenames nor
+ * a `weddingTier(db, min)` mounted directly after this gate costs a query of
+ * its own.
  *
  * The derive runs before osnAuth's onBeforeHandle fires, so it must tolerate
  * an unauthenticated request: it records the gate failure and the earliest
@@ -65,7 +69,7 @@ export function weddingOwner(db: Db) {
       if (!result.role || !decideCapability(result.role, "manage").allowed) {
         return fail(403, "forbidden");
       }
-      return pass(weddingId, result.weddingTier);
+      return pass(weddingId, result.weddingSlug, result.weddingTier);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {
@@ -102,7 +106,7 @@ export function weddingOwnerIncludingDeleted(db: Db) {
       if (!result.role || !decideCapability(result.role, "manage").allowed) {
         return fail(403, "forbidden");
       }
-      return pass(weddingId, result.weddingTier);
+      return pass(weddingId, result.weddingSlug, result.weddingTier);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

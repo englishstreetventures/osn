@@ -1,4 +1,4 @@
-import type { AssignableHostRole, RunSheetScope, WeddingRole } from "../services/hosts";
+import type { RunSheetScope, WeddingRole } from "../services/hosts";
 
 /** The caller's effective role on a wedding: the app-layer role of their
  *  `wedding_hosts` seat. Every organiser, owners included, holds one. */
@@ -9,7 +9,7 @@ export type { WeddingRole };
  * read surface (`weddingMember()`), `editor` the module writes
  * (`weddingEditor()`), `runSheet` the day-of run sheet (`weddingRunSheet()`),
  * and `manage` the wedding itself — who helps, claim codes, settings, billing,
- * deletion (`weddingOwner()`).
+ * exports, deletion (`weddingOwner()`).
  */
 export type WeddingCapability = "member" | "editor" | "runSheet" | "manage";
 
@@ -120,38 +120,4 @@ export function decideCapability(
   const policy = policyFor(role);
   if (policy.capabilities.includes(capability)) return { allowed: true };
   return { allowed: false, error: policy.refusal };
-}
-
-/**
- * The roles a caller holding `role` may put on a seat — on someone they add,
- * and through a role change. Exhaustive over {@link WeddingRole} with no
- * `default`, like {@link policyFor}.
- *
- * Only an owner may grant `owner`. An editor's ceiling is their own role:
- * adding a peer is not escalation, adding a `viewer` or a `helper` is less than
- * one, and every seat an editor creates is reversible by an owner, because only
- * an owner may remove or demote. Granting `owner` is the one grant that would
- * hand over that reversal itself, so an editor who could make it could make
- * themselves unremovable.
- *
- * A `viewer` and a `helper` grant nothing; the editor gate refuses them before
- * a route asks.
- */
-export function assignableRolesFor(role: WeddingRole): readonly AssignableHostRole[] {
-  switch (role) {
-    case "owner":
-      return ["owner", "editor", "viewer", "helper"];
-    case "editor":
-      return ["editor", "viewer", "helper"];
-    case "viewer":
-    case "helper":
-      return [];
-  }
-  const _exhaustive: never = role;
-  return [];
-}
-
-/** May a caller holding `caller` put `target` on a seat? */
-export function mayAssignRole(caller: WeddingRole, target: AssignableHostRole): boolean {
-  return assignableRolesFor(caller).includes(target);
 }

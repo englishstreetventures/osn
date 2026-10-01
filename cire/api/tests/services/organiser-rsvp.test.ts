@@ -1,14 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  events,
-  families,
-  guestEvents,
-  guests,
-  rsvps,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
 import {
   ORGANISER_DIETARY_ATTESTATION,
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,

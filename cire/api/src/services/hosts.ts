@@ -51,8 +51,8 @@ export type HostRole = Exclude<WeddingRole, "owner">;
  *
  * `host` is `false` and stays that way: it is the column's DDL default and its
  * pre-roles value, not a role anyone holds, and {@link normaliseHostRole} folds
- * it away before any reader sees it. Which of the assignable roles a given
- * caller may grant is `assignableRolesFor()` in `../middleware/wedding-role`.
+ * it away before any reader sees it. Every route that writes a role is
+ * `weddingOwner()`, and an owner may grant every assignable role.
  */
 const ASSIGNABLE_HOST_ROLES = {
   host: false,
@@ -182,22 +182,21 @@ export interface WeddingHostRow {
   role: WeddingRole;
   createdAt: Date;
   /**
-   * Who created this seat. Surfaced (not just stored) because `POST /hosts` is
-   * open to editors: an owner looking at their co-host list needs to see which
-   * seats they did not create themselves, since a seat grants the household
-   * claim codes (`guests.csv`'s first column) and the Art. 9 dietary export.
-   * Without it, an editor-added co-host is indistinguishable from an
-   * owner-added one and the owner has nothing to react to.
+   * Who created this seat. Surfaced (not just stored) because a wedding can
+   * have several owners and any of them may seat someone: an owner looking at
+   * the list needs to see which seats they did not create themselves, since a
+   * seat reads the household claim codes and the guests' dietary answers.
+   * Without it, a seat another owner added is indistinguishable from one they
+   * added themselves, and they have nothing to react to.
    */
   addedByOsnProfileId: string;
 }
 
-/** A seat could not be added or given a role: the target already holds a seat
- *  on this wedding (owners included), or the wedding is at
- *  {@link MAX_HOSTS_PER_WEDDING} co-hosts or {@link MAX_OWNERS_PER_WEDDING}
- *  owners. */
+/** A seat could not be added: the target already holds a seat on this wedding
+ *  (owners included), or the wedding already holds
+ *  {@link MAX_HOSTS_PER_WEDDING} seats. */
 export class HostConflict extends Data.TaggedError("HostConflict")<{
-  reason: "already_host" | "host_cap_reached" | "owner_cap_reached";
+  reason: "already_host" | "host_cap_reached";
 }> {}
 
 /** A removal or role change would leave the wedding with no owner. Every
@@ -207,41 +206,28 @@ export class LastOwner extends Data.TaggedError("LastOwner")<{
 }> {}
 
 /**
- * How many co-host seats — every seat below owner — one wedding may hold, and
- * the reason there is a number here at all.
+ * How many seats — owners included — one wedding may hold, and the reason there
+ * is a number here at all.
  *
- * `POST /hosts` is `weddingEditor()`-gated, so an editor can create seats. The
- * design's whole safety argument is that this is safe BECAUSE it is additive:
- * only an owner can remove, so every seat an editor creates is reversible by an
- * owner. That argument depends on the owners being able to SEE every seat — and
- * {@link LIST_CEILING} truncates the list. A security review drove it: 211
- * seats added, 200 listed, **11 live co-hosts the owner could neither see nor
- * name in a DELETE**. Reversibility silently ran out.
+ * Every seat can be removed by any owner, which is what makes adding one safe:
+ * a seat added by mistake, or by an owner the others disagree with, can always
+ * be taken back. That depends on the owners being able to SEE every seat — and
+ * {@link LIST_CEILING} truncates the list. A security review found 211 seats
+ * added, 200 listed, and **11 live seats no owner could see or name in a
+ * DELETE**.
  *
  * So the cap sits well below the read ceiling, which turns "the list shows every
- * seat" from a coincidence into a structural invariant. 50 is far past any real
- * wedding (both sets of parents, siblings, a planner) and far short of 200.
- * Owners are not counted here; they have their own ceiling,
- * {@link MAX_OWNERS_PER_WEDDING}, and the two together stay under the list
- * ceiling.
+ * seat" from a coincidence into a structural invariant. Owners count towards
+ * it because owners are listed too. 50 is far past any real wedding (both sets
+ * of parents, siblings, a planner) and far short of 200.
  */
 export const MAX_HOSTS_PER_WEDDING = 50;
 
 /**
- * How many owners one wedding may hold. A wedding is owned by a couple, and
- * every owner holds every owner power — removing the others included — so the
- * ceiling is small: room for both partners and a parent or two, not a
- * committee. Owners are counted apart from co-hosts, so adding one never uses
- * up a co-host seat.
- */
-export const MAX_OWNERS_PER_WEDDING = 4;
-
-/**
- * Row ceiling on the seat list. Kept ABOVE {@link MAX_HOSTS_PER_WEDDING} +
- * {@link MAX_OWNERS_PER_WEDDING} on purpose: it is the defensive bound (P-I1),
- * not the policy, and the gap is what guarantees a wedding at both caps is still
- * listed whole. Legacy weddings seeded past the cap before it existed still
- * list up to this many.
+ * Row ceiling on the seat list. Kept ABOVE {@link MAX_HOSTS_PER_WEDDING} on
+ * purpose: it is the defensive bound, not the policy, and the gap is what
+ * guarantees a wedding at the cap is still listed whole. Legacy weddings
+ * seeded past the cap before it existed still list up to this many.
  */
 const LIST_CEILING = 200;
 
@@ -272,13 +258,10 @@ function ownerSeatCount(weddingId: string): SQL<number> {
   return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner')`;
 }
 
-/**
- * `weddingId`'s seats below owner, counted inside whatever statement embeds it.
- * This is what {@link MAX_HOSTS_PER_WEDDING} bounds, and the count any limit on
- * the people helping with a wedding reads: owners do not count towards it.
- */
-export function nonOwnerSeatCount(weddingId: string): SQL<number> {
-  return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} <> 'owner')`;
+/** `weddingId`'s seats, owners included, counted inside whatever statement
+ *  embeds it — what {@link MAX_HOSTS_PER_WEDDING} bounds. */
+function seatCount(weddingId: string): SQL<number> {
+  return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId})`;
 }
 
 /** The (wedding, profile) pair that names one seat. */
@@ -371,23 +354,19 @@ export const hostsService = {
   /**
    * Seat `osnProfileId` on `weddingId` with the given role.
    *
-   * The route has proven, via `weddingEditor()`, that the caller may add — an
-   * owner or an `editor` co-host — and, via `assignableRolesFor()`, that the
-   * caller may grant `role`. `addedByOsnProfileId` is the caller, kept for
-   * attribution.
+   * The route has proven, via `weddingOwner()`, that the caller is an owner,
+   * and an owner may grant any assignable role, `owner` included.
+   * `addedByOsnProfileId` is the caller, kept for attribution.
    *
-   * ONE statement, so both ceilings hold under concurrent adds: the INSERT's
-   * own WHERE counts the seats it competes with — owners against
-   * {@link MAX_OWNERS_PER_WEDDING} when adding an owner, every other seat
-   * against {@link MAX_HOSTS_PER_WEDDING} otherwise — and a wedding already at
-   * its ceiling inserts nothing, which RETURNING reports as no row. A
-   * count-then-insert would let two adds at the same moment both pass.
+   * ONE statement, so the cap holds under concurrent adds: the INSERT's own
+   * WHERE counts the wedding's seats against {@link MAX_HOSTS_PER_WEDDING}, and
+   * a wedding already at the cap inserts nothing, which RETURNING reports as no
+   * row. A count-then-insert would let two adds at the same moment both pass.
    *
-   * Three ways to be refused: the target already holds a seat, owners included
+   * Two ways to be refused: the target already holds a seat, owners included
    * (`already_host`, from the unique index — never a duplicate seat, and never
-   * a silent change of an existing seat's role), or the wedding is at the
-   * ceiling the new seat counts against (`owner_cap_reached` /
-   * `host_cap_reached`).
+   * a silent change of an existing seat's role), or the wedding is at the cap
+   * (`host_cap_reached`).
    */
   add(input: {
     weddingId: string;
@@ -399,10 +378,7 @@ export const hostsService = {
       const db = yield* DbService;
       const id = `whost_${crypto.randomUUID()}`;
       const now = new Date();
-      const addingOwner = input.role === "owner";
-      const room = addingOwner
-        ? sql`${ownerSeatCount(input.weddingId)} < ${MAX_OWNERS_PER_WEDDING}`
-        : sql`${nonOwnerSeatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`;
+      const room = sql`${seatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`;
 
       // The SELECT lists its values in the table's column order, which is the
       // column list drizzle writes for an INSERT … SELECT. Built off the
@@ -449,9 +425,8 @@ export const hostsService = {
       );
 
       if (inserted.length === 0) {
-        const reason = addingOwner ? "owner_cap_reached" : "host_cap_reached";
-        yield* logRefusal("host add refused", input.weddingId, reason);
-        return yield* Effect.fail(new HostConflict({ reason }));
+        yield* logRefusal("host add refused", input.weddingId, "host_cap_reached");
+        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
       }
 
       return {
@@ -469,8 +444,8 @@ export const hostsService = {
    * row count.
    *
    * `total` exists so truncation can never be silent. The list is bounded by
-   * {@link LIST_CEILING}; the two seat ceilings keep a compliant wedding well
-   * under it, but a wedding seeded past the cap before it existed can still
+   * {@link LIST_CEILING}; the seat cap keeps a compliant wedding well under
+   * it, but a wedding seeded past the cap before it existed can still
    * exceed it, and a caller that cannot tell "50 seats" from "50 of 211 seats"
    * will quietly show an owner an incomplete list of who can read their
    * guests' data.
@@ -519,40 +494,29 @@ export const hostsService = {
    * wedding, so this can't retarget another wedding's seat. Setting the role a
    * seat already has succeeds (idempotent).
    *
-   * The guards ride in the UPDATE's own WHERE, so they hold however many owners
-   * act at once: promoting to owner needs room under
-   * {@link MAX_OWNERS_PER_WEDDING}; moving an owner down needs another owner to
-   * remain AND room under {@link MAX_HOSTS_PER_WEDDING} for the seat it becomes.
-   * A refused change writes nothing. A read of the seat and the two counts
-   * rides in the same batch, so the reason given is the one the UPDATE saw.
+   * The last-owner guard rides in the UPDATE's own WHERE, so it holds however
+   * many owners act at once: moving an owner down needs another owner to
+   * remain. A refused change writes nothing. A role change neither adds nor
+   * removes a seat, so the seat cap does not apply. A read of the seat rides in
+   * the same batch, so the reason given is the one the UPDATE saw.
    *
-   * Fails `HostNotFound` when the profile holds no seat, `LastOwner` when the
-   * seat is the wedding's only owner, and `HostConflict` when a ceiling is full.
+   * Fails `HostNotFound` when the profile holds no seat, and `LastOwner` when
+   * the seat is the wedding's only owner.
    */
   setRole(input: {
     weddingId: string;
     osnProfileId: string;
     role: AssignableHostRole;
-  }): Effect.Effect<
-    WeddingHostRow,
-    HostNotFound | LastOwner | HostConflict | HostWriteError,
-    DbService
-  > {
+  }): Effect.Effect<WeddingHostRow, HostNotFound | LastOwner | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const promotingToOwner = input.role === "owner";
-      const allowed = promotingToOwner
-        ? or(
-            eq(weddingHosts.role, "owner"),
-            sql`${ownerSeatCount(input.weddingId)} < ${MAX_OWNERS_PER_WEDDING}`,
-          )
-        : or(
-            ne(weddingHosts.role, "owner"),
-            and(
-              sql`${ownerSeatCount(input.weddingId)} > 1`,
-              sql`${nonOwnerSeatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`,
-            ),
-          );
+      // An owner staying an owner, or any seat moving to owner, leaves the
+      // owner count where it was or raises it; only an owner moving down needs
+      // another owner to remain.
+      const allowed =
+        input.role === "owner"
+          ? undefined
+          : or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`);
 
       const results = yield* Effect.tryPromise({
         try: () =>
@@ -567,9 +531,7 @@ export const hostsService = {
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
               }),
             db
-              .select({
-                owners: ownerSeatCount(input.weddingId),
-              })
+              .select({ id: weddingHosts.id })
               .from(weddingHosts)
               .where(seatOf(input.weddingId, input.osnProfileId)),
           ]),
@@ -584,20 +546,14 @@ export const hostsService = {
         createdAt: Date;
         addedByOsnProfileId: string;
       }[];
-      const [seat] = results[1] as readonly { owners: number }[];
+      const [seat] = results[1] as readonly { id: string }[];
 
       if (!updated) {
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
-        if (promotingToOwner) {
-          yield* logRefusal("host role change refused", input.weddingId, "owner_cap_reached");
-          return yield* Effect.fail(new HostConflict({ reason: "owner_cap_reached" }));
-        }
-        if (seat.owners <= 1) {
-          yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
-          return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
-        }
-        yield* logRefusal("host role change refused", input.weddingId, "host_cap_reached");
-        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
+        // The seat is there and the UPDATE matched nothing: only the last-owner
+        // guard refuses a seat that exists.
+        yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
+        return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
       }
 
       return {

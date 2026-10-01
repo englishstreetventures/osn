@@ -59,7 +59,7 @@ import {
   OrgAlreadyHasListing,
 } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
-import { hostsService, MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
+import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
@@ -2188,8 +2188,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
           .where(eq(hostRsvpNotices.osnProfileId, "usr_second")),
       ).toHaveLength(0);
 
-      // The owner ceiling, counted inside the INSERT.
-      for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) {
+      // The seat cap, owners counted, inside the INSERT: fill the wedding with
+      // owners, then one more is refused.
+      const seated = await db
+        .select({ id: weddingHosts.id })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID));
+      for (let i = seated.length; i < MAX_HOSTS_PER_WEDDING; i += 1) {
         await run(
           hostsService.add({
             weddingId: BOOTSTRAP_WEDDING_ID,
@@ -2211,7 +2216,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(Exit.isFailure(overCap) && Cause.squash(overCap.cause)).toMatchObject({
         _tag: "HostConflict",
-        reason: "owner_cap_reached",
+        reason: "host_cap_reached",
       });
     },
     MF_TIMEOUT_MS,

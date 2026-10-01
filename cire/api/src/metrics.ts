@@ -270,15 +270,11 @@ export type HostAddResult =
   | "handle_not_found"
   | "osn_unavailable"
   | "already_host"
-  // An editor asked to seat an owner. Only an owner may grant `owner`; a rise
-  // here is a stale portal or someone probing for the way up.
-  | "owner_role_forbidden"
-  // The wedding is at MAX_HOSTS_PER_WEDDING. Worth its own label rather than
-  // folding into `error`: a rise here is the signal that someone is trying to
-  // create seats in bulk, which is the abuse the cap exists to bound.
+  // The wedding is at MAX_HOSTS_PER_WEDDING, owners counted. Worth its own
+  // label rather than folding into `error`: a rise here is the signal that
+  // someone is trying to create seats in bulk, which is the abuse the cap
+  // exists to bound.
   | "host_cap_reached"
-  // The wedding is at MAX_OWNERS_PER_WEDDING.
-  | "owner_cap_reached"
   | "disabled"
   | "error";
 
@@ -294,15 +290,8 @@ export type HostRemoveResult = "ok" | "last_owner" | "error";
 export type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a seat's role. `last_owner` — refused, it would have
- *  left the wedding without an owner; the two `_cap_reached` — the ceiling the
- *  seat would move into is full. */
-export type HostRoleChangeResult =
-  | "ok"
-  | "not_found"
-  | "last_owner"
-  | "host_cap_reached"
-  | "owner_cap_reached"
-  | "error";
+ *  left the wedding without an owner. */
+export type HostRoleChangeResult = "ok" | "not_found" | "last_owner" | "error";
 
 /** The role a seat change asked for, as a metric attribute: one of the
  *  wedding roles, or `none` before a request body named one. Bounded by the

@@ -906,8 +906,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))
       // Co-host management. Reads (list hosts) admit owner OR co-host; writes
-      // (add/remove) are owner-only and behind a per-IP limiter — split into
-      // sibling instances so the read isn't gated by the write limiter.
+      // (add, remove, role) are owner-only, leaving is any seat holder's own,
+      // and all of them sit behind a per-user limiter — split into sibling
+      // instances so the read isn't gated by the write limiter.
       .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
         createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),

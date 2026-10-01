@@ -49,8 +49,8 @@ const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) =>
  * 404 for unknown weddings, 403 `forbidden` for non-members — the same contract
  * as the member gate.
  *
- * Derives `weddingRole` so a route can ask what the caller may grant
- * (`assignableRolesFor()`), and `weddingSlug` from the same read.
+ * Derives `weddingRole` so a route can tell an owner from an editor, and
+ * `weddingSlug` from the same read.
  *
  * Mirrors `weddingMember()`'s lifecycle: the derive runs before osnAuth's
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
