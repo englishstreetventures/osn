@@ -193,28 +193,35 @@ export const retentionService = {
       // `cire-sheets` bucket and carry guest PII, so they MUST be reaped. (The
       // `cire-assets` invite images are deliberately untouched — see the sweep
       // docstring + RetentionBuckets.)
-      const importRows = yield* dbQuery(() =>
-        db
-          .select({ eventsKey: imports.eventsR2Key, guestsKey: imports.guestsR2Key })
-          .from(imports)
-          .where(inArray(imports.weddingId, weddingIds))
-          .all(),
-      );
-      const sheetKeys = importRows.flatMap((r) => [r.eventsKey, r.guestsKey]);
-
+      //
       // Family ids in scope — `guests` is keyed by `family_id`, not `wedding_id`,
       // so we delete guests via their families. `rsvps` is keyed by `guest_id`;
       // ON DELETE CASCADE from families → guests → rsvps would handle the
       // children, but we issue explicit deletes (parent-last) so the sweep does
       // not depend on FK cascade being enabled on every driver, and so the guest
       // delete result gives us an exact reclaimed-row count for the metric.
-      const familyRows = yield* dbQuery(() =>
-        db
-          .select({ id: families.id })
-          .from(families)
-          .where(inArray(families.weddingId, weddingIds))
-          .all(),
+      //
+      // Both reads are keyed only on `weddingIds`, so they run together.
+      const [importRows, familyRows] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select({ eventsKey: imports.eventsR2Key, guestsKey: imports.guestsR2Key })
+              .from(imports)
+              .where(inArray(imports.weddingId, weddingIds))
+              .all(),
+          ),
+          dbQuery(() =>
+            db
+              .select({ id: families.id })
+              .from(families)
+              .where(inArray(families.weddingId, weddingIds))
+              .all(),
+          ),
+        ],
+        { concurrency: "unbounded" },
       );
+      const sheetKeys = importRows.flatMap((r) => [r.eventsKey, r.guestsKey]);
       const familyIds = familyRows.map((r) => r.id);
 
       // ── LEAVE THE COUPLE A RECORD, BEFORE TAKING THE DETAIL AWAY ──────────

@@ -1,7 +1,11 @@
 import type { APIContext, MiddlewareNext } from "astro";
 import { describe, expect, it } from "vitest";
 
-import { cspHeaderName } from "../src/lib/security-headers";
+import {
+  cspHeaderName,
+  cspReportEndpoint,
+  reportingEndpointsHeader,
+} from "../src/lib/security-headers";
 import { onRequest } from "../src/middleware";
 
 // The middleware only uses `next()`, so a minimal context cast is sufficient.
@@ -32,13 +36,10 @@ describe("onRequest middleware", () => {
     );
     // CSP reporting directives + the companion Reporting-Endpoints header so
     // real guests' browsers POST violations to the first-party collector.
-    expect(res.headers.get(cspHeaderName())).toContain(
-      "report-uri https://api.cireweddings.com/api/csp-report",
-    );
+    // The collector is this build's own API (`lib/security-headers.ts`).
+    expect(res.headers.get(cspHeaderName())).toContain(`report-uri ${cspReportEndpoint()}`);
     expect(res.headers.get(cspHeaderName())).toContain("report-to csp-endpoint");
-    expect(res.headers.get("Reporting-Endpoints")).toBe(
-      'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
-    );
+    expect(res.headers.get("Reporting-Endpoints")).toBe(reportingEndpointsHeader());
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");

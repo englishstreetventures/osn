@@ -1,7 +1,8 @@
 import type { InviteCustomisation } from "../designs/types";
+import { resolveApiUrl } from "./api-origin";
 
-/** cire-api origin. Build/runtime env with a local-dev default. */
-export const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
+/** cire-api URL, baked in at build time, with a local-dev default. */
+export const API_URL = resolveApiUrl(import.meta.env.PUBLIC_API_URL);
 
 /** Where `/` sends visitors when `PUBLIC_MARKETING_URL` is unset or unusable. */
 export const DEFAULT_MARKETING_URL = "https://cireweddings.com";

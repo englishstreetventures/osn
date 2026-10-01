@@ -1,3 +1,24 @@
+/** The cire-api origin `public/_headers` is written for. */
+export const PRODUCTION_API_ORIGIN = "https://api.cireweddings.com";
+
+/** The local cire-api: `bun run dev` in `cire/api` (src/local.ts, port 8787). */
+export const LOCAL_API_URL = "http://localhost:8787";
+
+/**
+ * Which cire-api the guest site talks to, given `PUBLIC_API_URL`.
+ *
+ * Called twice: by `lib/invite.ts` with `import.meta.env` for the pages and
+ * islands, and by `lib/tier-headers.ts` with Vite's resolved env for the CSP in
+ * `dist/client/_headers`. Both reading the same chain is what keeps the policy
+ * naming the API the site calls, so this module reads no env and imports
+ * nothing — the build loads it outside Vite's `import.meta.env` handling.
+ * `??` on purpose: an empty value stays empty, and the header rewrite then
+ * fails the build instead of quietly picking the local API.
+ */
+export function resolveApiUrl(env: string | undefined): string {
+  return env ?? LOCAL_API_URL;
+}
+
 /**
  * The cire-api ORIGIN, for `<link rel="preconnect">`.
  *

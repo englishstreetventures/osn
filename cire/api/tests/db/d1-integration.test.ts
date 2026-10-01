@@ -51,6 +51,7 @@ import {
 } from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
+import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import { giftExportService } from "../../src/services/gift-export";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
@@ -1251,6 +1252,70 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(guestEvents)
         .where(eq(guestEvents.guestId, rows[0]!.id));
       expect(links.map((l) => l.eventId).toSorted()).toEqual([EVENT_A, EVENT_B]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "two households naming plus-ones at once over D1 cannot pass the guest cap",
+    async () => {
+      // One place left under the cap. Each inviter is a different guest, so the
+      // one-per-guest index cannot stop the second insert: only a cap check
+      // inside the write can.
+      const now = new Date();
+      await db.insert(families).values({
+        id: "fam_fill",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "FILL-0001",
+        familyName: "Filler",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const filler = Array.from({ length: BASE_GUEST_CAP - 3 }, (_, i) => ({
+        id: `g_fill_${i}`,
+        familyId: "fam_fill",
+        firstName: `Filler${i}`,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      // Under D1's 100-parameter statement limit.
+      for (let i = 0; i < filler.length; i += 10) {
+        await db.insert(guests).values(filler.slice(i, i + 10));
+      }
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.familyId, FAMILY_ID));
+
+      const outcomes = await Promise.all(
+        [GUEST_1, GUEST_2].map((inviter) =>
+          run(
+            plusOneService
+              .save(FAMILY_ID, inviter, { firstName: `Plus ${inviter}`, lastName: "" })
+              .pipe(
+                Effect.match({
+                  onFailure: (e) => e._tag,
+                  onSuccess: (r) => (r.created ? "created" : "not created"),
+                }),
+              ),
+          ),
+        ),
+      );
+
+      const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(guests);
+      expect(n).toBe(BASE_GUEST_CAP);
+      expect(outcomes.toSorted()).toEqual(["CapacityExceeded", "created"]);
+      // The loser's batch copied no invitation either: only the winner's
+      // plus-one exists, with its inviter's invitations and nothing more.
+      const named = await db
+        .select({ id: guests.id, of: guests.plusOneOfGuestId })
+        .from(guests)
+        .where(sql`${guests.plusOneOfGuestId} IS NOT NULL`);
+      expect(named).toHaveLength(1);
+      const links = await db
+        .select({ guestId: guestEvents.guestId })
+        .from(guestEvents)
+        .where(eq(guestEvents.guestId, named[0]!.id));
+      expect(links).toHaveLength(named[0]!.of === GUEST_1 ? 2 : 1);
+      const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(guestEvents);
+      expect(total).toBe(3 + links.length);
     },
     MF_TIMEOUT_MS,
   );

@@ -19,7 +19,7 @@ import ModuleSidebar from "./ModuleSidebar";
  * passed every test in the suite.
  *
  * **This bench cannot judge colour.** The lab does not resolve the portal's
- * colour ramp — every row here reports the same computed `color`, `text-gold`
+ * colour ramp — every row here reports the same computed `color`, `text-gold-ink`
  * included, because the utilities for cire's `@theme` aliases are not emitted
  * into the stylesheet this page ends up using. Layout, placement, timing and
  * interaction are real; the fade is not, and `text-text-faint` looks like
