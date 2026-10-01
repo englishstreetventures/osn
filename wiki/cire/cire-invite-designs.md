@@ -26,7 +26,8 @@ round-trips.
   validates against the catalog (unknown → 422) and refuses a `premium` design
   (403 `premium_design`) unless the wedding is on the Crimson plan tier or
   holds the one-off `premium_templates` entitlement (`hasPremiumTemplates`,
-  one statement for both — see [[cire-entitlements]]). `inviteService.setDesign` bumps
+  given the tier `weddingEditor` already read: no statement on Crimson, the
+  entitlement probe alone below it — see [[cire-entitlements]]). `inviteService.setDesign` bumps
   `updatedAt` only — never `imagesUpdatedAt` (WT-P-I1).
 - **Web** — `cire/invites/src/designs/`: `registry.ts` maps `DesignId` →
   per-design component tree (`classic/` holds the original layout);

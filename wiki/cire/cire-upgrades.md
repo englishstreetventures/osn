@@ -8,6 +8,7 @@ related:
   - "[[cire-vendors]]"
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
+  - "[[cire-development]]"
 last-reviewed: 2026-10-01
 ---
 
@@ -69,14 +70,17 @@ sequenceDiagram
     H->>A: POST /upgrade/session {tier, module}
     A->>A: wedding already on tier or above? → 409 already_held
     A->>A: no Price for this move? → 404 not_purchasable
+    A->>S: read the Price's amount (cached)
+    A->>S: close any legacy page still payable
     A->>A: pending purchase? → reuse / expire it / 409 processing
-    A->>A: INSERT purchase (pending, from_tier)
+    A->>A: INSERT purchase (pending, from_tier, Price + amount)
     A->>S: create platform Checkout Session
     A->>A: store session id (conditional)
     A-->>H: {purchaseId, url, reused}
     H->>S: pay
     S-->>H: return to /?w=&m=&upgrade=
     S->>A: checkout.session.completed (platform webhook)
+    A->>A: refunded? amount ≠ Price? wedding below from_tier? → grant nothing
     A->>A: one batch: raise tier → platform_sales → flip status
     H->>A: GET /upgrade/purchases/:id (poll)
     A-->>H: {status: succeeded, tier} → refetch weddings → modules unlock
@@ -96,9 +100,15 @@ All under `/api/organiser/weddings/:weddingId/upgrade`, in
 | `GET /purchases/:id` | member    | `{ purchase: { status, tier } }`. Wedding-scoped, so another wedding's id is not found. `tier` is `null` only for a legacy product that names no tier |
 
 Owner-only on the write, matching the Connect onboarding route: it names a
-card. `module` is checked against the portal's module list and anything else
-lands on `overview`, so a request body can never put an arbitrary string into a
-URL Stripe redirects to. Stripe returns the organiser to
+card. The session route reads its body by hand and decodes it whole against
+`StartUpgradeSessionBody` (`cire/api/src/schemas/upgrade.ts`) before the
+service sees any of it, the same sentinel-parse idiom as every cire write
+route ([[cire-development]]): `tier` must be one of `PURCHASABLE_TIERS` and
+`module` a string of at most 32 characters. Any other body, including one that
+is not JSON, answers 404 `not_purchasable`. `module` is then checked against
+the portal's module list and anything else lands on `overview`, so a request
+body can never put an arbitrary string into a URL Stripe redirects to. Stripe
+returns the organiser to
 `<organiser origin>/?w=<weddingId>&m=<module>&upgrade=<purchaseId>`, and to the
 same URL without `upgrade` on cancel.
 
@@ -150,6 +160,13 @@ Stripe call against the platform's quota on an answer that has not moved. A
 Price Stripe refuses drops only its own entry and is not cached, so fixing it
 recovers without a deploy.
 
+`startPurchase` reads the Price it is about to charge through the same cache
+(`catalogue.quote`) before it writes or sends anything, and records its id,
+amount and currency on the purchase row (`price_id`, `price_amount_minor`,
+`price_currency`). A Stripe Price's amount cannot change once the Price exists,
+so a cached read is as good as a fresh one. A Price Stripe will not read opens
+no purchase: 502, with the checkout result `error`.
+
 ---
 
 ## The two failures this is built against
@@ -162,9 +179,20 @@ Upgrade again must not get a second payment page.
 
 A wedding has **at most one pending purchase, whatever it buys**: the partial
 unique index `wedding_upgrade_purchases_one_pending_uniq` is on `(wedding_id)
-WHERE status = 'pending'`. `startPurchase` reads the wedding's tier and any
-pending purchase in one statement, and resolves that purchase **before** it
-ever reaches an insert:
+WHERE status = 'pending'`. `startPurchase` reads the wedding's tier, any
+pending purchase and any legacy page (below) in one statement.
+
+First it closes every **legacy page** that may still take money. The tier
+migration marked each pending per-module purchase `expired` in D1, but a
+database write cannot close a Stripe session, which stays payable for a day
+after it opened (sessions are created with no `expires_at`). So the opening
+read also returns rows that are `expired`, hold a session, buy a product that
+is not a tier, and opened less than a day ago (`CHECKOUT_SESSION_LIFETIME_MS`).
+Each is probed: an open one is expired at Stripe; one that is `complete`, that
+Stripe will not expire, or that cannot be probed answers **409 `processing`**.
+englishstventures/osn#1315 removes this with the legacy rows.
+
+Then it resolves the pending purchase **before** it ever reaches an insert:
 
 | Pending purchase | Action |
 | --- | --- |
@@ -194,7 +222,7 @@ violation naming `wedding_upgrade_purchases.wedding_id` into the 409
 Settle reads the purchase row, then commits everything else in **one D1
 batch**, atomic and in statement order:
 
-**verify → paid? → product → tier → [raise tier → `platform_sales` → flip status]**
+**verify → session → refunded? → paid? → product → amount → from-tier → [raise tier → `platform_sales` → flip status]**
 
 > [!important]
 > The invariant matters more than the order: **nothing may short-circuit on "this row already reads succeeded"**. Every delivery for a paid session re-runs the grant and the sales insert, both idempotent — the grant only ever raises the tier, and the sales row is keyed on the purchase. A test pins this, and it fails the moment an early return on a replayed delivery is added.
@@ -221,7 +249,32 @@ purchase — and the money is as real as any other.
 
 A **NULL session id is adoption, not a mismatch**: the row is session-less
 between minting a session and storing its id, and the session is payable
-throughout. Rejecting it would lock out a customer who paid.
+throughout. Rejecting it would lock out a customer who paid. That window exists
+only while the row is `pending`, so a session is adopted only onto a `pending`
+row that recorded its Price; a `failed` or `expired` row, or one written before
+purchases recorded a Price, settles only by the session it already holds
+(`upgrade settle refused adoption`, outcome `unknown`).
+
+**A grant is bound to the payment the purchase sold.** The purchase id comes
+from `client_reference_id`, which any payment on this Stripe account can carry
+— a Payment Link lets the payer set it. So settle grants only when
+`amount_total` and `currency` equal the Price the row recorded, and stops a
+grant in three cases. Each answers 200, because a retry cannot change what was
+paid, and each is logged at error or warning and counted:
+
+| Case | Outcome | Row |
+| --- | --- | --- |
+| Paid amount or currency is not the recorded Price | `mismatch` (`upgrade settle amount mismatch`) | Moves to `mismatch` with what arrived, when the row's own session paid. A payment naming a session-less row is not that row's session, so the row is left for its own attempt to finish |
+| Priced from a tier the wedding no longer holds — a from-Gold Crimson paid after the wedding was lowered below Gold | `mismatch` (`upgrade settle from a tier the wedding no longer holds`) | Moves to `mismatch`, as above. The grant statement carries the same condition (`tierGrantStatement`'s `heldAtLeast`), so a lowering between the read and the batch cannot slip past |
+| The purchase is `refunded` | `refunded` (`upgrade settle for a refunded purchase`) | Untouched |
+
+A `mismatch` row is money that arrived and bought nothing: someone refunds it,
+or applies it by hand with `grant-tier.ts`. A row with no recorded Price — one
+written before 0071 — has no amount to be held to and settles by its own
+session as before. None of this touches a paying customer's replay: after a
+grant the wedding ranks at or above `from_tier`, the crash-repair path still
+raises a row that already reads `succeeded`, and only an operator writes
+`refunded`.
 
 Card-only sessions (`payment_method_types=[card]`) mean none can complete
 unpaid, so `async_payment_succeeded` is deliberately not handled. The unpaid
@@ -293,8 +346,15 @@ With no wedding-DELETE flow, a purchase row is currently retained
 not current behaviour.
 
 Refunds do not lower a tier on their own; an operator lowers it with
-`grant-tier.ts --lower` ([[cire-entitlements]]). The customer-facing wording is
+`grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks
+the wedding's paid purchases of anything above the new tier `refunded`, then
+lowers the tier. Stripe redelivers a completed session after a failed delivery
+and an operator can resend one from the dashboard; settle grants nothing for a
+`refunded` purchase, so the refund holds. The customer-facing wording is
 englishstventures/osn#1317.
+
+The purchase row's statuses: `pending`, `succeeded`, `failed`, `expired`,
+`refunded` (an operator took it back) and `mismatch` (paid, nothing granted).
 
 ---
 
@@ -326,8 +386,8 @@ verifying a deployed tier end to end, is [[stripe-webhooks]].
 
 | Instrument                      | Attributes |
 | ------------------------------- | ---------- |
-| `cire.upgrade.checkout.started` | `tier` (`gold`/`crimson`), `from_tier` (`ivory`/`gold`/`crimson`), `result` (`ok`/`reused`/`processing`/`already_held`/`unconfigured`/`error`) |
-| `cire.upgrade.purchase.settled` | `tier` (`gold`/`crimson`/`unmapped`), `outcome` (`granted`/`replayed`/`unpaid`/`failed`/`expired`/`unknown`/`defect`) |
+| `cire.upgrade.checkout.started` | `tier` (`gold`/`crimson`), `from_tier` (`ivory`/`gold`/`crimson`), `result` (`ok`/`reused`/`processing`/`already_held`/`unconfigured`/`error` — Stripe refused to read the Price or open the session) |
+| `cire.upgrade.purchase.settled` | `tier` (`gold`/`crimson`/`unmapped`), `outcome` (`granted`/`replayed`/`unpaid`/`failed`/`expired`/`unknown`/`defect`/`mismatch`/`refunded`) |
 
 Spans: `cire.upgrade.catalogue`, `cire.upgrade.startPurchase`,
 `cire.upgrade.settlePurchase`, `cire.upgrade.failPurchase`,
@@ -337,8 +397,10 @@ Closed unions only; no wedding, purchase or profile id ever becomes an
 attribute. The gap between the two counters is the health signal: money taken
 with no tier raised shows as `started` without a matching `settled`. A
 sustained rise in `processing` means deliveries are lagging. `unpaid` should
-stay at zero while sessions are card-only, and any `defect` is a customer who
-paid and holds nothing until someone looks.
+stay at zero while sessions are card-only, and any `defect` or `mismatch` is a
+customer who paid and holds nothing until someone looks. A `mismatch` on every
+settle means Stripe is charging something other than the Price — tax or
+discounts switched on for Checkout.
 
 ---
 

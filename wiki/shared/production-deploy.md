@@ -988,6 +988,34 @@ bunx wrangler d1 execute cire-db --env production --remote --command \
 | Purchases by product and status | No `pending` rows | 0071 expires every pending per-module purchase. One paid in the meantime still settles — settle accepts an expired row and maps `vendors` to Crimson, `registry` to Gold — but a pending row means a checkout was live, which no deployment should have while its Prices are unset |
 | Entitlements by key | The counts 0071 will lift | `vendors` or `capacity_1000` rows become Crimson weddings, then `registry` or `capacity_500` rows Gold ones |
 
+**If the first query shows any `pending` row, close its Stripe session before
+approving `deploy-cire-api`.** 0071 marks the row `expired` in D1, which does
+not close the session at Stripe: it stays payable for a day after it opened,
+and a payment there settles into the tier that replaced its product. The new
+Worker closes such a page at Stripe before it opens a tier checkout for that
+wedding ([[cire-upgrades]]), so the organiser cannot pay both; closing it here
+as well means no old per-module page is payable once the tiers are live. List
+the sessions:
+
+```bash
+bunx wrangler d1 execute cire-db --env production --remote --command \
+  "SELECT id, wedding_id, entitlement, checkout_session_id, created_at FROM wedding_upgrade_purchases WHERE status = 'pending' AND checkout_session_id IS NOT NULL"
+```
+
+Expire each one with the platform account's live secret key — the value set as
+`cire-api`'s `STRIPE_SECRET_KEY` — through the same endpoint the Worker uses
+(`expirePlatformCheckoutSession` in `cire/api/src/services/stripe.ts`):
+
+```bash
+curl -sS -X POST "https://api.stripe.com/v1/checkout/sessions/<checkout_session_id>/expire" \
+  -u "$STRIPE_SECRET_KEY:"
+```
+
+The answer carries `"status": "expired"`. A session Stripe refuses to expire
+has completed: its webhook settles it, and nothing more is needed. A pending
+row with no `checkout_session_id` never handed out a payment page and needs
+nothing.
+
 After `deploy-cire-api`, confirm the lift:
 
 ```bash

@@ -235,7 +235,7 @@ bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
   "SELECT id, tier, tier_source, tier_granted_by FROM weddings WHERE tier_source = 'purchase'"
 
 bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
-  "SELECT id, entitlement, from_tier, status, checkout_session_id FROM wedding_upgrade_purchases ORDER BY created_at DESC LIMIT 5"
+  "SELECT id, entitlement, from_tier, status, checkout_session_id, price_amount_minor, amount_minor, currency FROM wedding_upgrade_purchases ORDER BY created_at DESC LIMIT 5"
 
 bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
   "SELECT purchase_id, entitlement, amount_minor, currency FROM platform_sales ORDER BY settled_at DESC LIMIT 5"
@@ -243,9 +243,12 @@ bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
 
 A purchase stuck at `pending` with a real `checkout_session_id` is the
 signature that the endpoint is wrong, mis-keyed or unmounted — the money was
-taken and nothing granted. That is the one state worth alerting on, and it is
-also what the observability gap measures: `cire.upgrade.checkout.started`
-without a matching `cire.upgrade.purchase.settled`.
+taken and nothing granted. That is the state worth alerting on, and it is also
+what the observability gap measures: `cire.upgrade.checkout.started` without a
+matching `cire.upgrade.purchase.settled`. A purchase at `mismatch` is the
+other: Stripe charged something other than the Price the purchase recorded
+(`amount_minor` against `price_amount_minor`), and nothing was granted
+([[cire-upgrades]]).
 
 **5. Read the delivery log.** Workbench → Webhooks → the endpoint → recent
 deliveries. A 400 there names the secret; a 404 names the mounting; a timeout
@@ -270,7 +273,8 @@ bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
 | Every delivery 400s in the dashboard | wrong secret — most often the other endpoint's |
 | Gifts settle, upgrades never do | only the Connect endpoint exists |
 | Upgrades settle, gifts never do | only the platform endpoint exists |
-| Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design |
+| Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design. Or the body's `outcome` says why: `mismatch` (the amount paid is not the Price, or the wedding was lowered below the tier the Price assumed), `refunded` (an operator took the purchase back), `unknown` (no such purchase, another session, or a session-less row it may not adopt) |
+| Every upgrade settles as `mismatch` | Stripe charges more or less than the Price — tax or discounts switched on for Checkout. Settle compares `amount_total` with the Price's own amount |
 | Dialog says upgrades are not available | no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
 | Checkout 404s | the same, from the session route |
 | Secret changed and nothing changed | warm isolates. Redeploy |

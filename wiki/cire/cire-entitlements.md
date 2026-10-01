@@ -68,7 +68,10 @@ cannot drift.
 above it is left alone, with its attribution. A replayed webhook, or a late
 one for a Gold purchase on a wedding that has since reached Crimson, changes
 nothing. Lowering a tier — after a refund — is a deliberate operator act with
-`grant-tier.ts --lower` (below); nothing lowers a tier automatically.
+`grant-tier.ts --lower` (below); nothing lowers a tier automatically. A
+purchase priced as an upgrade from a tier adds one condition: its grant matches
+only while the wedding still holds that tier, so a from-Gold Crimson paid after
+the wedding was lowered to Ivory raises nothing ([[cire-upgrades]]).
 
 Migration 0071 lifted every wedding whose legacy entitlement rows had already
 paid for more: `vendors` or `capacity_1000` to Crimson, then `registry` or
@@ -83,8 +86,11 @@ purchase.
 
 **The only key the API reads is `premium_templates`.** A wedding below Crimson
 may hold it as a one-off; Crimson includes every premium design anyway.
-`tierService.hasPremiumTemplates` answers "Crimson, or the row" in one
-statement, and `premiumTemplateHolders` reads the key for the wedding list. It
+`tierService.hasPremiumTemplates` answers "Crimson, or the row". The invite
+design route hands it the tier `weddingEditor` already read, so a Crimson
+wedding costs no statement and one below Crimson only the primary-key probe of
+its row; called without a tier it reads both in one statement.
+`premiumTemplateHolders` reads the key for the wedding list. It
 is comp-only: nothing sells it today, and every design is free while the
 premium designs are dormant ([[cire-invite-designs]]).
 
@@ -180,18 +186,20 @@ a named plus-one counts ([[cire-plus-ones]]). It is enforced in four places,
 each reading the tier rather than a stored number:
 
 - **`tierService.assertGuestCapacity(weddingId, incoming, precomputedCap?)`**
-  reads the tier, counts real guests and fails with `CapacityExceeded { limit,
-  current, requiredTier }` when the write would pass the cap. `requiredTier` is
+  reads the tier and counts real guests in one statement, and fails with
+  `CapacityExceeded { limit, current, requiredTier }` when the write would pass
+  the cap. `requiredTier` is
   the lowest tier whose cap holds the result (`tierForGuests`), or `null` when
   even Crimson's would not. `precomputedCap` only ever skips re-reading the
   tier, never the check.
 - **The import preview** (`diffAgainstDb` in `services/import.ts`) warns when an
-  import would pass the cap. It skips its tier read entirely while existing
-  guests plus creates come to at most `BASE_GUEST_CAP` — no tier could make that
-  import breach — and otherwise carries the cap it read on the plan as
-  `derivedCap`, which `applyImport` hands to `assertGuestCapacity` in the same
-  request. A small import pays one read, a large one also pays one; a missing
-  `derivedCap` is never treated as "no cap". `applyImport` checks the net delta
+  import would pass the cap. It reads the tier on the wedding row it already
+  reads for the claim-code style, so the cap costs no statement of its own. It
+  leaves the cap unset while existing guests plus creates come to at most
+  `BASE_GUEST_CAP` — no tier could make that import breach — and otherwise
+  carries it on the plan as `derivedCap`, which `applyImport` hands to
+  `assertGuestCapacity` in the same request. A missing `derivedCap` is never
+  treated as "no cap". `applyImport` checks the net delta
   (`creates − removes`) before writing anything, so a refused import writes
   nothing.
 - **Naming a plus-one** checks the cap inside its `INSERT … SELECT`:
@@ -269,6 +277,15 @@ bun run cire/api/scripts/grant-tier.ts <weddingId> <ivory|gold|crimson> <operato
 
 Every change records `tier_source = 'comp'` and
 `tier_granted_by = 'script:<operator>'`.
+
+`--lower` prints two statements, one per line, and both must be applied in the
+same `--command`. The first marks the wedding's `succeeded` purchases of
+anything above the new tier `refunded`; the second lowers the tier. The
+webhook grants nothing for a `refunded` purchase, so the refund holds when
+Stripe redelivers the original payment or an operator resends it from the
+dashboard, and marking first means a delivery landing between the two
+statements already finds the purchase refunded. Setting Crimson, or raising
+without `--lower`, prints one statement and refunds nothing.
 
 > [!warning]
 > A production D1 write needs explicit human authorisation naming `cire-db`.
