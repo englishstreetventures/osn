@@ -241,7 +241,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -436,7 +436,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -570,7 +570,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.23",
+      "version": "0.3.0",
       "dependencies": {
         "@growthbook/growthbook": "^1.7.0",
         "@shared/observability": "workspace:*",
