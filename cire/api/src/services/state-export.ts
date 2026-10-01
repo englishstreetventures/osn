@@ -9,12 +9,14 @@ import {
   EVENT_ID_HEADER,
   EVENT_SHEET_HEADERS,
   FAMILY_CODE_HEADER,
+  FAMILY_SOURCE_HEADER,
   GUEST_ID_HEADER,
   GUEST_NICKNAME_HEADER,
   GUEST_SHEET_FIXED_HEADERS,
+  GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
+import { MAX_ROWS } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
-import { MAX_ROWS } from "./spreadsheet";
 
 /**
  * Round-trip exports: the wedding's CURRENT events + guests serialised in the
@@ -34,12 +36,33 @@ import { MAX_ROWS } from "./spreadsheet";
  *    internal family id. The parser honours them, so a re-import matches rows by
  *    id. A full download contains live claim codes.
  *  - `"snapshot"` — what the checkpoint writes as a change's before-image, and
- *    never a download: `"full"`, plus one household-only row (Family ID, Family
- *    Name and Family Code set, every guest cell blank) for each household that
- *    has no guests. Only the revert's reader (`parseGuestsCsv` with
- *    `{ snapshot: true }`) accepts those rows; the upload parser refuses them.
+ *    never a download. It is `"full"` with four differences, each so a revert
+ *    puts back exactly what is stored:
+ *     - one household-only row (Family ID, Family Name and Family Code set,
+ *       every guest cell blank) for each household that has no guests;
+ *     - `Family Source` and `Guest Source` columns carrying each row's
+ *       provenance;
+ *     - Start and End as stored, offset included, so an event whose zone does
+ *       not resolve still restores the instant it had;
+ *     - no `'` formula guard, since no spreadsheet tool opens it.
+ *    Only the revert's readers (`parseEventsCsv` / `parseGuestsCsv` with
+ *    `{ snapshot: true }`) read it; the upload parser refuses its rows.
  */
 export type ExportFidelity = "import" | "full" | "snapshot";
+
+/**
+ * The fidelities a download may be served at. `"snapshot"` is not one: it
+ * drops the spreadsheet formula guard, so it must only ever reach the
+ * checkpoint's R2 store. Routes take a value of this type from
+ * {@link downloadFidelity} and call the `download*` methods, which cannot be
+ * handed `"snapshot"`.
+ */
+export type DownloadFidelity = Exclude<ExportFidelity, "snapshot">;
+
+/** A download's `?fidelity=` query value, narrowed: `full` or `import`. */
+export function downloadFidelity(query: string | undefined): DownloadFidelity {
+  return query === "full" ? "full" : "import";
+}
 
 /**
  * Format a decoded palette back into the sheet's `Name:#rgb|Name:#rgb` cell.
@@ -56,6 +79,22 @@ function paletteCell(raw: string | null): string {
 }
 
 export const stateExportService = {
+  /** {@link stateExportService.eventsCsv} for a download — never unguarded. */
+  downloadEventsCsv(
+    weddingId: string,
+    fidelity: DownloadFidelity,
+  ): Effect.Effect<string, never, DbService> {
+    return stateExportService.eventsCsv(weddingId, fidelity);
+  },
+
+  /** {@link stateExportService.guestsCsv} for a download — never unguarded. */
+  downloadGuestsCsv(
+    weddingId: string,
+    fidelity: DownloadFidelity,
+  ): Effect.Effect<string, never, DbService> {
+    return stateExportService.guestsCsv(weddingId, fidelity);
+  },
+
   /**
    * Events sheet: one row per event in `sortOrder` order — the parser assigns
    * `sortOrder` from row order, so exporting in that order makes the
@@ -80,6 +119,7 @@ export const stateExportService = {
       );
 
       const withIds = fidelity !== "import";
+      const snapshot = fidelity === "snapshot";
       const header = withIds ? [...EVENT_SHEET_HEADERS, EVENT_ID_HEADER] : [...EVENT_SHEET_HEADERS];
       const data = rows.map((e) => {
         const cells = [
@@ -90,9 +130,11 @@ export const stateExportService = {
           // exporting it would put a number in front of the organiser that they
           // can neither meaningfully change nor be trusted to keep in step with
           // the zone. Re-importing stamps it back.
-          formatWallTime(e.startAt),
+          // A snapshot keeps the stored value: the revert re-stamps it from the
+          // zone when the zone resolves, and restores it as is when it does not.
+          snapshot ? e.startAt : formatWallTime(e.startAt),
           e.timezone,
-          formatWallTime(e.endAt), // "" sentinel exports as a blank optional End
+          snapshot ? e.endAt : formatWallTime(e.endAt), // "" sentinel exports as a blank optional End
           "", // Location — venue text lives in Address
           e.address ?? "",
           e.dressCodeDescription ?? "",
@@ -104,7 +146,7 @@ export const stateExportService = {
         return cells;
       });
 
-      return serialiseCsv(header, data);
+      return serialiseCsv(header, data, { guard: !snapshot });
     }).pipe(Effect.withSpan("cire.state-export.eventsCsv"));
   },
 
@@ -144,6 +186,12 @@ export const stateExportService = {
         familyName: families.familyName,
         publicId: families.publicId,
       };
+      // Provenance is written only into a snapshot, so only it reads the columns.
+      const snapshotColumns = {
+        ...guestColumns,
+        guestSource: guests.source,
+        familySource: families.source,
+      };
 
       // The reads are independently wedding-scoped — collapse them to one D1
       // round-trip (matches the parallel shape in table-export.ts and
@@ -165,7 +213,7 @@ export const stateExportService = {
           snapshot
             ? dbQuery(() =>
                 db
-                  .select(guestColumns)
+                  .select(snapshotColumns)
                   .from(families)
                   .leftJoin(guests, eq(guests.familyId, families.id))
                   .where(guestScope)
@@ -203,11 +251,13 @@ export const stateExportService = {
         readonly lastName: string;
         readonly nickname: string | null;
         readonly sortOrder: number;
+        readonly source: string;
       }
       interface Household {
         readonly familyId: string;
         readonly familyName: string;
         readonly publicId: string;
+        readonly source: string;
         readonly guests: Guest[];
       }
       const byFamily = new Map<string, Household>();
@@ -218,6 +268,7 @@ export const stateExportService = {
             familyId: row.familyId,
             familyName: row.familyName,
             publicId: row.publicId,
+            source: "familySource" in row ? row.familySource : "import",
             guests: [],
           };
           byFamily.set(row.familyId, household);
@@ -230,6 +281,7 @@ export const stateExportService = {
           lastName: row.lastName,
           nickname: row.nickname,
           sortOrder: row.sortOrder ?? 0,
+          source: ("guestSource" in row ? row.guestSource : null) ?? "import",
         });
       }
       const householdKey = (h: Household) => h.familyName.trim().toLowerCase();
@@ -247,6 +299,7 @@ export const stateExportService = {
         GUEST_NICKNAME_HEADER,
         ...eventRows.map((e) => e.name),
         ...(withIds ? [FAMILY_CODE_HEADER, GUEST_ID_HEADER] : []),
+        ...(snapshot ? [FAMILY_SOURCE_HEADER, GUEST_SOURCE_HEADER] : []),
       ];
 
       const data: string[][] = [];
@@ -263,6 +316,8 @@ export const stateExportService = {
             ...eventRows.map(() => ""),
             h.publicId,
             "",
+            h.source,
+            "",
           ]);
           return;
         }
@@ -276,6 +331,7 @@ export const stateExportService = {
             ...eventRows.map((e) => (invited.has(`${g.guestId}::${e.id}`) ? "x" : "")),
           ];
           if (withIds) cells.push(h.publicId, g.guestId);
+          if (snapshot) cells.push(h.source, g.source);
           data.push(cells);
         }
       });
@@ -293,7 +349,7 @@ export const stateExportService = {
         });
       }
 
-      return serialiseCsv(header, data);
+      return serialiseCsv(header, data, { guard: !snapshot });
     }).pipe(Effect.withSpan("cire.state-export.guestsCsv"));
   },
 };

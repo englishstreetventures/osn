@@ -43,6 +43,12 @@ import { DDL } from "../../src/db/setup";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
+import {
+  ChangeConflict,
+  claimChanges,
+  commitClaimStatement,
+  headRevision,
+} from "../../src/services/changes";
 import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
 import { giftExportService } from "../../src/services/gift-export";
@@ -427,6 +433,69 @@ describe("cire/api over real D1 (Miniflare)", () => {
       rows = await run(rsvpService.getRsvpsForFamily(FAMILY_ID));
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ status: "declined", dietary: "veg" });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "of two change claims at the same head on D1, one takes the wedding",
+    async () => {
+      const first = await run(claimChanges(BOOTSTRAP_WEDDING_ID, "0"));
+      expect(first.rev).toBe(0);
+      const second = await run(Effect.flip(claimChanges(BOOTSTRAP_WEDDING_ID, "0")));
+      expect(second).toBeInstanceOf(ChangeConflict);
+      expect(second.reason).toBe("in_progress");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a change whose claim was taken from it rolls back its final batch on D1",
+    async () => {
+      const claim = await run(claimChanges(BOOTSTRAP_WEDDING_ID, "0"));
+      await db
+        .update(weddings)
+        .set({ changeClaim: "someone-else" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      const plan: ImportPlan = {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [],
+        familyCreates: [{ id: "fam_lost", publicId: "LOSTFAM-CC03", familyName: "Lost" }],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      };
+
+      const failure = await run(
+        Effect.flip(
+          applyImport("imp_lost", plan, BOOTSTRAP_WEDDING_ID, [commitClaimStatement(db, claim)]),
+        ),
+      );
+      expect(failure._tag).toBe("ImportError");
+      // The household rode in the same batch as the failed commit statement.
+      expect(await db.select().from(families).where(eq(families.id, "fam_lost"))).toHaveLength(0);
+      const [row] = await db
+        .select({ rev: weddings.changeRev, claim: weddings.changeClaim })
+        .from(weddings)
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      expect(row).toEqual({ rev: 0, claim: "someone-else" });
+
+      // Held by its own token, the same statement commits and moves the head.
+      await db
+        .update(weddings)
+        .set({ changeClaim: claim.token })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      await run(
+        applyImport("imp_kept", plan, BOOTSTRAP_WEDDING_ID, [commitClaimStatement(db, claim)]),
+      );
+      expect(await db.select().from(families).where(eq(families.id, "fam_lost"))).toHaveLength(1);
+      expect(await run(headRevision(BOOTSTRAP_WEDDING_ID))).toBe("1");
     },
     MF_TIMEOUT_MS,
   );
@@ -1468,10 +1537,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // First write inserts the row; a section the body leaves out gets the
-      // column default. A second write updates only what it names.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { story: false }));
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { footer: false }));
-      expect((await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID))).visibility).toEqual({
+      // column default. A second write updates only what it names. Each write
+      // answers from the row its RETURNING clause handed back, which on D1
+      // comes through the driver's raw path — so it must equal the next read,
+      // booleans included.
+      const inserted = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { story: false }),
+      );
+      expect(inserted.visibility).toEqual({ hero: true, story: false, faq: true, footer: true });
+      const updated = await run(
+        inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { footer: false }),
+      );
+      expect(updated).toEqual(await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID)));
+      expect(updated.visibility).toEqual({
         hero: true,
         story: false,
         faq: true,
@@ -1672,7 +1750,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
 
       // …and none once it is off, with the entries kept.
-      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, { faq: false }));
+      await run(inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { faq: false }));
       expect((await run(claimService.lookup(PUBLIC_ID))).faq).toEqual({
         visible: false,
         entries: [],

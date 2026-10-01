@@ -92,6 +92,18 @@ export const weddings = sqliteTable(
     // CC6/CC7 attributability. NULL on every pre-0056 row and on any write that
     // predates the column, which reads as "unknown", never as "the owner".
     updatedByOsnProfileId: text("updated_by_osn_profile_id"),
+    // ── Guest-list and schedule change guard (migration 0070) ──────────────
+    // `change_rev` is the head revision of the organiser change pipeline
+    // (`cire/api/src/services/changes.ts`): it moves in the same D1 batch as
+    // every committed change apply or revert, and whenever a change that may
+    // have written part of its data gives up. `change_claim` is the random
+    // token of the change apply or revert holding the wedding, set from the
+    // moment it starts writing until it commits or gives up, and
+    // `change_claimed_at` (epoch ms) is when it took it, so a holder whose
+    // Worker died can be expired. Only one apply or revert holds a wedding at a time.
+    changeRev: integer("change_rev").notNull().default(0),
+    changeClaim: text("change_claim"),
+    changeClaimedAt: integer("change_claimed_at"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

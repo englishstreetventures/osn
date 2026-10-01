@@ -31,3 +31,34 @@ export async function loadHeadRevision(authFetch: AuthFetch, weddingId: string):
   }
   return revision;
 }
+
+/**
+ * The head a successful apply response names — the revision its own commit
+ * left — or `undefined` when the body carries none, so the caller reads the
+ * head itself.
+ */
+export function revisionOf(applyBody: unknown): string | undefined {
+  if (typeof applyBody !== "object" || applyBody === null || !("revision" in applyBody)) {
+    return undefined;
+  }
+  const { revision } = applyBody;
+  return typeof revision === "string" && revision.length > 0 ? revision : undefined;
+}
+
+/**
+ * Whether a 409 from apply means another change is still being written, as
+ * opposed to the wedding having changed since the preview. The same preview
+ * can be confirmed again once that change finishes.
+ */
+export function isChangeInProgress(body: { reason?: unknown } | null): boolean {
+  return body?.reason === "change_in_progress";
+}
+
+/**
+ * Whether a 409 from apply means the wedding's head moved since the preview —
+ * someone else's change landed — so the draft is stale, as opposed to another
+ * change still being written.
+ */
+export function isHeadMoved(body: { reason?: unknown } | null): boolean {
+  return body?.reason === "head_moved";
+}

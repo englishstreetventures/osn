@@ -789,6 +789,15 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText("State changed — re-preview")).toBeTruthy());
   });
 
+  it("offers to reload with the edits kept when the apply finds the head has moved", async () => {
+    await applyRenameAgainst409({ error: "State changed — re-preview", reason: "head_moved" });
+    await waitFor(() =>
+      expect(screen.getByText(/Someone else changed the schedule/i)).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
+  });
+
   it("shows the missing-scope 409 verbatim, not the co-host wording", async () => {
     // A change the server cannot read a scope from is not a concurrency conflict.
     // Saying the schedule changed elsewhere would send the organiser hunting for
@@ -798,6 +807,7 @@ describe("EventsEditor", () => {
       expect(screen.getByText("Change is missing its scope — re-preview")).toBeTruthy(),
     );
     expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
   });
 
   it("falls back to the co-host wording when a 409 carries no message", async () => {
@@ -958,24 +968,80 @@ describe("EventsEditor", () => {
     expect(screen.queryByRole("button", { name: /Add event/i })).toBeNull();
   });
 
-  it("says to reload when the draft is older than the head", async () => {
-    primeLoad();
-    render(() => <EventsEditor weddingId="wed_a" />);
-    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
-    const save = await waitFor(() => screen.getByRole("button", { name: /Save changes/i }));
-
-    authFetchMock.mockImplementation((url: string) => {
-      if (String(url).endsWith("/changes/preview")) {
+  it("reloads with the organiser's edits kept when the draft is older than the head", async () => {
+    // Loads at rev_1. By the save, a co-host has renamed the ceremony and added
+    // an event at rev_2; the organiser meanwhile deleted the reception.
+    // The real invalidate, so the reload reads the rows afresh.
+    invalidateEventsMock.mockImplementation(() => __resetEventsCache());
+    let head = "rev_1";
+    let rows = EVENTS;
+    const posted: Record<string, unknown>[] = [];
+    authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: head }));
+      if (u.endsWith("/events")) return Promise.resolve(json(rows));
+      if (u.endsWith("/changes/preview")) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        posted.push(body);
+        if (body.baseRevision === "rev_1") {
+          head = "rev_2";
+          rows = [
+            { ...EVENTS[0]!, name: "Church Ceremony" },
+            EVENTS[1]!,
+            { ...EVENTS[1]!, id: "evt_3", name: "Mehendi", slug: "mehendi", sortOrder: 2 },
+          ];
+          return Promise.resolve(
+            json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          );
+        }
         return Promise.resolve(
-          json({ error: "State changed — reload the editor", reason: "stale_draft" }, 409),
+          json({
+            changeId: "chg_1",
+            baseRevision: "rev_2",
+            warnings: [],
+            clears: null,
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemoves: [],
+              familyCreates: [],
+              familyUpdates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+          }),
         );
       }
       return Promise.resolve(fallback(url));
     });
-    fireEvent.click(save);
-    await waitFor(() => expect(screen.getByText(/reload the editor/i)).toBeTruthy());
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Someone else changed the schedule/i)).toBeTruthy(),
+    );
     expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Reload and keep my edits/i }));
+
+    await waitFor(() => expect(screen.getByText("Mehendi")).toBeTruthy());
+    expect(screen.getByText("Church Ceremony")).toBeTruthy();
+    expect(screen.queryByText("Reception")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() => expect(posted).toHaveLength(2));
+    expect(posted[1]!.baseRevision).toBe("rev_2");
+    const wire = posted[1]!.desiredState as { events: { id?: string; name: string }[] };
+    expect(wire.events.map((e) => [e.id, e.name])).toEqual([
+      ["evt_1", "Church Ceremony"],
+      ["evt_3", "Mehendi"],
+    ]);
   });
 
   it("saves again with the head read after the last save", async () => {
