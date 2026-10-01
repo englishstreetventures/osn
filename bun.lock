@@ -295,7 +295,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.28.6",
+      "version": "3.28.7",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
@@ -557,7 +557,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.10.0",
+      "version": "0.11.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.0.0-rc.112",
