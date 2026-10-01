@@ -120,6 +120,13 @@
       "when": 1790839684170,
       "tag": "0073_wedding_tiers",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1790840616518,
+      "tag": "0074_directory_vendor_claim_review",
+      "breakpoints": true
     }
   ]
 }

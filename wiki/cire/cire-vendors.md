@@ -5,6 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
+  - "[[access-control]]"
 last-reviewed: 2026-10-01
 ---
 # Vendors — directory, CRM, and email-verification claim
@@ -34,7 +35,8 @@ Global directory of vendors. One row per vendor business (not per wedding). A ve
 | `price_band`, `price_min_minor`, `price_max_minor` | Optional price guide |
 | `listed` | `'draft'` (seeded, not browsable) or `'live'`; defaults to `'draft'` |
 | `lead_forward_email` | The vendor's own lead-capture address, copied on a new enquiry; null until set in the portal |
-| `claimed_by_profile_id` | The OSN profile that claimed the listing; the vendor-side member of any enquiry chat. Null until claimed |
+| `claimed_by_profile_id` | The OSN profile that claimed the listing; the vendor-side member of any enquiry chat. Null until an operator confirms the claim |
+| `review_org_id`, `review_profile_id`, `review_requested_at` | A redeemed claim waiting for an operator: the org and profile that redeemed it, and when. Null when no claim waits. `review_org_id` is unique (`directory_vendors_review_org_uniq`), so an org holds at most one pending claim |
 | `created_at`, `updated_at` | Timestamps (second precision) |
 
 ### `directory_vendor_categories`
@@ -102,13 +104,13 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 
-**One listing per org / many categories per listing:** an org owns at most one directory listing. `directory_vendors.owner_org_id` carries a unique index, so a second listing for the same org fails at the database, and `consumeClaim` refuses a claim into an org that already owns a listing (409 `org_has_listing`) before it spends the token. `getListingByOrg` and `upsertListingForOrg` rely on this. An org wanting separate listings per line of business (photo vs video) uses a second OSN org. `directory_vendor_categories` holds many service categories per listing.
+**One listing per org / many categories per listing:** an org owns at most one directory listing, counting a claim it is waiting on. `directory_vendors.owner_org_id` and `review_org_id` each carry a unique index, so a second listing for the same org fails at the database, and `consumeClaim` refuses a claim into an org that already owns a listing or waits on one (409 `org_has_listing`) before it spends the token. `getListingByOrg` and `upsertListingForOrg` rely on this. An org wanting separate listings per line of business (photo vs video) uses a second OSN org. `directory_vendor_categories` holds many service categories per listing.
 
 ---
 
 ## Email-verification claim flow
 
-The claim flow lets an organiser assert "this CRM entry is the same business as that directory listing" and lets the vendor confirm ownership by clicking a link sent to the business email.
+The claim flow lets an organiser assert "this CRM entry is the same business as that directory listing" and lets the vendor ask for the listing by clicking a link sent to the business email. The organiser chooses that address, so a redeemed link proves control of an inbox and nothing more. It never binds the listing by itself: the claim waits for an operator, who confirms or rejects it ([[#Operator review of claims]]).
 
 ### Step-by-step
 
@@ -120,11 +122,11 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claims/:token/consume` with the raw token in the path and `{ orgId }` in the body. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented) and rejects a token that is consumed or past `expires_at`.
-   - Reads, in one query, the listing's owner and whether the picked org already owns a listing. A listing that is gone or already claimed fails `ClaimInvalid` (410); an org that already owns a listing fails `OrgAlreadyHasListing` (409 `org_has_listing`). Neither spends the token, so the vendor can pick another org.
+   - Reads, in one query, the listing's owner and pending claim and whether the picked org already owns or waits on a listing. A listing that is gone, claimed or already pending fails `ClaimInvalid` (410); an org that owns or waits on a listing fails `OrgAlreadyHasListing` (409 `org_has_listing`). Neither spends the token, so the vendor can pick another org.
    - **Burns the token first**: `UPDATE vendor_claims SET consumed_at = now WHERE id = ? AND consumed_at IS NULL`. Zero rows changed means another request consumed it first, and the claim fails before anything is bound. A failure after the burn leaves the token spent and the listing unbound, never bound with a reusable token.
-   - **Then binds the listing and burns its other tokens**, in one batch. The bind is one UPDATE that sets `owner_org_id`, `claimed_by_profile_id` and `listed = 'live'` together, so the enquiry service never sees a listing that is bound but unclaimed, and it matches only while `owner_org_id IS NULL`: a second token can never move a claimed listing to another org. The second UPDATE spends every other live token for the listing. The bound row comes back from the bind's `RETURNING`, read beside the listing's categories; a listing that has gone or been claimed by then fails `ClaimInvalid`, with the token already spent. If the org gains a listing between the read and the bind, the unique index stops the batch and the claim fails `OrgAlreadyHasListing`, also with the token spent. The whole claim is six statements (`directoryService.consumeClaim` in [`directory.ts`](../../cire/api/src/services/directory.ts)).
-   - The directory listing is now **bound to the vendor's OSN org** — the vendor principal model applies from this point.
-   - Returns the listing, which the portal carries to its editor so the editor need not fetch it again.
+   - **Then records the pending claim and burns the listing's other tokens**, in one batch. The write sets `review_org_id`, `review_profile_id` and `review_requested_at`, and matches only while `owner_org_id` and `review_org_id` are both null: a second token can never move a claim to another org. It leaves `owner_org_id`, `claimed_by_profile_id` and `listed` alone, so every reader that decides "claimed" on them — `enquiries.open`, the vendor enquiry org gate, browse — still treats the listing as unclaimed: it is not live, couples' enquiries keep buffering, and no chat reaches the claimant. The second UPDATE spends every other live token for the listing. The row comes back from the write's `RETURNING`, read beside the listing's categories; a listing that has gone, been claimed or gone pending by then fails `ClaimInvalid`, with the token already spent. If the org gains a pending claim between the read and the write, the unique index stops the batch and the claim fails `OrgAlreadyHasListing`, also with the token spent. The whole claim is six statements (`directoryService.consumeClaim` in [`directory.ts`](../../cire/api/src/services/directory.ts)).
+   - Logs `vendor claim awaiting operator review` with the listing id, and counts `cire.vendor_claim_review.events{event="requested"}`.
+   - Returns the listing with `awaitingConfirmation: true`, which the portal carries to its editor so the editor need not fetch it again.
 
 4. **The portal hands the listing to the editor.** The claim page writes the listing, with its contact details, to `sessionStorage` (`cire.vendor.claimed-listing`) and redirects to the dashboard at `/#/orgs/<id>`. The dashboard takes it off storage as the page loads, before anything renders and whether or not the vendor is signed in, and holds it in page memory for the first editor that opens; an editor opened for a different org drops it and fetches. The storage copy therefore lives for that one redirect. Code: `drainClaimedListing` and `takeSeededListing` in [`vendor-store.ts`](../../cire/vendor/src/lib/vendor-store.ts).
 
@@ -132,7 +134,31 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 The `vendor-claim-invite` email template (`shared/email/src/templates/vendor-claim.ts`) is sent with the claim link and a brief call-to-action. A failed send never fails the request: `sendClaimInviteEmail` logs it (`Effect.logWarning`) and resolves to `false`, and the endpoint returns 200 with `invited: false`. There is no other way to deliver the link, and listing the vendor again creates a second draft listing.
 
-The claim page's preview (`GET /api/vendor/claims/:token`) returns 404 for a token that is spent or expired, or whose listing is gone or already claimed.
+The claim page's preview (`GET /api/vendor/claims/:token`) returns 404 for a token that is spent or expired, or whose listing is gone, claimed or waiting on an operator.
+
+### Operator review of claims
+
+While a claim waits, the listing is `draft` with no owner. The claimant's portal shows it with an "awaiting confirmation" chip and a note, and no form: `GET /api/vendor/orgs/:orgId/listing` returns it with `awaitingConfirmation: true`, and `PUT` answers 409 `listing_awaiting_confirmation`, since a save always puts a listing live. `issueClaimForListing` mints no further token for it, so a couple's enquiry email carries no claim link.
+
+**How the operator learns of it.** No operator address is configured, so the signals are a `logWarning` on each claim and, from the daily cron, `vendor claims awaiting operator review` with the count of claims still waiting (Workers Logs, kept 7 days). The metric `cire.vendor_claim_review.events` records the same events, but cire's metrics export nothing on workerd yet ([[cire-workerd]]).
+
+**Confirm or reject** with `scripts/cire-vendor-claim-review.ts`. It runs SQL on the cire D1 through `wrangler d1 execute`, under the operator's own Cloudflare login, using the wrangler installed in `cire/api`. `--env` (`local`, `dev` or `production`) has no default, and confirm and reject are dry runs until `--apply`:
+
+```bash
+bun scripts/cire-vendor-claim-review.ts list    --env production
+bun scripts/cire-vendor-claim-review.ts confirm dv_… --env production          # dry run: checks, prints the SQL
+bun scripts/cire-vendor-claim-review.ts confirm dv_… --env production --apply
+bun scripts/cire-vendor-claim-review.ts reject  dv_… --env production --apply
+```
+
+- **Before confirming**, decide whether the claimant is the business. The script prints the listing's email and website (both typed by the organiser, so not proof on their own) and, from the OSN D1, the claimant organisation's name and handle, the claiming profile's handle and role, and the email on the claimant's OSN account, with a line saying whether that email's domain matches the listing's website or email. A match is not proof either: the organiser typed those domains, and a mail provider anyone can sign up to matches nothing. Check the claimant against contact details for the business that you find yourself, and contact it that way when in doubt. Every stored string is printed quoted, with control characters escaped.
+- **Confirm** refuses a listing with no pending claim, one already owned, an org that already owns another listing, an org OSN does not have, and a profile that has left the org. It moves `review_org_id` and `review_profile_id` into `owner_org_id` and `claimed_by_profile_id` and sets `listed = 'live'`, in one UPDATE that repeats the checked state in its `WHERE`. New enquiries go straight to the vendor from then on.
+- **Reject** clears the `review_*` columns. The listing is unowned and claimable again; its tokens were all spent by the claim, so the next new enquiry thread mints the next one.
+- **Record** each decision (listing id, confirm or reject, why) where the team keeps operator actions, per [[access-control#Internal admin actions on user data]].
+
+Every value the script puts in SQL is checked against a strict id pattern first (`wrangler d1 execute --command` takes no bound parameters), and writes use `RETURNING`, so a claim that changed between the check and the write reports zero rows rather than half-applying. Tests run its SQL against SQLite built from the real cire and OSN migrations (`scripts/tests/cire-vendor-claim-review.test.ts`).
+
+**Hand-off after a confirm.** A raw UPDATE cannot run app code, so the daily cron (04:00 UTC, `claimReviewService.sweep` in [`claim-review.ts`](../../cire/api/src/services/claim-review.ts)) hands buffered enquiries over: every open enquiry with no chat and a `pending_body`, on a listing with a `claimed_by_profile_id`, gets its chat provisioned and its first message sent (`flushBufferedEnquiry` in [`enquiries.ts`](../../cire/api/src/services/enquiries.ts)). The work is read from that state, not from a flag, so a failed hand-off stays buffered and is retried the next day. The queue is the partial index `vendor_enquiries_buffered_idx`, oldest `updated_at` first, and a failure bumps `updated_at`, so an enquiry that keeps failing moves to the back rather than holding every run's slots. The final UPDATE matches only while the enquiry is open with `zap_chat_id IS NULL`. A chat provisioned before a failed send is not reused, so a retry provisions another. A run takes at most 10 enquiries (20 zap-api calls), because the cron shares one invocation's Free-plan subrequest and D1 query ceilings with the other jobs ([[free-tier-limits]]). Until the sweep reaches an enquiry, the vendor sees it in their inbox but a reply answers 409 `awaiting_vendor`, for up to a day. Without vendor chat configured (`ZAP_API_URL`, as on dev) nothing is handed off and the cron logs that enquiries are waiting.
 
 ---
 
@@ -160,7 +186,7 @@ Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
 | Method | Route | Description |
 |---|---|---|
 | `GET` | `/vendor/claims/:token` | Public claim preview; 404 when the token or its listing cannot be claimed |
-| `POST` | `/vendor/claims/:token/consume` | Consume a claim token; bind listing to caller's org (409 `org_has_listing` if the org already owns one) |
+| `POST` | `/vendor/claims/:token/consume` | Consume a claim token; record a claim for the caller's org that waits for an operator (409 `org_has_listing` if the org already owns or waits on one) |
 | `GET` | `/vendor/listing` | Get the caller's directory listing |
 | `PUT` | `/vendor/listing` | Update listing details |
 | `GET` | `/vendor/listing/categories` | Get assigned categories |

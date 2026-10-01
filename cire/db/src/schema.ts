@@ -506,11 +506,20 @@ export const directoryVendors = sqliteTable(
     // The OSN profile that claimed this listing (recorded at consumeClaim time).
     // Becomes the vendor-side member of any c2b enquiry chat. Null until claimed.
     claimedByProfileId: text("claimed_by_profile_id"),
+    // A redeemed claim waiting for an operator. `consumeClaim` writes these
+    // three and leaves `owner_org_id` / `claimed_by_profile_id` null, so the
+    // listing reads as unclaimed everywhere until an operator confirms
+    // (`scripts/cire-vendor-claim-review.ts`), which moves them into the owner
+    // columns and clears them; a rejection clears them. An org holds at most one.
+    reviewOrgId: text("review_org_id"),
+    reviewProfileId: text("review_profile_id"),
+    reviewRequestedAt: integer("review_requested_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
     uniqueIndex("directory_vendors_owner_uniq").on(t.ownerOrgId),
+    uniqueIndex("directory_vendors_review_org_uniq").on(t.reviewOrgId),
     // Browse runs `WHERE listed='live' … ORDER BY name, id` — the composite
     // serves filter + order in one b-tree walk (migration 0053 replaced the
     // single-column `listed` index, whose prefix this still covers).
@@ -601,6 +610,11 @@ export const vendorEnquiries = sqliteTable(
     index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt),
     // Vendor inbox: find a listing's enquiries.
     index("vendor_enquiries_directory_idx").on(t.directoryVendorId),
+    // The daily hand-off sweep's queue: only buffered enquiries, least
+    // recently tried first (a failed hand-off bumps `updated_at`).
+    index("vendor_enquiries_buffered_idx")
+      .on(t.updatedAt, t.id)
+      .where(sql`status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL`),
   ],
 );
 

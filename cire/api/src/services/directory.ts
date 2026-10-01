@@ -21,11 +21,12 @@
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { likeContains } from "@shared/db-utils/search";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
 import { commitBatch, commitBatchResults, DbService, dbQuery } from "../db";
+import { metricVendorClaimReview } from "../metrics";
 import { VendorNotInWedding } from "./vendors";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
@@ -42,6 +43,12 @@ export class ClaimInvalid extends Data.TaggedError("ClaimInvalid") {}
  */
 export class OrgAlreadyHasListing extends Data.TaggedError("OrgAlreadyHasListing") {}
 
+/**
+ * The org's listing is a redeemed claim still waiting for an operator; the
+ * vendor cannot edit or publish it until then. 409-class.
+ */
+export class ListingAwaitingConfirmation extends Data.TaggedError("ListingAwaitingConfirmation") {}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 /** 7 days in ms. */
@@ -57,6 +64,8 @@ const CLAIM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export interface DirectoryVendorRow {
   id: string;
   ownerOrgId: string | null;
+  /** Org of a redeemed claim waiting for an operator; null when none is. */
+  reviewOrgId: string | null;
   email: string | null;
   name: string;
   phone: string | null;
@@ -78,6 +87,11 @@ export interface ListingDto {
   priceMinMinor: number | null;
   priceMaxMinor: number | null;
   listed: string;
+  /**
+   * True while the listing is a redeemed claim waiting for an operator. It is
+   * then not live, and no enquiry chat reaches the claimant.
+   */
+  awaitingConfirmation: boolean;
   categories: string[];
   createdAt: number;
   updatedAt: number;
@@ -152,6 +166,7 @@ interface DvRow {
   priceMinMinor: number | null;
   priceMaxMinor: number | null;
   listed: string;
+  reviewOrgId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -217,15 +232,21 @@ function toDto(row: DvRow, categories: string[]): ListingDto {
     priceMinMinor: row.priceMinMinor,
     priceMaxMinor: row.priceMaxMinor,
     listed: row.listed,
+    awaitingConfirmation: row.reviewOrgId != null,
     categories,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
 }
 
+/** The listing `orgId` owns or is waiting on an operator for; an org has at most one. */
+const ownedOrPending = (orgId: string) =>
+  or(eq(directoryVendors.ownerOrgId, orgId), eq(directoryVendors.reviewOrgId, orgId));
+
 /**
- * Why a claim's bind batch threw. The one expected cause is the unique owner
- * index: `orgId` gained a listing between the claim's pre-check and its bind.
+ * Why a claim's bind batch threw. The one expected cause is a unique index on
+ * owner or pending org: `orgId` gained a listing, or another pending claim,
+ * between the claim's pre-check and its bind.
  * A fresh read says whether that happened — the driver's error message is not
  * a reliable signal, since D1 does not carry SQLite's wording — and answers
  * `OrgAlreadyHasListing`. Anything else stays a defect.
@@ -240,7 +261,7 @@ function bindRefused(
       db
         .select({ id: directoryVendors.id })
         .from(directoryVendors)
-        .where(eq(directoryVendors.ownerOrgId, orgId))
+        .where(ownedOrPending(orgId))
         .limit(1)
         .all(),
     );
@@ -324,13 +345,14 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
 
   return {
     /**
-     * Return the single listing owned by this org, or null if none exists.
+     * Return the single listing this org owns, or the one its redeemed claim is
+     * waiting on an operator for (`awaitingConfirmation`), or null.
      */
     getListingByOrg(orgId: string): Effect.Effect<ListingDto | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         const [row] = yield* dbQuery(() =>
-          db.select().from(directoryVendors).where(eq(directoryVendors.ownerOrgId, orgId)).all(),
+          db.select().from(directoryVendors).where(ownedOrPending(orgId)).all(),
         );
         if (!row) return null;
         const dvRow = row as DvRow;
@@ -341,17 +363,24 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
 
     /**
      * Create-or-update the single listing owned by `orgId`. Always sets
-     * `listed='live'`. Replaces the category set on every call.
+     * `listed='live'`. Replaces the category set on every call. Fails
+     * `ListingAwaitingConfirmation` while the org's claim waits for an
+     * operator: that listing must not go live, and a second one would leave
+     * the org two listings once the claim is confirmed.
      */
     upsertListingForOrg(
       orgId: string,
       body: UpsertListingBody,
-    ): Effect.Effect<ListingDto, never, DbService> {
+    ): Effect.Effect<ListingDto, ListingAwaitingConfirmation, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const [existing] = yield* dbQuery(() =>
-          db.select().from(directoryVendors).where(eq(directoryVendors.ownerOrgId, orgId)).all(),
+        const [found] = yield* dbQuery(() =>
+          db.select().from(directoryVendors).where(ownedOrPending(orgId)).all(),
         );
+        if (found && found.ownerOrgId !== orgId) {
+          return yield* Effect.fail(new ListingAwaitingConfirmation());
+        }
+        const existing = found;
 
         let dvId: string;
         let dvRow: DvRow;
@@ -519,8 +548,9 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
      * the vendor to claim their listing via the canonical
      * `${vendorPortalOrigin}/claim?token=…` → `consumeClaim` flow.
      *
-     * Returns `null` when the listing is unknown OR already claimed
-     * (`owner_org_id` set) — a claimed listing needs no claim CTA. Otherwise
+     * Returns `null` when the listing is unknown, already claimed
+     * (`owner_org_id` set) or holding a claim that waits for an operator
+     * (`review_org_id` set) — none of them can be claimed now. Otherwise
      * reuses the same token machinery as `seedFromCrm` (256-bit token, stored as
      * SHA-256 hash only, 7-day TTL). Tokens are hashed at rest, so an existing
      * unconsumed token cannot be recovered as plaintext — a fresh single-use
@@ -533,8 +563,8 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
       return Effect.gen(function* () {
         const db = yield* DbService;
 
-        // Unknown or already-claimed listing → no claim CTA needed.
-        if (!dv || dv.ownerOrgId !== null) return null;
+        // Unknown, claimed or pending listing → no claim CTA.
+        if (!dv || dv.ownerOrgId !== null || dv.reviewOrgId !== null) return null;
 
         const now = new Date();
         const token = generateToken();
@@ -564,7 +594,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     /**
      * Validate an unconsumed, unexpired token and return listing summary.
      * Returns null if the token is unknown, expired or consumed, or its listing
-     * is gone or already claimed.
+     * is gone, already claimed or holding a claim that waits for an operator.
      */
     getClaimPreview(
       token: string,
@@ -600,14 +630,15 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
               id: directoryVendors.id,
               name: directoryVendors.name,
               ownerOrgId: directoryVendors.ownerOrgId,
+              reviewOrgId: directoryVendors.reviewOrgId,
             })
             .from(directoryVendors)
             .where(eq(directoryVendors.id, claimRow.directoryVendorId))
             .all(),
         );
         if (!dv) return null;
-        const dvRow = dv as { id: string; name: string; ownerOrgId: string | null };
-        if (dvRow.ownerOrgId !== null) return null;
+        if (dv.ownerOrgId !== null || dv.reviewOrgId !== null) return null;
+        const dvRow = dv;
 
         return {
           directoryVendorId: claimRow.directoryVendorId,
@@ -617,20 +648,24 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     },
 
     /**
-     * Redeem a claim token: bind `owner_org_id=orgId` AND
-     * `claimed_by_profile_id=claimingProfileId`, flip `listed='live'`, stamp
-     * `consumed_at`, and burn every other live token for the listing.
+     * Redeem a claim token: record `review_org_id=orgId`,
+     * `review_profile_id=claimingProfileId` and `review_requested_at`, stamp
+     * `consumed_at`, and burn every other live token for the listing. The
+     * listing stays unowned and `draft` until an operator confirms
+     * (`scripts/cire-vendor-claim-review.ts`).
+     *
+     * A claim proves control of an inbox the organiser chose, not that the
+     * claimant is the business, so it must not bind ownership by itself.
+     * Leaving `owner_org_id` and `claimed_by_profile_id` null keeps every
+     * reader that decides "claimed" on them (`enquiries.open`, the vendor
+     * enquiry org gate, browse) treating the listing as unclaimed: couples'
+     * enquiries keep buffering and no chat reaches the claimant. The operator's
+     * confirm writes both owner columns in one UPDATE.
      *
      * Fails `ClaimInvalid` if the token is unknown, expired or consumed, or its
-     * listing is gone or already claimed. Fails `OrgAlreadyHasListing` if
-     * `orgId` already owns a listing; that check runs before the burn, so the
-     * token stays live for the vendor to pick another org.
-     *
-     * `claimedByProfileId` is load-bearing: the enquiry service decides
-     * claimed-vs-unclaimed on it (`enquiries.open` branches on
-     * `claimedByProfileId`, and it becomes the vendor-side member of any c2b
-     * chat), so it MUST be written in the same UPDATE that binds `ownerOrgId` —
-     * otherwise a production-claimed listing reads as "unclaimed" forever.
+     * listing is gone, claimed or already pending. Fails `OrgAlreadyHasListing`
+     * if `orgId` already owns or is waiting on a listing; that check runs
+     * before the burn, so the token stays live for the vendor to pick another org.
      */
     consumeClaim(
       token: string,
@@ -651,7 +686,8 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
               claim: vendorClaims,
               listingId: directoryVendors.id,
               listingOwner: directoryVendors.ownerOrgId,
-              orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId})`,
+              listingReview: directoryVendors.reviewOrgId,
+              orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId} OR o.review_org_id = ${orgId})`,
             })
             .from(vendorClaims)
             .leftJoin(directoryVendors, eq(directoryVendors.id, vendorClaims.directoryVendorId))
@@ -664,7 +700,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         if (claimRow.consumedAt !== null) return yield* Effect.fail(new ClaimInvalid());
         if (claimRow.expiresAt.getTime() < Date.now())
           return yield* Effect.fail(new ClaimInvalid());
-        if (found.listingId === null || found.listingOwner !== null)
+        if (found.listingId === null || found.listingOwner !== null || found.listingReview !== null)
           return yield* Effect.fail(new ClaimInvalid());
         if (found.orgHasListing) return yield* Effect.fail(new OrgAlreadyHasListing());
 
@@ -693,19 +729,21 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
           return yield* Effect.fail(new ClaimInvalid());
         }
 
-        // Burn succeeded — now bind the listing and burn its other live
-        // tokens, in one batch. The bind only matches an unowned listing, so a
-        // second token can never move a claimed listing to another org.
-        // `claimedByProfileId` is set in the SAME UPDATE as `ownerOrgId` so the
-        // enquiry service reads this listing as CLAIMED immediately. RETURNING
-        // hands back the bound row, so nothing re-reads it.
+        // Burn succeeded — now record the pending claim and burn the listing's
+        // other live tokens, in one batch. The write only matches a listing
+        // that is unowned and not already pending, so a second token can never
+        // move a claim to another org. RETURNING hands back the row, so nothing
+        // re-reads it.
         //
-        // The bind comes first in the batch: if it violates the unique owner
-        // index (`orgId` gained a listing after the pre-check), the batch
-        // stops before the other tokens are burned. On D1 the whole batch
-        // rolls back; this token stays burned either way, so that race fails
-        // closed with `OrgAlreadyHasListing`. Burning the other tokens when the
-        // bind matched nothing is harmless: they could no longer bind anything.
+        // The write comes first in the batch: if it violates the unique
+        // pending-org index (`orgId` gained a pending claim after the
+        // pre-check), the batch stops before the other tokens are burned. On
+        // D1 the whole batch rolls back; this token stays burned either way,
+        // so that race fails closed with `OrgAlreadyHasListing`. An org that
+        // gains an OWNED listing in that window is not caught here; the
+        // operator's confirm refuses it (the script checks, and the unique
+        // owner index backs it). Burning the other tokens when the write
+        // matched nothing is harmless: they could no longer bind anything.
         //
         // Only the batch and the category read run together, and only after
         // the burn and its gate above: the bind must never start before the
@@ -718,15 +756,16 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                 db
                   .update(directoryVendors)
                   .set({
-                    ownerOrgId: orgId,
-                    claimedByProfileId: claimingProfileId,
-                    listed: "live",
+                    reviewOrgId: orgId,
+                    reviewProfileId: claimingProfileId,
+                    reviewRequestedAt: now,
                     updatedAt: now,
                   })
                   .where(
                     and(
                       eq(directoryVendors.id, claimRow.directoryVendorId),
                       isNull(directoryVendors.ownerOrgId),
+                      isNull(directoryVendors.reviewOrgId),
                     ),
                   )
                   .returning(),
@@ -746,9 +785,15 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
           { concurrency: "unbounded" },
         );
         const [bound] = bindResults[0] as DvRow[];
-        // No row: the listing is gone or was claimed after the pre-check. The
-        // token is already burned, so this fails closed.
+        // No row: the listing is gone, or was claimed or went pending after
+        // the pre-check. The token is already burned, so this fails closed.
         if (!bound) return yield* Effect.fail(new ClaimInvalid());
+        yield* Effect.sync(() => metricVendorClaimReview("requested"));
+        // The operator's signal: no ops address is configured, so a log line
+        // (Workers Logs) and the daily pending count are what tell them.
+        yield* Effect.logWarning("vendor claim awaiting operator review").pipe(
+          Effect.annotateLogs({ directoryVendorId: bound.id }),
+        );
         return toDto(bound, categories);
       }).pipe(Effect.withSpan("cire.directory.consumeClaim"));
     },

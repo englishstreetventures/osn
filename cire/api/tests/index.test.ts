@@ -570,10 +570,10 @@ describe("D1 session routing at the entry points", () => {
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
     // each of them keeps advancing, so every read would be forwarded to the
     // primary regardless. With no mail transport the digest does not run, so
-    // seven sweeps.
+    // eight sweeps.
     const { pending, probe } = await runCron();
-    expect(pending).toHaveLength(7);
-    expect(probe.constraints).toEqual(Array.from({ length: 7 }, () => D1_SESSION_CONSTRAINT));
+    expect(pending).toHaveLength(8);
+    expect(probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
   });
 
@@ -583,13 +583,13 @@ describe("D1 session routing at the entry points", () => {
     const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
 
     const full = await runCron({ ...mail, ...arc });
-    expect(full.pending).toHaveLength(8);
-    expect(full.probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.pending).toHaveLength(9);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
     expect(full.probe.bindingQueries).toEqual([]);
 
     // Either half missing: no digest.
-    expect((await runCron(mail)).pending).toHaveLength(7);
-    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(7);
+    expect((await runCron(mail)).pending).toHaveLength(8);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(8);
   });
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
@@ -606,7 +606,7 @@ describe("D1 session routing at the entry points", () => {
         WEB_ORIGIN: "http://localhost:4321",
       });
     });
-    expect(result?.pending).toHaveLength(7);
+    expect(result?.pending).toHaveLength(8);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });
