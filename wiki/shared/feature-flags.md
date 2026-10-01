@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[cire-organiser]]"
   - "[[cire-workerd]]"
-last-reviewed: 2026-09-26
+last-reviewed: 2026-09-30
 ---
 # Feature flags — GrowthBook
 
@@ -33,6 +33,12 @@ never throws.
 - **Two-layer cache.** Per-isolate in-memory memo + an OPTIONAL shared KV
   namespace (`KV_GB_PAYLOAD`). TTL 60s. KV absent ⇒ per-isolate cache only
   (still correct — just re-fetches once per cold isolate per TTL).
+- **Stale while it refreshes.** Pass the request's `waitUntil`
+  (`forRequest(attributes, { waitUntil })`) and a payload up to two TTLs old
+  (120 s) answers at once while the refresh, and its KV write, run in the
+  background under that `waitUntil`. An older payload, or no payload, is
+  refreshed in line. Without a `waitUntil` a stale payload is always
+  refreshed in line: leave it out where the flag guards a write.
 - **Typed registry.** `FLAGS` (in `shared/feature-flags/src/index.ts`) is the
   single source of truth for which flags exist and their fail-safe defaults.
   Callers reference flags by a typed key — a typo is a compile error.
@@ -52,7 +58,9 @@ async ({ flags, session }) => {
 ```
 
 `forRequest(attributes)` binds the request's targeting attributes (`id` is the
-bucketing key for percentage rollouts). Evaluation itself is synchronous. For
+bucketing key for percentage rollouts). Evaluation itself is synchronous. In a
+Worker, pass `{ waitUntil: getWaitUntil(request) }` (`cire/api/src/lib/execution-ctx.ts`)
+as the second argument so a stale payload never holds the response. For
 tests, `createStaticFlags({ "cire.account-linking": true })` builds a provider
 with explicit values and no network.
 
@@ -68,11 +76,13 @@ account" surface. cire-api evaluates it per household
   `cire/api/src/lib/account-linking.ts`; it also needs an ARC resolver, and it
   never rejects — a flag provider that throws reads as off. The payload waits
   at most 250 ms for the flag (`ACCOUNT_LINK_FLAG_WAIT` in
-  `cire/api/src/services/claim.ts`), so a slow GrowthBook refresh hides the box
-  for that one response rather than holding the invite back.
+  `cire/api/src/services/claim.ts`). The check passes the request's
+  `waitUntil`, so an isolate with a recent payload answers at once; only an
+  in-line fetch can run past 250 ms, which hides the box for that one response
+  rather than holding the invite back.
 - **`POST /api/account/link`** (`routes/account-link.ts`) answers **503**
   ("disabled") while the flag is off, as defence in depth: a crafted request
-  can't link.
+  can't link. It passes no `waitUntil`, so it never acts on a stale payload.
 Turn the flag on in the GrowthBook dashboard (feature key `cire.account-linking`)
 to reveal it. Add further flags to the registry + the dashboard as features land.
 

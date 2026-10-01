@@ -45,8 +45,9 @@ const GUEST_REFUSALS = {
  */
 export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend }) =>
   new Elysia({ prefix: "/api/plus-one" })
-    .use(sessionAuth(db))
+    // Limiter first: a refused request answers 429 before the session lookup.
     .use(rateLimitMiddleware(deps.limiter))
+    .use(sessionAuth(db))
     .put(
       "/:guestId",
       async ({ request, params, familyId, set }) => {

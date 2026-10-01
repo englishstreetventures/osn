@@ -1,4 +1,4 @@
-import type { FeatureFlags } from "@shared/feature-flags";
+import type { FeatureFlags, ForRequestOptions } from "@shared/feature-flags";
 
 /**
  * Feature flag gating the whole OSN ("Pulse") account-linking surface. Off ⇒
@@ -25,14 +25,18 @@ export interface AccountLinking {
  * Never rejects. A flag provider that throws reads as off, the same answer the
  * registry default gives, so a flag outage hides the optional box rather than
  * failing the invite that carries it.
+ *
+ * Given the request's `waitUntil`, a stale cached flag payload answers at once
+ * and refreshes in the background, so only a cold isolate waits on GrowthBook.
  */
 export async function isAccountLinkingOn(
   linking: AccountLinking,
   familyId: string,
+  waitUntil?: ForRequestOptions["waitUntil"],
 ): Promise<boolean> {
   if (!linking.canLink) return false;
   try {
-    const flags = await linking.flags.forRequest({ id: familyId });
+    const flags = await linking.flags.forRequest({ id: familyId }, { waitUntil });
     return flags.isOn(ACCOUNT_LINKING_FLAG);
   } catch {
     return false;

@@ -97,7 +97,8 @@ The code ships inert until these are done — nothing here blocks a deploy.
    the `KV_GB_PAYLOAD` binding in `wrangler.toml`:
    `bunx wrangler kv namespace create KV_GB_PAYLOAD`
 5. Redeploy. Flags now evaluate live; changes propagate within the cache TTL
-   (~60s). No webhook is required — the SDK payload is fetched + cached. A push
+   (~60s), or two TTLs (~120s) for a caller that passes `waitUntil` and so
+   reads a stale payload while it refreshes. No webhook is required — the SDK payload is fetched + cached. A push
    webhook (instant propagation, zero fetches) is a later optimisation.
 
 ## Test

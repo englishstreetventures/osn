@@ -31,18 +31,21 @@ const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
  * request the page already makes, so the guest site learns everything its
  * account-link box needs without a request of its own.
  *
- * The flag check is handed to the request's `waitUntil`. The payload stops
- * waiting for it after `ACCOUNT_LINK_FLAG_WAIT`, but a GrowthBook refresh it
- * started is shared with every later request in the isolate, and Workers
- * cancels a finished request's outstanding I/O unless `waitUntil` holds it.
- * Held, the refresh settles (the provider bounds it at 5 s) and serves the
- * requests after it. The check never rejects, so holding it cannot fail.
+ * The request's `waitUntil` goes to the flag provider, which then answers
+ * from a stale cached payload at once and refreshes it in the background, so
+ * only a cold isolate waits on GrowthBook. The check itself is handed to the
+ * same `waitUntil`: the payload stops waiting for it after
+ * `ACCOUNT_LINK_FLAG_WAIT`, but a cold-isolate refresh it started is shared
+ * with every later request in the isolate, and Workers cancels a finished
+ * request's outstanding I/O unless `waitUntil` holds it. Held, the refresh
+ * settles (the provider bounds it at 5 s) and serves the requests after it.
+ * The check never rejects, so holding it cannot fail.
  */
 function accountLinkGate(linking: AccountLinking, request: Request): AccountLinkGate {
   const waitUntil = getWaitUntil(request);
   return {
     enabledFor: (familyId) => {
-      const answer = isAccountLinkingOn(linking, familyId);
+      const answer = isAccountLinkingOn(linking, familyId, waitUntil);
       waitUntil?.(answer);
       return answer;
     },

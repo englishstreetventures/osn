@@ -417,4 +417,14 @@ describe("the plus-one write limiter", () => {
     expect(limited.status).toBe(429);
     expect(plusOnesOf(bo.id)).toHaveLength(0);
   });
+
+  it("answers 429 before the session gate answers 401", async () => {
+    app = createApp(db, {
+      plusOneLimiter: { check: async () => false },
+    });
+    const bo = guestNamed(db, "Bo");
+    // No cookie: the session gate would say 401, so 429 proves the limiter ran first.
+    expect((await put(bo.id, null, { firstName: "Sam" })).status).toBe(429);
+    expect((await del(bo.id, null)).status).toBe(429);
+  });
 });
