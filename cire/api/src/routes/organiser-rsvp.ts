@@ -1,4 +1,7 @@
-import { ORGANISER_DIETARY_ATTESTATION } from "@cire/dietary";
+import {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+} from "@cire/dietary";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -24,7 +27,7 @@ const manualParse = { parse: () => ({}) };
  * `rsvps` table the guest invite writes to (upsert on `(guest_id, event_id)`;
  * last-writer-wins, so it VISIBLY OVERWRITES a prior guest reply). The row is
  * stamped `consent_source='organiser_attested'` so it stays distinguishable
- * from a self-submitted answer.
+ * from a self-submitted answer, except on a status-only save (below).
  *
  * Gated `weddingEditor()` (owner OR editor may write; a viewer gets 403
  * `read_only_role`; a guest session has no OSN token → osnAuth 401). The
@@ -34,11 +37,15 @@ const manualParse = { parse: () => ({}) };
  * Deliberately its OWN direct endpoint, NOT routed through `changes/*` — RSVPs
  * sit outside the reconcile pipeline ([[platform-plan]] §5 blast-radius).
  *
- * A body with neither `dietary` nor `dietaryPresets` is status-only. For a
- * plus-one it sets the status and keeps the dietary answer the household gave
- * and that answer's consent record and `consent_source`. For any other guest
- * it is a reply with no dietary data, replacing what was there, as a body with
- * both fields empty would.
+ * A body with neither `dietary` nor `dietaryPresets` is status-only: it sets
+ * the status and keeps the stored dietary answer, that answer's consent
+ * record and its `consent_source`, whoever gave them. The portal sends one
+ * whenever the organiser left the dietary fields as they were, so a status
+ * change never re-attests data nobody re-confirmed.
+ *
+ * Dietary data on a plus-one's reply needs the organiser's plus-one
+ * attestation (`ORGANISER_PLUS_ONE_DIETARY_ATTESTATION`) for the name the row
+ * carries now; on anyone else's, the guest attestation.
  *
  * The wedding's RSVP DEADLINE does not gate this route. It closes the GUEST
  * invite (`POST /api/rsvp` → 403 `rsvp_closed`) so late self-service replies
@@ -79,13 +86,15 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                 set.status = 422;
                 return { error: "Dietary requirements need the guest's consent to store" };
               }
-              // The attestation must name the words this API stamps. A portal
+              // The attestation must name words this API stamps. A portal
               // built from another commit showed other words, so its tick is
               // refused rather than stored as evidence of copy that was not on
-              // screen. Checked before the plus-one refusal in the service.
+              // screen. Which of the two fits this guest the service decides,
+              // once it knows whether the row is a plus-one's.
               if (
                 hasDietaryData &&
-                body.dietaryAttestation !== ORGANISER_DIETARY_ATTESTATION.version
+                body.dietaryAttestation !== ORGANISER_DIETARY_ATTESTATION.version &&
+                body.dietaryAttestation !== ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version
               ) {
                 set.status = 422;
                 yield* Effect.logWarning("organiser rsvp: dietary attestation version refused");
@@ -107,6 +116,8 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                 status: body.status,
                 dietary: dietaryEdit ? { text: dietary, presets: dietaryPresets } : null,
                 dietaryConsent: body.dietaryConsent,
+                dietaryAttestation: body.dietaryAttestation,
+                dietaryAttestedName: body.dietaryAttestedName,
               });
               return { rsvp };
             }).pipe(
@@ -133,9 +144,28 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                     return { error: "guest_not_invited_to_event" };
                   }),
                 PlusOneDietaryUnavailable: () =>
-                  Effect.sync(() => {
+                  Effect.gen(function* () {
                     set.status = 422;
+                    yield* Effect.logWarning(
+                      "organiser rsvp: plus-one dietary attestation refused",
+                    );
                     return { error: "plus_one_dietary_unavailable" };
+                  }),
+                PlusOneChanged: () =>
+                  Effect.gen(function* () {
+                    set.status = 409;
+                    yield* Effect.logWarning(
+                      "organiser rsvp: plus-one renamed since the form opened",
+                    );
+                    return { error: "plus_one_changed" };
+                  }),
+                DietaryAttestationMismatch: () =>
+                  Effect.gen(function* () {
+                    set.status = 422;
+                    yield* Effect.logWarning(
+                      "organiser rsvp: dietary attestation names another person",
+                    );
+                    return { error: "dietary_attestation_mismatch" };
                   }),
               }),
               Effect.catchDefect(() =>

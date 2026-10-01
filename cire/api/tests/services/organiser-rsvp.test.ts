@@ -9,7 +9,11 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
-import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
+import {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+  PLUS_ONE_DIETARY_ATTESTATION,
+} from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -107,6 +111,8 @@ describe("organiserRsvpService.record", () => {
         status: "attending",
         dietary: { text: "", presets: [] },
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
     expect(result.consentSource).toBe("organiser_attested");
@@ -143,6 +149,8 @@ describe("organiserRsvpService.record", () => {
         status: "attending",
         dietary: { text: "", presets: [] },
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -167,6 +175,8 @@ describe("organiserRsvpService.record", () => {
         status: "maybe",
         dietary: { text: "", presets: [] },
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
     // The guest write path stamps consent_source='guest' (the default).
@@ -204,6 +214,8 @@ describe("organiserRsvpService.record", () => {
         status: "attending",
         dietary: { text: "Coeliac", presets: [] },
         dietaryConsent: true,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
     const row = db
@@ -232,6 +244,8 @@ describe("organiserRsvpService.record", () => {
         status: "attending",
         dietary: { text: "", presets: [] },
         dietaryConsent: true,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
     const row = db
@@ -254,6 +268,8 @@ describe("organiserRsvpService.record", () => {
           status: "attending",
           dietary: { text: "", presets: [] },
           dietaryConsent: false,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
         })
         .pipe(Effect.flip),
     );
@@ -278,6 +294,8 @@ describe("organiserRsvpService.record", () => {
           status: "attending",
           dietary: { text: "", presets: [] },
           dietaryConsent: false,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
         })
         .pipe(Effect.flip),
     );
@@ -301,6 +319,8 @@ describe("organiserRsvpService.record", () => {
           status: "attending",
           dietary: { text: "", presets: [] },
           dietaryConsent: false,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
         })
         .pipe(Effect.flip),
     );
@@ -344,6 +364,8 @@ describe("organiserRsvpService.record", () => {
           status: "attending",
           dietary: { text: "", presets: [] },
           dietaryConsent: false,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
         })
         .pipe(Effect.flip),
     );
@@ -402,6 +424,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "maybe",
         dietary: null,
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -460,6 +484,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "declined",
         dietary: null,
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -494,6 +520,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "maybe",
         dietary: null,
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -515,6 +543,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "attending",
         dietary: null,
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -541,6 +571,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "maybe",
         dietary: { text: "", presets: [] },
         dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -556,7 +588,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     ]);
   });
 
-  it("a dietary edit carrying data is still refused for a plus-one, and the household's answer stays", async () => {
+  it("a dietary edit under the guest wording is refused for a plus-one, and the household's answer stays", async () => {
     const { samId, hindu } = seedHouseholdReply();
 
     const err = await run(
@@ -568,6 +600,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
           status: "maybe",
           dietary: { text: "", presets: ["vegan"] },
           dietaryConsent: true,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
         })
         .pipe(Effect.flip),
     );
@@ -577,7 +611,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     expect(storedRow(samId, hindu)[0]?.source).toBe("inviter_attested");
   });
 
-  it("a status-only recording for a member who is not a plus-one records no dietary data, as before", async () => {
+  it("a status-only recording for a member keeps their own answer, its consent record and its source", async () => {
     const hindu = eventBySlug("hindu");
     db.insert(rsvps)
       .values({
@@ -601,13 +635,33 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "declined",
         dietary: null,
         dietaryConsent: false,
+        dietaryAttestation: "",
+        dietaryAttestedName: "",
       }),
     );
 
-    const [row] = storedRow(adaId, hindu);
-    expect(row?.dietary).toBe("");
-    expect(row?.version).toBeNull();
-    expect(row?.source).toBe("organiser_attested");
+    // No attestation was made, so none is stamped: the guest's own consent
+    // record stays the row's evidence, and their box still opens ticked.
+    expect(storedRow(adaId, hindu)).toEqual([
+      {
+        status: "declined",
+        dietary: "Coeliac",
+        presets: "",
+        at: consentAt,
+        version: DIETARY_CONSENT_VERSION,
+        source: "guest",
+      },
+    ]);
+    const famId = db
+      .select({ familyId: guests.familyId })
+      .from(guests)
+      .where(eq(guests.id, adaId))
+      .get()?.familyId;
+    if (!famId) throw new Error("no family");
+    const family = await run(rsvpService.getRsvpsForFamily(famId));
+    expect(
+      family.find((r) => r.guestId === adaId && r.eventId === hindu)?.dietaryConsentCurrent,
+    ).toBe(true);
   });
 
   it("a dietary edit for a member stamps the organiser's attestation over the guest's own answer", async () => {
@@ -632,6 +686,8 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
         status: "attending",
         dietary: { text: "", presets: ["vegan"] },
         dietaryConsent: true,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
       }),
     );
 
@@ -641,5 +697,88 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     expect(row?.source).toBe("organiser_attested");
     expect(row?.at).toBeInstanceOf(Date);
     expect(row?.version).toBe(dietaryConsentVersionFor("organiser_attested"));
+  });
+
+  it("a dietary edit under the plus-one wording stores the answer, stamped with that wording's version", async () => {
+    const { samId, hindu } = seedHouseholdReply();
+
+    await run(
+      organiserRsvpService.record({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietary: { text: "", presets: ["vegan"] },
+        dietaryConsent: true,
+        dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: " Sam ",
+      }),
+    );
+
+    const [row] = storedRow(samId, hindu);
+    expect(row?.presets).toBe("vegan");
+    expect(row?.dietary).toBe("");
+    expect(row?.source).toBe("organiser_attested");
+    expect(row?.at).toBeInstanceOf(Date);
+    expect(row?.version).toBe(ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version);
+    expect(row?.version).toBe(dietaryConsentVersionFor("organiser_attested", true));
+
+    // The household did not make this record, so the invite's box for Sam
+    // opens unticked over the organiser's answer.
+    const famId = db
+      .select({ familyId: guests.familyId })
+      .from(guests)
+      .where(eq(guests.id, samId))
+      .get()?.familyId;
+    if (!famId) throw new Error("no family");
+    const family = await run(rsvpService.getRsvpsForFamily(famId));
+    expect(
+      family.find((r) => r.guestId === samId && r.eventId === hindu)?.dietaryConsentCurrent,
+    ).toBe(false);
+  });
+
+  it("a plus-one's dietary edit attested for a name the row no longer carries is refused", async () => {
+    const { samId, hindu } = seedHouseholdReply();
+
+    const err = await run(
+      organiserRsvpService
+        .record({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: samId,
+          eventId: hindu,
+          status: "attending",
+          dietary: { text: "", presets: ["vegan"] },
+          dietaryConsent: true,
+          dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "Alex",
+        })
+        .pipe(Effect.flip),
+    );
+
+    expect(err._tag).toBe("PlusOneChanged");
+    expect(storedRow(samId, hindu)[0]?.presets).toBe("halal,other");
+    expect(storedRow(samId, hindu)[0]?.source).toBe("inviter_attested");
+  });
+
+  it("a member's dietary edit under the plus-one wording is refused", async () => {
+    const hindu = eventBySlug("hindu");
+
+    const err = await run(
+      organiserRsvpService
+        .record({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: adaId,
+          eventId: hindu,
+          status: "attending",
+          dietary: { text: "", presets: ["vegan"] },
+          dietaryConsent: true,
+          dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
+        })
+        .pipe(Effect.flip),
+    );
+
+    expect(err._tag).toBe("DietaryAttestationMismatch");
+    expect(storedRow(adaId, hindu)).toEqual([]);
   });
 });

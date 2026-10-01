@@ -57,8 +57,9 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply came through the invite, from the guest's
-   *     own household.
+   *   - "guest"     — every reply's dietary answer came through the invite,
+   *     from the guest's own household. A host may have changed a reply's
+   *     status since without touching its dietary answer.
    *   - "household" — the guest is a plus-one and at least one reply was the
    *     household's (`consent_source='inviter_attested'`): answered on the
    *     plus-one's behalf, on the household's word. A host may have changed
@@ -560,6 +561,11 @@ export const rsvpExportService = {
           if (!g.invited.has(e.id)) return "";
           const reply = rsvpByGuest.get(g.guestId)?.get(e.id);
           if (!reply) return "";
+          // A guest who is not coming needs no catering, so their requirement
+          // stays off the sheet the caterers get (Art. 5(1)(c)). The stored
+          // answer is untouched: a reply changed back to attending shows it
+          // again. An organiser's status-only decline keeps it stored.
+          if (reply.status === "declined") return "";
           // Presets and the "Other" text collapse into the ONE existing column,
           // so the sheet keeps its shape and an organiser's saved formulas
           // survive. `formatDietaryCell` is what keeps a preset-only answer from

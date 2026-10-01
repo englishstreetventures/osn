@@ -1,6 +1,7 @@
 import { rsvps, guests } from "@cire/db";
 import {
   ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
   parsePresets,
   PLUS_ONE_DIETARY_ATTESTATION,
   serialisePresets,
@@ -28,18 +29,21 @@ import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
 
 /**
- * The consent version a reply is stamped with, chosen by who recorded it: each
- * writer ticks its own words, and the row names the version of those words —
- * the guest's own-consent copy, the household's attestation for its plus-one,
- * or the organiser's attestation for a phone or paper reply. The one place a
- * version is chosen.
+ * The consent version a reply is stamped with, chosen by who recorded it and,
+ * for an organiser, whom it is about: each writer ticks its own words, and the
+ * row names the version of those words — the guest's own-consent copy, the
+ * household's attestation for its plus-one, or the organiser's attestation for
+ * a phone or paper reply, which speaks of the guest or, on a plus-one's reply,
+ * of the plus-one. The one place a version is chosen.
  */
-export function dietaryConsentVersionFor(source: ConsentSource): string {
+export function dietaryConsentVersionFor(source: ConsentSource, isPlusOne = false): string {
   switch (source) {
     case "inviter_attested":
       return PLUS_ONE_DIETARY_ATTESTATION.version;
     case "organiser_attested":
-      return ORGANISER_DIETARY_ATTESTATION.version;
+      return isPlusOne
+        ? ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version
+        : ORGANISER_DIETARY_ATTESTATION.version;
     case "guest":
       return DIETARY_CONSENT_VERSION;
   }
@@ -95,6 +99,10 @@ export interface RsvpInput {
   // self-given; the invite passes `inviter_attested` for a plus-one's reply.
   // Stamped into `rsvps.consent_source`.
   consentSource?: ConsentSource;
+  // Whether the reply is a plus-one's. Read only to choose an organiser's
+  // attestation version (`dietaryConsentVersionFor`): the organiser ticks other
+  // words for a plus-one than for a guest. Optional; defaults to false.
+  plusOne?: boolean;
 }
 
 /**
@@ -112,7 +120,7 @@ function buildRsvpUpsertStatements(
     const consentSource: ConsentSource = input.consentSource ?? "guest";
     const dietaryConsentAt = input.dietaryConsent ? now : null;
     const dietaryConsentVersion = input.dietaryConsent
-      ? dietaryConsentVersionFor(consentSource)
+      ? dietaryConsentVersionFor(consentSource, input.plusOne ?? false)
       : null;
     // Serialised once: the insert and the conflict-update store the same value.
     const dietaryPresets = serialisePresets(input.dietaryPresets);
@@ -266,15 +274,15 @@ export const rsvpService = {
   },
 
   /**
-   * An organiser's status-only reply for a plus-one: write `status` and leave
-   * the household's dietary answer and its consent record as they are. Same
+   * An organiser's status-only reply: write `status` and leave the stored
+   * dietary answer and its consent record as they are, whoever gave them. Same
    * precondition as {@link submitRsvps} — the caller has checked the guest and
    * the invitation.
    *
    * One upsert. With no prior reply it inserts an organiser-attested row
    * holding no dietary data. Over a prior reply it sets the status, and keeps
    * `consent_source` while the row holds any dietary data or consent record
-   * (that column is then the data's consent basis, and the household gave it);
+   * (that column is then the data's consent basis, given by whoever wrote it);
    * a row holding none is repointed to `organiser_attested`, the writer of
    * what it now holds. The dietary and consent columns are never written.
    * Returns the row as stored.

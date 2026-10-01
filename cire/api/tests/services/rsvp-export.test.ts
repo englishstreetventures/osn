@@ -280,6 +280,26 @@ describe("rsvpExportService.build", () => {
   );
 
   it(
+    "blanks the dietary cell for an event the guest declined, keeping the stored answer",
+    withDb(
+      Effect.gen(function* () {
+        // An organiser's status-only decline keeps the stored answer, but no
+        // caterer is cooking for a guest who is not coming.
+        const db = yield* DbService;
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "declined", "Fish only");
+
+        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
+        const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
+        const idx = data.events.findIndex((e) => e.id === catholic.id);
+        expect(adaRow.cells[idx]).toBe("not_attending");
+        expect(adaRow.dietary[idx]).toBe("");
+      }),
+    ),
+  );
+
+  it(
     "blanks the dietary cell for an event the guest is no longer invited to",
     withDb(
       Effect.gen(function* () {

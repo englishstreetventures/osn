@@ -247,4 +247,8 @@ export function formatDietaryCell(keys: readonly string[], freeText: string): st
   return [...presetLabels(keys), freeText.trim()].filter(Boolean).join("; ");
 }
 
-export { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "./attestation";
+export {
+  ORGANISER_DIETARY_ATTESTATION,
+  ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
+  PLUS_ONE_DIETARY_ATTESTATION,
+} from "./attestation";

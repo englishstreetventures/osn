@@ -317,8 +317,9 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  `guest` (written through the invite — a guest's own reply, or one the
  *  household typed for their plus-one) vs `organiser` (phone/paper RSVP
  *  recorded on the guest's behalf). An organiser's write usually stamps
- *  `consent_source='organiser_attested'`; a status-only one for a plus-one
- *  keeps the household's `inviter_attested` and still counts as `organiser`. */
+ *  `consent_source='organiser_attested'`; a status-only one over a reply holding
+ *  dietary data keeps that reply's source (`guest` or `inviter_attested`) and
+ *  still counts as `organiser`. */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,

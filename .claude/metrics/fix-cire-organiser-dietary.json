@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1320,
+    "branch": "fix/cire-organiser-dietary",
+    "base_sha": "bf50c3be8487a98381fef82bb71a36e4f9a17642",
+    "head_sha": "05d83702cbd0b5f8e7a71a562af1eebf127097df",
+    "generated_at": "2026-10-01T06:30:28.145Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 9,
+    "first_ts": "2026-10-01T03:06:13.769Z",
+    "last_ts": "2026-10-01T06:30:24.589Z",
+    "span_seconds": 12251,
+    "active_seconds": 2274,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 18.806636049999998,
+    "tokens": {
+      "input": 472,
+      "output": 53699,
+      "thinking": 195,
+      "cache_write_5m": 1204316,
+      "cache_write_1h": 0,
+      "cache_read": 28222408
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 104,
+          "output": 51437,
+          "thinking": 0,
+          "cache_write_5m": 301283,
+          "cache_write_1h": 0,
+          "cache_read": 2928657
+        },
+        "usd_equivalent": 4.633792250000001,
+        "messages": 69
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 356,
+          "output": 2222,
+          "thinking": 195,
+          "cache_write_5m": 825943,
+          "cache_write_1h": 0,
+          "cache_read": 24993162
+        },
+        "usd_equivalent": 14.172843799999997,
+        "messages": 174
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 12,
+          "output": 40,
+          "thinking": 0,
+          "cache_write_5m": 77090,
+          "cache_write_1h": 0,
+          "cache_read": 300589
+        },
+        "usd_equivalent": 0,
+        "messages": 6
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 104,
+          "output": 51437,
+          "thinking": 0,
+          "cache_write_5m": 301283,
+          "cache_write_1h": 0,
+          "cache_read": 2928657
+        },
+        "usd_equivalent": 4.633792250000001,
+        "messages": 70
+      },
+      "subagent": {
+        "tokens": {
+          "input": 368,
+          "output": 2262,
+          "thinking": 195,
+          "cache_write_5m": 903033,
+          "cache_write_1h": 0,
+          "cache_read": 25293751
+        },
+        "usd_equivalent": 14.172843799999997,
+        "messages": 181
+      }
+    },
+    "effort": {
+      "medium": 180
+    },
+    "unpriced_models": [
+      "claude-sonnet-5-5"
+    ]
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 5,
+      "docs": 4,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 13,
+        "deleted": 0
+      },
+      "test": {
+        "added": 485,
+        "deleted": 62
+      },
+      "docs": {
+        "added": 58,
+        "deleted": 30
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 322,
+        "deleted": 167
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/dietary",
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 176,
+      "Read": 47,
+      "Grep": 17,
+      "StructuredOutput": 7,
+      "Agent": 5,
+      "SubagentHandback": 4,
+      "Write": 2,
+      "ToolSearch": 1,
+      "Skill": 1,
+      "Edit": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 4
+    }
+  }
+}
