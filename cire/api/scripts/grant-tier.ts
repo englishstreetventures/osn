@@ -14,9 +14,10 @@
  * Either way the row records `tier_source = 'comp'` and
  * `tier_granted_by = 'script:<operator>'`.
  *
- * Production: apply the printed SQL with `wrangler d1 execute cire-db --remote
- * --command "<sql>"` — a prod D1 write, which needs explicit human
- * authorisation naming `cire-db` first.
+ * Production: from `cire/api`, apply the printed SQL with `wrangler d1 execute
+ * cire-db --env production --remote --command "<sql>"`, naming the env as every
+ * production D1 command in the deploy runbook does. It is a prod D1 write,
+ * which needs explicit human authorisation naming `cire-db` first.
  */
 import { isTier, tiersBelow } from "../src/services/tiers";
 import type { Tier } from "../src/services/tiers";

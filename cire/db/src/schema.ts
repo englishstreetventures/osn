@@ -1471,7 +1471,7 @@ export const imports = sqliteTable(
   ],
 );
 
-// ── Upgrade purchases (migration 0060, tiers from 0071) ─────────────────────
+// ── Upgrade purchases (migration 0061, tiers from 0071) ─────────────────────
 // Self-serve purchase of a plan tier — `gold` or `crimson`. The money side of
 // `weddings.tier`, which cannot hold it: the tier is one value per wedding, so
 // a second purchase would leave no record that money changed hands.
