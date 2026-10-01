@@ -459,7 +459,9 @@ export const payments = sqliteTable(
 );
 
 // Vendors Slice 1 (platform Phase 2, migration 0040).
-// directory_vendors: the global business listing (one per OSN org).
+// directory_vendors: the global business listing. An org owns at most one:
+// `owner_org_id` is unique, and SQLite lets any number of rows hold NULL, so
+// unclaimed listings are unaffected.
 export const directoryVendors = sqliteTable(
   "directory_vendors",
   {
@@ -487,7 +489,7 @@ export const directoryVendors = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    index("directory_vendors_owner_idx").on(t.ownerOrgId),
+    uniqueIndex("directory_vendors_owner_uniq").on(t.ownerOrgId),
     // Browse runs `WHERE listed='live' … ORDER BY name, id` — the composite
     // serves filter + order in one b-tree walk (migration 0053 replaced the
     // single-column `listed` index, whose prefix this still covers).

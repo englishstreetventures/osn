@@ -121,6 +121,17 @@ export async function fetchClaimPreview(token: string): Promise<ClaimPreview | n
   return body?.listing ?? null;
 }
 
+/**
+ * The org picked for a claim already owns a directory listing; an org owns at
+ * most one. The claim token is still live, so another org can take it.
+ */
+export class OrgHasListingError extends Error {
+  constructor() {
+    super("org_has_listing");
+    this.name = "OrgHasListingError";
+  }
+}
+
 export async function consumeClaim(
   authFetch: AuthFetch,
   token: string,
@@ -131,6 +142,11 @@ export async function consumeClaim(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ orgId }),
   });
+  if (res.status === 409) {
+    // Read the body from a copy, so `ensureOk` can still read the original.
+    const body = await safeJson<{ error?: string }>(res.clone());
+    if (body?.error === "org_has_listing") throw new OrgHasListingError();
+  }
   await ensureOk(res);
   const body = await safeJson<{ listing: Listing }>(res);
   if (!body?.listing) throw new Error("Invalid response consuming claim");

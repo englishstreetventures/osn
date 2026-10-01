@@ -8,7 +8,12 @@ import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js
 import { haptic } from "../lib/haptics";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
-import { consumeClaim, fetchClaimPreview, seedClaimedListing } from "../lib/vendor-store";
+import {
+  consumeClaim,
+  fetchClaimPreview,
+  OrgHasListingError,
+  seedClaimedListing,
+} from "../lib/vendor-store";
 import type { OrgSummary } from "../lib/vendor-store";
 import OrgPicker from "./OrgPicker";
 /** Where the invite token waits while the vendor is away signing in. */
@@ -21,6 +26,8 @@ function ClaimContent() {
   // Guard typeof window — this component is only used client:only but be safe.
   const [token, setToken] = createSignal<string>("");
   const [invalidLink, setInvalidLink] = createSignal(false);
+  // The org last picked already owns a listing. The token is still live.
+  const [ownedBy, setOwnedBy] = createSignal<OrgSummary | null>(null);
 
   onMount(() => {
     if (typeof window === "undefined") return;
@@ -46,6 +53,7 @@ function ClaimContent() {
 
   // Step 4: Consume the claim on org pick.
   const handleClaim = async (org: OrgSummary) => {
+    setOwnedBy(null);
     try {
       const listing = await consumeClaim(authFetch, token(), org.id);
       // Hand the listing forward across the full-page redirect below, so the
@@ -54,9 +62,15 @@ function ClaimContent() {
       haptic("commit");
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       window.location.href = "/#/orgs/" + org.id;
-    } catch {
-      // Spent or rejected either way — do not leave it parked for a reload.
+    } catch (err) {
       haptic("reject");
+      // The server refused this org before spending the token: keep it parked
+      // so the vendor can pick another org.
+      if (err instanceof OrgHasListingError) {
+        setOwnedBy(org);
+        return;
+      }
+      // Spent or rejected either way — do not leave it parked for a reload.
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       setInvalidLink(true);
     }
@@ -112,6 +126,18 @@ function ClaimContent() {
             <h2 class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
               Choose the organisation that owns this listing
             </h2>
+            <Show when={ownedBy()}>
+              {(org) => (
+                <Notice tone="warn" alert>
+                  {org().name} already has a directory listing, and an organisation can have only
+                  one. Pick another organisation, or{" "}
+                  <a class="underline" href={`/#/orgs/${encodeURIComponent(org().id)}`}>
+                    edit {org().name}'s listing
+                  </a>
+                  .
+                </Notice>
+              )}
+            </Show>
             <OrgPicker onPick={(org) => void handleClaim(org)} />
           </div>
         </Show>

@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
-last-reviewed: 2026-09-28
+last-reviewed: 2026-10-01
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -26,7 +26,7 @@ Global directory of vendors. One row per vendor business (not per wedding). A ve
 | Column | Notes |
 |---|---|
 | `id` | `text PRIMARY KEY` — `dv_<uuid>` |
-| `owner_org_id` | OSN org id (`org_*`) that owns the listing; null until claimed. Indexed (`directory_vendors_owner_idx`), **not** unique |
+| `owner_org_id` | OSN org id (`org_*`) that owns the listing; null until claimed. Unique (`directory_vendors_owner_uniq`); any number of rows may be null |
 | `name` | Business display name |
 | `description` | Free-text bio |
 | `email`, `phone` | Contact details (sole-trader PII — see compliance) |
@@ -102,7 +102,7 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 
-**One listing per org / many categories per listing:** the portal treats an org as owning one directory listing — `getListingByOrg` and `upsertListingForOrg` take the first row for the org. The schema does not enforce it: `directory_vendors.owner_org_id` is indexed, not unique, so a claim can bind a second listing to an org that already has one. Whether to add the constraint is open in `englishstventures/osn#1275`. An org wanting separate listings per line of business (photo vs video) uses a second OSN org. `directory_vendor_categories` holds many service categories per listing.
+**One listing per org / many categories per listing:** an org owns at most one directory listing. `directory_vendors.owner_org_id` carries a unique index, so a second listing for the same org fails at the database, and `consumeClaim` refuses a claim into an org that already owns a listing (409 `org_has_listing`) before it spends the token. `getListingByOrg` and `upsertListingForOrg` rely on this. An org wanting separate listings per line of business (photo vs video) uses a second OSN org. `directory_vendor_categories` holds many service categories per listing.
 
 ---
 
@@ -112,17 +112,17 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 ### Step-by-step
 
-1. **Organiser seeds the directory.** `POST /api/organiser/weddings/:weddingId/vendors/:vendorId/seed-directory` (`weddingEditor()`-gated). cire-api (`directoryService.seedFromCrm`):
+1. **Organiser seeds the directory.** `POST /api/organiser/weddings/:weddingId/vendors/:vendorId/list-in-directory` (`weddingEditor()`-gated). cire-api (`directoryService.seedFromCrm`):
    - Checks the CRM row belongs to the wedding, then inserts a new `listed = 'draft'` `directory_vendors` row from the request body, with its categories, and links the CRM row to it.
    - Mints a 256-bit claim token and stores its SHA-256 hash in `vendor_claims` with a 7-day expiry.
-   - Returns the claim link (`/claim?token=<raw>`) **to the organiser** in the response body.
 
-2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). cire-api also attempts a **fail-soft email**: the `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), cire-api logs the error and the HTTP response is unaffected.
+2. **The claim link goes to the vendor by email only.** cire-api sends the `@shared/email` `vendor-claim-invite` template, carrying `/claim?token=<raw>`, to the address the organiser entered. The response never carries the link. Nothing checks that the address belongs to the vendor, so a claim proves control of that inbox and nothing more. The response is `{ directoryVendorId, invited }`, and the portal says "we emailed <address>" or, when `invited` is false, warns that the invite did not send. A couple's enquiry to an unclaimed listing mints a further token and emails it to the listing address (`issueClaimForListing`), so a listing can hold several live tokens at once.
 
 3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claims/:token/consume` with the raw token in the path and `{ orgId }` in the body. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented) and rejects a token that is consumed or past `expires_at`.
+   - Reads, in one query, the listing's owner and whether the picked org already owns a listing. A listing that is gone or already claimed fails `ClaimInvalid` (410); an org that already owns a listing fails `OrgAlreadyHasListing` (409 `org_has_listing`). Neither spends the token, so the vendor can pick another org.
    - **Burns the token first**: `UPDATE vendor_claims SET consumed_at = now WHERE id = ? AND consumed_at IS NULL`. Zero rows changed means another request consumed it first, and the claim fails before anything is bound. A failure after the burn leaves the token spent and the listing unbound, never bound with a reusable token.
-   - **Then binds the listing** in one UPDATE: `owner_org_id`, `claimed_by_profile_id` and `listed = 'live'` together, so the enquiry service never sees a listing that is bound but unclaimed. The bound row comes back from the UPDATE's `RETURNING`, read beside the listing's categories; a listing that has gone by then fails the claim, with the token already spent. The whole claim is four statements (`directoryService.consumeClaim` in [`directory.ts`](../../cire/api/src/services/directory.ts)).
+   - **Then binds the listing and burns its other tokens**, in one batch. The bind is one UPDATE that sets `owner_org_id`, `claimed_by_profile_id` and `listed = 'live'` together, so the enquiry service never sees a listing that is bound but unclaimed, and it matches only while `owner_org_id IS NULL`: a second token can never move a claimed listing to another org. The second UPDATE spends every other live token for the listing. The bound row comes back from the bind's `RETURNING`, read beside the listing's categories; a listing that has gone or been claimed by then fails `ClaimInvalid`, with the token already spent. If the org gains a listing between the read and the bind, the unique index stops the batch and the claim fails `OrgAlreadyHasListing`, also with the token spent. The whole claim is six statements (`directoryService.consumeClaim` in [`directory.ts`](../../cire/api/src/services/directory.ts)).
    - The directory listing is now **bound to the vendor's OSN org** — the vendor principal model applies from this point.
    - Returns the listing, which the portal carries to its editor so the editor need not fetch it again.
 
@@ -130,7 +130,9 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 ### Fail-soft email
 
-The `vendor-claim-invite` email template (`shared/email/src/templates/vendor-claim-invite/`) is sent with the claim link and a brief call-to-action. Email sending is non-blocking: if `RESEND_API_KEY` is absent or Resend is unreachable, the error is logged (`Effect.logWarning`) and the seed endpoint returns 200 with the claim link regardless. The manual forwarding path (organiser copies the link) is always available.
+The `vendor-claim-invite` email template (`shared/email/src/templates/vendor-claim.ts`) is sent with the claim link and a brief call-to-action. A failed send never fails the request: `sendClaimInviteEmail` logs it (`Effect.logWarning`) and resolves to `false`, and the endpoint returns 200 with `invited: false`. There is no other way to deliver the link, and listing the vendor again creates a second draft listing.
+
+The claim page's preview (`GET /api/vendor/claims/:token`) returns 404 for a token that is spent or expired, or whose listing is gone or already claimed.
 
 ---
 
@@ -145,7 +147,7 @@ Routes: `/api/organiser/weddings/:weddingId/vendors` — gated by `osnAuth()` + 
 | `GET` | `/vendors/:vendorId` | `weddingMember()` | Get single entry |
 | `PUT` | `/vendors/:vendorId` | `weddingEditor()` | Update entry |
 | `DELETE` | `/vendors/:vendorId` | `weddingEditor()` | Delete entry |
-| `POST` | `/vendors/:vendorId/seed-directory` | `weddingEditor()` | Seed global directory + mint claim token |
+| `POST` | `/vendors/:vendorId/list-in-directory` | `weddingEditor()` | Seed a draft directory listing and email the vendor a claim link |
 
 Service: `cire/api/src/services/vendors.ts` — `vendorsService` (Effect). Module: `cire/host/src/modules/Vendors/` — `VendorsView`.
 
@@ -157,7 +159,8 @@ Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
 
 | Method | Route | Description |
 |---|---|---|
-| `POST` | `/vendor/claim` | Consume a claim token; bind listing to caller's org |
+| `GET` | `/vendor/claims/:token` | Public claim preview; 404 when the token or its listing cannot be claimed |
+| `POST` | `/vendor/claims/:token/consume` | Consume a claim token; bind listing to caller's org (409 `org_has_listing` if the org already owns one) |
 | `GET` | `/vendor/listing` | Get the caller's directory listing |
 | `PUT` | `/vendor/listing` | Update listing details |
 | `GET` | `/vendor/listing/categories` | Get assigned categories |
