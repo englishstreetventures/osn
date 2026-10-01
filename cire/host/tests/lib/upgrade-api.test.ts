@@ -26,34 +26,59 @@ import {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-const ENTRY = {
-  entitlement: "registry",
-  title: "Gift registry",
+const GOLD = {
+  tier: "gold",
+  fromTier: "ivory",
+  title: "Gold",
   blurb: "…",
   amountMinor: 2900,
   currency: "AUD",
-  held: false,
-};
+} as const;
+
+const CRIMSON = { ...GOLD, tier: "crimson", title: "Crimson", amountMinor: 5900 } as const;
 
 describe("fetchCatalogue", () => {
-  it("returns the entries and calls the wedding's own route", async () => {
-    const authFetch = vi.fn().mockResolvedValue(json({ upgrades: [ENTRY] }));
-    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual([ENTRY]);
+  it("returns the wedding's tier and its upgrades, from the wedding's own route", async () => {
+    const authFetch = vi.fn().mockResolvedValue(json({ tier: "ivory", upgrades: [GOLD, CRIMSON] }));
+    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({
+      tier: "ivory",
+      upgrades: [GOLD, CRIMSON],
+    });
     expect(authFetch).toHaveBeenCalledWith(
       "https://api.test/api/organiser/weddings/wed_1/upgrade/catalogue",
     );
+  });
+
+  it("keeps the price a Gold wedding is quoted for Crimson", async () => {
+    const fromGold = { ...CRIMSON, fromTier: "gold", amountMinor: 3000 };
+    const authFetch = vi.fn().mockResolvedValue(json({ tier: "gold", upgrades: [fromGold] }));
+    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({
+      tier: "gold",
+      upgrades: [fromGold],
+    });
   });
 
   it("reads a 404 as an empty catalogue, not an error", async () => {
     // No Stripe configured ⇒ the routes are not mounted. The honest portal
     // answer is "no purchase path", not "something broke".
     const authFetch = vi.fn().mockResolvedValue(json({}, 404));
-    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual([]);
+    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({ tier: null, upgrades: [] });
   });
 
   it("tolerates a 200 with no upgrades key", async () => {
-    const authFetch = vi.fn().mockResolvedValue(json({}));
-    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual([]);
+    const authFetch = vi.fn().mockResolvedValue(json({ tier: "crimson" }));
+    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({ tier: "crimson", upgrades: [] });
+  });
+
+  it("drops an entry for a tier this build cannot name, and an unknown wedding tier", async () => {
+    // The dialog sells a tier by name; one it does not know is not one it can
+    // sell, and an unrecognised wedding tier must not read as holding anything.
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(
+        json({ tier: "platinum", upgrades: [GOLD, { ...GOLD, tier: "platinum" }] }),
+      );
+    expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({ tier: null, upgrades: [GOLD] });
   });
 
   it("throws with the server's code on any other failure", async () => {
@@ -72,19 +97,29 @@ describe("fetchCatalogue", () => {
 });
 
 describe("startUpgrade", () => {
-  it("posts the entitlement and returns the payment page", async () => {
+  it("posts the tier and the module to come back to, and returns the payment page", async () => {
     const authFetch = vi
       .fn()
       .mockResolvedValue(json({ purchaseId: "upg_1", url: "https://pay.test/x", reused: false }));
 
-    expect(await startUpgrade(authFetch, "wed_1", "registry")).toEqual({
+    expect(await startUpgrade(authFetch, "wed_1", "gold", "registry")).toEqual({
       purchaseId: "upg_1",
       url: "https://pay.test/x",
       reused: false,
     });
-    const [, init] = authFetch.mock.calls[0] as [string, RequestInit];
+    const [url, init] = authFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1/upgrade/session");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ entitlement: "registry" });
+    expect(JSON.parse(String(init.body))).toEqual({ tier: "gold", module: "registry" });
+  });
+
+  it("leaves the module out when none was given, so the API lands on Overview", async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(json({ purchaseId: "upg_1", url: "https://pay.test/x", reused: true }));
+    await startUpgrade(authFetch, "wed_1", "crimson");
+    const [, init] = authFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ tier: "crimson" });
   });
 
   /**
@@ -94,14 +129,14 @@ describe("startUpgrade", () => {
    */
   it("preserves the `processing` code so the dialog can say wait", async () => {
     const authFetch = vi.fn().mockResolvedValue(json({ error: "processing" }, 409));
-    const err = await startUpgrade(authFetch, "wed_1", "registry").catch((e: unknown) => e);
+    const err = await startUpgrade(authFetch, "wed_1", "gold").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UpgradeApiError);
     expect(err).toMatchObject({ code: "processing", status: 409 });
   });
 
   it("preserves `already_held` too", async () => {
     const authFetch = vi.fn().mockResolvedValue(json({ error: "already_held" }, 409));
-    await expect(startUpgrade(authFetch, "wed_1", "registry")).rejects.toMatchObject({
+    await expect(startUpgrade(authFetch, "wed_1", "gold")).rejects.toMatchObject({
       code: "already_held",
     });
   });
@@ -109,7 +144,7 @@ describe("startUpgrade", () => {
   it("falls back to the status when the body carries no code", async () => {
     // An error page from something in front of the API, say.
     const authFetch = vi.fn().mockResolvedValue(new Response("<html>", { status: 502 }));
-    await expect(startUpgrade(authFetch, "wed_1", "registry")).rejects.toMatchObject({
+    await expect(startUpgrade(authFetch, "wed_1", "gold")).rejects.toMatchObject({
       code: "http_502",
       status: 502,
     });
@@ -117,14 +152,30 @@ describe("startUpgrade", () => {
 });
 
 describe("fetchPurchase", () => {
-  it("returns the purchase state", async () => {
+  it("returns the purchase state and the tier it buys", async () => {
     const authFetch = vi
       .fn()
-      .mockResolvedValue(json({ purchase: { status: "succeeded", entitlement: "registry" } }));
+      .mockResolvedValue(json({ purchase: { status: "succeeded", tier: "crimson" } }));
     expect(await fetchPurchase(authFetch, "wed_1", "upg_1")).toEqual({
       status: "succeeded",
-      entitlement: "registry",
+      tier: "crimson",
     });
+  });
+
+  it("reads a tier it cannot name as null rather than passing it on", async () => {
+    // The API answers `tier: null` for a purchase whose product names no tier,
+    // and an older API sends no tier at all.
+    for (const purchase of [
+      { status: "succeeded", tier: null },
+      { status: "succeeded", entitlement: "registry" },
+      { status: "succeeded", tier: "platinum" },
+    ]) {
+      const authFetch = vi.fn().mockResolvedValue(json({ purchase }));
+      expect(await fetchPurchase(authFetch, "wed_1", "upg_1")).toEqual({
+        status: "succeeded",
+        tier: null,
+      });
+    }
   });
 
   it("returns null for a purchase this wedding does not have", async () => {

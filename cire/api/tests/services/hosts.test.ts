@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingEntitlements, weddingHosts, weddings } from "@cire/db";
+import { weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -444,6 +444,7 @@ describe("hostsService.authorize", () => {
       hostId: null,
       runSheetScope: "own",
       weddingSlug: "test-wedding",
+      weddingTier: "ivory",
     });
   });
 
@@ -468,6 +469,7 @@ describe("hostsService.authorize", () => {
       hostId: expect.stringMatching(/^whost_/),
       runSheetScope: "own",
       weddingSlug: "test-wedding",
+      weddingTier: "ivory",
     });
   });
 
@@ -514,6 +516,7 @@ describe("hostsService.authorize", () => {
       hostId: null,
       runSheetScope: "own",
       weddingSlug: "test-wedding",
+      weddingTier: "ivory",
     });
   });
 
@@ -522,74 +525,9 @@ describe("hostsService.authorize", () => {
     expect(await run(db, hostsService.authorize("wed_nope", OWNER))).toBeNull();
   });
 
-  it("omits `entitled` entirely when no entitlementKey is given", async () => {
+  it("carries the wedding's tier from the same row, for the owner and a co-host", async () => {
     const db = buildDb();
-    const now = new Date();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-      })
-      .run();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER));
-    expect(result?.entitled).toBeUndefined();
-  });
-});
-
-describe("hostsService.authorize — entitlement fold (P-W1)", () => {
-  it("owner branch: entitled:true when the wedding holds the key, folded into the same query", async () => {
-    const db = buildDb();
-    const now = new Date();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-      })
-      .run();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
-    expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
-      isOwner: true,
-      isHost: false,
-      role: "owner",
-      hostId: null,
-      runSheetScope: "own",
-      weddingSlug: "test-wedding",
-      entitled: true,
-    });
-  });
-
-  it("owner branch: entitled:false when the wedding lacks the key", async () => {
-    const db = buildDb();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
-    expect(result?.entitled).toBe(false);
-  });
-
-  it("owner branch: entitled reflects the SPECIFIC key asked for, not just any grant", async () => {
-    const db = buildDb();
-    const now = new Date();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: WEDDING_ID,
-        entitlement: "ai",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-      })
-      .run();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
-    expect(result?.entitled).toBe(false);
-  });
-
-  it("co-host branch: entitled:true when the wedding holds the key", async () => {
-    const db = buildDb();
-    const now = new Date();
+    db.update(weddings).set({ tier: "crimson" }).where(eq(weddings.id, WEDDING_ID)).run();
     await run(
       db,
       hostsService.add({
@@ -597,74 +535,16 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
         ownerOsnProfileId: OWNER,
-        role: "editor",
+        role: "viewer",
       }),
     );
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-      })
-      .run();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, ALICE, "registry"));
-    expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
-      isOwner: false,
-      isHost: true,
-      role: "editor",
-      hostId: expect.stringMatching(/^whost_/),
-      runSheetScope: "own",
-      weddingSlug: "test-wedding",
-      entitled: true,
-    });
+    expect((await run(db, hostsService.authorize(WEDDING_ID, OWNER)))?.weddingTier).toBe("crimson");
+    expect((await run(db, hostsService.authorize(WEDDING_ID, ALICE)))?.weddingTier).toBe("crimson");
   });
 
-  it("co-host branch: entitled:false when the wedding lacks the key", async () => {
+  it("reads a stored tier it does not recognise as ivory", async () => {
     const db = buildDb();
-    await run(
-      db,
-      hostsService.add({
-        weddingId: WEDDING_ID,
-        osnProfileId: ALICE,
-        addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
-        role: "editor",
-      }),
-    );
-    const result = await run(db, hostsService.authorize(WEDDING_ID, ALICE, "registry"));
-    expect(result?.entitled).toBe(false);
-  });
-
-  it("stranger branch: role:null and entitled:false — no query answer is meaningful without a role", async () => {
-    const db = buildDb();
-    const now = new Date();
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: WEDDING_ID,
-        entitlement: "vendors",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-      })
-      .run();
-    const result = await run(db, hostsService.authorize(WEDDING_ID, "usr_stranger", "vendors"));
-    expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
-      isOwner: false,
-      isHost: false,
-      role: null,
-      hostId: null,
-      runSheetScope: "own",
-      weddingSlug: "test-wedding",
-      entitled: false,
-    });
-  });
-
-  it("unknown wedding: still null, entitlementKey doesn't change that", async () => {
-    const db = buildDb();
-    expect(await run(db, hostsService.authorize("wed_nope", OWNER, "vendors"))).toBeNull();
+    db.$client.exec(`UPDATE weddings SET tier = 'platinum' WHERE id = '${WEDDING_ID}'`);
+    expect((await run(db, hostsService.authorize(WEDDING_ID, OWNER)))?.weddingTier).toBe("ivory");
   });
 });

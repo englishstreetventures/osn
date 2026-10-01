@@ -1,11 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  registrySettings,
-  weddingEntitlements,
-  weddingHosts,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -13,7 +8,8 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeAccount, type StripeClient } from "../../src/services/stripe";
-import { appRequest, jsonBody } from "../test-helpers";
+import type { Tier } from "../../src/services/tiers";
+import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -79,6 +75,7 @@ function stripeStub(
     createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePlatformCheckoutSession: () =>
       Effect.fail(new StripeError({ reason: "not used here" })),
+    expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrieveAccount(accountId) {
       calls.push(`retrieveAccount:${accountId}`);
@@ -103,11 +100,11 @@ function stripeStub(
 }
 
 function buildApp({
-  grantRegistry = true,
+  tier = "gold",
   stripe,
   limiter,
 }: {
-  grantRegistry?: boolean;
+  tier?: Tier;
   stripe?: StripeClient | null;
   limiter?: ReturnType<typeof createRateLimiter>;
 } = {}) {
@@ -124,19 +121,7 @@ function buildApp({
       createdAt: now,
     })
     .run();
-  if (grantRegistry) {
-    db.insert(weddingEntitlements)
-      .values({
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        entitlement: "registry",
-        source: "comp",
-        grantedAt: now,
-        grantedBy: OWNER,
-        providerRef: null,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
+  setTier(db, BOOTSTRAP_WEDDING_ID, tier);
   const app = createApp(db, {
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
@@ -180,9 +165,11 @@ describe("who may connect an account", () => {
     expect((await req(app, `${base}/session`)).status).toBe(401);
   });
 
-  it("refuses a wedding without the registry entitlement", async () => {
-    const { app } = buildApp({ grantRegistry: false });
-    expect((await req(app, `${base}/session`, OWNER)).status).toBe(402);
+  it("refuses a wedding below Gold with 402", async () => {
+    const { app } = buildApp({ tier: "ivory" });
+    const res = await req(app, `${base}/session`, OWNER);
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", tier: "gold" });
   });
 
   it("does not exist at all when Stripe is not configured", async () => {

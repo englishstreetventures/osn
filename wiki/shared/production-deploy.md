@@ -12,6 +12,8 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
+  - "[[cire-entitlements]]"
+  - "[[stripe-webhooks]]"
 last-reviewed: 2026-10-01
 ---
 
@@ -615,7 +617,7 @@ Separate from the Connect integration in §3.8, and the two must not be confused
 
 **One-time, in the Stripe dashboard:**
 
-1. Create a one-off **Price** per purchasable module — `vendors` and `registry`. Use **test-mode** Prices for the dev tier and **live-mode** ones for production: a test id in production fails at checkout.
+1. Create one product per paid plan tier — **Gold** and **Crimson** — each with a one-off **Price**, plus a **second Price on Crimson** for a wedding upgrading from Gold. Use **test-mode** Prices for the dev tier and **live-mode** ones for production: a test id in production fails at checkout.
 2. Add a **second webhook endpoint** pointed at `https://api.cireweddings.com/api/stripe/platform-webhook`, scoped to the **platform account** (not Connect), subscribed to `checkout.session.completed`, `checkout.session.expired` and `checkout.session.async_payment_failed`. Copy its signing secret — it is **not** the same as the Connect endpoint's.
 
 **Then:**
@@ -624,8 +626,9 @@ Separate from the Connect integration in §3.8, and the two must not be confused
 # From cire/api/. The Price ids are ordinary vars, not secrets — put them in
 # wrangler.toml under [env.<env>.vars]; named envs inherit no vars, so each
 # tier declares its own.
-#   STRIPE_UPGRADE_PRICE_VENDORS  = "price_..."
-#   STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+#   STRIPE_UPGRADE_PRICE_GOLD              = "price_..."
+#   STRIPE_UPGRADE_PRICE_CRIMSON           = "price_..."
+#   STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD = "price_..."
 
 bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ```
@@ -633,9 +636,9 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 > [!warning]
 > Reusing the Connect endpoint's signing secret for the platform endpoint means **every** delivery to it is refused with a 400 and Stripe retries for days, while nothing grants. The two secrets come from two different dashboard endpoints.
 
-**Fail-closed, per key.** A module with no configured Price is not purchasable: absent from the catalogue and a 404 from checkout. Absent configuration never means free. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
+**Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
 
-**Smoke check after deploy:** as a wedding owner, open a locked module's nav row → Upgrade → pay with a Stripe test card → confirm you land back in the portal with the module open, and that `wedding_entitlements` has a row with `source = 'purchase'`. The full version — the mounted-vs-404 curl, the `wrangler tail`, and the three D1 queries that prove the webhook granted it rather than the browser — is in [[stripe-webhooks]] §Verify a deployed tier.
+**Smoke check after deploy:** as the owner of an Ivory wedding, open a locked module's nav row → **Upgrade to Gold** → pay with a Stripe test card → confirm you land back in the portal told the wedding is on Gold, with the Gold modules open, and that the wedding's row reads `tier = 'gold'`, `tier_source = 'purchase'`. The full version — the mounted-vs-404 curl, the `wrangler tail`, and the three D1 queries that prove the webhook granted it rather than the browser — is in [[stripe-webhooks]] §Verify a deployed tier.
 
 **Do dev first.** Both endpoints exist per tier and per mode; a sandbox secret will not verify a live delivery. Prove the flow on `api.dev.cireweddings.com` with test-mode Prices before creating anything in live mode.
 
@@ -949,6 +952,85 @@ so the run sits on `Waiting` until someone approves it.
 
 Rejecting a deployment leaves production on the previous release with dev already
 ahead — a normal state, not a broken one. The next approved merge reconciles them.
+
+### 5.6 Approval order when a cire release changes what a plan tier opens
+
+`deploy-cire-host` and `deploy-cire-api` are separate production jobs with no
+`needs:` between them, and both wait on the gate. When a release changes the
+contract between them — the plan tiers ([[cire-entitlements]]) are the case
+that exists — approve them in **separate reviews, host first**:
+
+1. Run the pre-flight queries below, before approving anything.
+2. Approve **`deploy-cire-host`** alone, and wait for it to finish.
+3. Approve **`deploy-cire-api`**. It applies the D1 migrations, then deploys the
+   Worker.
+
+The order matters because only one pairing breaks. The new portal reads either
+wedding-list shape: `tier` when the API sends it, the legacy entitlement keys
+otherwise (`tierOf` in `cire/host/src/lib/tiers.ts`). The old portal on the new
+API does not: it has no lock on Checklist or Budget, so an Ivory wedding's
+Overview requests `/tasks`, gets the new 402, and blanks the whole snapshot.
+Host first means that pairing never serves.
+
+**Pre-flight for the tier release (migration 0073).** Read-only; a human runs
+them against `cire-db`:
+
+```bash
+cd cire/api
+bunx wrangler d1 execute cire-db --env production --remote --command \
+  "SELECT entitlement, status, count(*) FROM wedding_upgrade_purchases GROUP BY 1, 2"
+bunx wrangler d1 execute cire-db --env production --remote --command \
+  "SELECT entitlement, count(*) FROM wedding_entitlements GROUP BY 1"
+```
+
+| Query | Expect | Why it matters |
+|---|---|---|
+| Purchases by product and status | No `pending` rows | 0073 expires every pending per-module purchase. One paid in the meantime still settles — settle accepts an expired row and maps `vendors` to Crimson, `registry` to Gold — but a pending row means a checkout was live, which no deployment should have while its Prices are unset |
+| Entitlements by key | The counts 0073 will lift | `vendors` or `capacity_1000` rows become Crimson weddings, then `registry` or `capacity_500` rows Gold ones |
+
+**If the first query shows any `pending` row, close its Stripe session before
+approving `deploy-cire-api`.** 0073 marks the row `expired` in D1, which does
+not close the session at Stripe: it stays payable for a day after it opened,
+and a payment there settles into the tier that replaced its product. The new
+Worker closes such a page at Stripe before it opens a tier checkout for that
+wedding ([[cire-upgrades]]), so the organiser cannot pay both; closing it here
+as well means no old per-module page is payable once the tiers are live. List
+the sessions:
+
+```bash
+bunx wrangler d1 execute cire-db --env production --remote --command \
+  "SELECT id, wedding_id, entitlement, checkout_session_id, created_at FROM wedding_upgrade_purchases WHERE status = 'pending' AND checkout_session_id IS NOT NULL"
+```
+
+Expire each one with the platform account's live secret key — the value set as
+`cire-api`'s `STRIPE_SECRET_KEY` — through the same endpoint the Worker uses
+(`expirePlatformCheckoutSession` in `cire/api/src/services/stripe.ts`):
+
+```bash
+curl -sS -X POST "https://api.stripe.com/v1/checkout/sessions/<checkout_session_id>/expire" \
+  -u "$STRIPE_SECRET_KEY:"
+```
+
+The answer carries `"status": "expired"`. A session Stripe refuses to expire
+has completed: its webhook settles it, and nothing more is needed. A pending
+row with no `checkout_session_id` never handed out a payment page and needs
+nothing.
+
+After `deploy-cire-api`, confirm the lift:
+
+```bash
+bunx wrangler d1 execute cire-db --env production --remote --command \
+  "SELECT tier, tier_source, count(*) FROM weddings GROUP BY 1, 2"
+```
+
+Then the smoke check: an Ivory wedding's Overview shows its guest and event
+counts with no Checklist or Budget card, its Checklist, Budget and Registry rows
+say "Included with Gold" and Vendors "Included with Crimson"; a migrated Crimson
+wedding opens every module.
+
+The release that follows — englishstventures/osn#1315, which deletes the legacy
+entitlement rows and drops the portal's fallback and the list's legacy keys —
+ships only once this one is live on both jobs.
 
 Two API tokens back the two tiers: `CLOUDFLARE_API_TOKEN_DEV` on the `dev`
 Environment, the existing `CLOUDFLARE_API_TOKEN` only on `production`. A

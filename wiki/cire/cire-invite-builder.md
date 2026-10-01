@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-01
 ---
 # Invite Builder
 
@@ -1577,10 +1577,12 @@ API/schema support — tracked as an open issue in `englishstventures/osn`, alon
 with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
 row version yet).
 
-**Locked designs are perceivable.** Premium cards without the entitlement use
-`aria-disabled` — never `disabled` — so they stay in the accessibility tree:
-keyboard arrows land on them (announcing "Locked"), Tab order keeps one stop,
-selection and click no-op, and the server enforces the entitlement regardless.
+**Locked designs are perceivable.** A premium card the wedding cannot use
+(below Crimson, with no `premium_templates` entitlement — see
+[[cire-invite-designs]]) uses `aria-disabled` — never `disabled` — so it stays
+in the accessibility tree: keyboard arrows land on it (announcing "Locked"),
+Tab order keeps one stop, selection and click no-op, and the server enforces
+the same rule regardless.
 Per-section **"Reset section"** actions revert a card's saveable fields to
 defaults as a draft change (nothing saved until the save bar says so).
 

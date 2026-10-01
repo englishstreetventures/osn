@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # DSAR Runbook
@@ -177,8 +177,8 @@ profile-id string with **no cross-DB FK**. Two consequences:
   guest's own note, and leaves out `note_hidden_by_osn_profile_id`, which
   identifies a co-host (Art. 15(4)). An erasure that nulls the note leaves the
   pair in place; with no text they say nothing about the guest.
-  The `registry` entitlement is sold self-serve, so production can hold these
-  rows. Tracked under C-M1 alongside the rest of the missing cire ARC bridge.
+  The registry comes with the Gold plan tier, which is sold self-serve, so
+  production can hold these rows. Tracked under C-M1 alongside the rest of the missing cire ARC bridge.
 - **RSVP change log and organiser read state (migration 0068).** A household's
   `rsvp_changes` rows (which guest changed which reply, and when — no content)
   are part of that household's data: an access request returns them, and

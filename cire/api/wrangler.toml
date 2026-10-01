@@ -126,9 +126,11 @@ ZAP_API_URL = "http://localhost:3002"
 # than something a couple can change later.
 # STRIPE_ACCOUNT_COUNTRY = "AU"
 #
-# STRIPE_UPGRADE_PRICE_* are ordinary vars too — Price ids, not secrets. A key
-# with no Price id here is NOT FOR SALE in that tier: absent from the catalogue,
-# 404 from the checkout route. Absent configuration never means free. The AMOUNT
+# STRIPE_UPGRADE_PRICE_* are ordinary vars too — Price ids, not secrets. A plan
+# tier with no Price id here is NOT FOR SALE in that deployment: absent from the
+# catalogue, 404 from the checkout route. CRIMSON_FROM_GOLD is a second Price on
+# the Crimson product, charged to a wedding already on Gold; unset, a Gold
+# wedding is not offered Crimson at all. Absent configuration never means free. The AMOUNT
 # lives at Stripe and is read back from it, so changing what an upgrade costs is
 # a dashboard change plus a var rather than a deploy, and no price is duplicated
 # here to drift from what customers are charged.
@@ -302,14 +304,16 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # Self-serve upgrade prices. UNSET until the Stripe Prices exist, which is why
 # these are commented rather than blank: an empty string reads as unconfigured
 # in code, but a var nobody has filled in looks like an oversight either way.
-# With neither set the upgrade catalogue is empty, every checkout 404s, and the
+# With none set the upgrade catalogue is empty, every checkout 404s, and the
 # locked nav rows keep offering an upgrade nobody can complete — so setting them
 # is part of turning the feature on, not an optimisation.
-# Create a one-off Price per module in the Stripe dashboard (test-mode Prices
-# for the dev tier, live ones for production — a test id in production fails at
-# checkout) and paste the `price_...` ids here.
-# STRIPE_UPGRADE_PRICE_VENDORS = "price_..."
-# STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+# Create one product per paid tier in the Stripe dashboard, each with a one-off
+# Price (test-mode Prices for the dev tier, live ones for production — a test id
+# in production fails at checkout), plus a second Price on Crimson for an
+# upgrade from Gold, and paste the `price_...` ids here.
+# STRIPE_UPGRADE_PRICE_GOLD = "price_..."
+# STRIPE_UPGRADE_PRICE_CRIMSON = "price_..."
+# STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD = "price_..."
 
 
 # Mirror of the top-level [triggers] block (named envs do NOT inherit it). Same
@@ -449,8 +453,9 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # sale: the catalogue is empty and every checkout 404s, so the locked modules
 # keep offering an upgrade nobody can complete. Setting these is part of
 # turning the feature on.
-# STRIPE_UPGRADE_PRICE_VENDORS = "price_..."
-# STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+# STRIPE_UPGRADE_PRICE_GOLD = "price_..."
+# STRIPE_UPGRADE_PRICE_CRIMSON = "price_..."
+# STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD = "price_..."
 
 # Mirror of the top-level [triggers] block — named environments do NOT inherit
 # it, so without this the daily expired-session sweep would be registered only on

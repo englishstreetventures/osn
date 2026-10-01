@@ -27,7 +27,7 @@ const manualParse = { parse: () => ({}) };
 /**
  * The ONE 404 the whole guest surface answers with.
  *
- * Unknown slug, wedding without the `registry` entitlement, registry never
+ * Unknown slug, wedding below the Gold tier, registry never
  * opened, registry unpublished, a household of ANOTHER wedding, an image name
  * that doesn't match the registry prefix, an image no gift on the list names,
  * an object missing from R2 — all of them, on every route here, produce this
@@ -96,7 +96,7 @@ const logDefect = (cause: unknown) => Effect.logError("registry guest handler de
  *
  * Its own instance, and not merged into the `…/mine` one below, for the reason
  * that split exists: the writes carry a limiter this read must not, and the
- * entitlement gate must cover every registry route without ever leaking onto
+ * tier check must cover every registry route without ever leaking onto
  * the invite's own public routes.
  */
 export const createRegistryGuestListRoutes = (db: Db) =>
@@ -138,8 +138,8 @@ export const createRegistryGuestListRoutes = (db: Db) =>
  * whoever holds it can fetch the bytes, whether or not their household still
  * has an invite. What the couple keep is withdrawal — of the whole list, or of
  * one gift. The gate runs on every request that reaches the Worker and checks
- * the entitlement, the publish flag AND that an item still names the image, so
- * unpublishing, losing the entitlement, deleting the gift or saving a new
+ * the tier, the publish flag AND that an item still names the image, so
+ * unpublishing, dropping below Gold, deleting the gift or saving a new
  * picture over it closes the URL at the Worker at once, its own cache included.
  * Browsers and proxies hold the bytes for an hour (`lifetime: "revocable"`), not
  * a year, so the same withdrawal reaches every copy outside the Worker within
@@ -162,7 +162,7 @@ export const createRegistryGuestImageRoutes = (
       return runCire(
         Effect.gen(function* () {
           // The gate runs BEFORE any R2 or Images work: an unpublished or
-          // unentitled wedding must not be able to spend a transform call, and
+          // below-Gold wedding must not be able to spend a transform call, and
           // an image no gift shows must not be reachable by anyone holding or
           // guessing its name. The key comes back rebuilt server-side from the
           // resolved wedding id and a `:name` already matched against
@@ -511,7 +511,7 @@ export interface RegistryGuestClaimDeps {
  *   InvalidQuantity         → 400 `invalid_quantity`
  *
  * `FamilyNotInWedding` answers as `registry_not_found` — the SAME code an
- * unpublished or unentitled registry gives (S-M1). It fires when a cookie for
+ * unpublished or below-Gold registry gives. It fires when a cookie for
  * wedding A is used on wedding B's slug, and the service checks it BEFORE the
  * item, so a holder of any valid cookie learns neither whether that wedding has
  * a list nor whether the item id they guessed exists on it. Answering a

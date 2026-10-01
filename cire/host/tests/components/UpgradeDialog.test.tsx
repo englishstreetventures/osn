@@ -40,33 +40,44 @@ import { __resetUpgradeStore } from "../../src/lib/upgrade-store";
  *
  * What is load-bearing here:
  *   - it never claims an unlock. Pressing the button leaves for Stripe; the
- *     entitlement arrives by webhook, and the portal finds out on return;
+ *     tier is raised by webhook, and the portal finds out on return;
  *   - a `processing` refusal tells the organiser to WAIT. Inviting a second
  *     payment there is how somebody gets charged twice;
- *   - an unpriced key offers no button at all rather than one that 404s.
+ *   - a tier the catalogue does not offer gets no button at all rather than
+ *     one that 404s.
  */
 
 const PROPS = {
   open: true,
   weddingId: "wed_1",
-  entitlement: "registry",
-  title: "Gift registry",
+  tier: "gold",
+  module: "registry",
+  title: "Gold",
   blurb: "List the gifts you'd like.",
   onClose: vi.fn(),
-};
+} as const;
 
-/** The catalogue response, as the API returns it. */
-function catalogue(entries: unknown[]) {
-  return new Response(JSON.stringify({ upgrades: entries }), { status: 200 });
+/** The catalogue response, as the API returns it, for a wedding on `tier`. */
+function catalogue(entries: unknown[], tier = "ivory") {
+  return new Response(JSON.stringify({ tier, upgrades: entries }), { status: 200 });
 }
 
-const REGISTRY = {
-  entitlement: "registry",
-  title: "Gift registry",
-  blurb: "List the gifts you'd like, and see what guests have claimed.",
+const GOLD = {
+  tier: "gold",
+  fromTier: "ivory",
+  title: "Gold tier",
+  blurb: "Your budget, checklist and gift registry, for up to 500 guests.",
   amountMinor: 2900,
   currency: "AUD",
-  held: false,
+};
+
+const CRIMSON_FROM_GOLD = {
+  tier: "crimson",
+  fromTier: "gold",
+  title: "Crimson tier",
+  blurb: "Everything in Gold, plus vendors.",
+  amountMinor: 3000,
+  currency: "AUD",
 };
 
 beforeEach(() => {
@@ -77,7 +88,7 @@ afterEach(cleanup);
 
 describe("pricing", () => {
   it("shows the price the API returned, not one baked into the app", async () => {
-    authFetch.mockResolvedValueOnce(catalogue([REGISTRY]));
+    authFetch.mockResolvedValueOnce(catalogue([GOLD]));
     render(() => <UpgradeDialog {...PROPS} />);
 
     expect(await screen.findByText(/\$29\.00/)).toBeInTheDocument();
@@ -98,15 +109,26 @@ describe("pricing", () => {
     );
     render(() => <UpgradeDialog {...PROPS} />);
 
-    expect(screen.getByText("Gift registry")).toBeInTheDocument();
+    expect(screen.getByText("Gold")).toBeInTheDocument();
     expect(screen.getByText(/checking the price/i)).toBeInTheDocument();
 
-    release(catalogue([REGISTRY]));
+    release(catalogue([GOLD]));
     expect(await screen.findByText(/\$29\.00/)).toBeInTheDocument();
   });
 
-  it("offers no purchase for a key the deployment does not sell", async () => {
-    // A catalogue that came back WITHOUT this key: no Stripe Price configured,
+  it("shows the tier's own copy from the catalogue once it lands", async () => {
+    authFetch.mockResolvedValueOnce(catalogue([GOLD]));
+    render(() => <UpgradeDialog {...PROPS} />);
+
+    expect(await screen.findByText("Gold tier")).toBeInTheDocument();
+    expect(screen.getByText(/for up to 500 guests/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Upgrade: Gold tier" })).toBeInTheDocument();
+    // From Ivory, the eyebrow is plain: there is no paid tier to upgrade from.
+    expect(screen.getByText("Upgrade")).toBeInTheDocument();
+  });
+
+  it("offers no purchase for a tier the deployment does not sell", async () => {
+    // A catalogue that came back WITHOUT this tier: no Stripe Price configured,
     // or no Stripe at all. A button here would 404 on press.
     authFetch.mockResolvedValueOnce(catalogue([]));
     render(() => <UpgradeDialog {...PROPS} />);
@@ -115,11 +137,50 @@ describe("pricing", () => {
     expect(screen.getByRole("button", { name: /continue to payment/i })).toBeDisabled();
   });
 
-  it("says so rather than offering a second sale when the key is already held", async () => {
-    authFetch.mockResolvedValueOnce(catalogue([{ ...REGISTRY, held: true }]));
+  it("offers no purchase when the deployment has no upgrade routes at all", async () => {
+    authFetch.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 404 }));
     render(() => <UpgradeDialog {...PROPS} />);
 
-    expect(await screen.findByText(/you already have this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/not available on this site yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /continue to payment/i })).toBeDisabled();
+  });
+
+  it("says so rather than offering a second sale when the wedding is already on the tier", async () => {
+    // The nav row locks by the wedding list and this by the catalogue; after a
+    // purchase settles they can disagree for a render.
+    authFetch.mockResolvedValueOnce(catalogue([], "gold"));
+    render(() => <UpgradeDialog {...PROPS} />);
+
+    expect(await screen.findByText(/already on Gold/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /continue to payment/i })).toBeDisabled();
+  });
+
+  it("counts a higher tier as holding a lower one", async () => {
+    authFetch.mockResolvedValueOnce(catalogue([], "crimson"));
+    render(() => <UpgradeDialog {...PROPS} />);
+
+    expect(await screen.findByText(/already on Gold/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /continue to payment/i })).toBeDisabled();
+  });
+
+  it("prices Crimson for a Gold wedding as the upgrade from Gold", async () => {
+    authFetch.mockResolvedValueOnce(catalogue([CRIMSON_FROM_GOLD], "gold"));
+    render(() => <UpgradeDialog {...PROPS} tier="crimson" module="vendors" title="Crimson" />);
+
+    expect(await screen.findByText(/\$30\.00/)).toBeInTheDocument();
+    // Said where the price is, so the smaller figure is not read as Crimson's
+    // full price.
+    expect(screen.getByText("Upgrade from Gold")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /continue to payment/i })).toBeEnabled();
+  });
+
+  it("offers nothing to a Gold wedding when the deployment has no upgrade-from-Gold price", async () => {
+    // The API leaves Crimson out of a Gold wedding's catalogue rather than
+    // charging the full price again.
+    authFetch.mockResolvedValueOnce(catalogue([], "gold"));
+    render(() => <UpgradeDialog {...PROPS} tier="crimson" module="vendors" title="Crimson" />);
+
+    expect(await screen.findByText(/not available on this site yet/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /continue to payment/i })).toBeDisabled();
   });
 
@@ -133,7 +194,7 @@ describe("pricing", () => {
 
 describe("paying", () => {
   async function opened() {
-    authFetch.mockResolvedValueOnce(catalogue([REGISTRY]));
+    authFetch.mockResolvedValueOnce(catalogue([GOLD]));
     render(() => <UpgradeDialog {...PROPS} />);
     await screen.findByText(/\$29\.00/);
     return screen.getByRole("button", { name: /continue to payment/i });
@@ -149,8 +210,23 @@ describe("paying", () => {
 
     fireEvent.click(button);
     await waitFor(() => expect(navigateTo).toHaveBeenCalledWith("https://pay.test/cs_1"));
-    // Nothing was claimed unlocked: the entitlement arrives by webhook.
+    // It asked for the tier, and named the module to come back to.
+    const [, init] = authFetch.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ tier: "gold", module: "registry" });
+    // Nothing was claimed unlocked: the tier is raised by webhook.
     expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("names the tier when the API says the wedding already holds it", async () => {
+    const button = await opened();
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "already_held" }), { status: 409 }),
+    );
+
+    fireEvent.click(button);
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(String(toastSuccess.mock.calls[0]?.[0])).toMatch(/already on Gold/);
+    expect(navigateTo).not.toHaveBeenCalled();
   });
 
   /**
@@ -197,7 +273,7 @@ describe("paying", () => {
 describe("closing", () => {
   it("closes on Cancel without asking the API for anything", async () => {
     const onClose = vi.fn();
-    authFetch.mockResolvedValueOnce(catalogue([REGISTRY]));
+    authFetch.mockResolvedValueOnce(catalogue([GOLD]));
     render(() => <UpgradeDialog {...PROPS} onClose={onClose} />);
     await screen.findByText(/\$29\.00/);
 

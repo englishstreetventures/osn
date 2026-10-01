@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1340,
+    "branch": "claude/magical-hypatia-o3xoyh",
+    "base_sha": "bf50c3be8487a98381fef82bb71a36e4f9a17642",
+    "head_sha": "42cba341ae7f0f02327e98c8d8a002272f2a84ad",
+    "generated_at": "2026-10-01T07:16:47.912Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1300,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "manual"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-01T04:06:34.752Z",
+    "last_ts": "2026-10-01T07:16:46.914Z",
+    "span_seconds": 11412,
+    "active_seconds": 9885,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 115.67500379999996,
+    "tokens": {
+      "input": 1872,
+      "output": 51293,
+      "thinking": 4028,
+      "cache_write_5m": 2526323,
+      "cache_write_1h": 203186,
+      "cache_read": 250961382
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1872,
+          "output": 51293,
+          "thinking": 4028,
+          "cache_write_5m": 2526323,
+          "cache_write_1h": 203186,
+          "cache_read": 250961382
+        },
+        "usd_equivalent": 115.67500379999996,
+        "messages": 936
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 88,
+          "output": 40586,
+          "thinking": 4028,
+          "cache_write_5m": 0,
+          "cache_write_1h": 203186,
+          "cache_read": 6656839
+        },
+        "usd_equivalent": 5.100295600000001,
+        "messages": 44
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1784,
+          "output": 10707,
+          "thinking": 0,
+          "cache_write_5m": 2526323,
+          "cache_write_1h": 0,
+          "cache_read": 244304543
+        },
+        "usd_equivalent": 110.57470819999996,
+        "messages": 892
+      }
+    },
+    "effort": {
+      "medium": 205,
+      "high": 74,
+      "xhigh": 657
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 59,
+      "docs": 22,
+      "config": 3,
+      "source": 67
+    },
+    "loc": {
+      "generated": {
+        "added": 66,
+        "deleted": 0
+      },
+      "test": {
+        "added": 4594,
+        "deleted": 2475
+      },
+      "docs": {
+        "added": 812,
+        "deleted": 298
+      },
+      "config": {
+        "added": 3963,
+        "deleted": 11
+      },
+      "source": {
+        "added": 2250,
+        "deleted": 1540
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/invite-designs"
+    ],
+    "touches_migration": true,
+    "commits": 15
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": 840178,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 899,
+      "Skill": 14,
+      "Write": 14,
+      "Read": 14,
+      "TaskUpdate": 14,
+      "Agent": 8,
+      "SubagentHandback": 8,
+      "TaskCreate": 7,
+      "ToolSearch": 5,
+      "mcp__github__issue_write": 5,
+      "mcp__github__issue_read": 3,
+      "AskUserQuestion": 3,
+      "mcp__github__sub_issue_write": 3,
+      "Grep": 2,
+      "Edit": 2,
+      "ListAgents": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__claude-code-remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "new-feat": 4,
+      "rate-complexity": 1,
+      "stress-plan": 2,
+      "pick-agent": 1,
+      "write-wiki": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "Plan": 1,
+      "attacker": 1,
+      "implementer": 3,
+      "general-purpose": 3
+    }
+  }
+}

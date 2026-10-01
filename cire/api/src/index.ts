@@ -118,7 +118,7 @@ export interface Env {
   CLAIM_SESSION_RATE_LIMITER?: WorkersRateLimitBinding;
   // Native Workers Rate Limiting bindings for the organiser registry amplifier
   // routes — the link preview (fetches a URL the caller typed) and the image
-  // copy (that fetch plus an R2 write). Both are authenticated, entitlement-
+  // copy (that fetch plus an R2 write). Both are authenticated, tier-
   // gated organiser routes, so an absent binding degrades to the per-isolate
   // in-memory default in `createApp` rather than failing closed: the budget
   // exists to protect the third party being fetched, not to stop a brute force.
@@ -154,13 +154,16 @@ export interface Env {
   // hears about the platform's own charges. Absent ⇒ that route does not exist,
   // and a purchase could be paid but never granted.
   STRIPE_PLATFORM_WEBHOOK_SECRET?: string;
-  // Stripe Price ids for the self-serve upgrades (KEY-OPTIONAL, per key). A key
-  // with no Price id here is not for sale in this deployment: it never appears
-  // in the catalogue and the checkout route 404s for it. NOT secrets — they are
-  // `[vars]` in wrangler.toml, and named envs inherit none, so each tier
-  // declares its own. The AMOUNT lives at Stripe, never in this repository.
-  STRIPE_UPGRADE_PRICE_VENDORS?: string;
-  STRIPE_UPGRADE_PRICE_REGISTRY?: string;
+  // Stripe Price ids for the plan tiers (KEY-OPTIONAL, per Price). A tier with
+  // no Price id here is not for sale in this deployment: it never appears in
+  // the catalogue and the checkout route 404s for it. `CRIMSON_FROM_GOLD` is a
+  // second Price on the Crimson product, charged to a wedding already on Gold;
+  // unset, Crimson is not offered to a Gold wedding at all. NOT secrets — they
+  // are `[vars]` in wrangler.toml, and named envs inherit none, so each
+  // deployment declares its own. The AMOUNT lives at Stripe, never here.
+  STRIPE_UPGRADE_PRICE_GOLD?: string;
+  STRIPE_UPGRADE_PRICE_CRIMSON?: string;
+  STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD?: string;
   // Two-letter country for a NEW connected account (`AU` unless set). Stripe
   // fixes an account's country at creation, so this is a per-deployment default
   // and not something a couple can change afterwards.
@@ -482,8 +485,9 @@ const handler: ExportedHandler<Env> = {
         stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? null,
         stripePlatformWebhookSecret: env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
         upgradePrices: {
-          vendors: env.STRIPE_UPGRADE_PRICE_VENDORS,
-          registry: env.STRIPE_UPGRADE_PRICE_REGISTRY,
+          gold: env.STRIPE_UPGRADE_PRICE_GOLD,
+          crimson: env.STRIPE_UPGRADE_PRICE_CRIMSON,
+          crimsonFromGold: env.STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD,
         },
         stripeAccountCountry: env.STRIPE_ACCOUNT_COUNTRY,
         flags,

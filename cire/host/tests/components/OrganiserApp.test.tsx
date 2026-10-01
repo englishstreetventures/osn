@@ -43,10 +43,17 @@ vi.mock("@shared/rp-auth/solid", async () => {
   };
 });
 
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+const toastInfo = vi.fn();
 vi.mock("@shared/toast", () => ({
   Toaster: () => null,
-  // The helper screen's leave control toasts its outcome.
-  toast: { success: () => {}, error: () => {} },
+  // The upgrade return and the helper screen's leave control toast their outcome.
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: (...args: unknown[]) => toastError(...args),
+    info: (...args: unknown[]) => toastInfo(...args),
+  },
 }));
 
 vi.mock("../../src/lib/api", async () => {
@@ -72,6 +79,7 @@ vi.mock("../../src/components/WeddingList", () => ({
             slug: "new-x",
             displayName: "Fresh Wedding",
             role: "owner",
+            tier: "ivory",
             entitlements: [],
             guestCap: 100,
           })
@@ -103,6 +111,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       canEdit: boolean;
       module: string;
       sub: string;
+      tier: string;
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
@@ -118,6 +127,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-can-edit={String(props.canEdit)}
           data-module={props.module}
           data-sub={props.sub}
+          data-tier={props.tier}
           data-mount={String(mount)}
         >
           {props.weddingId}
@@ -170,6 +180,7 @@ function listResponse(
     slug: string;
     displayName: string;
     role?: string;
+    tier?: string;
     entitlements?: string[];
     guestCap?: number;
   }[],
@@ -178,6 +189,7 @@ function listResponse(
     JSON.stringify({
       weddings: weddings.map((w) => ({
         role: "owner",
+        tier: "ivory",
         entitlements: [],
         guestCap: 100,
         ...w,
@@ -321,6 +333,119 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(screen.getByText(/Helper access/i)).toBeTruthy();
+  });
+
+  it("hands the wedding's tier to the module shell", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_g", slug: "g", displayName: "Golden", tier: "gold" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("gold");
+  });
+
+  it("reads the tier from the legacy keys of an API that sends none", async () => {
+    // The portal can deploy ahead of the API. That API's list has no `tier`,
+    // only the packs a wedding bought; `vendors` was the Crimson pack, and
+    // reading it as Ivory would lock a module the couple paid for.
+    authFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          weddings: [
+            {
+              id: "wed_l",
+              slug: "l",
+              displayName: "Legacy",
+              role: "owner",
+              entitlements: ["vendors"],
+              guestCap: 1000,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("crimson");
+  });
+
+  it("treats a tier it has never heard of as Ivory, which opens nothing paid", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([
+        {
+          id: "wed_p",
+          slug: "p",
+          displayName: "Platinum",
+          tier: "platinum",
+          entitlements: ["vendors"],
+        },
+      ]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-tier")).toBe("ivory");
+  });
+
+  it("names the tier bought when a returning purchase has settled, and refreshes the list", async () => {
+    // Stripe sends the organiser back with the receipt in the query.
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    let listReads = 0;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        return new Response(JSON.stringify({ purchase: { status: "succeeded", tier: "gold" } }), {
+          status: 200,
+        });
+      }
+      listReads += 1;
+      return listResponse([
+        {
+          id: "wed_a",
+          slug: "a",
+          displayName: "Alice & Bob",
+          tier: listReads > 1 ? "gold" : "ivory",
+        },
+      ]);
+    });
+    render(() => <OrganiserApp />);
+
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete — this wedding is on Gold."),
+    );
+    // The list is what the nav locks by, so it is read again once the tier is raised.
+    expect(listReads).toBe(2);
+    // And the receipt is gone from the URL, so a refresh does not poll again.
+    expect(window.location.search).toBe("");
+    toastSuccess.mockReset();
+  });
+
+  it("says the upgrade is complete without naming a tier this build does not know", async () => {
+    // A purchase the API reports in a tier this portal has no name for comes
+    // back with no tier at all; the toast must not try to name one.
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    let listReads = 0;
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        return new Response(
+          JSON.stringify({ purchase: { status: "succeeded", tier: "platinum" } }),
+          { status: 200 },
+        );
+      }
+      listReads += 1;
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "gold" }]);
+    });
+    render(() => <OrganiserApp />);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Upgrade complete."));
+    expect(listReads).toBe(2);
+    expect(window.location.search).toBe("");
+    toastSuccess.mockReset();
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

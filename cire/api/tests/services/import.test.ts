@@ -8,7 +8,6 @@ import {
   guestEvents,
   rsvps,
   weddings,
-  weddingEntitlements,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Exit, Layer } from "effect";
@@ -19,7 +18,6 @@ import { createDb, seedBootstrapWedding, seedDb } from "../../src/db/setup";
 import type { ImportPlan, ParsedEvent, ParsedFamily } from "../../src/schemas/import";
 import { currentEventsAsParsed } from "../../src/services/changes";
 import { claimService } from "../../src/services/claim";
-import { entitlementService } from "../../src/services/entitlements";
 import { hostCodeService } from "../../src/services/host-code";
 import {
   applyImport,
@@ -29,6 +27,7 @@ import {
   StaleDesiredState,
 } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { setTier } from "../test-helpers";
 
 /** Build a fresh in-memory DB layer for each test. */
 function freshDbLayer(seed: boolean) {
@@ -971,7 +970,7 @@ describe("applyImport — capacity enforcement", () => {
   it("applyImport fails with CapacityExceeded when net-new guests breach the derived cap, writing nothing", async () => {
     const db = createDb();
     seedBootstrapWedding(db);
-    // cap 100 (no capacity entitlement), plan creates 101 guests
+    // cap 100 (Ivory), plan creates 101 guests
     const plan = await Effect.runPromise(planCreatingNGuests(db, 101));
     const exit = await Effect.runPromiseExit(
       applyImport("imp_cap_1", plan, BOOTSTRAP_WEDDING_ID).pipe(
@@ -1001,7 +1000,7 @@ describe("applyImport — capacity enforcement", () => {
   it("host-preview family guests do NOT count toward the cap", async () => {
     // Seed 99 real guests directly (bypassing diff so they aren't removed by
     // subsequent diffAgainstDb calls). Then create a host family with 1 guest.
-    // The entitlementService must exclude host guests from the count:
+    // The capacity check must exclude host guests from the count:
     //   real=99, host=1 → adding 1 real guest = 100 (≤100) → OK
     //   then adding 1 more real guest = 101 (>100) → CapacityExceeded
     const db = createDb();
@@ -1122,19 +1121,15 @@ describe("applyImport — capacity enforcement", () => {
     expect(n).toBe(100);
   });
 
-  it("upgraded wedding (capacity_500) allows more guests", async () => {
+  it("a Gold wedding allows more guests", async () => {
     const db = createDb();
     seedBootstrapWedding(db);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     const layer = Layer.succeed(DbService, db);
 
     await Effect.runPromise(
       Effect.gen(function* () {
-        // Grant capacity_500
-        yield* entitlementService.grant(BOOTSTRAP_WEDDING_ID, "capacity_500", {
-          source: "comp",
-          grantedBy: "usr_admin",
-        });
-        // 101 guests under cap of 500 → succeeds.
+        // 101 guests under Gold's cap of 500 → succeeds.
         const plan = yield* planCreatingNGuests(db, 101, BOOTSTRAP_WEDDING_ID);
         const exit = yield* Effect.exit(applyImport("imp_cap_up", plan, BOOTSTRAP_WEDDING_ID));
         expect(Exit.isSuccess(exit)).toBe(true);

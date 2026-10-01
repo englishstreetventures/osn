@@ -32,6 +32,7 @@ import {
 import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
+import { TIER_LABEL, tierOf } from "../lib/tiers";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { fetchPurchase } from "../lib/upgrade-api";
 import {
@@ -182,6 +183,7 @@ function WeddingDashboard(props: {
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
           onLeftWedding={props.onLeft}
+          tier={tierOf(props.wedding)}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
         />
@@ -559,8 +561,8 @@ function Dashboard() {
   /**
    * Back from Stripe.
    *
-   * The entitlement is granted by the webhook, not by this page, so all this
-   * does is ask what happened and refresh the list once it has. The params are
+   * The tier is raised by the webhook, not by this page, so all this does is
+   * ask what happened and refresh the list once it has. The params are
    * stripped the moment they are read: `setRoute` rebuilds the URL as
    * `pathname + search + hash` on every hash write and the login bounce carries
    * `search` through, so leaving them would re-run this on every later
@@ -600,8 +602,8 @@ function Dashboard() {
         if (cancelled) return;
 
         if (state?.status === "succeeded") {
-          // The entitlement now exists server-side; the list is what the nav
-          // reads, so refetching it is what unlocks the module.
+          // The wedding's tier is raised server-side; the list is what the nav
+          // reads, so refetching it is what unlocks the modules.
           invalidateCatalogue(receipt.weddingId);
           try {
             const res = await authFetch(apiUrl("/api/organiser/weddings"));
@@ -613,7 +615,13 @@ function Dashboard() {
             // The purchase landed even if this refresh did not; a reload shows
             // it. Saying so beats a scary error about a payment that worked.
           }
-          if (!cancelled) toast.success("Upgrade complete — the module is unlocked.");
+          if (!cancelled) {
+            toast.success(
+              state.tier
+                ? `Upgrade complete — this wedding is on ${TIER_LABEL[state.tier]}.`
+                : "Upgrade complete.",
+            );
+          }
           return;
         }
         if (state?.status === "failed" || state?.status === "expired") {

@@ -82,8 +82,9 @@ const appOptions: Parameters<typeof createApp>[1] = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
   upgradePrices: {
-    vendors: process.env.STRIPE_UPGRADE_PRICE_VENDORS,
-    registry: process.env.STRIPE_UPGRADE_PRICE_REGISTRY,
+    gold: process.env.STRIPE_UPGRADE_PRICE_GOLD,
+    crimson: process.env.STRIPE_UPGRADE_PRICE_CRIMSON,
+    crimsonFromGold: process.env.STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD,
   },
   stripeAccountCountry: process.env.STRIPE_ACCOUNT_COUNTRY,
 };

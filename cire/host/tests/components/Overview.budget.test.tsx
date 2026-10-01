@@ -75,7 +75,7 @@ describe("Overview budget widget", () => {
       budgetTotalMinor: 4000000,
       currency: "AUD",
     });
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     expect(await screen.findByText(/over budget/i)).toBeInTheDocument();
   });
 
@@ -101,7 +101,7 @@ describe("Overview budget widget", () => {
         ],
       }),
     );
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     // "of A$45,000.00" (AUD formatting) surfaces on the Budget card.
     // The text may be split across elements; use getAllByText with a broad regex.
     expect(await screen.findByText(/45,000/)).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("Overview budget widget", () => {
         ],
       }),
     );
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     expect(await screen.findByText(/450,000/)).toBeInTheDocument();
     expect(screen.getByText(/170,000/)).toBeInTheDocument();
   });
@@ -159,7 +159,7 @@ describe("Overview budget widget", () => {
         ],
       }),
     );
-    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
     expect(await screen.findByText(/170,000 tracked — set a total/)).toBeInTheDocument();
   });
 });

@@ -3,8 +3,8 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
-import { entitlementPresent } from "./entitlements";
-import type { EntitlementKey } from "./entitlements";
+import { normaliseTier } from "./tiers";
+import type { Tier } from "./tiers";
 
 /**
  * Every value the `wedding_hosts.role` column may hold, read off the column
@@ -239,15 +239,17 @@ type AuthorizeResult = {
   /** The wedding's slug, read from the same row as its owner, so a route that
    *  names a download after the wedding does not read that row again. */
   weddingSlug: string;
+  /** The wedding's plan tier, from the same row, so a tier gate mounted after
+   *  the role gate needs no query of its own. */
+  weddingTier: Tier;
 };
 
 /**
- * The entitlement-free `authorize()`: the wedding row, then the caller's seat
- * unless they own it, with no `wedding_entitlements` column. Kept apart so both
- * the plain caller and {@link authorizeWithEntitlement}'s defect fallback can
- * reach it.
+ * `authorize()`: the wedding row, then the caller's seat unless they own it.
+ * The wedding row carries the slug and the tier with the owner, so neither
+ * costs a query of its own.
  */
-function authorizePlain(
+function authorizeCaller(
   weddingId: string,
   osnProfileId: string,
 ): Effect.Effect<AuthorizeResult | null, never, DbService> {
@@ -255,12 +257,13 @@ function authorizePlain(
     const db = yield* DbService;
     const [owner] = yield* dbQuery(() =>
       db
-        .select({ owner: weddings.ownerOsnProfileId, slug: weddings.slug })
+        .select({ owner: weddings.ownerOsnProfileId, slug: weddings.slug, tier: weddings.tier })
         .from(weddings)
         .where(eq(weddings.id, weddingId))
         .all(),
     );
     if (!owner) return null;
+    const weddingTier = normaliseTier(owner.tier);
 
     const isOwner = owner.owner === osnProfileId;
     if (isOwner) {
@@ -274,6 +277,7 @@ function authorizePlain(
         hostId: null,
         runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
         weddingSlug: owner.slug,
+        weddingTier,
       };
     }
 
@@ -301,112 +305,9 @@ function authorizePlain(
         ? normaliseRunSheetScope(host.runSheetScope)
         : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
       weddingSlug: owner.slug,
+      weddingTier,
     };
   }).pipe(Effect.withSpan("cire.host.authorize"));
-}
-
-/**
- * The `entitlementKey`-carrying half of `authorize()` — kept as a separate
- * function rather than an inline branch so the plain path above carries no
- * entitlement column for any caller that never asks for an entitlement fold.
- * Each SELECT gains one boolean `entitled` column
- * (an `EXISTS` subquery against `wedding_entitlements`) instead of the caller
- * issuing a THIRD, separate `entitlementService.has()` round trip afterward —
- * same total query count as the plain path (one query on the owner branch,
- * two on the co-host branch), now carrying the entitlement answer too.
- */
-function authorizeWithEntitlement(
-  weddingId: string,
-  osnProfileId: string,
-  entitlementKey: EntitlementKey,
-): Effect.Effect<(AuthorizeResult & { entitled?: boolean }) | null, never, DbService> {
-  const entitledExists = entitlementPresent(weddingId, entitlementKey);
-
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const [owner] = yield* dbQuery(() =>
-      db
-        .select({
-          owner: weddings.ownerOsnProfileId,
-          slug: weddings.slug,
-          entitled: entitledExists,
-        })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .all(),
-    );
-    if (!owner) return null;
-
-    const isOwner = owner.owner === osnProfileId;
-    if (isOwner) {
-      return {
-        ownerOsnProfileId: owner.owner,
-        isOwner: true,
-        isHost: false,
-        role: "owner" as const,
-        hostId: null,
-        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-        weddingSlug: owner.slug,
-        entitled: Boolean(owner.entitled),
-      };
-    }
-
-    const [host] = yield* dbQuery(() =>
-      db
-        .select({
-          id: weddingHosts.id,
-          role: weddingHosts.role,
-          runSheetScope: weddingHosts.runSheetScope,
-          entitled: entitledExists,
-        })
-        .from(weddingHosts)
-        .where(
-          and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
-        )
-        .limit(1)
-        .all(),
-    );
-    return {
-      ownerOsnProfileId: owner.owner,
-      isOwner: false,
-      isHost: Boolean(host),
-      role: host ? normaliseHostRole(host.role) : null,
-      hostId: host?.id ?? null,
-      runSheetScope: host
-        ? normaliseRunSheetScope(host.runSheetScope)
-        : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
-      weddingSlug: owner.slug,
-      // No host row means neither the owner nor a co-host branch matched — the
-      // caller is a stranger, and `entitled` is meaningless (the role gate
-      // 403s before anything reads it), so `false` rather than a bogus query.
-      entitled: host ? Boolean(host.entitled) : false,
-    };
-  }).pipe(
-    Effect.withSpan("cire.host.authorize"),
-    // Folding the entitlement probe into the role query folds their failure
-    // modes together too. A defect confined to `wedding_entitlements` — a bad
-    // row, a lock, an index problem — must deny only the entitlement half (a
-    // scoped 402, with a log line naming the wedding and the key) while the
-    // role check still answers. Left alone, that defect would throw out of the
-    // gate's derive and 500 every gated route, with a generic log nobody can
-    // triage from.
-    //
-    // So fall back to the plain role query. It answers the role on its own
-    // and returns no `entitled`, so no fold reaches the context and
-    // `weddingEntitlement` runs its own `has()`, still wrapped in its own
-    // defect-to-false-with-log: the two checks fail independently, each with
-    // its own scoped outcome. If the role half is what defected,
-    // `authorizePlain` defects too and the request 500s.
-    Effect.catchDefect((defect) =>
-      Effect.logWarning(
-        "cire.host.authorize entitlement fold failed — falling back to the plain role query",
-      ).pipe(
-        Effect.annotateLogs({ weddingId, entitlement: entitlementKey }),
-        Effect.andThen(Effect.logDebug(String(defect))),
-        Effect.andThen(authorizePlain(weddingId, osnProfileId)),
-      ),
-    ),
-  );
 }
 
 export const hostsService = {
@@ -656,34 +557,15 @@ export const hostsService = {
    * level? True when they own it OR co-host it. Returns the owner id too so the
    * caller (the `weddingMember()` / `weddingEditor()` gates) can distinguish
    * owner from co-host — and, via `role`, editor from viewer — and the
-   * wedding's slug from the same row. One query for the owner; a co-host or a
-   * stranger costs a second, for the seat. `null` result means the wedding
-   * doesn't exist (caller maps to 404); `role` is `null` when the caller is
-   * neither owner nor host.
-   *
-   * `entitlementKey`, when given, folds a presence check for that entitlement
-   * into the SAME query as the owner/host lookup (an `EXISTS` column, same
-   * idiom as `directory.ts`'s `inWedding`) rather than a separate round trip —
-   * see `weddingEntitlement`. Omitted, no entitlement column is read, so a role
-   * gate on a route with no entitlement gate — which must never pass a key —
-   * pays nothing for it.
+   * wedding's slug and tier from the same row. One query for the owner; a
+   * co-host or a stranger costs a second, for the seat. `null` result means the
+   * wedding doesn't exist (caller maps to 404); `role` is `null` when the
+   * caller is neither owner nor host.
    */
   authorize(
     weddingId: string,
     osnProfileId: string,
-    entitlementKey?: EntitlementKey,
-  ): Effect.Effect<
-    | (AuthorizeResult & {
-        /** Only present when `entitlementKey` was passed. */
-        entitled?: boolean;
-      })
-    | null,
-    never,
-    DbService
-  > {
-    if (entitlementKey) {
-      return authorizeWithEntitlement(weddingId, osnProfileId, entitlementKey);
-    }
-    return authorizePlain(weddingId, osnProfileId);
+  ): Effect.Effect<AuthorizeResult | null, never, DbService> {
+    return authorizeCaller(weddingId, osnProfileId);
   },
 };

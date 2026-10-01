@@ -139,9 +139,11 @@ export interface InviteCustomisation {
   designId?: string;
 }
 
-/** Whether a catalog design is locked for this wedding (premium without the
- *  `premium_templates` entitlement). The server enforces this regardless —
- *  this only drives the aria-disabled state + lock badge. */
+/** Whether a catalog design is locked for this wedding: premium, with no
+ *  `premium_templates` among the wedding list's entitlement keys. The API puts
+ *  that key there for a Crimson wedding as well as for one holding the one-off
+ *  entitlement, and enforces the same rule regardless — this only drives the
+ *  aria-disabled state + lock badge. */
 export function isDesignLocked(tier: "free" | "premium", entitlements: readonly string[]): boolean {
   return tier === "premium" && !entitlements.includes("premium_templates");
 }
