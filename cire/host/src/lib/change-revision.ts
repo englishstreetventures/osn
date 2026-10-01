@@ -8,7 +8,7 @@
 // head could miss a change the head already counts.
 //
 // Effect is deliberately NOT imported here — this is frontend code.
-import { apiUrl, redirectToLogin } from "./api";
+import { apiUrl, redirectToLogin, weddingPath } from "./api";
 
 type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -18,7 +18,7 @@ type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
  * seed a draft.
  */
 export async function loadHeadRevision(authFetch: AuthFetch, weddingId: string): Promise<string> {
-  const res = await authFetch(apiUrl(`/api/organiser/weddings/${weddingId}/changes/head`));
+  const res = await authFetch(apiUrl(weddingPath(weddingId, "/changes/head")));
   if (res.status === 401) {
     redirectToLogin();
     throw new Error("unauthenticated");

@@ -7,12 +7,11 @@
 // NOTHING HERE GRANTS ANYTHING. `startUpgrade` returns a payment page; only a
 // signature-verified Stripe webhook can grant an entitlement. That is why the
 // return from Stripe polls `fetchPurchase` instead of assuming success.
-import { apiUrl } from "./api";
+import { apiUrl, weddingPath } from "./api";
 
 export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-const base = (weddingId: string) =>
-  `/api/organiser/weddings/${encodeURIComponent(weddingId)}/upgrade`;
+const base = (weddingId: string) => weddingPath(weddingId, "/upgrade");
 
 export class UpgradeApiError extends Error {
   constructor(

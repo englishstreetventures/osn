@@ -3,7 +3,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
@@ -138,8 +138,8 @@ function summarise(s: ChangeSummaryCounts): string {
  */
 export default function ChangeHistory(props: { weddingId: string }) {
   const { authFetch } = useAuth();
-  const listUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/list`);
-  const revertUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/revert`);
+  const listUrl = () => apiUrl(weddingPath(props.weddingId, "/changes/list"));
+  const revertUrl = () => apiUrl(weddingPath(props.weddingId, "/changes/revert"));
 
   const [entries, setEntries] = createSignal<ChangeEntry[] | null>(null);
   const [loading, setLoading] = createSignal(false);

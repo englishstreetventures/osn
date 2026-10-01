@@ -4,6 +4,7 @@ import {
   type DashboardRoute,
   DEFAULT_MODULE,
   defaultSub,
+  isDotSegment,
   isModule,
   isSubOf,
   LIST_ROUTE,
@@ -327,5 +328,35 @@ describe("vendors module Browse sub-tab", () => {
     expect(isSubOf("vendors", "browse")).toBe(true);
     expect(isSubOf("vendors", "enquiries")).toBe(true);
     expect(defaultSub("vendors")).toBe("index");
+  });
+});
+
+/**
+ * Percent-encoding cannot protect `.` and `..`: the URL parser resolves them as
+ * dot segments, so `/api/organiser/weddings/../x` would reach `/api/organiser/x`.
+ * The route refuses them at the source instead.
+ */
+describe("a dot-segment wedding id", () => {
+  it.each(["#/w/..", "#/w/%2E%2E/guests", "#/w/./budget", "#/weddings/../rsvps", "#/weddings/%2e"])(
+    "%s opens the wedding list",
+    (hash) => {
+      expect(parseRoute(hash)).toEqual(LIST_ROUTE);
+    },
+  );
+
+  it("still allows ids that merely contain dots", () => {
+    expect(parseRoute("#/w/wed.1/guests").weddingId).toBe("wed.1");
+    expect(parseRoute("#/w/...").weddingId).toBe("...");
+  });
+
+  it("isDotSegment matches exactly . and ..", () => {
+    expect([".", "..", "...", "%2e", "a.", ""].map(isDotSegment)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });

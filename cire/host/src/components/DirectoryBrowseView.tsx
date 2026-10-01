@@ -8,7 +8,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
@@ -98,7 +98,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     if (location()) params.set("location", location());
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(currentOffset));
-    return apiUrl(`/api/organiser/weddings/${props.weddingId}/directory?${params.toString()}`);
+    return apiUrl(weddingPath(props.weddingId, `/directory?${params.toString()}`));
   };
 
   const fetchPage = async (currentOffset: number, append: boolean) => {
@@ -166,7 +166,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     setAddError(null);
     try {
       const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/directory/${listingId}/add`),
+        apiUrl(weddingPath(props.weddingId, `/directory/${encodeURIComponent(listingId)}/add`)),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

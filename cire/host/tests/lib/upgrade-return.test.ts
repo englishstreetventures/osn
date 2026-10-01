@@ -26,6 +26,13 @@ describe("readUpgradeReturn", () => {
     });
   });
 
+  it("refuses a dot-segment wedding or purchase id, which would resolve to another API path", () => {
+    expect(readUpgradeReturn("?upgrade=upg_1&w=..")).toBeNull();
+    expect(readUpgradeReturn("?upgrade=upg_1&w=%2E%2E")).toBeNull();
+    expect(readUpgradeReturn("?upgrade=..&w=wed_1")).toBeNull();
+    expect(readUpgradeReturn("?upgrade=.&w=wed_1")).toBeNull();
+  });
+
   it("is absent when there is no receipt", () => {
     expect(readUpgradeReturn("")).toBeNull();
     expect(readUpgradeReturn("?foo=bar")).toBeNull();
