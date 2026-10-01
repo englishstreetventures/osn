@@ -103,6 +103,10 @@ export const CIRE_METRICS = {
   accountLinkRequests: "cire.account_link.requests",
   accountLinkUnlinks: "cire.account_link.unlinks",
   accountLinkResolveDuration: "cire.account_link.resolve.duration",
+  // Household member identity: who a household session says it is.
+  householdMemberChosen: "cire.household_member.chosen",
+  householdMemberCleared: "cire.household_member.cleared",
+  accountLinkMatch: "cire.account_link.match",
   // CSRF origin guard (C5).
   originGuardRejections: "cire.origin_guard.rejections",
   // Per-family claim-code regeneration (C2).
@@ -360,7 +364,12 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  `plus_one_dietary` = dietary data on a plus-one's reply without the
  *  household's attestation in the wording this API stamps, or attested for a
  *  name the plus-one no longer has. */
-export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent" | "plus_one_dietary";
+export type RsvpBlockedReason =
+  | "deadline"
+  | "preview"
+  | "dietary_consent"
+  | "plus_one_dietary"
+  | "member_required";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
 type RsvpChangeSweptAttrs = { result: "ok" | "error" };
@@ -530,6 +539,12 @@ type ImageTransformAttrs = {
 };
 type AccountLinkRequestsAttrs = { result: AccountLinkResult };
 type AccountLinkUnlinksAttrs = { result: "ok" | "error" };
+/** How a household session's member was chosen. */
+export type HouseholdMemberSource = "picked" | "auto_single";
+type HouseholdMemberChosenAttrs = { source: HouseholdMemberSource };
+/** How this browser's musubi sign-in compares with the chosen member's link. */
+export type AccountLinkMatchResult = "match" | "mismatch" | "signed_out" | "unlinked";
+type AccountLinkMatchAttrs = { result: AccountLinkMatchResult };
 type AccountLinkResolveDurationAttrs = { result: ResolveResult };
 type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
@@ -829,6 +844,25 @@ const accountLinkUnlinks = createCounter<AccountLinkUnlinksAttrs>({
   name: CIRE_METRICS.accountLinkUnlinks,
   description: "Guest account-link removals, by outcome",
   unit: "{unlink}",
+});
+
+const householdMemberChosen = createCounter<HouseholdMemberChosenAttrs>({
+  name: CIRE_METRICS.householdMemberChosen,
+  description: "Household sessions that chose which member they are, by how",
+  unit: "{choice}",
+});
+
+const householdMemberCleared = createCounter<Record<string, never>>({
+  name: CIRE_METRICS.householdMemberCleared,
+  description: "Household member choices cleared by Not you?",
+  unit: "{choice}",
+});
+
+const accountLinkMatch = createCounter<AccountLinkMatchAttrs>({
+  name: CIRE_METRICS.accountLinkMatch,
+  description:
+    "Claim and restore reads comparing the chosen member's link with the browser's sign-in",
+  unit: "{read}",
 });
 
 const accountLinkResolveDuration = createHistogram<AccountLinkResolveDurationAttrs>({
@@ -1131,6 +1165,14 @@ export const metricAccountLinkRequest = (result: AccountLinkResult): void =>
 
 export const metricAccountLinkUnlink = (result: "ok" | "error"): void =>
   accountLinkUnlinks.inc({ result });
+
+export const metricHouseholdMemberChosen = (source: HouseholdMemberSource): void =>
+  householdMemberChosen.inc({ source });
+
+export const metricHouseholdMemberCleared = (): void => householdMemberCleared.inc({});
+
+export const metricAccountLinkMatch = (result: AccountLinkMatchResult): void =>
+  accountLinkMatch.inc({ result });
 
 export const metricOriginGuardRejection = (reason: OriginRejectReason): void =>
   originGuardRejections.inc({ reason });

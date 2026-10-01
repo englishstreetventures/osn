@@ -1,11 +1,19 @@
 import { Schema } from "effect";
 
+import { ReplySubmitter } from "./rsvp";
+
 // ── Request bodies ────────────────────────────────────────────────────────────
 
 export const ClaimBody = Schema.Struct({
   publicId: Schema.NonEmptyString,
 });
 export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>;
+
+/** `POST /api/claim/member`: which household member this session says it is. */
+export const ChooseMemberBody = Schema.Struct({
+  guestId: Schema.NonEmptyString,
+});
+export type ChooseMemberBody = Schema.Schema.Type<typeof ChooseMemberBody>;
 
 // ── Response shapes ───────────────────────────────────────────────────────────
 
@@ -76,6 +84,7 @@ export const RsvpSummary = Schema.Struct({
   dietary: Schema.String,
   dietaryPresets: Schema.Array(Schema.String),
   dietaryConsentCurrent: Schema.Boolean,
+  submittedBy: Schema.optional(Schema.NullOr(ReplySubmitter)),
 });
 export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
 
@@ -118,6 +127,17 @@ export const AccountLinkState = Schema.Union([
     enabled: Schema.Literal(true),
     signedIn: Schema.Boolean,
     linkedGuestIds: Schema.Array(Schema.String),
+    // This browser's musubi account, shown before "Link". Present only when
+    // signed in, a member is chosen, and that member is unlinked or linked to
+    // this same account. Never an account or profile id.
+    account: Schema.optional(
+      Schema.Struct({
+        displayName: Schema.NullOr(Schema.String),
+        handle: Schema.NullOr(Schema.String),
+        avatarUrl: Schema.NullOr(Schema.String),
+        matchesMember: Schema.Boolean,
+      }),
+    ),
   }),
 ]);
 export type AccountLinkState = Schema.Schema.Type<typeof AccountLinkState>;
@@ -149,6 +169,10 @@ export const ClaimResponse = Schema.Struct({
     entries: Schema.Array(Schema.Struct({ question: Schema.String, answer: Schema.String })),
   }),
   accountLink: AccountLinkState,
+  // Which household member this session says it is. Present only while the
+  // member step is on for the household (the `cire.account-linking` flag);
+  // `null` until chosen. Absent otherwise, so a flag-off payload is unchanged.
+  member: Schema.optional(Schema.NullOr(Schema.Struct({ guestId: Schema.String }))),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 

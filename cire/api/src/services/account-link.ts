@@ -3,7 +3,19 @@ import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import type { AccountLinkMatchResult } from "../metrics";
 import { organiserSessionService } from "./organiser-session";
+import type { ValidatedOrganiserSession } from "./organiser-session";
+import type { OsnAccountResolver } from "./osn-bridge";
+
+/**
+ * How long a restore or an RSVP waits for the ARC call that decides whether
+ * this browser's sign-in is the account a member is linked to. Past it the
+ * answer is `mismatch`, which shows no account and claims no link: the
+ * invite is never held up by osn-api. Chosen, not measured: well above a
+ * healthy service-to-service call, well below a stalled page.
+ */
+export const MEMBER_MATCH_RESOLVE_WAIT = "1 second";
 
 /** The requested guest does not belong to the session's family (or is unknown). */
 export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
@@ -52,6 +64,63 @@ export interface HouseholdLinkState {
   /** Whether the request carried a live `cire_org_session`. */
   signedIn: boolean;
   linkedGuestIds: string[];
+  /**
+   * The signed-in musubi account, for the box to show before "Link". Present
+   * only when signed in, a member is chosen, and that member is either
+   * unlinked or linked to this same account. Never an account or profile id.
+   */
+  account?: SignedInAccountView;
+}
+
+/** The public profile fields of this browser's musubi sign-in. */
+export interface SignedInAccountView {
+  displayName: string | null;
+  handle: string | null;
+  /** An `https:` URL on musubi's own host, or null. Any other is dropped. */
+  avatarUrl: string | null;
+  /** True when the chosen member is linked to this account. */
+  matchesMember: boolean;
+}
+
+/** Which member to compute the link state for, and how. */
+export interface MemberOptions {
+  guestId: string | null;
+  resolveAccountId?: OsnAccountResolver;
+  /** Hosts a profile picture may load from; any other is dropped. */
+  avatarOrigins?: readonly string[];
+}
+
+/** How this browser's sign-in compares with a member's link. */
+export interface MemberMatch {
+  result: AccountLinkMatchResult;
+  /** The live sign-in on this request, or null. */
+  session: ValidatedOrganiserSession | null;
+}
+
+/**
+ * `raw` when it is an `https:` URL on one of `origins` (musubi's own hosts),
+ * else null. The picture is fetched by whoever opens the invite, so a host the
+ * profile chose would learn their IP address; the guest site's CSP is
+ * report-only, so this check is the control.
+ */
+function allowedAvatar(raw: string | null, origins: readonly string[]): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && origins.includes(url.origin) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The live organiser session behind `token`, or null. Never fails. */
+function liveSignIn(
+  token: string | null,
+): Effect.Effect<ValidatedOrganiserSession | null, never, DbService> {
+  if (token === null) return Effect.succeed(null);
+  return organiserSessionService
+    .validate(token)
+    .pipe(Effect.catchTag("OrganiserSessionInvalid", () => Effect.succeed(null)));
 }
 
 /** Reverse-lookup row for the Pulse feed integration (account → invitations). */
@@ -179,35 +248,46 @@ export const accountLinkService = {
   householdState(
     familyId: string,
     osnSessionToken: string | null,
-  ): Effect.Effect<HouseholdLinkState, never, DbService> {
+    member?: MemberOptions,
+  ): Effect.Effect<HouseholdLinkState & { match?: AccountLinkMatchResult }, never, DbService> {
+    return readLinkFacts(familyId, osnSessionToken).pipe(
+      Effect.flatMap((facts) => linkStateFor(facts, member)),
+      Effect.withSpan("cire.accountLink.householdState"),
+    );
+  },
+
+  /**
+   * How this request's musubi sign-in compares with `memberGuestId`'s link —
+   * what the RSVP write stamps as `submitted_via_link`. Never fails: any
+   * failure reads as `mismatch`, which claims no link.
+   */
+  memberMatch(
+    memberGuestId: string,
+    osnSessionToken: string | null,
+    resolveAccountId?: OsnAccountResolver,
+  ): Effect.Effect<MemberMatch, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const signedInRead: Effect.Effect<boolean, never, DbService> =
-        osnSessionToken === null
-          ? Effect.succeed(false)
-          : organiserSessionService.validate(osnSessionToken).pipe(
-              Effect.as(true),
-              Effect.catchTag("OrganiserSessionInvalid", () => Effect.succeed(false)),
-            );
-      const { links, signedIn } = yield* Effect.all(
+      const { links, session } = yield* Effect.all(
         {
           links: dbQuery(() =>
             db
-              .select({ guestId: guestAccountLinks.guestId })
+              .select({
+                guestId: guestAccountLinks.guestId,
+                osnProfileId: guestAccountLinks.osnProfileId,
+                osnAccountId: guestAccountLinks.osnAccountId,
+              })
               .from(guestAccountLinks)
-              .where(eq(guestAccountLinks.familyId, familyId))
+              .where(eq(guestAccountLinks.guestId, memberGuestId))
               .all(),
           ),
-          signedIn: signedInRead,
+          session: liveSignIn(osnSessionToken),
         },
         { concurrency: "unbounded" },
       );
-      return {
-        enabled: true as const,
-        signedIn,
-        linkedGuestIds: links.map((l) => l.guestId),
-      };
-    }).pipe(Effect.withSpan("cire.accountLink.householdState"));
+      const result = yield* compareSignIn(links[0] ?? null, session, resolveAccountId);
+      return { result, session };
+    }).pipe(Effect.withSpan("cire.accountLink.memberMatch"));
   },
 
   /**
@@ -268,3 +348,106 @@ export const accountLinkService = {
     }).pipe(Effect.withSpan("cire.accountLink.listByAccount"));
   },
 };
+
+/**
+ * What a household's link state is computed from: its link rows and this
+ * request's live sign-in. Server-side only — the rows carry account ids.
+ */
+export interface LinkFacts {
+  links: { guestId: string; osnProfileId: string; osnAccountId: string }[];
+  session: ValidatedOrganiserSession | null;
+}
+
+/** Read the household's links and the request's sign-in, together. */
+export function readLinkFacts(
+  familyId: string,
+  osnSessionToken: string | null,
+): Effect.Effect<LinkFacts, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    return yield* Effect.all(
+      {
+        links: dbQuery(() =>
+          db
+            .select({
+              guestId: guestAccountLinks.guestId,
+              osnProfileId: guestAccountLinks.osnProfileId,
+              osnAccountId: guestAccountLinks.osnAccountId,
+            })
+            .from(guestAccountLinks)
+            .where(eq(guestAccountLinks.familyId, familyId))
+            .all(),
+        ),
+        session: liveSignIn(osnSessionToken),
+      },
+      { concurrency: "unbounded" },
+    );
+  });
+}
+
+/**
+ * The link state the payload carries, from facts already read — so a caller
+ * that learns the member later (a one-member household) reads nothing twice.
+ * Without `member` the state keeps the shape it had before the member step.
+ */
+export function linkStateFor(
+  { links, session }: LinkFacts,
+  member?: MemberOptions,
+): Effect.Effect<HouseholdLinkState & { match?: AccountLinkMatchResult }> {
+  return Effect.gen(function* () {
+    const state: HouseholdLinkState & { match?: AccountLinkMatchResult } = {
+      enabled: true as const,
+      signedIn: session !== null,
+      linkedGuestIds: links.map((l) => l.guestId),
+    };
+    const memberId = member?.guestId ?? null;
+    if (memberId === null) return state;
+    const link = links.find((l) => l.guestId === memberId) ?? null;
+    const result = yield* compareSignIn(link, session, member?.resolveAccountId);
+    state.match = result;
+    if (session !== null && (result === "unlinked" || result === "match")) {
+      state.account = {
+        displayName: session.displayName,
+        handle: session.handle,
+        avatarUrl: allowedAvatar(session.avatarUrl, member?.avatarOrigins ?? []),
+        matchesMember: result === "match",
+      };
+    }
+    return state;
+  });
+}
+
+/**
+ * Compare a member's link with a live sign-in. A match is the same profile, or
+ * failing that a profile that resolves over ARC to the link's account — one
+ * call, bounded by {@link MEMBER_MATCH_RESOLVE_WAIT}. With no resolver, a
+ * failed call or a timeout the answer is `mismatch`.
+ */
+function compareSignIn(
+  link: { osnProfileId: string; osnAccountId: string } | null,
+  session: ValidatedOrganiserSession | null,
+  resolveAccountId: OsnAccountResolver | undefined,
+): Effect.Effect<AccountLinkMatchResult> {
+  if (link === null) return Effect.succeed("unlinked");
+  if (session === null) return Effect.succeed("signed_out");
+  if (session.osnProfileId === link.osnProfileId) return Effect.succeed("match");
+  if (!resolveAccountId) return Effect.succeed("mismatch");
+  const profileId = session.osnProfileId;
+  return Effect.tryPromise(() => resolveAccountId(profileId)).pipe(
+    Effect.map((resolution): AccountLinkMatchResult =>
+      resolution.ok && resolution.accountId === link.osnAccountId ? "match" : "mismatch",
+    ),
+    Effect.timeoutOrElse({
+      duration: MEMBER_MATCH_RESOLVE_WAIT,
+      orElse: () =>
+        Effect.logWarning("account match resolve timed out").pipe(
+          Effect.as<AccountLinkMatchResult>("mismatch"),
+        ),
+    }),
+    Effect.catch(() =>
+      Effect.logWarning("account match resolve failed").pipe(
+        Effect.as<AccountLinkMatchResult>("mismatch"),
+      ),
+    ),
+  );
+}

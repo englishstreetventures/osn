@@ -1052,6 +1052,16 @@ export const rsvps = sqliteTable(
     })
       .notNull()
       .default("guest"),
+    // The household member whose session wrote this row last (migration 0075).
+    // Null for a row an organiser recorded and for rows written before the
+    // member step. SET NULL, not cascade: removing one member must not delete
+    // the replies they sent for others.
+    submittedByGuestId: text("submitted_by_guest_id").references((): AnySQLiteColumn => guests.id, {
+      onDelete: "set null",
+    }),
+    // True when that write also carried a musubi sign-in matching the member's
+    // account link — "signed in as", against "picked from a list".
+    submittedViaLink: integer("submitted_via_link", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
@@ -1059,6 +1069,11 @@ export const rsvps = sqliteTable(
     // The unique above leads on guest_id, so per-event deletes (import event
     // removal) and the event cascade need their own probe (migration 0052).
     index("rsvps_event_id_idx").on(t.eventId),
+    // The probe the SET NULL runs on every guest delete. Partial, for the
+    // reason `guests_plus_one_of_uniq` is: most rows are NULL here.
+    index("rsvps_submitted_by_idx")
+      .on(t.submittedByGuestId)
+      .where(sql`submitted_by_guest_id IS NOT NULL`),
   ],
 );
 
@@ -1110,6 +1125,9 @@ export const rsvpChanges = sqliteTable(
     eventId: text("event_id"),
     kind: text("kind", { enum: RSVP_CHANGE_KINDS }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    // The household member who made the change (migration 0075); null when
+    // none was chosen. An id only, with no foreign key, like `guest_id`.
+    actorGuestId: text("actor_guest_id"),
   },
   (t) => [
     // Every index entry ends in the rowid, so this one also serves
@@ -1156,6 +1174,11 @@ export const sessions = sqliteTable(
     token: text("token").notNull().unique(),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    // Which household member this browser says it is (migration 0075). Null
+    // until chosen, and again after "Not you?". Never a plus-one.
+    memberGuestId: text("member_guest_id").references((): AnySQLiteColumn => guests.id, {
+      onDelete: "set null",
+    }),
   },
   // Mirrors organiser_sessions (migration 0053): family_id serves the four
   // revoke-by-family delete sites + the families cascade; expires_at serves
@@ -1163,6 +1186,10 @@ export const sessions = sqliteTable(
   (t) => [
     index("sessions_family_idx").on(t.familyId),
     index("sessions_expires_idx").on(t.expiresAt),
+    // The SET NULL probe on guest delete; partial, as on `rsvps`.
+    index("sessions_member_idx")
+      .on(t.memberGuestId)
+      .where(sql`member_guest_id IS NOT NULL`),
   ],
 );
 
