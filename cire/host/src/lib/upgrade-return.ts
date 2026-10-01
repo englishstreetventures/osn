@@ -8,7 +8,7 @@
 // signature-verified webhook says so; this only asks what happened. A
 // hand-typed `?upgrade=` therefore buys nobody anything — at worst it polls a
 // purchase that is not theirs and is told 404.
-import { isModule, type Module } from "./dashboard-route";
+import { isDotSegment, isModule, type Module } from "./dashboard-route";
 
 export interface UpgradeReturn {
   purchaseId: string;
@@ -29,6 +29,8 @@ export function readUpgradeReturn(search: string): UpgradeReturn | null {
   const purchaseId = params.get("upgrade");
   const weddingId = params.get("w");
   if (!purchaseId || !weddingId) return null;
+  // Both land in an API path; a dot segment would resolve to a different route.
+  if (isDotSegment(purchaseId) || isDotSegment(weddingId)) return null;
   const rawModule = params.get("m");
   return {
     purchaseId,

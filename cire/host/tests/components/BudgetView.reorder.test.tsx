@@ -162,6 +162,51 @@ describe("budget — reorder", () => {
     expect(label.value).toBe("Deposit");
   });
 
+  it("moves rows past a gap in the stored order without rebuilding them", async () => {
+    // A delete leaves a gap (nothing renumbers on delete), so the next move
+    // stores a new order for every row past it. Those rows must keep their DOM.
+    setCachedBudget("wed_1", {
+      ...SNAPSHOT,
+      items: [
+        ...SNAPSHOT.items.filter((row) => row.category !== "catering"),
+        item("c", "catering", "Caterer", 0),
+        item("d", "catering", "Cake", 2),
+        item("e", "catering", "Late snacks", 3),
+      ],
+    });
+    authFetch.mockResolvedValue(new Response("{}", { status: 200 }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Late snacks");
+    const before = [...screen.getByTestId("budget-catering").querySelectorAll(":scope > li")];
+
+    fireEvent.keyDown(grip("Caterer"), { key: "ArrowDown" });
+
+    expect(order("catering")).toEqual(["Cake", "Caterer", "Late snacks"]);
+    const after = [...screen.getByTestId("budget-catering").querySelectorAll(":scope > li")];
+    expect(after[0]).toBe(before[1]);
+    expect(after[1]).toBe(before[0]);
+    expect(after[2]).toBe(before[2]);
+  });
+
+  it("still rebuilds a row whose content changed", async () => {
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Late snacks");
+    const before = [...screen.getByTestId("budget-catering").querySelectorAll(":scope > li")];
+
+    setCachedBudget("wed_1", {
+      ...SNAPSHOT,
+      items: SNAPSHOT.items.map((row) =>
+        row.id === "e" ? { ...row, name: "Midnight snacks" } : row,
+      ),
+    });
+
+    expect(order("catering")).toEqual(["Caterer", "Cake", "Midnight snacks"]);
+    const after = [...screen.getByTestId("budget-catering").querySelectorAll(":scope > li")];
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).not.toBe(before[2]);
+  });
+
   it("withdraws the announcement when the save fails and the old order comes back", async () => {
     authFetch.mockResolvedValueOnce(new Response("fail", { status: 500 })).mockResolvedValueOnce(
       new Response(JSON.stringify(SNAPSHOT), {

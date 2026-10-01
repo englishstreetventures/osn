@@ -136,6 +136,17 @@ function segments(hash: string): string[] {
   });
 }
 
+/**
+ * A segment the URL parser would resolve away when it lands in a path.
+ * `encodeURIComponent` leaves dots alone, so an id of `..` would turn
+ * `/api/organiser/weddings/../x` into `/api/organiser/x`. Checked on the
+ * DECODED value: a `%2e` that survives decoding is re-encoded as `%252e`,
+ * which is not a dot segment.
+ */
+export function isDotSegment(segment: string): boolean {
+  return segment === "." || segment === "..";
+}
+
 /** Resolve a wedding route from a module + an optional raw sub segment. An
  *  unknown sub falls back to the module's default sub rather than erroring, so a
  *  stale `…/invite/bogus` link opens the invite module's default view. */
@@ -144,6 +155,7 @@ function weddingRoute(
   module: Module,
   rawSub: string | undefined,
 ): DashboardRoute {
+  if (isDotSegment(weddingId)) return LIST_ROUTE;
   const sub = rawSub && isSubOf(module, rawSub) ? rawSub : defaultSub(module);
   return { view: "weddings", weddingId, module, sub };
 }

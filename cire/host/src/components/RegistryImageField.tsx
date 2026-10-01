@@ -35,7 +35,7 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
@@ -111,8 +111,7 @@ export default function RegistryImageField(props: {
   const [chosen, setChosen] = createSignal<string | null>(null);
   const [thumb, setThumb] = createSignal<string | null>(null);
 
-  const wedding = () => encodeURIComponent(props.weddingId);
-  const base = () => `/api/organiser/weddings/${wedding()}/registry`;
+  const base = () => weddingPath(props.weddingId, "/registry");
 
   /** Only the https candidates are ever rendered — see `isHttpsUrl`. */
   const candidates = () => (preview()?.images ?? []).filter(isHttpsUrl);
