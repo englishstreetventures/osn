@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1281,
+    "branch": "fix/cire-api-boot-followups",
+    "base_sha": "f93944903ea40717fac6e414307742af61e0e064",
+    "head_sha": "545a22ec6d3b95f40e474ac7b8cc1535c93b9c5e",
+    "generated_at": "2026-09-30T09:08:41.569Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 5,
+    "first_ts": "2026-09-27T22:44:43.901Z",
+    "last_ts": "2026-09-30T09:08:37.959Z",
+    "span_seconds": 210234,
+    "active_seconds": 2468,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 19.086155350000006,
+    "tokens": {
+      "input": 539,
+      "output": 22254,
+      "thinking": 56,
+      "cache_write_5m": 894837,
+      "cache_write_1h": 0,
+      "cache_read": 34374071
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 53,
+          "output": 18014,
+          "thinking": 0,
+          "cache_write_5m": 159277,
+          "cache_write_1h": 0,
+          "cache_read": 1258867
+        },
+        "usd_equivalent": 2.0755297500000003,
+        "messages": 33
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 486,
+          "output": 4240,
+          "thinking": 56,
+          "cache_write_5m": 735560,
+          "cache_write_1h": 0,
+          "cache_read": 33115204
+        },
+        "usd_equivalent": 17.010625600000004,
+        "messages": 240
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 53,
+          "output": 18014,
+          "thinking": 0,
+          "cache_write_5m": 159277,
+          "cache_write_1h": 0,
+          "cache_read": 1258867
+        },
+        "usd_equivalent": 2.0755297500000003,
+        "messages": 33
+      },
+      "subagent": {
+        "tokens": {
+          "input": 486,
+          "output": 4240,
+          "thinking": 56,
+          "cache_write_5m": 735560,
+          "cache_write_1h": 0,
+          "cache_read": 33115204
+        },
+        "usd_equivalent": 17.010625600000004,
+        "messages": 241
+      }
+    },
+    "effort": {
+      "medium": 218,
+      "xhigh": 22
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 5,
+      "test": 6,
+      "docs": 3,
+      "config": 4,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 52,
+        "deleted": 3
+      },
+      "test": {
+        "added": 497,
+        "deleted": 4
+      },
+      "docs": {
+        "added": 20,
+        "deleted": 5
+      },
+      "config": {
+        "added": 32,
+        "deleted": 5
+      },
+      "source": {
+        "added": 214,
+        "deleted": 21
+      }
+    },
+    "packages": [
+      "cire/api",
+      "shared/dev-urls",
+      "tools/oxlint"
+    ],
+    "touches_migration": false,
+    "commits": 12
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 225,
+      "Read": 23,
+      "Write": 9,
+      "Grep": 8,
+      "Skill": 6,
+      "StructuredOutput": 3,
+      "Agent": 2,
+      "SubagentHandback": 2,
+      "Edit": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "cire-api-boot-followups:stress-plan": 1,
+      "cire-api-boot-followups:write-wiki": 1,
+      "cire-api-boot-followups:prep-pr": 1,
+      "cire-api-boot-followups:retro-v2": 1
+    },
+    "subagents": {
+      "general-purpose": 2
+    }
+  }
+}

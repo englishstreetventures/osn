@@ -8,8 +8,10 @@
   // invalidates every task in the repo, which is the blunt version of correct.
   // `.browserslistrc` is the same case for builds: Babel core reads it on every
   // Solid transform (it resolves `targets` from it), and it too sits in no
-  // package.
-  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc"],
+  // package. `patches/**` holds the dependency patches `bun install` applies;
+  // `bun.lock` records only their paths, so an edit to one changes no other
+  // input and would otherwise serve every cached test from before it.
+  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc", "patches/**"],
   "tasks": {
     "build": {
       "dependsOn": [
@@ -28,7 +30,23 @@
     },
     "lint": {},
     "fmt": {},
-    "check": {},
+    // A package type-checks the source of the workspace packages it imports
+    // (they export `src/*.ts`), so its `check` result depends on theirs as
+    // well as its own files. `transit` has no script in any package: it exists
+    // so `check` hashes every workspace dependency's files through `^transit`,
+    // and an edit to `shared/db-utils` re-runs `@cire/api#check` rather than
+    // replaying a cached green. `dependsOn: ["^check"]` would cover the same
+    // files but also wait for each dependency's check to finish first, for no
+    // gain: `tsc` reads a dependency's source, never its check output.
+    // Markdown is left out because `tsc` never reads it, so a release commit
+    // that only rewrites CHANGELOGs does not re-run every dependent's check.
+    "transit": {
+      "dependsOn": ["^transit"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
+    },
+    "check": {
+      "dependsOn": ["transit"]
+    },
     // `inputs` below is *subtractive*, not an allowlist. Turborepo's default is
     // "every non-gitignored file in the package", and naming any input replaces
     // that default outright — so a hand-written list is a promise that nothing

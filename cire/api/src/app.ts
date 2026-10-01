@@ -229,8 +229,11 @@ const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowM
  * sized like the account-link writes: a household picking gifts claims a few
  * things, changes its mind about one, marks another purchased weeks later. It is
  * deliberately looser than the 5/min claim-code budget (that one guards a
- * guessable credential; this one sits BEHIND that credential) and tighter than
- * the 60/min session probe (that one is a page load; these are writes).
+ * guessable credential; these writes need that credential to succeed) and
+ * tighter than the 60/min session probe (that one is a page load; these are
+ * writes). The limiter runs before the session check, so a refused request
+ * costs no D1 read; the price is that a caller with no valid cookie spends the
+ * same per-IP budget, which on a shared address is everyone's.
  *
  * A NAT'd venue-wifi household shares an IP, hence 20 rather than 10 — still far
  * below what it costs anyone else, since the conditional INSERT behind it is one
@@ -249,7 +252,7 @@ const defaultRsvpLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
 /**
  * Default per-IP limiter for the household's plus-one writes (name, rename,
  * remove). Same shape and budget as the guest registry writes, for the same
- * reasons: it sits behind the household cookie, and a household names a
+ * reasons: it runs ahead of the household cookie check, and a household names a
  * plus-one once and fixes a typo or two. Without it, naming and removing in a
  * loop writes a guest row and its invitations, then cascade-deletes them, as
  * fast as a client can send — a cheap way to spend the D1 write quota every

@@ -190,4 +190,11 @@ describe("_headers", () => {
       expect(csp).toContain(directive);
     }
   });
+  it("keeps the signed-in dashboard out of the browser's caches", () => {
+    // Back after sign-out must not show the account's data again. The rule
+    // names `/` alone: the long-lived `/_astro/*` cache stays as it is.
+    const dashboard = contents.match(/^\/\n((?:[ \t]+.+\n?)+)/m);
+    expect(dashboard).not.toBeNull();
+    expect(dashboard![1]).toMatch(/^\s+Cache-Control:\s*no-store\s*$/m);
+  });
 });
