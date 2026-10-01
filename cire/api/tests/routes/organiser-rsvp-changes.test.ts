@@ -92,18 +92,27 @@ async function req(
 }
 
 type Feed = {
-  markSeq: number;
   households: number;
   truncated: boolean;
   items: { familyId: string; familyName: string; kinds: string[]; at: string }[];
-  rows: { guestId: string; eventId: string | null }[];
   digest: { available: boolean; enabled: boolean };
+};
+
+type Rows = {
+  markSeq: number;
+  rows: { guestId: string; eventId: string | null }[];
 };
 
 async function feed(app: App, profileId: string): Promise<Feed> {
   const res = await req(app, "GET", base, profileId);
   expect(res.status).toBe(200);
   return (await res.json()) as Feed;
+}
+
+async function tableRows(app: App, profileId: string): Promise<Rows> {
+  const res = await req(app, "GET", `${base}/rows`, profileId);
+  expect(res.status).toBe(200);
+  return (await res.json()) as Rows;
 }
 
 describe("GET /rsvp-changes", () => {
@@ -135,8 +144,10 @@ describe("GET /rsvp-changes", () => {
           at: "2026-09-26T08:00:00.000Z",
         },
       ]);
-      expect(body.rows).toEqual([{ guestId: ada.id, eventId: eventsData.hindu.id }]);
-      expect(body.markSeq).toBeGreaterThan(0);
+      // The card is never handed the rows or a marker it could post back.
+      expect(Object.keys(body).toSorted()).toEqual(
+        ["digest", "households", "items", "truncated"].toSorted(),
+      );
     }
   });
 
@@ -148,10 +159,32 @@ describe("GET /rsvp-changes", () => {
   });
 });
 
+describe("GET /rsvp-changes/rows", () => {
+  it("serves the rows to badge and their marker, uncached, to every role that reads RSVPs", async () => {
+    const { app, ada } = buildApp();
+    for (const profile of [OWNER, EDITOR, VIEWER]) {
+      const res = await req(app, "GET", `${base}/rows`, profile);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const body = (await jsonBody(res)) as Rows;
+      expect(body.rows).toEqual([{ guestId: ada.id, eventId: eventsData.hindu.id }]);
+      expect(body.markSeq).toBeGreaterThan(0);
+      expect(Object.keys(body).toSorted()).toEqual(["markSeq", "rows"]);
+    }
+  });
+
+  it("401s without a token, and 403s a stranger and a helper", async () => {
+    const { app } = buildApp();
+    expect((await req(app, "GET", `${base}/rows`, undefined)).status).toBe(401);
+    expect((await req(app, "GET", `${base}/rows`, STRANGER)).status).toBe(403);
+    expect((await req(app, "GET", `${base}/rows`, HELPER)).status).toBe(403);
+  });
+});
+
 describe("POST /rsvp-changes/seen", () => {
   it("moves the caller's marker and nobody else's, for a viewer too", async () => {
     const { app } = buildApp();
-    const { markSeq } = await feed(app, VIEWER);
+    const { markSeq } = await tableRows(app, VIEWER);
     const res = await req(app, "POST", `${base}/seen`, VIEWER, { seq: markSeq });
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ seenSeq: markSeq });
@@ -205,6 +238,7 @@ describe("PUT /rsvp-changes/digest", () => {
 describe("credentials", () => {
   const routes = [
     { method: "GET", path: base, body: undefined },
+    { method: "GET", path: `${base}/rows`, body: undefined },
     { method: "POST", path: `${base}/seen`, body: { seq: 1 } },
     { method: "PUT", path: `${base}/digest`, body: { enabled: false } },
   ] as const;
@@ -267,6 +301,7 @@ describe("a failed read or write", () => {
     db.run(sql`DROP TABLE rsvp_changes`);
     for (const [method, path, body] of [
       ["GET", base, undefined],
+      ["GET", `${base}/rows`, undefined],
       ["POST", `${base}/seen`, { seq: 1 }],
     ] as const) {
       const res = await req(app, method, path, OWNER, body);

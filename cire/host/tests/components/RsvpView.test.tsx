@@ -27,7 +27,7 @@ vi.mock("../../src/lib/api", async () => {
 // the pure helpers stay real.
 vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
-  fetchRsvpChanges: async () => null,
+  fetchRsvpChangeRows: async () => null,
   markRsvpChangesSeen: async () => {},
 }));
 

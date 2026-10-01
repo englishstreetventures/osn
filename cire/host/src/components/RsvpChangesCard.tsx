@@ -14,7 +14,8 @@ import {
  *
  * Counts the households that changed a reply since this organiser last opened
  * the RSVP table, names the latest few, and links to the table — opening it is
- * what marks them seen, not reading this card. The Overview starts the read
+ * what marks them seen, not reading this card. Past 500 changed rows the table
+ * badges the oldest first, so the count can outlast one visit to the table. The Overview starts the read
  * beside its own (`createRsvpChangesResource`), and a failed read renders
  * nothing, leaving the rest of the Overview alone.
  *
