@@ -118,7 +118,7 @@ describe("_headers", () => {
   it("sends no report-only policy", () => {
     // Every directive is enforced and reports already; a report-only twin
     // would file each violation twice.
-    expect(contents).not.toMatch(/^\s+Content-Security-Policy-Report-Only:/m);
+    expect(contents).not.toMatch(/^\s*Content-Security-Policy-Report-Only:/im);
   });
 
   it("is the production policy: no other tier's API, no loopback", () => {

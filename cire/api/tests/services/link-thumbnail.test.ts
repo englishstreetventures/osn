@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
+import { linkThumbTransforms } from "@cire/db";
 import { Cause, Effect, Exit, Option } from "effect";
 
+import { DbService } from "../../src/db";
+import { createDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_IMAGE_BYTES } from "../../src/services/invite-assets";
 import type {
@@ -90,18 +93,24 @@ async function withCaches<T>(stub: CacheStorage, fn: () => Promise<T>): Promise<
   }
 }
 
-function run(over: Partial<LinkThumbnailArgs> & { options: LinkPreviewOptions }) {
+function run(
+  over: Partial<LinkThumbnailArgs> & { options: LinkPreviewOptions },
+  db: ReturnType<typeof createDb> = createDb(),
+) {
   return Effect.runPromiseExit(
-    linkThumbnailService.thumbnail({
-      request: new Request("https://api.test/thumb", { method: "POST" }),
-      weddingId: "wed_1",
-      rawUrl: "https://cdn.shop.example/pan.png",
-      format: "image/webp",
-      requireTransform: false,
-      ...over,
-    }),
+    linkThumbnailService
+      .thumbnail({
+        request: new Request("https://api.test/thumb", { method: "POST" }),
+        rawUrl: "https://cdn.shop.example/pan.png",
+        format: "image/webp",
+        requireTransform: false,
+        ...over,
+      })
+      .pipe(Effect.provideService(DbService, db)),
   );
 }
+
+const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 function failTag(exit: Exit.Exit<unknown, { _tag: string }>): string | null {
   if (Exit.isSuccess(exit)) return null;
@@ -205,6 +214,39 @@ describe("linkThumbnailService.thumbnail", () => {
     expect(failTag(await run({ options: streamed }))).toBe("LinkThumbTooLarge");
   });
 
+  it("maps an upstream error status and a redirect loop to a fetch failure", async () => {
+    const notFound = remote(() => new Response("gone", { status: 404 }));
+    expect(failTag(await run({ options: notFound }))).toBe("LinkThumbFetchFailed");
+
+    const loop = remote(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://cdn.shop.example/again" },
+        }),
+    );
+    expect(failTag(await run({ options: loop }))).toBe("LinkThumbFetchFailed");
+  });
+
+  it("maps a body that breaks off mid-stream to a fetch failure, not a defect", async () => {
+    const broken = remote(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(c) {
+              c.error(new Error("reset"));
+            },
+          }),
+        ),
+    );
+    expect(failTag(await run({ options: broken }))).toBe("LinkThumbFetchFailed");
+  });
+
+  it("refuses an empty body on its signature", async () => {
+    const empty = remote(() => new Response(new Uint8Array(0)));
+    expect(failTag(await run({ options: empty }))).toBe("LinkThumbUnsupportedType");
+  });
+
   it("ignores the preview's HTML cap in the shared options", async () => {
     const options = { ...png(), maxBytes: 4 };
     expect(Exit.isSuccess(await run({ options }))).toBe(true);
@@ -214,6 +256,8 @@ describe("linkThumbnailService.thumbnail", () => {
     const cache = cacheStub();
     const images = imagesStub();
     const options = png();
+    const ok = await counterValue(CIRE_METRICS.registryLinkThumb, { result: "ok" });
+    const hits = await counterValue(CIRE_METRICS.registryLinkThumb, { result: "cache_hit" });
     await withCaches(cache.caches, async () => {
       const first = await run({ options, images });
       expect(Exit.isSuccess(first)).toBe(true);
@@ -224,21 +268,81 @@ describe("linkThumbnailService.thumbnail", () => {
     });
     expect(options.fetched).toHaveLength(1);
     expect(images.calls).toHaveLength(1);
+    expect(await counterValue(CIRE_METRICS.registryLinkThumb, { result: "ok" })).toBe(ok + 1);
+    expect(await counterValue(CIRE_METRICS.registryLinkThumb, { result: "cache_hit" })).toBe(
+      hits + 1,
+    );
     // The key names neither the shop nor its URL.
     const [key] = [...cache.store.keys()];
     expect(key).not.toContain("shop.example");
-    expect(key).toContain("wed_1");
   });
 
-  it("keeps one wedding's cached thumbnails from another's", async () => {
+  it("keys on the url and the format", async () => {
     const cache = cacheStub();
     const images = imagesStub();
     const options = png();
     await withCaches(cache.caches, async () => {
       await run({ options, images });
-      await run({ options, images, weddingId: "wed_2" });
+      await run({ options, images, format: "image/avif" });
+      await run({ options, images, rawUrl: "https://cdn.shop.example/other.png" });
     });
-    expect(options.fetched).toHaveLength(2);
+    expect(options.fetched).toHaveLength(3);
+    expect(images.calls.map((c) => c.format)).toEqual(["image/webp", "image/avif", "image/webp"]);
+  });
+
+  it("answers the thumbnail even when the cache refuses to store it", async () => {
+    const refusing = {
+      default: {
+        match: () => Promise.resolve(undefined),
+        put: () => Promise.reject(new Error("413")),
+      },
+    } as unknown as CacheStorage;
+    const exit = await withCaches(refusing, () => run({ options: png(), images: imagesStub() }));
+    expect(Exit.isSuccess(exit)).toBe(true);
+  });
+
+  it("charges one transform per miss against this month's budget, and none on a hit", async () => {
+    const db = createDb();
+    const cache = cacheStub();
+    const images = imagesStub();
+    await withCaches(cache.caches, async () => {
+      await run({ options: png(), images }, db);
+      await run({ options: png(), images }, db);
+      await run({ options: png(), images, rawUrl: "https://cdn.shop.example/b.png" }, db);
+    });
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 2 }]);
+  });
+
+  it("refuses before any fetch once the month's budget is spent", async () => {
+    const db = createDb();
+    db.insert(linkThumbTransforms).values({ period: thisMonth(), used: 3 }).run();
+    const options = png();
+    const images = imagesStub();
+    const exit = await run({ options, images, monthlyTransforms: 3 }, db);
+    expect(failTag(exit)).toBe("LinkThumbBudgetSpent");
+    expect(options.fetched).toEqual([]);
+    expect(images.calls).toEqual([]);
+  });
+
+  it("spends the last transform once, and refuses the next", async () => {
+    const db = createDb();
+    db.insert(linkThumbTransforms).values({ period: thisMonth(), used: 1 }).run();
+    const images = imagesStub();
+    const first = await run({ options: png(), images, monthlyTransforms: 2 }, db);
+    expect(Exit.isSuccess(first)).toBe(true);
+    const second = await run(
+      { options: png(), images, monthlyTransforms: 2, rawUrl: "https://cdn.shop.example/c.png" },
+      db,
+    );
+    expect(failTag(second)).toBe("LinkThumbBudgetSpent");
+    expect(images.calls).toHaveLength(1);
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 2 }]);
+  });
+
+  it("spends no budget on the local path, which runs no transform", async () => {
+    const db = createDb();
+    await run({ options: png() }, db);
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([]);
   });
 
   it("does not cache the un-encoded local path", async () => {

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import {
   BOOTSTRAP_WEDDING_ID,
   families,
+  linkThumbTransforms,
   registryContributions,
   registrySettings,
   weddingEntitlements,
@@ -21,6 +22,7 @@ import type {
   ImageTransformHandle,
 } from "../../src/services/invite-image-transform";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
+import { MONTHLY_THUMB_TRANSFORMS } from "../../src/services/link-thumbnail";
 import type {
   GiftLogEntryDto,
   RegistryItemDto,
@@ -1171,21 +1173,23 @@ describe("POST /registry/link-preview/image", () => {
   const CANDIDATE = "https://cdn.example/pan.jpg?w=1200&h=1200";
 
   /** Injected fetch + DNS; records the URLs fetched. No network. */
-  function remote(addresses = ["93.184.216.34"]) {
+  function remote(
+    addresses = ["93.184.216.34"],
+    answer: () => Response = () =>
+      new Response(PNG, { status: 200, headers: { "content-type": "image/png" } }),
+  ) {
     const fetched: string[] = [];
     const options: LinkPreviewOptions = {
       fetchImpl: ((input: string) => {
         fetched.push(String(input));
-        return Promise.resolve(
-          new Response(PNG, { status: 200, headers: { "content-type": "image/png" } }),
-        );
+        return Promise.resolve(answer());
       }) as unknown as typeof fetch,
       resolveHost: () => Promise.resolve(addresses),
     };
     return { fetched, options };
   }
 
-  function imagesStub(): ImagesBindingLike & { widths: (number | undefined)[] } {
+  function imagesStub(fail = false): ImagesBindingLike & { widths: (number | undefined)[] } {
     const widths: (number | undefined)[] = [];
     return {
       widths,
@@ -1196,6 +1200,7 @@ describe("POST /registry/link-preview/image", () => {
             return handle;
           },
           output(o) {
+            if (fail) return Promise.reject(new Error("quota"));
             return Promise.resolve({
               response: () => new Response(WEBP_OUT, { headers: { "Content-Type": o.format } }),
               contentType: () => o.format,
@@ -1256,12 +1261,84 @@ describe("POST /registry/link-preview/image", () => {
   it("400s a missing or non-https url, and a blocked one with no reason", async () => {
     const app = buildApp({ grantRegistry: true, linkPreview: remote().options });
     expect((await thumb(app, EDITOR, {})).status).toBe(400);
+    expect((await thumb(app, EDITOR, { url: 5 })).status).toBe(400);
     expect((await thumb(app, EDITOR, { url: "http://cdn.example/pan.jpg" })).status).toBe(400);
 
     const inward = buildApp({ grantRegistry: true, linkPreview: remote(["127.0.0.1"]).options });
     const blocked = await thumb(inward, EDITOR, { url: CANDIDATE });
     expect(blocked.status).toBe(400);
     expect(await jsonBody(blocked)).toEqual({ error: "blocked_url" });
+  });
+
+  it("429s once this month's share of the Images quota is spent, before any fetch", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({
+      grantRegistry: true,
+      linkPreview: options,
+      images: imagesStub(),
+      seed: (db) =>
+        db
+          .insert(linkThumbTransforms)
+          .values({
+            period: new Date().toISOString().slice(0, 7),
+            used: MONTHLY_THUMB_TRANSFORMS,
+          })
+          .run(),
+    });
+    const res = await thumb(app, EDITOR, { url: CANDIDATE });
+    expect(res.status).toBe(429);
+    expect(await jsonBody(res)).toEqual({ error: "thumbnail_budget_spent" });
+    expect(fetched).toEqual([]);
+  });
+
+  it("402s a wedding without the registry before any fetch", async () => {
+    const { fetched, options } = remote();
+    const app = buildApp({ linkPreview: options });
+    expect((await thumb(app, EDITOR, { url: CANDIDATE })).status).toBe(402);
+    expect(fetched).toEqual([]);
+  });
+
+  it.each([
+    [
+      "an HTML page",
+      () => new Response("<html>", { headers: { "content-type": "image/png" } }),
+      false,
+      415,
+      "unsupported_image_type",
+    ],
+    [
+      "an over-cap image",
+      () =>
+        new Response(PNG, {
+          headers: { "content-type": "image/png", "content-length": String(MAX_IMAGE_BYTES + 1) },
+        }),
+      false,
+      413,
+      "image_too_large",
+    ],
+    [
+      "an upstream error",
+      () => new Response("down", { status: 500 }),
+      false,
+      502,
+      "thumbnail_fetch_failed",
+    ],
+    [
+      "a failed transform",
+      () => new Response(PNG, { headers: { "content-type": "image/png" } }),
+      true,
+      502,
+      "thumbnail_failed",
+    ],
+  ])("maps %s to its status and code", async (_case, answer, failTransform, status, code) => {
+    const app = buildApp({
+      grantRegistry: true,
+      linkPreview: remote(undefined, answer).options,
+      images: imagesStub(failTransform),
+    });
+    const res = await thumb(app, EDITOR, { url: CANDIDATE });
+    expect(res.status).toBe(status);
+    expect(await jsonBody(res)).toEqual({ error: code });
   });
 
   it("503s in a deployed tier with no Images binding rather than serve the raw bytes", async () => {

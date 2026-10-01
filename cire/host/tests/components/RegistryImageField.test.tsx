@@ -334,7 +334,7 @@ describe("RegistryImageField — the candidates' pictures come from cire-api", (
       expect(String(url)).toContain("/api/organiser/weddings/wed_1/registry/link-preview/image");
       expect(init.method).toBe("POST");
       // The format the API re-encodes to follows what this browser decodes.
-      expect(init.headers.Accept).toContain("image/webp");
+      expect(init.headers.Accept).toBe("image/avif,image/webp,image/*");
     }
     // The URL rides in the body, query string intact.
     expect(thumbFetch.mock.calls.map(([, init]) => JSON.parse(init.body).url)).toEqual([
@@ -362,6 +362,64 @@ describe("RegistryImageField — the candidates' pictures come from cire-api", (
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(radio);
     expect(radio).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+describe("RegistryImageField — candidate thumbnails are released", () => {
+  it("revokes a thumbnail that lands after its preview was replaced, and never shows it", async () => {
+    const created: string[] = [];
+    const revoked: string[] = [];
+    const create = vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      const next = `blob:t${created.length}`;
+      created.push(next);
+      return next;
+    });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation((u) => {
+      revoked.push(u);
+    });
+    let late: ((r: unknown) => void) | null = null;
+    thumbFetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          late = resolve;
+        }),
+    );
+    authFetch
+      .mockImplementationOnce(() => res(200, preview(["https://shop.example/a.jpg"])))
+      .mockImplementationOnce(() => res(200, preview(["https://shop.example/b.jpg"])));
+    const { container } = render(() => (
+      <RegistryImageField weddingId="wed_1" imageKey={null} onChange={() => {}} idPrefix="x" />
+    ));
+    await findPictures();
+    await waitFor(() => expect(late).not.toBeNull());
+
+    // A second page before the first one's thumbnail arrives.
+    fireEvent.click(screen.getByRole("button", { name: "Find pictures" }));
+    await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(1));
+    expect(container.querySelector("img")!.getAttribute("src")).toBe("blob:t0");
+
+    // The replaced preview's request was cancelled, not just ignored.
+    expect((thumbFetch.mock.calls[0]![1] as RequestInit).signal!.aborted).toBe(true);
+    late!(await res(200));
+    await waitFor(() => expect(revoked).toContain("blob:t1"));
+    expect(container.querySelector("img")!.getAttribute("src")).toBe("blob:t0");
+
+    cleanup();
+    expect(revoked).toContain("blob:t0");
+    create.mockRestore();
+    revoke.mockRestore();
+  });
+
+  it("treats a thumbnail that throws as a label, not an alert or a sign-in", async () => {
+    authFetch.mockImplementation(() => res(200, preview(["https://shop.example/a.jpg"])));
+    thumbFetch.mockImplementation(() => Promise.reject(new Error("expired")));
+    setup();
+    await findPictures();
+
+    const radio = await screen.findByRole("radio");
+    await waitFor(() => expect(radio).toHaveTextContent("Picture 1"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(redirectToLogin).not.toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,8 @@
+import { linkThumbTransforms } from "@cire/db";
+import { eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
+import { DbService, dbQuery } from "../db";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { metricRegistryLinkThumb } from "../metrics";
 import type { RegistryLinkThumbResult } from "../metrics";
@@ -45,10 +48,19 @@ import type { BlockReason, LinkPreviewOptions } from "./link-preview";
  *
  * Every binding call is treated as billed, and the account's Images quota is
  * shared with the invite images guests load, so a transformed thumbnail is
- * stored in the Workers Cache API under a synthetic key — the wedding, the
+ * stored in the Workers Cache API for 30 days under a synthetic key — the
  * SHA-256 of the URL and the output format — and a repeat is served from there
- * with no fetch and no transform. The key is looked up only after the route's
- * gates, and the wedding in it keeps one couple's previews out of another's.
+ * with no fetch and no transform. The key holds no wedding: the bytes are a
+ * shop's public product image, the same for every couple who pastes that page,
+ * so one transform serves them all. It is looked up only after the route's
+ * gates, and the URL never appears in it in plain text.
+ *
+ * A cache miss also spends from a monthly budget, {@link MONTHLY_THUMB_TRANSFORMS}
+ * across every wedding, counted in D1 (`link_thumb_transforms`) because the
+ * route's rate limiter counts per minute and per colo and cannot bound a month.
+ * The budget is read before the fetch, so a spent month costs no outbound
+ * work, and charged with one conditional upsert just before the transform, so
+ * two isolates cannot both spend the last one.
  *
  * Logs carry bounded reasons only, never the URL: a registry link names
  * something the couple is buying.
@@ -78,13 +90,24 @@ export class LinkThumbTransformFailed extends Data.TaggedError("LinkThumbTransfo
 /** A deployed tier with no Images binding: we will not serve unencoded bytes. */
 export class LinkThumbUnavailable extends Data.TaggedError("LinkThumbUnavailable") {}
 
+/** This month's share of the Images quota is spent. */
+export class LinkThumbBudgetSpent extends Data.TaggedError("LinkThumbBudgetSpent") {}
+
+/**
+ * Transforms the picker may spend in one calendar month (UTC), across every
+ * wedding: half of the 5,000 unique transformations the Images Free plan gives
+ * the account, so the invite images guests load keep the other half.
+ */
+export const MONTHLY_THUMB_TRANSFORMS = 2_500;
+
 export type LinkThumbError =
   | LinkThumbBlocked
   | LinkThumbFetchFailed
   | LinkThumbUnsupportedType
   | LinkThumbTooLarge
   | LinkThumbTransformFailed
-  | LinkThumbUnavailable;
+  | LinkThumbUnavailable
+  | LinkThumbBudgetSpent;
 
 /**
  * Headers on every thumbnail. The bytes came from a host the caller chose, so
@@ -104,7 +127,7 @@ function thumbHeaders(contentType: string) {
 }
 
 /** What the stored copy says, so the Cache API accepts it. Never sent to a client. */
-const STORED_CACHE_CONTROL = "public, max-age=86400";
+const STORED_CACHE_CONTROL = "public, max-age=2592000";
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -125,6 +148,8 @@ function resultOf(error: LinkThumbError): RegistryLinkThumbResult {
       return "transform_failed";
     case "LinkThumbUnavailable":
       return "unavailable";
+    case "LinkThumbBudgetSpent":
+      return "budget_spent";
   }
 }
 
@@ -155,13 +180,58 @@ function logFailure(error: LinkThumbError): Effect.Effect<void> {
       return Effect.logWarning("link thumbnail transform failed");
     case "LinkThumbUnavailable":
       return Effect.logError("link thumbnail refused: no Images binding in a deployed tier");
+    case "LinkThumbBudgetSpent":
+      return Effect.logWarning("link thumbnail refused: this month's transform budget is spent");
   }
+}
+
+/** The budget's row key: the calendar month, UTC. */
+function currentPeriod(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+/** Is any of this month's budget left? A read, so a spent month costs no fetch. */
+function budgetLeft(cap: number): Effect.Effect<boolean, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const row = yield* dbQuery(() =>
+      db
+        .select({ used: linkThumbTransforms.used })
+        .from(linkThumbTransforms)
+        .where(eq(linkThumbTransforms.period, currentPeriod()))
+        .get(),
+    );
+    return (row?.used ?? 0) < cap;
+  });
+}
+
+/**
+ * Spend one transform from this month's budget, or report it spent. One
+ * statement: the upsert only increments while `used` is under the cap, and
+ * returns no row when it is not, so concurrent isolates cannot overspend.
+ */
+function chargeTransform(cap: number): Effect.Effect<boolean, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .insert(linkThumbTransforms)
+        .values({ period: currentPeriod(), used: 1 })
+        .onConflictDoUpdate({
+          target: linkThumbTransforms.period,
+          set: { used: sql`${linkThumbTransforms.used} + 1` },
+          setWhere: sql`${linkThumbTransforms.used} < ${cap}`,
+        })
+        .returning({ used: linkThumbTransforms.used })
+        .all(),
+    );
+    return rows.length > 0;
+  });
 }
 
 export interface LinkThumbnailArgs {
   /** The inbound request — read for `waitUntil` only. */
   readonly request: Request;
-  readonly weddingId: string;
   readonly rawUrl: string;
   readonly format: OutputFormat;
   readonly images?: ImagesBindingLike;
@@ -169,11 +239,21 @@ export interface LinkThumbnailArgs {
   readonly requireTransform: boolean;
   /** Test seam: fetch + DNS. `maxBytes` is ignored — see the module comment. */
   readonly options?: LinkPreviewOptions;
+  /** Test seam: the monthly budget. Defaults to {@link MONTHLY_THUMB_TRANSFORMS}. */
+  readonly monthlyTransforms?: number;
 }
 
 /** Fetch, check, re-encode and answer one thumbnail. */
-function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbError> {
-  const { request, weddingId, rawUrl, format, images, requireTransform, options = {} } = args;
+function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbError, DbService> {
+  const {
+    request,
+    rawUrl,
+    format,
+    images,
+    requireTransform,
+    options = {},
+    monthlyTransforms = MONTHLY_THUMB_TRANSFORMS,
+  } = args;
   const {
     maxRedirects = DEFAULT_MAX_REDIRECTS,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -190,7 +270,7 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
       images && typeof caches !== "undefined" && caches.default ? caches.default : undefined;
     const cacheKey = cache
       ? buildTransformCacheKey({
-          slug: `link-thumb:${weddingId}`,
+          slug: "link-thumb",
           slot: yield* Effect.promise(() => sha256Hex(rawUrl)),
           variant: "thumb",
           format,
@@ -203,6 +283,10 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
         const headers = thumbHeaders(hit.headers.get("Content-Type") ?? format);
         return new Response(hit.body, { status: 200, headers });
       }
+    }
+
+    if (images && !(yield* budgetLeft(monthlyTransforms))) {
+      return yield* Effect.fail(new LinkThumbBudgetSpent());
     }
 
     // One budget for every hop, the DNS lookups and the body read.
@@ -255,6 +339,9 @@ function thumbnail(args: LinkThumbnailArgs): Effect.Effect<Response, LinkThumbEr
       return new Response(bytes, { status: 200, headers: thumbHeaders(contentType) });
     }
 
+    if (!(yield* chargeTransform(monthlyTransforms))) {
+      return yield* Effect.fail(new LinkThumbBudgetSpent());
+    }
     const out = yield* transformAsset(images, { bytes, contentType }, "thumb", format).pipe(
       Effect.mapError(() => new LinkThumbTransformFailed()),
     );

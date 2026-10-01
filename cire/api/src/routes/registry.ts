@@ -611,6 +611,8 @@ export interface RegistryLinkThumbDeps {
  *   LinkThumbUnsupportedType  → 415 `unsupported_image_type`
  *   LinkThumbTransformFailed  → 502 `thumbnail_failed`
  *   LinkThumbUnavailable      → 503 `thumbnail_unavailable`
+ *   LinkThumbBudgetSpent      → 429 `thumbnail_budget_spent` (this month's
+ *                               share of the Images quota; see the service)
  */
 export const createRegistryLinkThumbRoutes = (
   db: Db,
@@ -639,7 +641,6 @@ export const createRegistryLinkThumbRoutes = (
                 const body = yield* Schema.decodeUnknownEffect(RegistryLinkThumbBody)(raw);
                 return yield* linkThumbnailService.thumbnail({
                   request,
-                  weddingId,
                   rawUrl: body.url,
                   format: negotiateFormat(request.headers.get("accept")),
                   images: deps.images,
@@ -647,6 +648,7 @@ export const createRegistryLinkThumbRoutes = (
                   options: deps.linkPreviewOptions,
                 });
               }).pipe(
+                Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("LinkThumbBlocked", () => status(400, "blocked_url")),
                 Effect.catchTag("LinkThumbFetchFailed", () =>
@@ -658,6 +660,9 @@ export const createRegistryLinkThumbRoutes = (
                 ),
                 Effect.catchTag("LinkThumbTransformFailed", () => status(502, "thumbnail_failed")),
                 Effect.catchTag("LinkThumbUnavailable", () => status(503, "thumbnail_unavailable")),
+                Effect.catchTag("LinkThumbBudgetSpent", () =>
+                  status(429, "thumbnail_budget_spent"),
+                ),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),
               ),

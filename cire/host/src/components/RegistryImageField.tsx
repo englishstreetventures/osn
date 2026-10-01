@@ -122,6 +122,9 @@ export default function RegistryImageField(props: {
   /** Bumped on every reset, so a thumbnail that lands after its preview was
    *  replaced is revoked rather than shown. */
   let thumbGeneration = 0;
+  /** Cancels the current set's requests on reset, so a replaced preview's
+   *  thumbnails stop costing a fetch and a transform on cire-api. */
+  let thumbAbort: AbortController | null = null;
 
   const base = () => weddingPath(props.weddingId, "/registry");
 
@@ -176,6 +179,8 @@ export default function RegistryImageField(props: {
   /** Revoke every candidate thumbnail and forget the set. */
   function clearCandidateThumbs() {
     thumbGeneration += 1;
+    thumbAbort?.abort();
+    thumbAbort = null;
     for (const objectUrl of candidateThumbs().values())
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     setCandidateThumbs(new Map());
@@ -191,6 +196,8 @@ export default function RegistryImageField(props: {
   function loadCandidateThumbs(list: readonly string[]) {
     if (typeof URL.createObjectURL !== "function") return;
     const generation = thumbGeneration;
+    thumbAbort = new AbortController();
+    const { signal } = thumbAbort;
     for (const candidate of list) {
       void (async () => {
         let objectUrl: string | null = null;
@@ -202,10 +209,12 @@ export default function RegistryImageField(props: {
               Accept: "image/avif,image/webp,image/*",
             },
             body: JSON.stringify({ url: candidate }),
+            signal,
           });
           if (res.ok) objectUrl = URL.createObjectURL(await res.blob());
         } catch {
-          // An expired session, a network drop: the label stands in.
+          // An expired session, a network drop, a reset that aborted it: the
+          // label stands in, or the generation check below drops it.
         }
         if (generation !== thumbGeneration) {
           if (objectUrl) URL.revokeObjectURL(objectUrl);
