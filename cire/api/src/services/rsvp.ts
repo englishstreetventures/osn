@@ -145,6 +145,8 @@ function buildRsvpUpsertStatements(
         dietaryConsentAt,
         dietaryConsentVersion,
         consentSource,
+        submittedByGuestId,
+        submittedViaLink,
         createdAt: now,
       })
       .onConflictDoUpdate({
@@ -159,6 +161,9 @@ function buildRsvpUpsertStatements(
           // recording over a guest's reply (or vice-versa) must repoint
           // this so the row reflects who last wrote it.
           consentSource,
+          // And who sent it: an organiser's write clears a member's stamp.
+          submittedByGuestId,
+          submittedViaLink,
         },
       });
   });
