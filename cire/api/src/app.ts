@@ -747,10 +747,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const accountLinking: AccountLinking = {
     flags,
     canLink: resolveOsnAccountId !== undefined,
-    // Cached: the member match runs on every restore and RSVP, and a profile's
-    // account never changes. The link POST keeps the uncached resolver, since
-    // it writes the account id it gets.
+    // Cached: the member match runs on every claim and restore, and a
+    // profile's account never changes. The RSVP stamp, the link POST and the
+    // unlink check keep the uncached resolver: each records or authorises on
+    // the answer, so an erased profile must stop matching at once.
     resolveAccountId: resolveOsnAccountId && cacheAccountResolver(resolveOsnAccountId),
+    resolveAccountIdFresh: resolveOsnAccountId,
     // musubi serves profile pictures from its own identity host, the OIDC
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),

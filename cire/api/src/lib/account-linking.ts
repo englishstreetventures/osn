@@ -25,6 +25,12 @@ export interface AccountLinking {
    */
   resolveAccountId?: OsnAccountResolver;
   /**
+   * The same lookup without the cache, for the RSVP's `submitted_via_link`
+   * stamp: a profile osn-api has since erased must stop vouching for a reply
+   * at once, not when a cached answer expires.
+   */
+  resolveAccountIdFresh?: OsnAccountResolver;
+  /**
    * Origins a musubi profile picture may load from on the guest site. Any
    * other avatar URL is dropped, and the box shows the account's initial.
    */

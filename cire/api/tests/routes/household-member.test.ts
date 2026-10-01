@@ -492,6 +492,30 @@ describe("POST /api/rsvp and the member step", () => {
     expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(true);
   });
 
+  it("asks osn-api afresh for the stamp, so an erased profile stops matching at once", async () => {
+    let known = true;
+    const resolver: OsnAccountResolver = async () =>
+      known ? { ok: true, accountId: "acc_usr_bob" } : { ok: false, reason: "profile_not_found" };
+    const { db, app } = buildApp(true, resolver);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    linkRow(db, bo, "usr_bob");
+    const org = await signIn(db, "usr_alice");
+    // A restore caches usr_alice → acc_usr_bob.
+    await restore(app, `${cookie}; ${org}`);
+    known = false;
+    const res = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      `${cookie}; ${org}`,
+      reply(bo, firstEventOf(db, bo)),
+    );
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(false);
+  });
+
   it("asks for no member, and stamps none, with the flag off", async () => {
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
