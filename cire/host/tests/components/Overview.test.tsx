@@ -199,7 +199,6 @@ describe("Overview", () => {
         feedStartedBeforePageLoaded = !settingsRequested;
         return Promise.resolve(
           json({
-            markSeq: 3,
             households: 1,
             truncated: false,
             items: [
@@ -210,7 +209,6 @@ describe("Overview", () => {
                 at: new Date().toISOString(),
               },
             ],
-            rows: [],
             digest: { available: false, enabled: true },
           }),
         );

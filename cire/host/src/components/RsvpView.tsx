@@ -22,7 +22,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import { fetchRsvpChanges, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
+import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
   filterRows,
   mergeRows,
@@ -149,7 +149,7 @@ export default function RsvpView(props: RsvpViewProps) {
   );
 
   onMount(() => {
-    const changes = fetchRsvpChanges(authFetch, props.weddingId);
+    const changes = fetchRsvpChangeRows(authFetch, props.weddingId);
     void Promise.all([load(), changes]).then(async ([loaded, feed]) => {
       if (!feed) return false;
       setIsNewRow(() => newRowCheck(feed.rows));

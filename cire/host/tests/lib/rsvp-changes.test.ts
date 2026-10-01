@@ -7,6 +7,7 @@ vi.mock("../../src/lib/api", async () => {
 
 import {
   describeChangeKinds,
+  fetchRsvpChangeRows,
   fetchRsvpChanges,
   formatChangeTime,
   markRsvpChangesSeen,
@@ -15,15 +16,15 @@ import {
 } from "../../src/lib/rsvp-changes";
 
 const CHANGES = {
-  markSeq: 7,
   households: 1,
   truncated: false,
   items: [
     { familyId: "f1", familyName: "Sharma", kinds: ["reply_new"], at: "2026-09-26T08:00:00.000Z" },
   ],
-  rows: [{ guestId: "g1", eventId: "e1" }],
   digest: { available: true, enabled: true },
 };
+
+const ROWS = { markSeq: 7, rows: [{ guestId: "g1", eventId: "e1" }] };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -90,9 +91,39 @@ describe("fetchRsvpChanges", () => {
     expect(await fetchRsvpChanges(authFetch, "wed_a")).toBeNull();
     authFetch.mockRejectedValueOnce(new Error("offline"));
     expect(await fetchRsvpChanges(authFetch, "wed_a")).toBeNull();
-    for (const body of [{}, [], { ...CHANGES, rows: "x" }, { ...CHANGES, digest: null }]) {
+    for (const body of [{}, [], { ...CHANGES, items: "x" }, { ...CHANGES, digest: null }, ROWS]) {
       authFetch.mockResolvedValueOnce(json(body));
       expect(await fetchRsvpChanges(authFetch, "wed_a")).toBeNull();
+    }
+  });
+});
+
+describe("fetchRsvpChangeRows", () => {
+  const authFetch = vi.fn();
+  afterEach(() => authFetch.mockReset());
+
+  it("returns the rows and marker for a good answer", async () => {
+    authFetch.mockResolvedValueOnce(json(ROWS));
+    expect(await fetchRsvpChangeRows(authFetch, "wed_a")).toEqual(ROWS);
+    expect(authFetch).toHaveBeenCalledWith(
+      "https://api.test/api/organiser/weddings/wed_a/rsvp-changes/rows",
+    );
+  });
+
+  it("returns null for an error status, a thrown fetch, or a body of the wrong shape", async () => {
+    authFetch.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
+    expect(await fetchRsvpChangeRows(authFetch, "wed_a")).toBeNull();
+    authFetch.mockRejectedValueOnce(new Error("offline"));
+    expect(await fetchRsvpChangeRows(authFetch, "wed_a")).toBeNull();
+    for (const body of [
+      {},
+      CHANGES,
+      { ...ROWS, rows: "x" },
+      { ...ROWS, markSeq: "7" },
+      { ...ROWS, rows: [{ guestId: "g1" }] },
+    ]) {
+      authFetch.mockResolvedValueOnce(json(body));
+      expect(await fetchRsvpChangeRows(authFetch, "wed_a")).toBeNull();
     }
   });
 });
