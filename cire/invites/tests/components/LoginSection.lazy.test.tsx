@@ -61,6 +61,7 @@ const claim: ClaimResult = {
   events: [],
   rsvps: [],
   accountLink: { enabled: true, signedIn: false, linkedGuestIds: [] },
+  member: { guestId: "g-1" },
 };
 
 async function settle() {
@@ -111,7 +112,12 @@ describe("LoginSection keeps account linking out of the first download", () => {
     vi.stubGlobal("fetch", vi.fn());
     const { LoginSection } = await import("../../src/components/LoginSection");
     const { findByTestId } = render(() => (
-      <LoginSection apiUrl="http://x" result={claim} onClaimed={() => {}} />
+      <LoginSection
+        apiUrl="http://x"
+        result={claim}
+        onClaimed={() => {}}
+        onMemberChange={() => {}}
+      />
     ));
     await findByTestId("pulse-account-link-stub");
     await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0, plusOne: 1 }));

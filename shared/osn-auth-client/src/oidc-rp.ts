@@ -268,13 +268,16 @@ export function isAllowedReturnTo(returnTo: string, allowed: readonly string[]):
 
 export interface BeginLoginOptions {
   /**
-   * Passed through as the `prompt` parameter. Only `create` is ever sent —
-   * "Initiating User Registration via OpenID Connect 1.0", which asks the
-   * issuer to lead with its sign-up screen. The caller allowlists the value
-   * before it reaches here; nothing else, and `none` in particular, may cross
-   * this seam from a query string.
+   * Passed through as the `prompt` parameter. Two values only:
+   *  - `create` — "Initiating User Registration via OpenID Connect 1.0", which
+   *    asks the issuer to lead with its sign-up screen;
+   *  - `select_account` — the issuer always shows which account is signed in
+   *    and offers another, even when consent is on file, so a sign-in never
+   *    comes back silently as whoever last used the browser.
+   * The caller allowlists the value before it reaches here; nothing else, and
+   * `none` in particular, may cross this seam from a query string.
    */
-  prompt?: "create";
+  prompt?: "create" | "select_account";
 }
 
 /**

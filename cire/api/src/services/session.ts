@@ -1,7 +1,7 @@
 import { sessions } from "@cire/db";
 import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
-import { eq, lte } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
@@ -13,7 +13,7 @@ export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
 }> {}
 
 export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
-  op: "insert" | "delete" | "deleteAllForFamily" | "sweep";
+  op: "insert" | "delete" | "deleteAllForFamily" | "sweep" | "setMember";
   reason: string;
 }> {}
 
@@ -27,12 +27,19 @@ export interface CreatedSession {
 export interface ValidatedSession {
   familyId: string;
   expiresAt: Date;
+  /** The household member this session chose, or null. */
+  memberGuestId: string | null;
 }
 
 export const sessionService = {
+  /**
+   * Mint a session for `familyId`. `memberGuestId` is the member it starts
+   * with — set only when the claim chose one for a one-member household.
+   */
   create(
     familyId: string,
     ttlSeconds: number = DEFAULT_TTL_SECONDS,
+    memberGuestId: string | null = null,
   ): Effect.Effect<CreatedSession, SessionWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -51,6 +58,7 @@ export const sessionService = {
                 token: tokenHash,
                 expiresAt,
                 createdAt: now,
+                memberGuestId,
               })
               .run(),
           ),
@@ -82,7 +90,11 @@ export const sessionService = {
       if (row.expiresAt.getTime() <= Date.now()) {
         return yield* Effect.fail(new SessionInvalid({ reason: "expired" }));
       }
-      return { familyId: row.familyId, expiresAt: row.expiresAt };
+      return {
+        familyId: row.familyId,
+        expiresAt: row.expiresAt,
+        memberGuestId: row.memberGuestId ?? null,
+      };
     }).pipe(Effect.withSpan("cire.session.validate"));
   },
 
@@ -126,6 +138,10 @@ export const sessionService = {
       // Insert before delete in the statement list — on the bun:sqlite
       // sequential fallback (no `.batch()`) that keeps the family with a live
       // session at every point, matching the previous by-hand ordering.
+      //
+      // The new row takes the old row's member inside the same batch, so a
+      // "Not you?" that clears it between the request's start and this write
+      // is never undone. No old row (already revoked) leaves the member null.
       const statements: BatchItem<"sqlite">[] = [
         db.insert(sessions).values({
           id: crypto.randomUUID(),
@@ -133,6 +149,7 @@ export const sessionService = {
           token: newHash,
           expiresAt,
           createdAt: now,
+          memberGuestId: sql`(SELECT ${sessions.memberGuestId} FROM ${sessions} WHERE ${sessions.token} = ${oldHash} AND ${sessions.familyId} = ${familyId})`,
         }),
         db.delete(sessions).where(eq(sessions.token, oldHash)),
       ];
@@ -150,6 +167,38 @@ export const sessionService = {
       Effect.tapError(() => Effect.sync(() => metricSessionCreated("error"))),
       Effect.withSpan("cire.session.rotate"),
     );
+  },
+
+  /**
+   * Set (or, with `null`, clear) the member the session behind `token` says it
+   * is. The caller has checked the member belongs to the session's household
+   * and is not a plus-one. Scoped to `familyId` as well as the token, so a
+   * session can only ever name a member of its own household.
+   */
+  setMember(
+    token: string,
+    familyId: string,
+    memberGuestId: string | null,
+  ): Effect.Effect<void, SessionWriteError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const tokenHash = yield* hashToken(token);
+      yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            db
+              .update(sessions)
+              .set({ memberGuestId })
+              .where(and(eq(sessions.token, tokenHash), eq(sessions.familyId, familyId)))
+              .run(),
+          ),
+        catch: (e) => new SessionWriteError({ op: "setMember", reason: String(e) }),
+      }).pipe(
+        Effect.tapError((err) =>
+          Effect.logError("session member write failed", { reason: err.reason }),
+        ),
+      );
+    }).pipe(Effect.withSpan("cire.session.setMember"));
   },
 
   revokeAllForFamily(familyId: string): Effect.Effect<void, SessionWriteError, DbService> {

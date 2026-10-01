@@ -73,6 +73,13 @@ describe("signInUrl", () => {
     expect(url.searchParams.has("prompt")).toBe(false);
   });
 
+  it("attaches prompt=select_account when the caller wants the account screen", () => {
+    const url = new URL(
+      signInUrl(config(), "https://app.test.invalid/", { prompt: "select_account" }),
+    );
+    expect(url.searchParams.get("prompt")).toBe("select_account");
+  });
+
   it("attaches prompt=create when the caller wants the sign-up screen", () => {
     const url = new URL(signInUrl(config(), "https://app.test.invalid/", { prompt: "create" }));
     expect(url.searchParams.get("prompt")).toBe("create");

@@ -140,7 +140,12 @@ function bound(value: unknown, column: AnySQLiteColumn) {
  */
 function recordPlusOneChange(
   db: Db,
-  input: { weddingId: string; familyId: string; inviterGuestId: string },
+  input: {
+    weddingId: string;
+    familyId: string;
+    inviterGuestId: string;
+    actorGuestId?: string | null;
+  },
   kind: PlusOneChangeKind,
   when: SQL,
 ): BatchItem<"sqlite"> {
@@ -150,6 +155,7 @@ function recordPlusOneChange(
       weddingId: input.weddingId,
       familyId: input.familyId,
       changes: [{ guestId: input.inviterGuestId, eventId: null, kind }],
+      actorGuestId: input.actorGuestId ?? null,
     },
     new Date(),
     when,
@@ -206,6 +212,8 @@ export function buildCreatePlusOne(
     sortOrder: number;
     name: PlusOneName;
     now: Date;
+    /** The household member making the change, for the change log. */
+    actorGuestId?: string | null;
   },
 ): BatchItem<"sqlite">[] {
   const inviter = alias(guests, "inviter");
@@ -608,6 +616,7 @@ export const plusOneService = {
     familyId: string,
     inviterGuestId: string,
     name: PlusOneName,
+    actorGuestId: string | null = null,
   ): Effect.Effect<
     { plusOne: PlusOneRecord; created: boolean; dietaryCleared: boolean },
     | PlusOneHouseholdGone
@@ -627,7 +636,7 @@ export const plusOneService = {
         return yield* Effect.fail(new PlusOneNotAllowed());
       }
       const clean = cleanName(name);
-      const change = { weddingId: context.weddingId, familyId, inviterGuestId };
+      const change = { weddingId: context.weddingId, familyId, inviterGuestId, actorGuestId };
 
       if (context.plusOne !== null) {
         // Rename. An unchanged name writes nothing. Removed since the read:
@@ -657,6 +666,7 @@ export const plusOneService = {
               sortOrder: context.inviter.sortOrder,
               name: clean,
               now: new Date(),
+              actorGuestId,
             }),
           ],
           buildPlusOneReadBack(db, inviterGuestId) as ReturningTail<PlusOneRow>,
@@ -682,6 +692,7 @@ export const plusOneService = {
   remove(
     familyId: string,
     inviterGuestId: string,
+    actorGuestId: string | null = null,
   ): Effect.Effect<
     { removed: boolean },
     | PlusOneHouseholdGone
@@ -705,7 +716,7 @@ export const plusOneService = {
         commitBatchResults(db, [
           recordPlusOneChange(
             db,
-            { weddingId: context.weddingId, familyId, inviterGuestId },
+            { weddingId: context.weddingId, familyId, inviterGuestId, actorGuestId },
             "plus_one_removed",
             guestExists(db, theirs),
           ),

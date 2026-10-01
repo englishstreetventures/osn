@@ -10,11 +10,18 @@ import {
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
 import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
-import { measureClaimLookup, metricClaimAttempt, metricInviteOpened } from "../metrics";
+import {
+  measureClaimLookup,
+  metricAccountLinkMatch,
+  metricClaimAttempt,
+  metricInviteOpened,
+} from "../metrics";
+import type { AccountLinkMatchResult } from "../metrics";
 import type {
   AccountLinkState,
   ClaimResponse,
@@ -23,10 +30,11 @@ import type {
   DressSwatch,
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
-import { accountLinkService } from "./account-link";
+import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
-import { isDietaryConsentCurrent } from "./rsvp";
+import type { OsnAccountResolver } from "./osn-bridge";
+import { isDietaryConsentCurrent, withoutSubmitter } from "./rsvp";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -157,6 +165,15 @@ export interface AccountLinkGate {
   enabledFor(familyId: string): Promise<boolean>;
   /** The raw `cire_org_session` token on this request, or null. */
   osnSessionToken: string | null;
+  /**
+   * The member this request's household session already chose, or null. A
+   * fresh claim passes null.
+   */
+  memberGuestId?: string | null;
+  /** Resolves a profile to its account, to compare a sign-in with a link. */
+  resolveAccountId?: OsnAccountResolver;
+  /** Hosts a profile picture may load from. */
+  avatarOrigins?: readonly string[];
 }
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
@@ -184,8 +201,9 @@ export const ACCOUNT_LINK_FLAG_WAIT = "250 millis";
 function accountLinkState(
   family: FamilyRow,
   gate: AccountLinkGate | undefined,
-): Effect.Effect<AccountLinkState, never, DbService> {
-  if (!gate || family.kind === "host") return Effect.succeed(LINKING_OFF);
+): Effect.Effect<LinkStateRead, never, DbService> {
+  const off: LinkStateRead = { state: LINKING_OFF, facts: null };
+  if (!gate || family.kind === "host") return Effect.succeed(off);
   return Effect.promise(() => gate.enabledFor(family.id)).pipe(
     Effect.timeoutOrElse({
       duration: ACCOUNT_LINK_FLAG_WAIT,
@@ -194,19 +212,36 @@ function accountLinkState(
           Effect.as(false),
         ),
     }),
-    Effect.flatMap((on): Effect.Effect<AccountLinkState, never, DbService> =>
+    Effect.flatMap((on): Effect.Effect<LinkStateRead, never, DbService> =>
       on
-        ? accountLinkService.householdState(family.id, gate.osnSessionToken)
-        : Effect.succeed(LINKING_OFF),
+        ? readLinkFacts(family.id, gate.osnSessionToken).pipe(
+            Effect.flatMap((facts) =>
+              linkStateFor(facts, {
+                guestId: gate.memberGuestId ?? null,
+                resolveAccountId: gate.resolveAccountId,
+                avatarOrigins: gate.avatarOrigins,
+              }).pipe(Effect.map((state) => ({ state, facts }))),
+            ),
+          )
+        : Effect.succeed(off),
     ),
     // Inside this branch, not around the whole payload: a defect here must
     // never reach the `Effect.all` that joins it to the invite.
     Effect.catchCause(() =>
       Effect.logWarning("account link state unavailable; reporting linking off").pipe(
-        Effect.as(LINKING_OFF),
+        Effect.as(off),
       ),
     ),
   );
+}
+
+/**
+ * The link state, and the facts it was computed from — kept server-side so a
+ * member chosen after the read (a one-member household) costs no second read.
+ */
+interface LinkStateRead {
+  state: AccountLinkState & { match?: AccountLinkMatchResult };
+  facts: LinkFacts | null;
 }
 
 /**
@@ -232,9 +267,62 @@ function buildClaimResponse(
   return Effect.all([buildInvite(family), accountLinkState(family, gate)], {
     concurrency: "unbounded",
   }).pipe(
-    Effect.map(([invite, accountLink]) => ({ ...invite, accountLink })),
+    Effect.flatMap(([invite, { state: linkState, facts }]) =>
+      Effect.gen(function* () {
+        // The member step rides the same flag answer as the link box, so the
+        // two can never disagree within one payload. Off: the payload keeps
+        // the shape it had before the step existed.
+        if (!linkState.enabled || !gate) {
+          return {
+            ...invite,
+            rsvps: invite.rsvps.map(withoutSubmitter),
+            accountLink: linkState,
+          };
+        }
+        let state = linkState;
+        let member = gate.memberGuestId ?? null;
+        // A one-member household has nobody to choose between, so the server
+        // chooses for it. The caller writes the choice to the session.
+        if (member === null) {
+          const only = singleChoosableMember(invite.members);
+          if (only !== null && facts !== null) {
+            member = only;
+            state = yield* linkStateFor(facts, {
+              guestId: member,
+              resolveAccountId: gate.resolveAccountId,
+              avatarOrigins: gate.avatarOrigins,
+            });
+          }
+        }
+        if (state.match) metricAccountLinkMatch(state.match);
+        const { match: _match, ...accountLink } = state;
+        return {
+          ...invite,
+          accountLink,
+          member: member === null ? null : { guestId: member },
+        };
+      }),
+    ),
     Effect.withSpan("cire.claim.buildResponse"),
   );
+}
+
+/**
+ * The household members a session may say it is: everyone but the plus-ones,
+ * whose rows another guest typed in.
+ */
+export function choosableMembers<T extends { plusOneOf: string | null }>(
+  members: readonly T[],
+): T[] {
+  return members.filter((m) => m.plusOneOf === null);
+}
+
+/** The one choosable member's id, when there is exactly one; else null. */
+export function singleChoosableMember(
+  members: readonly { guestId: string; plusOneOf: string | null }[],
+): string | null {
+  const choosable = choosableMembers(members);
+  return choosable.length === 1 ? (choosable[0]?.guestId ?? null) : null;
 }
 
 /** Everything in the claim payload except the account-link state. Pure read. */
@@ -262,6 +350,7 @@ function buildInvite(
     //  (c) this family's RSVPs.
     //  (d) the FAQ entries, which read nothing when the FAQ is switched off —
     //      the switch is checked inside that one statement.
+    const submitter = alias(guests, "submitter");
     const {
       wedding: [wedding],
       closingRow: [closing],
@@ -329,9 +418,12 @@ function buildInvite(
               dietaryPresets: rsvps.dietaryPresets,
               dietaryConsentVersion: rsvps.dietaryConsentVersion,
               consentSource: rsvps.consentSource,
+              submittedByGuestId: rsvps.submittedByGuestId,
+              submittedByFirstName: submitter.firstName,
             })
             .from(rsvps)
             .innerJoin(guests, eq(rsvps.guestId, guests.id))
+            .leftJoin(submitter, eq(submitter.id, rsvps.submittedByGuestId))
             .where(eq(guests.familyId, family.id))
             .all(),
         ),
@@ -436,15 +528,27 @@ function buildInvite(
       // from the second. Consent given against superseded wording, or recorded
       // by someone other than the box's own writer, does not count. Whether a
       // row is a plus-one's comes from the members read above.
-      rsvps: rsvpRows.map(({ dietaryConsentVersion, consentSource, ...row }) => ({
-        ...row,
-        dietaryPresets: parsePresets(row.dietaryPresets),
-        dietaryConsentCurrent: isDietaryConsentCurrent({
-          version: dietaryConsentVersion,
-          source: consentSource,
-          isPlusOne: (memberMap.get(row.guestId)?.plusOneOf ?? null) !== null,
+      rsvps: rsvpRows.map(
+        ({
+          dietaryConsentVersion,
+          consentSource,
+          submittedByGuestId,
+          submittedByFirstName,
+          ...row
+        }) => ({
+          ...row,
+          submittedBy:
+            submittedByGuestId !== null && submittedByFirstName !== null
+              ? { guestId: submittedByGuestId, firstName: submittedByFirstName }
+              : null,
+          dietaryPresets: parsePresets(row.dietaryPresets),
+          dietaryConsentCurrent: isDietaryConsentCurrent({
+            version: dietaryConsentVersion,
+            source: consentSource,
+            isPlusOne: (memberMap.get(row.guestId)?.plusOneOf ?? null) !== null,
+          }),
         }),
-      })),
+      ),
       // Resolved server-side so the banner the guest reads and the 403 the
       // write path returns are computed by the same function — the client
       // never turns the date into an instant itself.

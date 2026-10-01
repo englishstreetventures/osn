@@ -116,7 +116,15 @@ export function classifyRsvpChanges(
 }
 
 /** The column each position of a change's JSON tuple fills. */
-const TUPLE_FIELDS = ["weddingId", "familyId", "guestId", "eventId", "kind", "createdAt"] as const;
+const TUPLE_FIELDS = [
+  "weddingId",
+  "familyId",
+  "guestId",
+  "eventId",
+  "kind",
+  "createdAt",
+  "actorGuestId",
+] as const;
 
 /**
  * One `INSERT … SELECT … FROM json_each(?)` for the whole change set, or `null`
@@ -138,7 +146,13 @@ const TUPLE_FIELDS = ["weddingId", "familyId", "guestId", "eventId", "kind", "cr
  */
 export function buildRecordStatement(
   db: Db,
-  input: { weddingId: string; familyId: string; changes: readonly RsvpChangeInput[] },
+  input: {
+    weddingId: string;
+    familyId: string;
+    changes: readonly RsvpChangeInput[];
+    /** The household member who made every change here; null when none chosen. */
+    actorGuestId?: string | null;
+  },
   now: Date,
   when?: SQL,
 ): BatchItem<"sqlite"> | null {
@@ -153,6 +167,7 @@ export function buildRecordStatement(
       change.eventId,
       change.kind,
       createdAt,
+      input.actorGuestId ?? null,
     ]),
   );
   const selectList = Object.keys(getTableColumns(rsvpChanges)).map((key): SQL => {

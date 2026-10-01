@@ -50,7 +50,7 @@ export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend 
     .use(sessionAuth(db))
     .put(
       "/:guestId",
-      async ({ request, params, familyId, set }) => {
+      async ({ request, params, familyId, memberGuestId, set }) => {
         if (!familyId) {
           set.status = 401;
           return { error: "Unauthorized" };
@@ -64,7 +64,7 @@ export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend 
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(PlusOneNameBody)(raw);
-            return yield* plusOneService.save(familyId, params.guestId, body);
+            return yield* plusOneService.save(familyId, params.guestId, body, memberGuestId);
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>
@@ -87,13 +87,13 @@ export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend 
       // payload degrades to the schema's 400 instead of Elysia's parser error.
       { parse: () => ({}) },
     )
-    .delete("/:guestId", ({ params, familyId, set }) => {
+    .delete("/:guestId", ({ params, familyId, memberGuestId, set }) => {
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
       }
       return runCire(
-        plusOneService.remove(familyId, params.guestId).pipe(
+        plusOneService.remove(familyId, params.guestId, memberGuestId).pipe(
           Effect.provideService(DbService, db),
           Effect.catch((e) =>
             Effect.sync(() => {

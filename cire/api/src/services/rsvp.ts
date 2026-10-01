@@ -9,6 +9,7 @@ import {
 } from "@cire/dietary";
 import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Db, ReturningTail } from "../db";
@@ -103,6 +104,12 @@ export interface RsvpInput {
   // attestation version (`dietaryConsentVersionFor`): the organiser ticks other
   // words for a plus-one than for a guest. Optional; defaults to false.
   plusOne?: boolean;
+  // The household member whose session sent this reply; null (the default)
+  // for an organiser's write. Written on every upsert, so a later writer
+  // always replaces an earlier one's stamp.
+  submittedByGuestId?: string | null;
+  // The write carried a musubi sign-in matching that member's account link.
+  submittedViaLink?: boolean;
 }
 
 /**
@@ -124,6 +131,8 @@ function buildRsvpUpsertStatements(
       : null;
     // Serialised once: the insert and the conflict-update store the same value.
     const dietaryPresets = serialisePresets(input.dietaryPresets);
+    const submittedByGuestId = input.submittedByGuestId ?? null;
+    const submittedViaLink = submittedByGuestId !== null && (input.submittedViaLink ?? false);
     return db
       .insert(rsvps)
       .values({
@@ -136,6 +145,8 @@ function buildRsvpUpsertStatements(
         dietaryConsentAt,
         dietaryConsentVersion,
         consentSource,
+        submittedByGuestId,
+        submittedViaLink,
         createdAt: now,
       })
       .onConflictDoUpdate({
@@ -150,9 +161,23 @@ function buildRsvpUpsertStatements(
           // recording over a guest's reply (or vice-versa) must repoint
           // this so the row reflects who last wrote it.
           consentSource,
+          // And who sent it: an organiser's write clears a member's stamp.
+          submittedByGuestId,
+          submittedViaLink,
         },
       });
   });
+}
+
+/**
+ * A reply without its "Answered by" — the shape it has while the member step
+ * is off for the household.
+ */
+export function withoutSubmitter<T extends { submittedBy?: unknown }>(
+  row: T,
+): Omit<T, "submittedBy"> {
+  const { submittedBy: _submittedBy, ...rest } = row;
+  return rest;
 }
 
 /**
@@ -164,20 +189,33 @@ function buildRsvpUpsertStatements(
  * cast straight to {@link RsvpRecord} would quietly claim the parse had already
  * happened.
  */
-type RsvpRow = Omit<RsvpRecord, "dietaryPresets" | "dietaryConsentCurrent"> & {
+type RsvpRow = Omit<RsvpRecord, "dietaryPresets" | "dietaryConsentCurrent" | "submittedBy"> & {
   dietaryPresets: string;
   dietaryConsentVersion: string | null;
   consentSource: ConsentSource;
   plusOneOf: string | null;
+  submittedByGuestId: string | null;
+  submittedByFirstName: string | null;
 };
 
 /** The stored row as the invite reads it. The consent version, its writer and
  *  the plus-one link are read only to answer `dietaryConsentCurrent`, and are
  *  taken off here so none of them reaches the response. */
 function toRsvpRecord(row: RsvpRow): RsvpRecord {
-  const { dietaryConsentVersion, consentSource, plusOneOf, ...rest } = row;
+  const {
+    dietaryConsentVersion,
+    consentSource,
+    plusOneOf,
+    submittedByGuestId,
+    submittedByFirstName,
+    ...rest
+  } = row;
   return {
     ...rest,
+    submittedBy:
+      submittedByGuestId !== null && submittedByFirstName !== null
+        ? { guestId: submittedByGuestId, firstName: submittedByFirstName }
+        : null,
     dietaryPresets: parsePresets(row.dietaryPresets),
     dietaryConsentCurrent: isDietaryConsentCurrent({
       version: dietaryConsentVersion,
@@ -196,6 +234,7 @@ function toRsvpRecord(row: RsvpRow): RsvpRecord {
  * awaited, resolve to the same rows on bun:sqlite.
  */
 function buildFamilyRsvpsQuery(db: Db, familyId: string) {
+  const submitter = alias(guests, "submitter");
   return db
     .select({
       guestId: rsvps.guestId,
@@ -206,9 +245,12 @@ function buildFamilyRsvpsQuery(db: Db, familyId: string) {
       dietaryConsentVersion: rsvps.dietaryConsentVersion,
       consentSource: rsvps.consentSource,
       plusOneOf: guests.plusOneOfGuestId,
+      submittedByGuestId: rsvps.submittedByGuestId,
+      submittedByFirstName: submitter.firstName,
     })
     .from(rsvps)
     .innerJoin(guests, eq(rsvps.guestId, guests.id))
+    .leftJoin(submitter, eq(submitter.id, rsvps.submittedByGuestId))
     .where(eq(guests.familyId, familyId));
 }
 
@@ -316,12 +358,17 @@ export const rsvpService = {
             dietaryConsentAt: null,
             dietaryConsentVersion: null,
             consentSource: "organiser_attested",
+            submittedByGuestId: null,
+            submittedViaLink: false,
             createdAt: new Date(),
           })
           .onConflictDoUpdate({
             target: [rsvps.guestId, rsvps.eventId],
             set: {
               status: input.status,
+              // An organiser wrote the status, so no household member sent it.
+              submittedByGuestId: null,
+              submittedViaLink: false,
               consentSource: sql`CASE WHEN ${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
             },
           })
@@ -379,7 +426,11 @@ export const rsvpService = {
   submitRsvpsAndList(
     inputs: readonly RsvpInput[],
     familyId: string,
-    changeLog?: { weddingId: string; changes: readonly RsvpChangeInput[] },
+    changeLog?: {
+      weddingId: string;
+      changes: readonly RsvpChangeInput[];
+      actorGuestId?: string | null;
+    },
   ): Effect.Effect<RsvpRecord[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;

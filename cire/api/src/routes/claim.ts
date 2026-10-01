@@ -1,9 +1,11 @@
+import { families, guests } from "@cire/db";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
+import { and, eq } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
 import {
@@ -13,11 +15,13 @@ import {
   parseSessionToken,
 } from "../lib/cookie";
 import { getWaitUntil } from "../lib/execution-ctx";
+import { metricHouseholdMemberChosen, metricHouseholdMemberCleared } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
-import { ClaimBody } from "../schemas/claim";
+import { ChooseMemberBody, ClaimBody } from "../schemas/claim";
+import { accountLinkService } from "../services/account-link";
 import { type AccountLinkGate, claimService } from "../services/claim";
 import { inviteService } from "../services/invite";
 import { sessionService } from "../services/session";
@@ -41,7 +45,11 @@ const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
  * settles (the provider bounds it at 5 s) and serves the requests after it.
  * The check never rejects, so holding it cannot fail.
  */
-function accountLinkGate(linking: AccountLinking, request: Request): AccountLinkGate {
+function accountLinkGate(
+  linking: AccountLinking,
+  request: Request,
+  memberGuestId: string | null,
+): AccountLinkGate {
   const waitUntil = getWaitUntil(request);
   return {
     enabledFor: (familyId) => {
@@ -50,6 +58,9 @@ function accountLinkGate(linking: AccountLinking, request: Request): AccountLink
       return answer;
     },
     osnSessionToken: parseOrganiserSessionToken(request.headers.get("cookie")),
+    memberGuestId,
+    resolveAccountId: linking.resolveAccountId,
+    avatarOrigins: linking.avatarOrigins,
   };
 }
 
@@ -96,14 +107,21 @@ export const createClaimRoutes = (
           const { publicId } = yield* Schema.decodeUnknownEffect(ClaimBody)(raw);
           const result = yield* claimService.lookup(
             publicId.trim().toUpperCase(),
-            accountLinkGate(accountLinking, request),
+            accountLinkGate(accountLinking, request, null),
           );
+          // A fresh claim chooses no member, so a member in the payload is the
+          // one the server chose for a one-member household. The new session
+          // starts with it.
+          const member = result.member?.guestId ?? null;
           // Session write may fail (DB transient error) — we still hand the user
           // their invite payload and skip Set-Cookie. Error is logged inside the
           // service. They can re-login to mint a fresh session.
           const session: { token: string; expiresAt: Date } | undefined = yield* sessionService
-            .create(result.familyId, SESSION_TTL_SECONDS)
+            .create(result.familyId, SESSION_TTL_SECONDS, member)
             .pipe(Effect.catchTag("SessionWriteError", () => Effect.succeed(undefined)));
+          if (session && member !== null) {
+            yield* Effect.sync(() => metricHouseholdMemberChosen("auto_single"));
+          }
           if (session) {
             set.headers["set-cookie"] = buildSessionCookie(session.token, {
               secure: webOrigin.startsWith("https://"),
@@ -259,7 +277,7 @@ export const createClaimSessionRoutes = (
       set.headers.vary = "Origin, Cookie";
     })
     .use(sessionAuth(db))
-    .get("/session", async ({ familyId, set, query, request }) => {
+    .get("/session", async ({ familyId, memberGuestId, set, query, request }) => {
       // sessionAuth's onBeforeHandle guarantees this; the guard is a runtime
       // safety net (and narrows the type).
       if (!familyId) {
@@ -286,7 +304,22 @@ export const createClaimSessionRoutes = (
           // still discloses nothing beyond "not your invite".
           const ownsWedding = yield* inviteService.sessionOwnsWedding(familyId, slug);
           if (!ownsWedding) return yield* Effect.fail(new SessionNotForWedding());
-          return yield* claimService.restore(familyId, accountLinkGate(accountLinking, request));
+          const result = yield* claimService.restore(
+            familyId,
+            accountLinkGate(accountLinking, request, memberGuestId),
+          );
+          // The session had no member and the payload names one: the server
+          // chose for a one-member household, so the session keeps it. Best
+          // effort — the next restore chooses again if this write fails.
+          const chosen = result.member?.guestId ?? null;
+          const token = parseSessionToken(request.headers.get("cookie"));
+          if (memberGuestId === null && chosen !== null && token) {
+            yield* sessionService.setMember(token, familyId, chosen).pipe(
+              Effect.tap(() => Effect.sync(() => metricHouseholdMemberChosen("auto_single"))),
+              Effect.catchTag("SessionWriteError", () => Effect.void),
+            );
+          }
+          return result;
         }).pipe(
           Effect.provideService(DbService, db),
           Effect.catchTag("InvalidCredentials", () =>
@@ -312,4 +345,147 @@ export const createClaimSessionRoutes = (
           ),
         ),
       );
+    });
+
+export interface ClaimMemberRouteOptions {
+  /** Per-IP limiter. Shares the restore route's page-load-sized budget. */
+  limiter: RateLimiterBackend;
+  /** Decides whether the member step is on for the household. */
+  accountLinking: AccountLinking;
+}
+
+/** The guest named is not a member of the session's household. */
+class NotHouseholdMember extends Data.TaggedError("NotHouseholdMember") {}
+/** The guest named is a plus-one, whose row another guest typed in. */
+class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
+
+/**
+ * `POST` / `DELETE /api/claim/member` — "Who are you?".
+ *
+ * A claim code proves a household, not a person. `POST { guestId }` records
+ * which member this browser's session says it is; replies and the musubi link
+ * then hang off that choice. `DELETE` is the "Not you?" control: it clears the
+ * choice and keeps the household claimed.
+ *
+ * The choice is the guest's word, backed only by the household's code — the
+ * household trust model the claim has always had. Only a member of the
+ * session's own household may be named, and never a plus-one.
+ *
+ * `POST` checks the flag with the enforcing (uncached) read, as the link POST
+ * does: a household the step is off for gets 404. It answers 200 with the
+ * member and the household's account-link state for that member, since only
+ * the server can tell whether this browser's sign-in is the account the member
+ * is linked to. `DELETE` is idempotent and always 204. Both are behind
+ * `originGuard` (mounted after it in `app.ts`).
+ */
+export const createClaimMemberRoutes = (
+  db: Db,
+  { limiter, accountLinking }: ClaimMemberRouteOptions,
+) =>
+  new Elysia({ prefix: "/api/claim" })
+    .use(rateLimitMiddleware(limiter))
+    .onBeforeHandle({ as: "scoped" }, ({ set }) => {
+      set.headers["cache-control"] = "no-store";
+    })
+    .use(sessionAuth(db))
+    .post(
+      "/member",
+      async ({ familyId, request, set }) => {
+        if (!familyId) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        const token = parseSessionToken(request.headers.get("cookie"));
+        if (!token) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        const on = await isAccountLinkingOn(accountLinking, familyId);
+        if (!on) {
+          set.status = 404;
+          return { error: "Not found" };
+        }
+        const raw: unknown = await request.json().catch(() => null);
+        return runCire(
+          Effect.gen(function* () {
+            const { guestId } = yield* Schema.decodeUnknownEffect(ChooseMemberBody)(raw);
+            const database = yield* DbService;
+            const [row] = yield* dbQuery(() =>
+              database
+                .select({ plusOneOf: guests.plusOneOfGuestId, kind: families.kind })
+                .from(guests)
+                .innerJoin(families, eq(families.id, guests.familyId))
+                .where(and(eq(guests.id, guestId), eq(guests.familyId, familyId)))
+                .all(),
+            );
+            if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
+            if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
+            // The write and the link state for the new member need nothing
+            // from each other, so they run together.
+            const [, state] = yield* Effect.all(
+              [
+                sessionService.setMember(token, familyId, guestId),
+                accountLinkService.householdState(
+                  familyId,
+                  parseOrganiserSessionToken(request.headers.get("cookie")),
+                  {
+                    guestId,
+                    resolveAccountId: accountLinking.resolveAccountId,
+                    avatarOrigins: accountLinking.avatarOrigins,
+                  },
+                ),
+              ],
+              { concurrency: "unbounded" },
+            );
+            yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
+            const { match: _match, ...accountLink } = state;
+            return { member: { guestId }, accountLink };
+          }).pipe(
+            Effect.provideService(DbService, db),
+            Effect.withSpan("cire.claim.chooseMember"),
+            Effect.catchTags({
+              SchemaError: () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Missing or invalid fields" };
+                }),
+              NotHouseholdMember: () =>
+                Effect.sync(() => {
+                  set.status = 403;
+                  return { error: "not_household_member" };
+                }),
+              PlusOneSeat: () =>
+                Effect.sync(() => {
+                  set.status = 403;
+                  return { error: "plus_one_seat" };
+                }),
+              SessionWriteError: () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Could not save your choice" };
+                }),
+            }),
+          ),
+        );
+      },
+      // Sentinel parse hook: the handler parses the body itself, so a
+      // malformed payload degrades to the schema's 400.
+      { parse: () => ({}) },
+    )
+    .delete("/member", async ({ familyId, request, set }) => {
+      const token = parseSessionToken(request.headers.get("cookie"));
+      if (familyId && token) {
+        await runCire(
+          sessionService.setMember(token, familyId, null).pipe(
+            Effect.provideService(DbService, db),
+            Effect.tap(() => Effect.sync(() => metricHouseholdMemberCleared())),
+            Effect.withSpan("cire.claim.clearMember"),
+            // Logged inside the service. The page has already returned to
+            // "Who are you?"; the next choice overwrites the stale one.
+            Effect.catchTag("SessionWriteError", () => Effect.void),
+          ),
+        );
+      }
+      set.status = 204;
+      return null;
     });

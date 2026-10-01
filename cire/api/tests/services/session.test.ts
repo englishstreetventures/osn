@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { sessions, families } from "@cire/db";
+import { sessions, families, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -319,6 +319,63 @@ describe("sessionService.sweepExpired", () => {
         const deleted = yield* sessionService.sweepExpired(now);
         expect(deleted).toBe(0);
         expect(yield* countSessions()).toBe(2);
+      }),
+    ),
+  );
+});
+
+describe("sessionService member", () => {
+  /** A guest of `familyId`, to name as the session's member. */
+  function guestOf(familyId: string): Effect.Effect<string, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* Effect.promise(() =>
+        Promise.resolve(
+          db.select({ id: guests.id }).from(guests).where(eq(guests.familyId, familyId)).all(),
+        ),
+      );
+      if (!row) throw new Error("seed family has no guest");
+      return row.id;
+    });
+  }
+
+  it(
+    "carries the chosen member through a rotation",
+    withDb(
+      Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        const member = yield* guestOf(familyId);
+        const { token } = yield* sessionService.create(familyId);
+        yield* sessionService.setMember(token, familyId, member);
+        const rotated = yield* sessionService.rotate(familyId, token);
+        expect((yield* sessionService.validate(rotated.token)).memberGuestId).toBe(member);
+      }),
+    ),
+  );
+
+  it(
+    "keeps a cleared member cleared through a rotation",
+    withDb(
+      Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        const member = yield* guestOf(familyId);
+        const { token } = yield* sessionService.create(familyId, 60, member);
+        yield* sessionService.setMember(token, familyId, null);
+        const rotated = yield* sessionService.rotate(familyId, token);
+        expect((yield* sessionService.validate(rotated.token)).memberGuestId).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "never writes the member of a session from another household",
+    withDb(
+      Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        const member = yield* guestOf(familyId);
+        const { token } = yield* sessionService.create(familyId);
+        yield* sessionService.setMember(token, "some-other-family", member);
+        expect((yield* sessionService.validate(token)).memberGuestId).toBeNull();
       }),
     ),
   );

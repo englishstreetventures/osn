@@ -1,14 +1,31 @@
 import Button from "@cire/ui/button";
-import { createEffect, createMemo, For, lazy, onMount, Show, Suspense } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onMount,
+  Show,
+  Suspense,
+} from "solid-js";
 
 import { createClaimCode } from "./claim-code";
 import { hasClaimedHint, hasPlusOneHint, noteClaimed, signOut } from "./claim-session";
+import {
+  chooseMember,
+  chosenMember,
+  hasMemberStep,
+  notYou,
+  withChosenMember,
+  withoutMember,
+} from "./household-member";
 import { filterThemeVars } from "./invite-theme";
 import { invitedMembers, isPlusOne } from "./plus-one";
 import type { RsvpDeadlineState } from "./rsvp-deadline";
 import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
-import type { ClaimResult } from "./types";
+import type { AccountLinkState, ClaimResult } from "./types";
 import { readAccountLink } from "./utils";
 
 // Account linking, split out of the invite's first download. Most households
@@ -184,6 +201,15 @@ interface LoginSectionProps {
    * Absent ⇒ no prompt, since nothing would carry its changes to the page.
    */
   onPlusOneChange?: (update: (result: ClaimResult) => ClaimResult) => void;
+  /**
+   * Apply a household-member change to the page's claim result: a member
+   * chosen ("Who are you?"), cleared ("Not you?"), or linked to a musubi
+   * account. The RSVP sheet reads the member from the page's one copy.
+   *
+   * Absent ⇒ no member step and no account link, since nothing would carry
+   * their changes to the page.
+   */
+  onMemberChange?: (update: (result: ClaimResult) => ClaimResult) => void;
 }
 
 // The built-in post-claim greeting, used when the organiser hasn't overridden it.
@@ -246,6 +272,51 @@ export function LoginSection(props: LoginSectionProps) {
   // to draw: linking off, a host preview, or an API that did not send it.
   const accountLink = () =>
     props.result && !props.result.preview ? readAccountLink(props.result.accountLink) : null;
+  // The member step ("Who are you?"): on when the payload carries `member`
+  // and the page can take its changes.
+  const memberStep = () => props.onMemberChange !== undefined && hasMemberStep(props.result);
+  const chosen = () => chosenMember(props.result);
+  const [choosing, setChoosing] = createSignal(false);
+  const [memberError, setMemberError] = createSignal<string | null>(null);
+
+  function updateResult(update: (result: ClaimResult) => ClaimResult) {
+    props.onMemberChange?.(update);
+  }
+
+  async function pickMember(guestId: string) {
+    setMemberError(null);
+    setChoosing(true);
+    const answer = await chooseMember(props.apiUrl, guestId);
+    setChoosing(false);
+    if (answer === null) {
+      setMemberError("Couldn't save that. Please try again.");
+      return;
+    }
+    updateResult((result) => withChosenMember(result, guestId, answer.accountLink));
+  }
+
+  function handleNotYou() {
+    // Back to "Who are you?" at once; both requests are fire-and-forget.
+    notYou(props.apiUrl);
+    updateResult(withoutMember);
+  }
+
+  // A link or unlink changes which seats are linked and whether the account
+  // the box shows is the member's own.
+  function setLinked(guestId: string, linked: boolean) {
+    updateResult((result) => {
+      const link = readAccountLink(result.accountLink);
+      if (!link) return result;
+      const others = link.linkedGuestIds.filter((id) => id !== guestId);
+      const next: AccountLinkState & { enabled: true } = {
+        enabled: true,
+        signedIn: link.signedIn,
+        linkedGuestIds: linked ? [...others, guestId] : others,
+      };
+      if (link.account) next.account = { ...link.account, matchesMember: linked };
+      return { ...result, accountLink: next };
+    });
+  }
   const invited = () => invitedMembers(members());
   const isIndividual = () => invited().length === 1;
   const individualName = () => {
@@ -521,16 +592,69 @@ export function LoginSection(props: LoginSectionProps) {
             </Suspense>
           )}
         </Show>
-        <Show when={accountLink()}>
+        {/* "Who are you?" — the household says which member is at the
+            keyboard. Replies record that member, and the account link binds
+            to them. */}
+        <Show when={memberStep()}>
+          <Show
+            when={chosen()}
+            fallback={
+              <fieldset class={`mb-8 border-0 p-0 ${layout().measure}`}>
+                <legend class="font-display text-gold-ink text-ui-lg mx-auto mb-3 leading-tight font-light italic">
+                  Who are you?
+                </legend>
+                <div class="flex flex-wrap justify-center gap-2">
+                  <For each={invited()}>
+                    {(m) => (
+                      <Button
+                        variant="subtle"
+                        type="button"
+                        disabled={choosing()}
+                        onClick={() => void pickMember(m.guestId)}
+                      >
+                        {m.firstName}
+                      </Button>
+                    )}
+                  </For>
+                </div>
+                <Show when={memberError()}>
+                  <p class="text-error text-ui-sm mt-3" role="alert">
+                    {memberError()}
+                  </p>
+                </Show>
+              </fieldset>
+            }
+          >
+            {(m) => (
+              <p class={`text-text text-ui-sm mb-6 font-light ${layout().measure}`}>
+                Answering as {m().firstName}
+                <Show when={invited().length >= 2 || accountLink()?.signedIn}>
+                  {" · "}
+                  <Button variant="touchLink" type="button" onClick={handleNotYou}>
+                    Not you?
+                  </Button>
+                </Show>
+              </p>
+            )}
+          </Show>
+        </Show>
+        <Show when={memberStep() && accountLink() ? accountLink() : null}>
           {(state) => (
-            <Suspense fallback={null}>
-              <PulseAccountLink
-                apiUrl={props.apiUrl}
-                members={members()}
-                state={state()}
-                class={`mb-8 ${layout().measure}`}
-              />
-            </Suspense>
+            <Show when={chosen()}>
+              {(m) => (
+                <Suspense fallback={null}>
+                  <PulseAccountLink
+                    apiUrl={props.apiUrl}
+                    member={m()}
+                    state={state()}
+                    onLinked={(id) => setLinked(id, true)}
+                    onUnlinked={(id) => setLinked(id, false)}
+                    onNotYou={handleNotYou}
+                    class={`mb-8 ${layout().measure}`}
+                  />
+                </Suspense>
+              )}
+            </Show>
           )}
         </Show>
         <Show when={props.onSignOut}>

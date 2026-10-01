@@ -58,6 +58,8 @@ const claim: ClaimResult = {
   familyName: "Sharma",
   // Linking offered, so the account-link box has something to mount for.
   accountLink: { enabled: true, signedIn: false, linkedGuestIds: [] },
+  // The member step is on, and the server chose the one member.
+  member: { guestId: "guest-1" },
   members: [
     {
       guestId: "guest-1",

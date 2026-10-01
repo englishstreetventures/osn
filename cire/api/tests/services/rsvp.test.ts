@@ -536,6 +536,7 @@ describe("rsvpService.getRsvpsForFamily", () => {
         "eventId",
         "guestId",
         "status",
+        "submittedBy",
       ].toSorted(),
     );
   });

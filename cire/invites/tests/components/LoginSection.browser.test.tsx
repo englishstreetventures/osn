@@ -7,18 +7,18 @@ import { LoginSection, type LoginSectionLayout } from "../../src/components/Logi
 import type { ClaimResult } from "../../src/components/types";
 
 /**
- * The account-link panel inside the claim and welcome panel, measured in a
- * real browser at phone width.
+ * The account-link box inside the claim and welcome panel, measured in a real
+ * browser at phone width.
  *
  * The panel layout is a 400px card inside the page gutter, so on a 375px phone
- * the account link's member rows get about 200px — less than a long name plus
- * the linked state and its Unlink button need on one line. jsdom lays nothing
- * out, so only this tier can see a row push past the card.
+ * the box gets about 200px — less than a long display name and handle beside
+ * the picture, plus the linked state, Unlink and "Not you?", need on one line.
+ * jsdom lays nothing out, so only this tier can see a row push past the card.
  *
- * The real `PulseAccountLink` renders here. It draws its member rows only when
- * the claim payload offers linking and says the browser is signed in, so the
- * household below carries both; otherwise it would draw nothing, and every box
- * below would pass by being empty.
+ * The real `PulseAccountLink` renders here. It draws the account only when the
+ * payload has the member step on, a member chosen, and a signed-in account
+ * that matches the member's link; otherwise it would draw less, and every box
+ * below would pass by being nearly empty.
  */
 
 const household: ClaimResult = {
@@ -42,7 +42,18 @@ const household: ClaimResult = {
   ],
   events: [],
   rsvps: [],
-  accountLink: { enabled: true, signedIn: true, linkedGuestIds: ["g-max"] },
+  accountLink: {
+    enabled: true,
+    signedIn: true,
+    linkedGuestIds: ["g-max"],
+    account: {
+      displayName: "Maximiliana Featherstonehaugh-Worthington",
+      handle: "maximiliana_featherstonehaugh",
+      avatarUrl: null,
+      matchesMember: true,
+    },
+  },
+  member: { guestId: "g-max" },
 };
 
 afterEach(() => {
@@ -53,7 +64,7 @@ afterEach(() => {
 describe.each<LoginSectionLayout>(["band", "panel"])(
   "LoginSection (%s) — the account link at phone width",
   (layout) => {
-    it("keeps every member row inside the panel", async () => {
+    it("keeps the account and its controls inside the panel", async () => {
       await page.viewport(375, 900);
       vi.stubGlobal(
         "fetch",
@@ -66,18 +77,18 @@ describe.each<LoginSectionLayout>(["band", "panel"])(
           result={household}
           onClaimed={() => {}}
           onSignOut={() => {}}
+          onMemberChange={() => {}}
           layout={layout}
         />
       ));
 
-      // Vacuity guard: the rows and the linked state are actually drawn.
-      const heading = await view.findByText("Link your Pulse account", {}, { timeout: 3000 });
-      await view.findByText("Which guest are you?");
+      // Vacuity guard: the account, the linked state and the controls are drawn.
+      const heading = await view.findByText("Link your musubi account", {}, { timeout: 3000 });
       const link = heading.closest("section") as HTMLElement;
-      const rows = [...link.querySelectorAll("li")];
-      expect(rows).toHaveLength(2);
+      expect(link.textContent).toContain("@maximiliana_featherstonehaugh");
       expect(link.textContent).toContain("Linked");
       expect(link.textContent).toContain("Unlink");
+      expect(link.textContent).toContain("Not you?");
 
       // The frame the link must stay inside: the card in the panel layout, the
       // page-wide band otherwise.
@@ -90,20 +101,11 @@ describe.each<LoginSectionLayout>(["band", "panel"])(
       expect(linkBox.left).toBeGreaterThanOrEqual(frameBox.left);
       expect(linkBox.right).toBeLessThanOrEqual(frameBox.right);
 
-      for (const row of rows) {
-        const box = row.getBoundingClientRect();
-        expect(row.scrollWidth, "a member row overflows its own box").toBeLessThanOrEqual(
-          row.clientWidth,
-        );
-        expect(box.right, "a member row runs past the account link").toBeLessThanOrEqual(
-          linkBox.right,
-        );
-        for (const child of row.querySelectorAll<HTMLElement>("button, output, label")) {
-          expect(
-            child.getBoundingClientRect().right,
-            `"${child.textContent}" runs past its row`,
-          ).toBeLessThanOrEqual(box.right);
-        }
+      for (const child of link.querySelectorAll<HTMLElement>("button, output, span, p")) {
+        expect(
+          child.getBoundingClientRect().right,
+          `"${child.textContent}" runs past the account link`,
+        ).toBeLessThanOrEqual(linkBox.right + 0.5);
       }
 
       // And the page itself never scrolls sideways.

@@ -8,6 +8,9 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
+import { parseOrganiserSessionToken } from "../lib/cookie";
+import { getWaitUntil } from "../lib/execution-ctx";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import {
   metricDietaryPreset,
@@ -20,7 +23,8 @@ import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
-import { rsvpService } from "../services/rsvp";
+import { accountLinkService } from "../services/account-link";
+import { rsvpService, withoutSubmitter } from "../services/rsvp";
 import type { RsvpInput } from "../services/rsvp";
 import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
@@ -69,16 +73,25 @@ export interface RsvpRouteOptions {
    * unresolvable client IP is refused, as on every limited guest write.
    */
   limiter: RateLimiterBackend;
+  /**
+   * Decides whether the household member step is on for the household. On,
+   * a household of two or more choosable members must have chosen one, and
+   * each reply records who sent it. Absent ⇒ off.
+   */
+  accountLinking?: AccountLinking;
 }
 
-export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: RsvpRouteOptions) =>
+export const createRsvpRoutes = (
+  db: Db,
+  { turnstileVerifier = null, limiter, accountLinking }: RsvpRouteOptions,
+) =>
   new Elysia({ prefix: "/api/rsvp" })
     .use(rateLimitMiddleware(limiter))
     // Gate every method under /api/rsvp behind a valid session cookie.
     .use(sessionAuth(db))
     .post(
       "/",
-      async ({ request, familyId, set }) => {
+      async ({ request, familyId, memberGuestId, set }) => {
         // The sessionAuth plugin guarantees this is set; the assertion below
         // is a runtime safety net.
         if (!familyId) {
@@ -95,6 +108,16 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
           }
         }
 
+        // The same answer the claim payload gave (stale-ok, via `waitUntil`),
+        // so the page and this write agree whenever the payload's flag read
+        // finished in time. When it did not, the page met no "Who are you?"
+        // step; the 409 below brings it up (`member_required`). Started here
+        // so it overlaps the body read and the Turnstile check.
+        const memberStepRead =
+          accountLinking === undefined
+            ? Promise.resolve(false)
+            : isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
+
         const raw: unknown = await request.json().catch(() => null);
 
         // Turnstile bot gate (key-optional; no-op when unconfigured). The
@@ -105,6 +128,8 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
           set.status = tsErr.status;
           return { error: tsErr.error };
         }
+
+        const memberStep = await memberStepRead;
 
         return runCire(
           Effect.gen(function* () {
@@ -124,7 +149,24 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
             // reject path buys one fewer round-trip on every accept path. Both sides are already index-served: guests_family_id_sort_idx
             // covers the family/guest join's WHERE, and guest_events' primary key
             // (guest_id, event_id) covers the LEFT JOIN probe.
-            const [[family], familyGuestEvents] = yield* Effect.all(
+            // Whether this request also carries the musubi sign-in the
+            // chosen member is linked to. Needs nothing the reads below
+            // return, so it runs beside them.
+            // The member only ever names a non-plus-one of this household
+            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
+            // the write checks again below rather than trust that.
+            const submittedByGuestId = memberStep ? memberGuestId : null;
+            const matchRead =
+              submittedByGuestId === null
+                ? Effect.succeed(false)
+                : accountLinkService
+                    .memberMatch(
+                      submittedByGuestId,
+                      parseOrganiserSessionToken(request.headers.get("cookie")),
+                      accountLinking?.resolveAccountId,
+                    )
+                    .pipe(Effect.map((m) => m.result === "match"));
+            const [[family], familyGuestEvents, submittedViaLink] = yield* Effect.all(
               [
                 // The household's own row plus its wedding's RSVP deadline — one
                 // join rather than two round-trips, since both gates below run on
@@ -177,6 +219,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
                     .where(eq(guests.familyId, familyId))
                     .all(),
                 ),
+                matchRead,
               ],
               { concurrency: "unbounded" },
             );
@@ -219,6 +262,33 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
             // guestId in the joined rows, including rows whose eventId is null
             // (a guest with no invitations still belongs to the family).
             const familyGuestIds = new Set(familyGuestEvents.map((row) => row.guestId));
+
+            // A session member that is not one of this household's own
+            // members is never stamped.
+            if (
+              submittedByGuestId !== null &&
+              !familyGuestEvents.some(
+                (row) => row.guestId === submittedByGuestId && row.plusOneOf === null,
+              )
+            ) {
+              set.status = 409;
+              yield* Effect.sync(() => metricRsvpBlocked("member_required"));
+              return { error: "member_required" };
+            }
+
+            // With the member step on, a household of two or more must say who
+            // is answering before it answers: each reply records its sender.
+            // A one-member household is chosen for on claim and restore.
+            if (memberStep && memberGuestId === null) {
+              const choosable = new Set(
+                familyGuestEvents.filter((row) => row.plusOneOf === null).map((row) => row.guestId),
+              );
+              if (choosable.size >= 2) {
+                set.status = 409;
+                yield* Effect.sync(() => metricRsvpBlocked("member_required"));
+                return { error: "member_required" };
+              }
+            }
 
             // Validate every requested guestId is owned by the session's family.
             for (const rsvp of body.rsvps) {
@@ -314,6 +384,8 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
               // Who recorded it: the household for its plus-one, else the
               // guest's own reply.
               consentSource: plusOneNames.has(rsvp.guestId) ? "inviter_attested" : "guest",
+              submittedByGuestId,
+              submittedViaLink,
             }));
 
             // What the organisers' change feed and digest will see: each pair
@@ -336,6 +408,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
             const updatedRsvps = yield* rsvpService.submitRsvpsAndList(replies, familyId, {
               weddingId: family.weddingId,
               changes,
+              actorGuestId: submittedByGuestId,
             });
 
             yield* Effect.sync(() => {
@@ -358,7 +431,11 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null, limiter }: 
               }
             });
 
-            return { rsvps: updatedRsvps };
+            // "Answered by" rides the member step: off, the rows keep the
+            // shape they had before it.
+            return {
+              rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter),
+            };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>

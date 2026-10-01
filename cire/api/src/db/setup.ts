@@ -139,10 +139,13 @@ CREATE TABLE IF NOT EXISTS rsvps (
   dietary_consent_at INTEGER,
   dietary_consent_version TEXT,
   consent_source TEXT NOT NULL DEFAULT 'guest',
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  submitted_by_guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
+  submitted_via_link INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);
 CREATE INDEX IF NOT EXISTS rsvps_event_id_idx ON rsvps(event_id);
+CREATE INDEX IF NOT EXISTS rsvps_submitted_by_idx ON rsvps(submitted_by_guest_id) WHERE submitted_by_guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS rsvp_changes (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,7 +154,8 @@ CREATE TABLE IF NOT EXISTS rsvp_changes (
   guest_id TEXT NOT NULL,
   event_id TEXT,
   kind TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  actor_guest_id TEXT
 );
 CREATE INDEX IF NOT EXISTS rsvp_changes_wedding_idx ON rsvp_changes(wedding_id);
 CREATE INDEX IF NOT EXISTS rsvp_changes_created_at_idx ON rsvp_changes(created_at);
@@ -172,10 +176,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   token TEXT NOT NULL UNIQUE,
   expires_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  member_guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_family_idx ON sessions(family_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS sessions_member_idx ON sessions(member_guest_id) WHERE member_guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS organiser_sessions (
   id TEXT PRIMARY KEY,

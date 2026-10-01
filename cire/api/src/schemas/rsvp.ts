@@ -112,6 +112,16 @@ export const OrganiserRsvpBody = Schema.Struct({
 });
 export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;
 
+/**
+ * The household member whose session sent a reply, for "Answered by" on the
+ * invite. Sent only while the member step is on for the household.
+ */
+export const ReplySubmitter = Schema.Struct({
+  guestId: Schema.String,
+  firstName: Schema.String,
+});
+export type ReplySubmitter = Schema.Schema.Type<typeof ReplySubmitter>;
+
 export const RsvpRecord = Schema.Struct({
   guestId: Schema.String,
   eventId: Schema.String,
@@ -132,5 +142,7 @@ export const RsvpRecord = Schema.Struct({
   // "when this guest last recorded dietary data" off a credential the whole
   // household shares.
   dietaryConsentCurrent: Schema.Boolean,
+  // Who sent the reply ("Answered by"); only while the member step is on.
+  submittedBy: Schema.optional(Schema.NullOr(ReplySubmitter)),
 });
 export type RsvpRecord = Schema.Schema.Type<typeof RsvpRecord>;

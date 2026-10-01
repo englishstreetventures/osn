@@ -118,6 +118,13 @@ export interface RsvpSummary {
    * Optional on the wire; absent reads as not covered, so the box opens unticked.
    */
   dietaryConsentCurrent?: boolean;
+  /**
+   * The household member whose session sent this reply, for "Answered by".
+   * Present only while the member step is on; null when no member sent it (an
+   * organiser's reply, or one from before the step). Absent reads as unknown,
+   * so no line is drawn.
+   */
+  submittedBy?: { guestId: string; firstName: string } | null;
 }
 
 /**
@@ -149,6 +156,22 @@ export interface AccountLinkState {
   signedIn: boolean;
   /** The household's seats already linked to an OSN account. */
   linkedGuestIds: readonly string[];
+  /**
+   * This browser's musubi account, for the box to show before "Link". Sent
+   * only when signed in, a member is chosen, and that member is unlinked or
+   * linked to this same account.
+   */
+  account?: SignedInAccount;
+}
+
+/** The public profile fields of this browser's musubi sign-in. */
+export interface SignedInAccount {
+  displayName: string | null;
+  handle: string | null;
+  /** An `https:` URL, or null. */
+  avatarUrl: string | null;
+  /** True when the chosen member is linked to this account. */
+  matchesMember: boolean;
 }
 
 /** One entry of the invite's FAQ section. Mirrors `GuestFaqEntry` in cire/api:
@@ -214,4 +237,11 @@ export interface ClaimResult {
    * absent, off or malformed.
    */
   accountLink?: unknown;
+  /**
+   * Which household member this session says it is, exactly as it arrived.
+   * Present only while the member step is on for the household; `null` until
+   * chosen. Unproven, like `accountLink`: read it only through `readMember`,
+   * which answers "no member step" for anything absent or malformed.
+   */
+  member?: unknown;
 }

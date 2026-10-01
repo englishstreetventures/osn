@@ -125,6 +125,14 @@ describe("beginLogin", () => {
     expect(new URL(started.authorizeUrl).searchParams.get("prompt")).toBe("create");
   });
 
+  it("asks the issuer to show its account screen when told to", async () => {
+    const started = await beginLogin(issuer.config(), TEST_RETURN_TO, {
+      prompt: "select_account",
+    });
+    if (!started) throw new Error("beginLogin refused an allowed return_to");
+    expect(new URL(started.authorizeUrl).searchParams.get("prompt")).toBe("select_account");
+  });
+
   it("mints fresh state, nonce and verifier on every call", async () => {
     const a = await startLogin(issuer.config());
     const b = await startLogin(issuer.config());

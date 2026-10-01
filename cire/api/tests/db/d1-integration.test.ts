@@ -1467,6 +1467,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           "eventId",
           "guestId",
           "status",
+          "submittedBy",
         ].toSorted(),
       );
 
