@@ -325,9 +325,8 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(ContributeBody)(raw);
-            // The item check rides along with the household check inside the
-            // context read, rather than waiting on its answer: two point reads
-            // against the same wedding, one round trip.
+            // The household and item checks ride in the registry gate's own
+            // statement: one round trip before Stripe is asked anything.
             const context = yield* registryService.contributionContext({
               slug: params.slug,
               familyId,

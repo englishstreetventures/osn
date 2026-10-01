@@ -460,54 +460,63 @@ function writeGiftSummaries(
     // expiring — a popular list is thousands of claims — and every one of those
     // rows would otherwise cross the D1 wire to be added up. Grouped, the answer
     // is a handful of rows per wedding whatever the traffic was.
-    const claimRows = yield* dbQuery(() =>
-      db
-        .select({
-          weddingId: registryClaims.weddingId,
-          status: registryClaims.status,
-          // Clamped per row, inside the sum: a single negative quantity must not
-          // subtract from the gifts the couple really were given.
-          quantity: sql<number>`sum(max(${registryClaims.quantity}, 0))`,
-          // Epoch SECONDS, not Dates: a raw aggregate bypasses the timestamp
-          // mapping drizzle applies to a column selected whole. Grouped with the
-          // counts and filtered by the same WHERE, so the range can only ever
-          // describe the rows the counts describe.
-          firstAt: sql<number>`min(${registryClaims.createdAt})`,
-          lastAt: sql<number>`max(${registryClaims.createdAt})`,
-        })
-        .from(registryClaims)
-        // A released claim is a tombstone, not a gift — it is what the couple did
-        // NOT receive, and counting it would overstate the record.
-        .where(and(inArray(registryClaims.weddingId, ids), ne(registryClaims.status, "released")))
-        .groupBy(registryClaims.weddingId, registryClaims.status)
-        .all(),
-    );
-    const giftRows = yield* dbQuery(() =>
-      db
-        .select({
-          weddingId: registryContributions.weddingId,
-          currency: registryContributions.currency,
-          count: sql<number>`count(*)`,
-          amountMinor: sql<number>`sum(max(${registryContributions.amountMinor}, 0))`,
-          // Epoch SECONDS, same as the claims query above. Under the same
-          // `status = 'succeeded'` filter, so a charge that never settled moves
-          // neither the totals nor the dates.
-          firstAt: sql<number>`min(${registryContributions.createdAt})`,
-          lastAt: sql<number>`max(${registryContributions.createdAt})`,
-        })
-        .from(registryContributions)
-        .where(
-          and(
-            inArray(registryContributions.weddingId, ids),
-            // Only money that actually moved. A pending or failed row is not a gift.
-            eq(registryContributions.status, "succeeded"),
-          ),
-        )
-        .groupBy(registryContributions.weddingId, registryContributions.currency)
-        // Sorted here rather than in JS: the summary is a record somebody reads,
-        // and a stable currency order is part of it being one.
-        .orderBy(registryContributions.currency)
-        .all(),
+    //
+    // Both reads are keyed only on `ids`, so they run together.
+    const [claimRows, giftRows] = yield* Effect.all(
+      [
+        dbQuery(() =>
+          db
+            .select({
+              weddingId: registryClaims.weddingId,
+              status: registryClaims.status,
+              // Clamped per row, inside the sum: a single negative quantity must not
+              // subtract from the gifts the couple really were given.
+              quantity: sql<number>`sum(max(${registryClaims.quantity}, 0))`,
+              // Epoch SECONDS, not Dates: a raw aggregate bypasses the timestamp
+              // mapping drizzle applies to a column selected whole. Grouped with the
+              // counts and filtered by the same WHERE, so the range can only ever
+              // describe the rows the counts describe.
+              firstAt: sql<number>`min(${registryClaims.createdAt})`,
+              lastAt: sql<number>`max(${registryClaims.createdAt})`,
+            })
+            .from(registryClaims)
+            // A released claim is a tombstone, not a gift — it is what the couple did
+            // NOT receive, and counting it would overstate the record.
+            .where(
+              and(inArray(registryClaims.weddingId, ids), ne(registryClaims.status, "released")),
+            )
+            .groupBy(registryClaims.weddingId, registryClaims.status)
+            .all(),
+        ),
+        dbQuery(() =>
+          db
+            .select({
+              weddingId: registryContributions.weddingId,
+              currency: registryContributions.currency,
+              count: sql<number>`count(*)`,
+              amountMinor: sql<number>`sum(max(${registryContributions.amountMinor}, 0))`,
+              // Epoch SECONDS, same as the claims query above. Under the same
+              // `status = 'succeeded'` filter, so a charge that never settled moves
+              // neither the totals nor the dates.
+              firstAt: sql<number>`min(${registryContributions.createdAt})`,
+              lastAt: sql<number>`max(${registryContributions.createdAt})`,
+            })
+            .from(registryContributions)
+            .where(
+              and(
+                inArray(registryContributions.weddingId, ids),
+                // Only money that actually moved. A pending or failed row is not a gift.
+                eq(registryContributions.status, "succeeded"),
+              ),
+            )
+            .groupBy(registryContributions.weddingId, registryContributions.currency)
+            // Sorted here rather than in JS: the summary is a record somebody reads,
+            // and a stable currency order is part of it being one.
+            .orderBy(registryContributions.currency)
+            .all(),
+        ),
+      ],
+      { concurrency: "unbounded" },
     );
 
     const summaries = new Map<string, SummaryDraft>();
