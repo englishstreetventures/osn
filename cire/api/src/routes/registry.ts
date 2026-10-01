@@ -36,8 +36,8 @@ import {
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { linkPreviewService } from "../services/link-preview";
 import type { LinkPreviewOptions } from "../services/link-preview";
-import { createTransformBreaker, linkThumbnailService } from "../services/link-thumbnail";
-import type { TransformBreaker } from "../services/link-thumbnail";
+import { createTransformBreakers, linkThumbnailService } from "../services/link-thumbnail";
+import type { TransformBreakers } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
@@ -581,8 +581,8 @@ export interface RegistryLinkThumbDeps {
   readonly requireTransform: boolean;
   /** Test seam: injectable fetch + DNS resolver, shared with the preview. */
   readonly linkPreviewOptions?: LinkPreviewOptions;
-  /** Test seam: the transform breaker. Defaults to one per factory call. */
-  readonly transformBreaker?: TransformBreaker;
+  /** Test seam: the per-caller transform breakers. Defaults to one set per factory call. */
+  readonly transformBreakers?: TransformBreakers;
 }
 
 /**
@@ -622,8 +622,8 @@ export const createRegistryLinkThumbRoutes = (
   osnAuthOptions: OsnAuthOptions,
   deps: RegistryLinkThumbDeps,
 ) => {
-  // One per app, and the app is built once per isolate.
-  const breaker = deps.transformBreaker ?? createTransformBreaker();
+  // One set per app, and the app is built once per isolate.
+  const breakers = deps.transformBreakers ?? createTransformBreakers();
   return new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
@@ -633,8 +633,8 @@ export const createRegistryLinkThumbRoutes = (
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post(
           "/registry/link-preview/image",
-          async ({ weddingId, request, set }) => {
-            if (!weddingId) return internalSync(set);
+          async ({ weddingId, request, osnProfileId, set }) => {
+            if (!weddingId || !osnProfileId) return internalSync(set);
             const raw: unknown = await request.json().catch(() => null);
             const status = (code: number, error: string) =>
               Effect.sync(() => {
@@ -651,7 +651,7 @@ export const createRegistryLinkThumbRoutes = (
                   images: deps.images,
                   requireTransform: deps.requireTransform,
                   options: deps.linkPreviewOptions,
-                  breaker,
+                  breaker: breakers.forCaller(osnProfileId),
                 });
               }).pipe(
                 Effect.provideService(DbService, db),

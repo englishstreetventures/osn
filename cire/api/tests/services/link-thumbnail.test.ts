@@ -13,7 +13,11 @@ import type {
   OutputFormat,
 } from "../../src/services/invite-image-transform";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
-import { createTransformBreaker, linkThumbnailService } from "../../src/services/link-thumbnail";
+import {
+  createTransformBreaker,
+  createTransformBreakers,
+  linkThumbnailService,
+} from "../../src/services/link-thumbnail";
 import type { LinkThumbnailArgs } from "../../src/services/link-thumbnail";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -481,7 +485,8 @@ describe("linkThumbnailService.thumbnail with a transform breaker", () => {
     expect(failTag(exit)).toBe("LinkThumbTransformPaused");
     expect(options.fetched).toEqual([]);
     expect(images.calls).toEqual([]);
-    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 3 }]);
+    // The three failures were the binding's own, so each charge was given back.
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 0 }]);
     expect(await counterValue(CIRE_METRICS.registryLinkThumb, { result: "transform_paused" })).toBe(
       before + 1,
     );
@@ -541,5 +546,87 @@ describe("linkThumbnailService.thumbnail with a transform breaker", () => {
     breaker.failed();
     const exit = await run({ options: png(), breaker });
     expect(Exit.isSuccess(exit)).toBe(true);
+  });
+});
+
+describe("the breaker's trial, through the service", () => {
+  const tripped = async () => {
+    const c = clock();
+    const breaker = createTransformBreaker({ now: c.now });
+    breaker.failed();
+    breaker.failed();
+    breaker.failed();
+    c.advance(60_000);
+    return breaker;
+  };
+
+  it("a trial whose transform fails pauses again", async () => {
+    const breaker = await tripped();
+    const exit = await run({ options: png(), images: imagesStub({ fail: true }), breaker });
+    expect(failTag(exit)).toBe("LinkThumbTransformFailed");
+    expect(breaker.admit()).toBe("paused");
+  });
+
+  it("a trial whose transform succeeds reopens the route", async () => {
+    const breaker = await tripped();
+    const exit = await run({ options: png(), images: imagesStub(), breaker });
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(breaker.admit()).toBe("go");
+  });
+
+  it("a trial whose input the binding refuses hands the trial on", async () => {
+    const breaker = await tripped();
+    const images = imagesStub({ failWith: () => imagesError(9412) });
+    expect(failTag(await run({ options: png(), images, breaker }))).toBe(
+      "LinkThumbTransformFailed",
+    );
+    expect(breaker.admit()).toBe("trial");
+  });
+
+  it("a trial refused by the monthly budget hands the trial on", async () => {
+    const breaker = await tripped();
+    const exit = await run({ options: png(), images: imagesStub(), breaker, monthlyTransforms: 0 });
+    expect(failTag(exit)).toBe("LinkThumbBudgetSpent");
+    expect(breaker.admit()).toBe("trial");
+  });
+});
+
+describe("the monthly budget on a failed transform", () => {
+  it("gives the transform back when the binding fails on its own", async () => {
+    const db = createDb();
+    await run({ options: png(), images: imagesStub({ fail: true }) }, db);
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 0 }]);
+  });
+
+  it("keeps the charge when the binding refuses the input", async () => {
+    const db = createDb();
+    await run({ options: png(), images: imagesStub({ failWith: () => imagesError(9412) }) }, db);
+    expect(db.select().from(linkThumbTransforms).all()).toEqual([{ period: thisMonth(), used: 1 }]);
+  });
+});
+
+describe("createTransformBreakers", () => {
+  it("keeps one breaker per caller", () => {
+    const breakers = createTransformBreakers({ now: clock().now });
+    const a = breakers.forCaller("usr_a");
+    a.failed();
+    a.failed();
+    a.failed();
+    expect(breakers.forCaller("usr_a").admit()).toBe("paused");
+    expect(breakers.forCaller("usr_b").admit()).toBe("go");
+  });
+
+  it("forgets the least recently used caller past the cap", () => {
+    const breakers = createTransformBreakers({ now: clock().now, maxCallers: 2 });
+    for (const key of ["usr_a", "usr_b"]) {
+      const b = breakers.forCaller(key);
+      b.failed();
+      b.failed();
+      b.failed();
+    }
+    breakers.forCaller("usr_a");
+    breakers.forCaller("usr_c");
+    expect(breakers.forCaller("usr_a").admit()).toBe("paused");
+    expect(breakers.forCaller("usr_b").admit()).toBe("go");
   });
 });

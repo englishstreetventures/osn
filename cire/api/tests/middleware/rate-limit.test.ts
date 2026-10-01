@@ -88,7 +88,6 @@ describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
   it("never lets the request through on any other throw", async () => {
     const app = appWith(() => Promise.reject(new Error("boom")));
     const res = await appRequest(app, "/test", { method: "POST" });
-    expect(res.status).not.toBe(200);
-    expect(res.status).not.toBe(503);
+    expect(res.status).toBe(500);
   });
 });

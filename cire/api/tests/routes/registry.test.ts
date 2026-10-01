@@ -1335,6 +1335,9 @@ describe("POST /registry/link-preview/image", () => {
     expect(res.status).toBe(502);
     expect(await jsonBody(res)).toEqual({ error: "thumbnail_failed" });
     expect(fetched).toHaveLength(3);
+    // The pause is the caller's own: another editor of the wedding still fetches.
+    await thumb(app, OWNER, { url: CANDIDATE });
+    expect(fetched).toHaveLength(4);
   });
 
   it("503s in a deployed tier with no Images binding rather than serve the raw bytes", async () => {
