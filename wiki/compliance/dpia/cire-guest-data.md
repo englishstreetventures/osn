@@ -95,26 +95,25 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   proportionate (dietary needs vary widely) but carries the risk that
   guests volunteer more than needed (e.g. naming a medical condition). The
   form copy should ask only for dietary requirements, not reasons.
-- **Who can widen the recipient set (2026-08-01).** Adding a co-host moved from
-  owner-only to `weddingEditor()`, so an `editor` can seat another OSN account —
-  and every seat, at any role, reads this field plus the household claim codes.
-  Assessed as acceptable: an editor can grant at most `editor` (no seat they
-  create outranks them; only an owner can make an owner), removal and demotion
-  stay owner-only, seats are capped
-  per wedding below the list's read ceiling so the owner's view can never
-  silently truncate, and each row records who created it. **Residual:** a new
-  seat is live immediately with no notification to the owner, so "the owner can
-  always revoke it" depends on them noticing. Tracked as `S-M2` in
-  `englishstventures/osn-tracker`; the mitigation is an owner notification on a
-  seat created by someone else.
-- **Several owners (2026-10-01).** A wedding can have up to four owners, all
+- **Who can widen the recipient set (2026-10-01).** Only an owner can seat
+  another OSN account (`weddingOwner()` on `POST /hosts`), and every seat but a
+  `helper` reads this field plus the household claim codes on screen; the CSV
+  exports that carry them are owner-only. Assessed as acceptable: removal and
+  demotion are owner-only too, seats are capped per wedding, owners counted,
+  below the list's read ceiling so no owner's view can silently truncate, and
+  each row records which owner created it. **Residual:** a new seat is live
+  immediately with no notification to the other owners, so "any owner can
+  revoke it" depends on them noticing. Tracked in the private findings
+  tracker; the mitigation is a notification to the other owners when one of
+  them seats someone.
+- **Several owners (2026-10-01).** A wedding can have several owners, all
   equal, so an owner can seat another person with every owner power — the
   guest list and its dietary field, the claim codes, billing, the registry's
   payout account, and the power to remove every other seat, its creator's
   included. Assessed as acceptable: both partners owning their wedding is the
   intended model, only an owner can make an owner (an editor asking is refused
-  with 403), the portal asks before granting it, owners are capped at four, and
-  a wedding never loses its last owner. Mail about the wedding's data — the
+  with 403), the portal asks before granting it, owners count towards the
+  per-wedding seat cap, and a wedding never loses its last owner. Mail about the wedding's data — the
   RSVP digest and the retention sweep's parting gift summary — goes to every
   owner. See [[cire-auth]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a

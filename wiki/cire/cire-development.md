@@ -75,11 +75,11 @@ Elysia plugins in `cire/api/src/middleware/`, all scoped `derive` + `onBeforeHan
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
 | `osn-auth.ts` | `osnAuth` — organiser JWT, via the shared Elysia adapter |
-| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, removing or demoting any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
-| `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, adding a co-host |
+| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
+| `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, marking a household's code sent |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
 | `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
-| `wedding-role.ts` | not a gate — the policy every role gate asks, and `assignableRolesFor()`, which roles a caller may grant. Exhaustive over the role enum, so a new role fails `check` until decided |
+| `wedding-role.ts` | not a gate — the policy every role gate asks. Exhaustive over the role enum, so a new role fails `check` until decided |
 | `rate-limit.ts`, `turnstile.ts` | abuse gates |
 
 Pick the gate from the roles matrix in [[cire-auth]], not by guessing from the
