@@ -503,6 +503,11 @@ describe("PUT …/rsvps/:eventId — a plus-one's reply", () => {
     expect(((await renamed.json()) as { error: string }).error).toBe("plus_one_changed");
     expect(stored()).toBeUndefined();
 
+    // No name at all ties the tick to nobody.
+    const unnamed = await put(app, path, OWNER, body);
+    expect(unnamed.status).toBe(409);
+    expect(stored()).toBeUndefined();
+
     const res = await put(app, path, OWNER, { ...body, dietaryAttestedName: "Sam Lee" });
     expect(res.status).toBe(200);
     expect(stored()).toEqual({

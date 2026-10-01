@@ -600,6 +600,35 @@ describe("RsvpView", () => {
     expect(JSON.parse(putCall[1]?.body as string)).toEqual({ status: "declined" });
   });
 
+  it("editor treats an answer edited and put back as unedited", async () => {
+    restoreViewport = mockViewport(false);
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(json({ rsvp: { status: "maybe", consentSource: "guest" } }))
+      .mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit reply for Ada Sharma" }));
+    await screen.findByLabelText(/Status/i);
+
+    const dairy = screen.getByRole("checkbox", { name: "Dairy" });
+    fireEvent.click(dairy);
+    expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
+    fireEvent.click(dairy);
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+    // Only whitespace added to the free text is no edit either.
+    fireEvent.input(screen.getByLabelText(/Anything else/i), { target: { value: "  " } });
+    expect(screen.queryByLabelText(/I confirm the guest consented/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "maybe" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(authFetchMock.mock.calls[1]![1]?.body as string)).toEqual({
+      status: "maybe",
+    });
+  });
+
   it("editor asks for a fresh, unticked attestation once an existing answer is edited", async () => {
     restoreViewport = mockViewport(false);
     authFetchMock
@@ -1054,22 +1083,30 @@ describe("RsvpView — plus-ones", () => {
     });
   });
 
-  it("asks for a reload when the plus-one was renamed since the form opened", async () => {
-    authFetchMock
-      .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
-      .mockResolvedValueOnce(json({ error: "plus_one_changed" }, 409));
-    render(() => <RsvpView weddingId="wed_a" canEdit />);
-    await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+  it.each([
+    ["plus_one_changed", 409],
+    ["plus_one_dietary_unavailable", 422],
+    ["dietary_attestation_mismatch", 422],
+    ["dietary_attestation_outdated", 422],
+  ] as const)(
+    "asks for a reload when the API refuses the plus-one's attestation with %s",
+    async (error, status) => {
+      authFetchMock
+        .mockResolvedValueOnce(json(PLUS_ONE_VIEW))
+        .mockResolvedValueOnce(json({ error }, status));
+      render(() => <RsvpView weddingId="wed_a" canEdit />);
+      await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
-    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
-      target: { value: "No shellfish" },
-    });
-    fireEvent.click(screen.getByLabelText(ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.text));
-    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
+      fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+        target: { value: "No shellfish" },
+      });
+      fireEvent.click(screen.getByLabelText(ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.text));
+      fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
-    expect(await screen.findByText(/This page is out of date/i)).toBeTruthy();
-  });
+      expect(await screen.findByText(/This page is out of date/i)).toBeTruthy();
+    },
+  );
 
   for (const [what, presets, text, named] of [
     ["picked from the list", ["vegetarian"], "", "Vegetarian"],
