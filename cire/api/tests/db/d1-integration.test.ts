@@ -1205,7 +1205,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           .run(),
       ).rejects.toThrow();
 
-      // The same holds for an org's pending claim (migration 0073).
+      // The same holds for an org's pending claim (migration 0074).
       await db
         .insert(directoryVendors)
         .values({ id: "dv_pending", reviewOrgId: "org_pending", name: "Pending", ...base });
