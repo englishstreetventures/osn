@@ -14,6 +14,14 @@
  * Either way the row records `tier_source = 'comp'` and
  * `tier_granted_by = 'script:<operator>'`.
  *
+ * `--lower` also marks the wedding's paid purchases of anything above the new
+ * tier `refunded`, FIRST, in the same printed SQL. Stripe redelivers a
+ * completed session after a failed delivery, and an operator can resend one
+ * from the dashboard; the webhook grants nothing for a `refunded` purchase, so
+ * the refund holds against its own payment arriving again. Marking before
+ * lowering means a delivery landing between the two statements finds the
+ * purchase already refunded. Apply all of it in one `--command`.
+ *
  * Production: from `cire/api`, apply the printed SQL with `wrangler d1 execute
  * cire-db --env production --remote --command "<sql>"`, naming the env as every
  * production D1 command in the deploy runbook does. It is a prod D1 write,
@@ -21,6 +29,7 @@
  */
 import { isTier, tiersBelow } from "../src/services/tiers";
 import type { Tier } from "../src/services/tiers";
+import { productsAbove } from "../src/services/upgrades";
 
 const WEDDING_ID_RE = /^wed_[A-Za-z0-9_]+$/;
 const OPERATOR_RE = /^[A-Za-z0-9_]+$/;
@@ -53,12 +62,25 @@ export function buildTierChange(
   return { weddingId, tier, grantedBy: `script:${operator}`, lower };
 }
 
-/** The statement for a tier change, ready for `wrangler d1 execute`. */
+/**
+ * The SQL for a tier change, ready for `wrangler d1 execute`: one statement to
+ * raise, and with `--lower` the refund marking before the lowering, one
+ * statement per line. Products are constants from `productsAbove`.
+ */
 export function tierChangeToSql(change: TierChange): string {
   const set =
     `UPDATE weddings SET tier = '${change.tier}', tier_source = 'comp', ` +
     `tier_granted_by = '${change.grantedBy}' WHERE id = '${change.weddingId}'`;
-  if (change.lower) return `${set};`;
+  if (change.lower) {
+    const refunded = productsAbove(change.tier);
+    if (refunded.length === 0) return `${set};`;
+    const products = refunded.map((p) => `'${p}'`).join(", ");
+    const refund =
+      `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at = unixepoch() ` +
+      `WHERE wedding_id = '${change.weddingId}' AND status = 'succeeded' ` +
+      `AND entitlement IN (${products});`;
+    return `${refund}\n${set};`;
+  }
   const below = tiersBelow(change.tier)
     .map((t) => `'${t}'`)
     .join(", ");

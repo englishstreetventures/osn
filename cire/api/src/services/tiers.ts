@@ -180,12 +180,25 @@ export interface TierGrant {
  * purchase, or an operator's mistake — keeps Crimson and its attribution, and
  * a replayed grant changes nothing. Lowering a tier is a deliberate operator
  * decision, made with `scripts/grant-tier.ts --lower`.
+ *
+ * `heldAtLeast` also requires the wedding to hold that tier now: a purchase
+ * priced as an upgrade from Gold raises only a wedding still on Gold, checked
+ * in the same statement that raises it.
  */
-function tierGrantStatement(db: Db, weddingId: string, tier: PaidTier, grant: TierGrant) {
+function tierGrantStatement(
+  db: Db,
+  weddingId: string,
+  tier: PaidTier,
+  grant: TierGrant,
+  heldAtLeast?: Tier,
+) {
+  const from = tiersBelow(tier).filter(
+    (held) => heldAtLeast === undefined || tierAtLeast(held, heldAtLeast),
+  );
   return db
     .update(weddings)
     .set({ tier, tierSource: grant.source, tierGrantedBy: grant.grantedBy })
-    .where(and(eq(weddings.id, weddingId), inArray(weddings.tier, tiersBelow(tier))));
+    .where(and(eq(weddings.id, weddingId), inArray(weddings.tier, from)));
 }
 
 /**

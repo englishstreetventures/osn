@@ -406,9 +406,11 @@ type UpgradeCheckoutStartedAttrs = {
  *  `defect` is a paid purchase whose product maps to no tier: the delivery is
  *  answered 500 so Stripe retries it, and every count is a customer who paid
  *  and holds nothing until someone looks. `mismatch` is a payment whose amount
- *  or currency is not the Price the purchase opened at: acknowledged, nothing
- *  granted, and every count is money a person has to refund or apply by
- *  hand. */
+ *  or currency is not the Price the purchase opened at, or one priced from a
+ *  tier the wedding no longer holds: acknowledged, nothing granted, and every
+ *  count is money a person has to refund or apply by hand. `refunded` is a
+ *  redelivery for a purchase an operator has taken back, which grants
+ *  nothing. */
 export type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
@@ -417,7 +419,8 @@ export type UpgradeSettleOutcome =
   | "expired"
   | "unknown"
   | "defect"
-  | "mismatch";
+  | "mismatch"
+  | "refunded";
 type UpgradePurchaseSettledAttrs = {
   tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;

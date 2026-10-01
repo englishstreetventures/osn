@@ -1509,11 +1509,14 @@ export const weddingUpgradePurchases = sqliteTable(
     // a Crimson bought outright from one bought as an upgrade from Gold. NULL on
     // every row written before 0071.
     fromTier: text("from_tier", { enum: ["ivory", "gold"] }),
+    // `refunded` is a paid purchase an operator has since taken back with
+    // `grant-tier.ts --lower`: a redelivered payment for it grants nothing.
     // `mismatch` is a payment whose amount or currency is not what this
-    // purchase sold: the money arrived and nothing was granted, so a person
-    // has to refund it or apply it by hand.
+    // purchase sold, or one priced from a tier the wedding no longer holds:
+    // the money arrived and nothing was granted, so a person has to refund it
+    // or apply it by hand.
     status: text("status", {
-      enum: ["pending", "succeeded", "failed", "expired", "mismatch"],
+      enum: ["pending", "succeeded", "failed", "expired", "refunded", "mismatch"],
     })
       .notNull()
       .default("pending"),

@@ -24,7 +24,7 @@ import { Data, Effect } from "effect";
 import { commitGroupedBatchesReturning, type Db, DbService, dbQuery } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
 import type { StripeClient } from "./stripe";
-import { normaliseTier, type PaidTier, tierAtLeast, tierService } from "./tiers";
+import { normaliseTier, type PaidTier, type Tier, tierAtLeast, tierService } from "./tiers";
 import type { UpgradeCatalogue } from "./upgrade-catalogue";
 
 /** A purchase attempt that cannot proceed, and why. */
@@ -102,6 +102,21 @@ export function tierForProduct(product: string): PaidTier | null {
   }
 }
 
+/** Every product {@link tierForProduct} maps to a tier. */
+const TIER_PRODUCTS = ["gold", "registry", "capacity_500", "crimson", "vendors", "capacity_1000"];
+
+/**
+ * The products whose purchase granted a tier ranked above `tier` — what a
+ * wedding lowered to `tier` no longer holds. Lowering a wedding marks its paid
+ * purchases of these `refunded`.
+ */
+export function productsAbove(tier: Tier): string[] {
+  return TIER_PRODUCTS.filter((product) => {
+    const granted = tierForProduct(product);
+    return granted !== null && !tierAtLeast(tier, granted);
+  });
+}
+
 /**
  * How long a purchase row may sit with no Stripe session before another request
  * is allowed to close it.
@@ -150,7 +165,7 @@ export interface SettleInput {
 }
 
 /** What a settle attempt concluded. Mirrors the metric's bounded outcome set. */
-export type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch";
+export type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch" | "refunded";
 
 export interface UpgradeServiceDeps {
   stripe: StripeClient;
@@ -499,6 +514,16 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
      * nothing granted, and acknowledged, since a retry cannot change what was
      * paid. A row's own session that paid the wrong amount marks the row
      * `mismatch` with what arrived, so the money is findable.
+     *
+     * Two states on the row stop a grant that the invariant above would
+     * otherwise replay. A `refunded` purchase — one an operator took back with
+     * `grant-tier.ts --lower` — grants nothing however often its payment is
+     * redelivered. And a purchase priced as an upgrade from a tier
+     * (`from_tier`) grants only while the wedding still holds that tier: a
+     * from-Gold Crimson paid after the wedding was lowered to Ivory is a
+     * `mismatch`. A paying customer's replay is untouched by either: after a
+     * grant the wedding ranks at or above `from_tier`, and nothing but an
+     * operator writes `refunded`.
      */
     settlePurchase(input: SettleInput): Effect.Effect<SettleOutcome, never, DbService> {
       return Effect.gen(function* () {
@@ -513,8 +538,13 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               sessionId: weddingUpgradePurchases.checkoutSessionId,
               priceAmountMinor: weddingUpgradePurchases.priceAmountMinor,
               priceCurrency: weddingUpgradePurchases.priceCurrency,
+              fromTier: weddingUpgradePurchases.fromTier,
+              // The tier the wedding holds now, in the same read, for the
+              // from-tier rule below.
+              weddingTier: weddings.tier,
             })
             .from(weddingUpgradePurchases)
+            .leftJoin(weddings, eq(weddings.id, weddingUpgradePurchases.weddingId))
             .where(eq(weddingUpgradePurchases.id, input.purchaseId))
             .all(),
         );
@@ -556,6 +586,14 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         }
 
         const tier = tierForProduct(row.product);
+
+        if (row.status === "refunded") {
+          metricUpgradePurchaseSettled(tier ?? "unmapped", "refunded");
+          yield* Effect.logWarning("upgrade settle for a refunded purchase", {
+            purchaseId: row.id,
+          });
+          return "refunded";
+        }
 
         if (!input.paid) {
           // Card-only sessions cannot complete unpaid, so this should never
@@ -599,6 +637,24 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           return "mismatch";
         }
 
+        // Priced as an upgrade from a tier the wedding no longer holds: the
+        // payment bought this tier for a wedding on `from_tier`, which this
+        // one has since been lowered from. The grant statement below carries
+        // the same condition, so the rule holds even against a lowering that
+        // lands between this read and the batch.
+        const weddingTier = normaliseTier(row.weddingTier);
+        if (row.fromTier !== null && !tierAtLeast(weddingTier, row.fromTier)) {
+          metricUpgradePurchaseSettled(tier, "mismatch");
+          yield* Effect.logError("upgrade settle from a tier the wedding no longer holds", {
+            purchaseId: row.id,
+            checkoutSessionId: input.checkoutSessionId,
+            fromTier: row.fromTier,
+            weddingTier,
+          });
+          if (!adopting) yield* recordMismatch(db, row.id, input);
+          return "mismatch";
+        }
+
         // ONE ROUND TRIP for all three writes. D1 runs a batch atomically and
         // in statement order, so "grant, then sales, then flip" survives as
         // ordering INSIDE the batch — and a crash can no longer land between
@@ -613,12 +669,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               // a lower tier than the wedding has since reached — changes
               // nothing.
               [
-                tierService.tierGrantStatement(db, row.weddingId, tier, {
-                  source: "purchase",
-                  // A webhook has no actor of its own. The purchase names the
-                  // buyer, so the grant names the purchase.
-                  grantedBy: `stripe:${row.id}`,
-                }),
+                tierService.tierGrantStatement(
+                  db,
+                  row.weddingId,
+                  tier,
+                  {
+                    source: "purchase",
+                    // A webhook has no actor of its own. The purchase names the
+                    // buyer, so the grant names the purchase.
+                    grantedBy: `stripe:${row.id}`,
+                  },
+                  row.fromTier ?? undefined,
+                ),
               ],
               // Keyed on the purchase, so a redelivery writes one row.
               [

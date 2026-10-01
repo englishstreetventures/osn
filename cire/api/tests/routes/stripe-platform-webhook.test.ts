@@ -266,6 +266,28 @@ describe("what must never grant", () => {
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
   });
 
+  it("answers 200 and grants nothing for a purchase an operator refunded", async () => {
+    // A resend from the Stripe dashboard, or a retry after a 500, of a payment
+    // that was later refunded and the wedding lowered.
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    await deliver(app, completed());
+    db.$client.exec(
+      "UPDATE wedding_upgrade_purchases SET status = 'refunded' WHERE id = 'upg_1';" +
+        " UPDATE weddings SET tier = 'ivory', tier_source = 'comp', tier_granted_by = 'script:ops'" +
+        ` WHERE id = '${BOOTSTRAP_WEDDING_ID}';`,
+    );
+
+    const res = await deliver(app, completed());
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "refunded" });
+    expect(tierOf(db)).toEqual({
+      tier: "ivory",
+      tier_source: "comp",
+      tier_granted_by: "script:ops",
+    });
+  });
+
   it("grants nothing on an unsigned delivery", async () => {
     const { app, db } = buildApp();
     seedPurchase(db);
