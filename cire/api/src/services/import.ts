@@ -29,9 +29,10 @@ import type {
   GuestRemove,
   GuestUpdate,
   ImportPlan,
+  DesiredFamily,
   ImportSummary,
   ParsedEvent,
-  ParsedFamily,
+  Provenance,
 } from "../schemas/import";
 import {
   entitlementService,
@@ -198,11 +199,18 @@ export interface DiffOptions {
    * event removal is decided against it.
    */
   readonly existingEvents?: readonly { readonly id: string; readonly name: string }[];
+  /**
+   * The `source` every household and guest this plan creates is stamped with,
+   * overriding any the desired row carries. The editor front door passes
+   * `'manual'`. Omitted, a create takes the desired row's own `source` (only
+   * a before-image carries one) and otherwise `'import'`.
+   */
+  readonly createSource?: Provenance;
 }
 
 export function diffAgainstDb(
   parsedEvents: readonly ParsedEvent[],
-  parsedFamilies: readonly ParsedFamily[],
+  parsedFamilies: readonly DesiredFamily[],
   weddingId: string,
   options: DiffOptions = {},
 ): Effect.Effect<ImportPlan, StaleDesiredState, DbService> {
@@ -397,6 +405,7 @@ export function diffAgainstDb(
           // carries one; else mint per the wedding's code style (unchanged).
           publicId: parsed.publicId ?? generateFamilyCode(parsed.familyName, codeStyle),
           familyName: parsed.familyName,
+          source: options.createSource ?? parsed.source ?? "import",
         });
         familyIdByParsedIndex[i] = id;
       }
@@ -606,6 +615,7 @@ export function diffAgainstDb(
             lastName: parsedGuest.lastName,
             nickname: parsedGuest.nickname,
             sortOrder,
+            source: options.createSource ?? parsedGuest.source ?? "import",
           });
           resolvedIds[sortOrder] = id;
         }
@@ -1117,6 +1127,7 @@ export function applyImport(
           weddingId,
           publicId: fc.publicId,
           familyName: fc.familyName,
+          source: fc.source ?? "import",
           createdAt: now,
           updatedAt: now,
         }),
@@ -1155,6 +1166,7 @@ export function applyImport(
           lastName: gc.lastName,
           nickname: gc.nickname,
           sortOrder: gc.sortOrder,
+          source: gc.source ?? "import",
           createdAt: now,
           updatedAt: now,
         }),
