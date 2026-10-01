@@ -20,6 +20,7 @@ import {
   createEnquiryService,
   EnquiryAwaitingVendor,
   type EnquiryRow,
+  flushBufferedEnquiries,
   ZapUnavailable,
 } from "../../src/services/enquiries";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
@@ -275,7 +276,7 @@ describe("enquiryService.open", () => {
     const res = await run(db, svc.open(openInput({ directoryVendorId: CLAIMED_VENDOR_ID })));
 
     // Fails ZapUnavailable — the message must not strand (a claimed listing gets
-    // no future onVendorClaimed flush), so the route surfaces 503 to retry.
+    // no future buffered-enquiry flush), so the route surfaces 503 to retry.
     expect(Exit.isFailure(res)).toBe(true);
     if (Exit.isFailure(res)) {
       expect(
@@ -562,7 +563,7 @@ describe("enquiryService.addToBudget", () => {
   });
 });
 
-describe("enquiryService.onVendorClaimed", () => {
+describe("flushBufferedEnquiries", () => {
   it("provisions + flushes each buffered enquiry, nulling pendingBody", async () => {
     const db = db0();
     const zap = fakeZap();
@@ -581,7 +582,7 @@ describe("enquiryService.onVendorClaimed", () => {
 
     const res = await run(
       db,
-      svc.onVendorClaimed({
+      flushBufferedEnquiries(zap.client, {
         directoryVendorId: UNCLAIMED_VENDOR_ID,
         vendorProfileId: VENDOR_PROFILE_ID,
       }),
@@ -671,7 +672,7 @@ describe("enquiryService.onVendorClaimed", () => {
 
     const res = await run(
       db,
-      svc.onVendorClaimed({
+      flushBufferedEnquiries(zap.client, {
         directoryVendorId: UNCLAIMED_VENDOR_ID,
         vendorProfileId: VENDOR_PROFILE_ID,
       }),
@@ -706,7 +707,7 @@ describe("enquiryService.onVendorClaimed", () => {
 
     const res = await run(
       db,
-      svc.onVendorClaimed({
+      flushBufferedEnquiries(null, {
         directoryVendorId: UNCLAIMED_VENDOR_ID,
         vendorProfileId: VENDOR_PROFILE_ID,
       }),

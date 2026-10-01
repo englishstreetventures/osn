@@ -1,7 +1,14 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
+import { directoryVendors } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
+import { Effect } from "effect";
+
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { createDirectoryService } from "../../src/services/directory";
 import type { ListingDto } from "../../src/services/directory";
 import type {
   OsnOrgMembershipResolver,
@@ -72,6 +79,50 @@ function buildApp() {
     orgMembership: stubOrgMembership,
     profileOrgs: stubProfileOrgs,
   });
+}
+
+/** Its own limiter, so a multi-request flow neither trips nor drains the shared default. */
+function buildAppWithDb() {
+  const db = createDb(":memory:");
+  seedDb(db);
+  const app = createApp(db, {
+    osnTestKey: auth.key,
+    orgMembership: stubOrgMembership,
+    profileOrgs: stubProfileOrgs,
+    vendorPortalLimiter: createRateLimiter({ maxRequests: 100, windowMs: 60_000 }),
+  });
+  return { app, db };
+}
+
+/** An unclaimed listing with a live claim token, minted the way an enquiry mints one. */
+async function seedClaimable(db: ReturnType<typeof createDb>) {
+  const now = new Date();
+  const id = `dv_${crypto.randomUUID()}`;
+  db.insert(directoryVendors)
+    .values({
+      id,
+      ownerOrgId: null,
+      name: "Claimable",
+      listed: "draft",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const claim = await Effect.runPromise(
+    createDirectoryService()
+      .issueClaimForListing({
+        id,
+        ownerOrgId: null,
+        reviewOrgId: null,
+        email: "owner@claimable.test",
+        name: "Claimable",
+        phone: null,
+        claimedByProfileId: null,
+        leadForwardEmail: null,
+      })
+      .pipe(Effect.provideService(DbService, db)),
+  );
+  return { id, token: claim!.claimToken };
 }
 
 type App = ReturnType<typeof buildApp>;
@@ -299,6 +350,34 @@ describe("vendor portal routes", () => {
       expect(res.status).toBe(410);
       const body = (await res.json()) as { error: string };
       expect(body.error).toBe("claim_invalid");
+    });
+
+    it("200 holds the claim: the listing comes back awaiting confirmation, not live", async () => {
+      const { app, db } = buildAppWithDb();
+      const { id, token } = await seedClaimable(db);
+      const res = await req(app, "POST", `/api/vendor/claims/${token}/consume`, MEMBER, {
+        orgId: ORG_OK,
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { listing: ListingDto };
+      expect(body.listing.id).toBe(id);
+      expect(body.listing.awaitingConfirmation).toBe(true);
+      expect(body.listing.listed).toBe("draft");
+      expect(body.listing.ownerOrgId).toBeNull();
+
+      // The portal reads it back as awaiting confirmation…
+      const read = await req(app, "GET", `/api/vendor/orgs/${ORG_OK}/listing`, MEMBER);
+      expect(((await read.json()) as { listing: ListingDto }).listing.awaitingConfirmation).toBe(
+        true,
+      );
+
+      // …and a save, which would put it live, is refused.
+      const put = await req(app, "PUT", `/api/vendor/orgs/${ORG_OK}/listing`, MEMBER, LISTING_BODY);
+      expect(put.status).toBe(409);
+      expect((await put.json()) as unknown).toEqual({ error: "listing_awaiting_confirmation" });
+      expect(
+        db.select().from(directoryVendors).where(eq(directoryVendors.id, id)).get()!.listed,
+      ).toBe("draft");
     });
 
     it("403 not_org_member for a stranger claiming into org_ok", async () => {
