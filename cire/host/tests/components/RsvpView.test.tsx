@@ -840,15 +840,10 @@ describe("RsvpView", () => {
   });
 
   it("badges a host's update from the loaded view, and only there", async () => {
+    // Dev's reply (the third) is the one a host last changed.
+    const [ada, bo, dev] = VIEW.events[0]!.guests;
     const view = {
-      events: [
-        {
-          ...VIEW.events[0]!,
-          guests: VIEW.events[0]!.guests.map((guest) =>
-            guest.guestId === "g4" ? { ...guest, statusRecordedByHost: true } : guest,
-          ),
-        },
-      ],
+      events: [{ ...VIEW.events[0]!, guests: [ada, bo, { ...dev!, statusRecordedByHost: true }] }],
     };
     authFetchMock.mockResolvedValueOnce(json(view));
     render(() => <RsvpView weddingId="wed_a" />);
