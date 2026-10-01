@@ -35,7 +35,7 @@ import {
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
   type DietaryPreset,
 } from "@cire/dietary";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -129,16 +129,25 @@ export const organiserRsvpService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // (1) Guest ∈ this wedding's guest families. The join to `families`
-      // scopes the lookup to `weddingId` AND excludes host-preview families, so
-      // a cross-tenant guest id or the organiser's own preview can't be written.
+      // One statement answers all three tenancy checks, each scoped to
+      // `weddingId`:
+      //   - the row exists only when the guest belongs to one of this
+      //     wedding's guest families (the join to `families` also excludes
+      //     host-preview families, so a cross-tenant guest id or the
+      //     organiser's own preview can't be written);
+      //   - `eventInWedding`: the event belongs to this wedding, so a foreign
+      //     or unknown event id fails without saying whether it exists in
+      //     another wedding;
+      //   - `invited`: the pair is a real invitation, so an organiser can't
+      //     RSVP a guest to an event they aren't on the list for.
       const [guestRow] = yield* dbQuery(() =>
         db
           .select({
-            id: guests.id,
             plusOneOf: guests.plusOneOfGuestId,
             firstName: guests.firstName,
             lastName: guests.lastName,
+            eventInWedding: sql<number>`EXISTS (SELECT 1 FROM ${events} WHERE ${events.id} = ${eventId} AND ${events.weddingId} = ${weddingId})`,
+            invited: sql<number>`EXISTS (SELECT 1 FROM ${guestEvents} WHERE ${guestEvents.guestId} = ${guestId} AND ${guestEvents.eventId} = ${eventId})`,
           })
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
@@ -152,6 +161,9 @@ export const organiserRsvpService = {
           .all(),
       );
       if (!guestRow) return yield* Effect.fail(new GuestNotInWedding());
+      if (!guestRow.eventInWedding) return yield* Effect.fail(new EventNotInWedding());
+      if (!guestRow.invited) return yield* Effect.fail(new GuestNotInvitedToEvent());
+
       const isPlusOne = guestRow.plusOneOf !== null;
       // The attestation must speak of the person the row is about: the
       // plus-one wording, for the name the row carries now, on a plus-one's
@@ -172,28 +184,6 @@ export const organiserRsvpService = {
       ) {
         return yield* Effect.fail(new DietaryAttestationMismatch());
       }
-
-      // (2) Event ∈ this wedding. A foreign or unknown event id fails here
-      // rather than leaking whether it exists in another wedding.
-      const [eventRow] = yield* dbQuery(() =>
-        db
-          .select({ id: events.id })
-          .from(events)
-          .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
-          .all(),
-      );
-      if (!eventRow) return yield* Effect.fail(new EventNotInWedding());
-
-      // (3) The pair is a real invitation — don't let an organiser RSVP a guest
-      // to an event they aren't on the list for.
-      const [invite] = yield* dbQuery(() =>
-        db
-          .select({ guestId: guestEvents.guestId })
-          .from(guestEvents)
-          .where(and(eq(guestEvents.guestId, guestId), eq(guestEvents.eventId, eventId)))
-          .all(),
-      );
-      if (!invite) return yield* Effect.fail(new GuestNotInvitedToEvent());
 
       // A status-only reply: the stored dietary answer was given under its
       // own consent or attestation, which this save does not repeat, so it
