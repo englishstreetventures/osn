@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Data Map
@@ -110,9 +110,11 @@ the compliance checklist.
 
 Cire is a wedding-invite app merged into the monorepo as the `cire/*`
 workspace. It runs its **own** Cloudflare D1 and R2, separate from `osn/db`
-(see [[cire]], [[cire-auth]]). The **controller** for guest data is the
-wedding organiser (the couple) who uploads the guest list; OSN/cire is the
-**platform / processor** and provides the technical means — **except** for the
+(see [[cire]], [[cire-auth]]). A wedding's owners (the couple, and anyone
+they make an owner) are **joint controllers** of its guest data (Art. 26): each
+holds every owner power and decides alone, so they decide the purposes and means
+together. OSN/cire is their **processor** and provides the technical means —
+**except** for the
 three decisions cire makes unilaterally and identically for every wedding, where
 cire is the controller (see the Controller / processor note below). A wedding's
 owners — all equal — are identified by their `owner` seats,
@@ -202,9 +204,13 @@ Vendor personal data arises when the vendor is a **sole trader**, so their conta
 
 **Controller note for vendor data.** For `directory_vendors` contact data supplied initially by an organiser (before the vendor claims the listing): the organiser is the original source of entry and cire is the platform. Once the vendor claims the listing and becomes an OSN org-holder, the vendor themselves is the data subject exercising control over the listing fields (controller = cire/OSN for the platform; DSAR + right-to-erasure via standard organiser or vendor account flows).
 
-**Controller / processor note.** For guest data the organiser is the
-controller (they decide to upload the list, set the field contents); cire
-is the processor **for that content**.
+**Controller / processor note.** For guest data a wedding's owners are
+**joint controllers** (Art. 26): any owner may upload the list, set the field
+contents, export it or delete the wedding, and none needs another's sign-off.
+Cire is their processor **for that content**. The arrangement between the
+owners is theirs to make; cire's part is that every owner sees every seat
+([[access-control]]) and is emailed when another owner is removed or demoted,
+or starts deleting the wedding ([[cire-auth]]).
 
 Cire is the **controller** for three decisions it takes on its own account,
 applies to every wedding alike, and no organiser can override:

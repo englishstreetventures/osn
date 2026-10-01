@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # DPIA — Cire guest data
@@ -93,9 +93,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   fields `rsvps.dietary_presets` and `rsvps.dietary`. Raw organiser spreadsheets are stored in
   R2 (`cire-sheets`). All in cire's **own** Cloudflare D1 + R2, separate
   from `osn/db`.
-- **Roles.** The organiser is the **controller** of guest data (they decide
-  to collect it and what it contains); OSN/cire is the **processor**
-  providing the platform. The organiser is themselves an OSN data subject.
+- **Roles.** A wedding's owners are **joint controllers** of its guest data
+  (Art. 26): every owner holds every owner power and decides alone what to
+  collect and what it contains. OSN/cire is their **processor**, providing the
+  platform, except for the three decisions cire takes for every wedding alike
+  (retention, security posture, telemetry — [[data-map]] §Controller /
+  processor note). Each owner is themselves an OSN data subject.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
   scaffold allows many weddings). We collect special-category data from a
   meaningful fraction of the guests who RSVP.
@@ -227,7 +230,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     `dietary_attestation_mismatch` for the plus-one wording on anyone else's
     reply) and for the name the row carries now (409 `plus_one_changed`, as on
     the invite). The row is stamped `'organiser_attested'` with that version.
-    The organiser (as the wedding **controller** — §1 Roles) is accountable for
+    The owners (as the wedding's **joint controllers** — §1 Roles) are accountable for
     the truth of the attestation; cire (processor) captures it. No new
     subprocessor, no new data class beyond the `consent_source` discriminator.
   - **Inviter-attested variant (migration 0066).** A plus-one's reply is typed
@@ -268,7 +271,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     record the organiser made, so a household that re-submits its reply
     afterwards must tick its own attestation for the organiser's answer, or
     clear it; the row is then stamped `'inviter_attested'` again. The
-    organiser remains controller and accountable; the household is the
+    owners remain joint controllers and accountable; the household is the
     attester.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
     the controller owes them the Art. 14 information. The invite's plus-one
@@ -277,8 +280,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     source of their details (the guest bringing them), the basis for each
     (legitimate interest for name and RSVP; for dietary requirements, their
     explicit consent as confirmed by that guest), and how to correct, withdraw
-    or delete them without a code of their own. The organiser, as controller,
-    answers their requests, and can correct a plus-one's name at any time (see
+    or delete them without a code of their own. The owners, as joint
+    controllers, answer their requests, and can correct a plus-one's name at any time (see
     [[dsar]]). Name alone (Art. 6(1)(f), wedding administration) rests on the
     same basis as every other guest name.
 - **Retention.** Tied to the wedding lifecycle; see [[retention]]. A daily

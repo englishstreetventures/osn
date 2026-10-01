@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # DSAR Runbook
@@ -143,10 +143,22 @@ owners, each with an `owner` seat. Two consequences:
   `internal/account-deleted` or export endpoint, and does not carry
   `@shared/observability`). Until it exists, an operator with cire D1/R2
   access handles such a DSAR **manually** (logged per [[access-control]]).
+- **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
+  includes the seats on their weddings, and those name other people: every
+  other owner's and co-host's profile id, who added each seat
+  (`wedding_hosts.added_by_osn_profile_id`), and who deleted a wedding
+  (`weddings.deleted_by_osn_profile_id`). An access answer gives the
+  requester their own seat and role, and for each wedding the fact that it has
+  other owners and how many, but not their profile ids, handles or roles, and
+  not who added the requester's seat or deleted the wedding unless that was
+  the requester. Those identify a co-owner, whose rights Art. 15(4) protects;
+  the co-owner can ask for their own. Guest data under the wedding is not the
+  owner's personal data, so it is not part of this answer at all: an owner
+  reads and exports it in the portal, as a joint controller.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
-  right is the organiser's responsibility as **controller** (cire is
-  processor — see [[data-map]]). Route guest requests to the organiser and
-  assist as processor.
+  right is the responsibility of the wedding's owners as **joint
+  controllers** (cire is their processor — see [[data-map]]). Route guest
+  requests to an owner and assist as processor.
 - **Plus-ones (migration 0066).** A plus-one's `guests` row — their name, their
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
