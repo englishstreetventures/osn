@@ -14,6 +14,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
@@ -120,15 +121,14 @@ export interface Env {
   CLAIM_SESSION_RATE_LIMITER?: WorkersRateLimitBinding;
   // Native Workers Rate Limiting bindings for the organiser registry amplifier
   // routes — the link preview (fetches a URL the caller typed) and the image
-  // copy (that fetch plus an R2 write). Both are authenticated, tier-
-  // gated organiser routes, so an absent binding degrades to the per-isolate
-  // in-memory default in `createApp` rather than failing closed: the budget
-  // exists to protect the third party being fetched, not to stop a brute force.
+  // copy (that fetch plus an R2 write). Absent in a deployed tier ⇒ those
+  // routes answer 503 and log an error (lib/registry-limiters.ts); absent in
+  // `local` ⇒ the per-isolate in-memory default in `createApp`.
   REGISTRY_PREVIEW_RATE_LIMITER?: WorkersRateLimitBinding;
   REGISTRY_IMAGE_RATE_LIMITER?: WorkersRateLimitBinding;
   // The link picker's thumbnails: one outbound fetch and one Images transform
   // per call, six per preview, so its own namespace sized at 60/min. Absent ⇒
-  // the per-isolate in-memory default, as for the two above.
+  // as for the two above.
   REGISTRY_THUMB_RATE_LIMITER?: WorkersRateLimitBinding;
   // The guest registry write limiter — claiming and releasing a gift. Its own
   // namespace because guests are a different population from organisers: a
@@ -398,15 +398,9 @@ const handler: ExportedHandler<Env> = {
       // the "10 a minute" the design argues for is really 10 a minute per
       // isolate — a bound the caller can widen by spreading requests. These get
       // the native binding for the same reason claim does.
-      const registryPreviewEdgeLimiter = env.REGISTRY_PREVIEW_RATE_LIMITER
-        ? createWorkersRateLimiter(env.REGISTRY_PREVIEW_RATE_LIMITER)
-        : undefined;
-      const registryImageEdgeLimiter = env.REGISTRY_IMAGE_RATE_LIMITER
-        ? createWorkersRateLimiter(env.REGISTRY_IMAGE_RATE_LIMITER)
-        : undefined;
-      const registryThumbEdgeLimiter = env.REGISTRY_THUMB_RATE_LIMITER
-        ? createWorkersRateLimiter(env.REGISTRY_THUMB_RATE_LIMITER)
-        : undefined;
+      // A deployed tier without one of these bindings refuses that route with
+      // 503 rather than count per isolate (lib/registry-limiters.ts).
+      const registryLimiters = registryOutboundLimiters(env, isDeployedTier(env));
       // The guest claim/release writes. Own namespace, not the two above: those
       // budgets belong to the couple building the list, this one to every guest
       // of every wedding, and a guest party working through the list must not
@@ -519,10 +513,7 @@ const handler: ExportedHandler<Env> = {
       // CLAIM_RATE_LIMITER (5/min), the exact budget this route was split
       // away from. Absent binding ⇒ createApp's in-memory 60/min default.
       if (sessionEdgeLimiter) appOptions.claimSessionLimiter = sessionEdgeLimiter;
-      if (registryPreviewEdgeLimiter)
-        appOptions.registryPreviewLimiter = registryPreviewEdgeLimiter;
-      if (registryImageEdgeLimiter) appOptions.registryImageLimiter = registryImageEdgeLimiter;
-      if (registryThumbEdgeLimiter) appOptions.registryThumbLimiter = registryThumbEdgeLimiter;
+      Object.assign(appOptions, registryLimiters);
       if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
       cached = {
         dbBinding: env.DB,
