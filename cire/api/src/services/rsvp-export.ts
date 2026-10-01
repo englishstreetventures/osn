@@ -57,8 +57,9 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply came through the invite, from the guest's
-   *     own household.
+   *   - "guest"     — every reply's dietary answer came through the invite,
+   *     from the guest's own household. A host may have changed a reply's
+   *     status since without touching its dietary answer.
    *   - "household" — the guest is a plus-one and at least one reply was the
    *     household's (`consent_source='inviter_attested'`): answered on the
    *     plus-one's behalf, on the household's word. A host may have changed
