@@ -11,7 +11,6 @@ import { haptic } from "../lib/haptics";
 // The portal's single clipboard choke point — it carries the fallback path for
 // non-secure contexts and the copy haptic, neither of which a bare
 // `navigator.clipboard.writeText` gets.
-import { copyToClipboard } from "../lib/invite-message";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import {
@@ -71,7 +70,9 @@ export default function VendorsView(props: VendorsViewProps) {
   const [listingId, setListingId] = createSignal<string | null>(null);
   const [listEmail, setListEmail] = createSignal("");
   const [listCategories, setListCategories] = createSignal<string[]>([]);
-  const [claimUrl, setClaimUrl] = createSignal<string | null>(null);
+  // The address the claim invite went to, and whether the email was sent. The
+  // claim link itself never reaches the organiser.
+  const [invite, setInvite] = createSignal<{ email: string; sent: boolean } | null>(null);
   const [listingLoading, setListingLoading] = createSignal(false);
 
   const vendorsUrl = () => apiUrl(weddingPath(props.weddingId, "/vendors"));
@@ -212,14 +213,14 @@ export default function VendorsView(props: VendorsViewProps) {
     setListingId(v.id);
     setListEmail(v.email ?? "");
     setListCategories([v.category]);
-    setClaimUrl(null);
+    setInvite(null);
   };
 
   const closeListing = () => {
     setListingId(null);
     setListEmail("");
     setListCategories([]);
-    setClaimUrl(null);
+    setInvite(null);
     setListingLoading(false);
   };
 
@@ -244,8 +245,8 @@ export default function VendorsView(props: VendorsViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`list ${res.status}`);
-      const data = (await res.json()) as { claimUrl: string };
-      setClaimUrl(data.claimUrl);
+      const data = (await res.json()) as { invited: boolean };
+      setInvite({ email: listEmail().trim(), sent: data.invited === true });
       haptic("commit");
     } catch {
       haptic("reject");
@@ -432,7 +433,7 @@ export default function VendorsView(props: VendorsViewProps) {
                       <Show when={listingId() === v.id}>
                         <div class="border-border/60 ml-2 flex flex-col gap-3 border-l pl-3">
                           <Show
-                            when={claimUrl()}
+                            when={invite()}
                             fallback={
                               <form
                                 onSubmit={(e) => submitListing(e, v)}
@@ -467,22 +468,19 @@ export default function VendorsView(props: VendorsViewProps) {
                             }
                           >
                             <div class="flex flex-col gap-2">
-                              <p class="text-text text-ui-sm">
-                                Listed! Share this claim link with {v.name}:
-                              </p>
-                              <div class="border-border bg-bg flex items-center gap-2 rounded-sm border px-3 py-2">
-                                <span class="text-text-muted text-ui-sm grow truncate font-mono">
-                                  {claimUrl()}
-                                </span>
-                                <Button
-                                  variant="link"
-                                  type="button"
-                                  onClick={() => void copyToClipboard(claimUrl()!)}
-                                  class="shrink-0"
-                                >
-                                  Copy
-                                </Button>
-                              </div>
+                              <Show
+                                when={invite()?.sent}
+                                fallback={
+                                  <Notice tone="warn">
+                                    Listed, but the claim invite to {invite()?.email} did not send.
+                                  </Notice>
+                                }
+                              >
+                                <p class="text-text text-ui-sm">
+                                  Listed! We emailed {v.name} a link to claim it at{" "}
+                                  {invite()?.email}.
+                                </p>
+                              </Show>
                               <Button
                                 variant="quiet"
                                 size="sm"

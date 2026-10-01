@@ -118,6 +118,27 @@ describe("ClaimApp", () => {
     expect(screen.queryByText(/you've been invited to claim/i)).not.toBeInTheDocument();
   });
 
+  it("an org that already owns a listing → explains, keeps the token, picker stays", async () => {
+    const { OrgHasListingError } = await import("../../src/lib/vendor-store");
+    mockConsumeClaim = () => Promise.reject(new OrgHasListingError());
+
+    renderClaim("valid-token");
+    await waitFor(() => expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument());
+    screen.getByTestId("mock-org-picker").click();
+
+    await waitFor(() =>
+      expect(screen.getByText(/already has a directory listing/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: /edit test org's listing/i })).toHaveAttribute(
+      "href",
+      "/#/orgs/org1",
+    );
+    // Not the dead-link message, and the token is still parked for a retry.
+    expect(screen.queryByText(/no longer valid/i)).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("cire.vendor.claim-token")).toBe("valid-token");
+    expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument();
+  });
+
   it("consumeClaim error → shows generic message, does NOT leak raw error text", async () => {
     // consumeClaim rejects with a sensitive-looking error.
     mockConsumeClaim = () => Promise.reject(new Error("token abc123 already consumed"));

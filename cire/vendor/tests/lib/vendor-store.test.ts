@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   consumeClaim,
+  OrgHasListingError,
   fetchClaimPreview,
   fetchListing,
   listMyOrgs,
@@ -96,6 +97,11 @@ describe("vendor-store", () => {
     expect(listing.ownerOrgId).toBe("o1");
     expect(String(authFetch.mock.calls[0]![0])).toContain("/api/vendor/claims/tok/consume");
     expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toEqual({ orgId: "o1" });
+  });
+
+  it("consumeClaim throws OrgHasListingError on 409 org_has_listing", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "org_has_listing" }, 409));
+    await expect(consumeClaim(authFetch, "tok", "o1")).rejects.toBeInstanceOf(OrgHasListingError);
   });
 
   it("putListing throws with the server error message on non-2xx", async () => {
