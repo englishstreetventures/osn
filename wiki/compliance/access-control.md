@@ -8,6 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
+  - "[[cire-vendors]]"
   - "[[subprocessors]]"
 last-reviewed: 2026-10-01
 ---
@@ -178,6 +179,16 @@ grant in the matrix above. Expectations:
   accepted rather than solved:** a new seat is live immediately and the owner is
   not notified — tracked as `S-M2` in `englishstventures/osn-tracker`. See the
   roles capability matrix in [[cire-auth]].
+- **Vendor claims are confirmed by an operator, never by the claim link.**
+  A cire organiser chooses the address a directory claim link goes to, so a
+  redeemed link only records a pending claim (`directory_vendors.review_*`).
+  An operator confirms or rejects it with
+  `scripts/cire-vendor-claim-review.ts`, a dry run until `--apply`, which
+  writes to the production cire D1 under the operator's own Cloudflare login
+  (the "Cire Cloudflare D1" grant above) and reads the claimant's
+  organisation from the OSN D1. Each confirm or reject is an admin action on
+  user data: record it per "Internal admin actions on user data" above.
+  Procedure and checks: [[cire-vendors#Operator review of claims]].
 
 ## Project changes required
 
