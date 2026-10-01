@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "37304a64-d210-47ad-93df-c45730e14fec",
-  "prevId": "cc1dcc41-df65-4a40-8d6e-10c5b00e5410",
+  "id": "f4b3b9f3-8722-4736-8a32-8ed74f15375c",
+  "prevId": "a10b0454-7347-4b58-9064-b38b2c4e379a",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -285,6 +285,27 @@
           "notNull": false,
           "autoincrement": false
         },
+        "review_org_id": {
+          "name": "review_org_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_profile_id": {
+          "name": "review_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_requested_at": {
+          "name": "review_requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -305,6 +326,13 @@
           "name": "directory_vendors_owner_uniq",
           "columns": [
             "owner_org_id"
+          ],
+          "isUnique": true
+        },
+        "directory_vendors_review_org_uniq": {
+          "name": "directory_vendors_review_org_uniq",
+          "columns": [
+            "review_org_id"
           ],
           "isUnique": true
         },
@@ -2806,6 +2834,15 @@
             "directory_vendor_id"
           ],
           "isUnique": false
+        },
+        "vendor_enquiries_buffered_idx": {
+          "name": "vendor_enquiries_buffered_idx",
+          "columns": [
+            "updated_at",
+            "id"
+          ],
+          "isUnique": false,
+          "where": "status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -3914,20 +3951,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deleted_by_osn_profile_id": {
-          "name": "deleted_by_osn_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -3944,14 +3967,6 @@
             "created_at"
           ],
           "isUnique": false
-        },
-        "weddings_deleted_at_idx": {
-          "name": "weddings_deleted_at_idx",
-          "columns": [
-            "deleted_at"
-          ],
-          "isUnique": false,
-          "where": "deleted_at IS NOT NULL"
         }
       },
       "foreignKeys": {},

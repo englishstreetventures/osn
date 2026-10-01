@@ -7,7 +7,7 @@
 An owner can delete a wedding, and any owner can restore it for 7 days.
 
 `DELETE /api/organiser/weddings/:weddingId` with `{ "confirmSlug": "<slug>" }`
-soft-deletes the wedding: migration `0075_wedding_soft_delete` adds
+soft-deletes the wedding: migration `0076_wedding_soft_delete` adds
 `weddings.deleted_at` and `deleted_by_osn_profile_id`, and from that moment the
 wedding is answered as unknown on every guest, vendor and co-host path — its
 invite, images, claim codes, guest sessions (refused, not revoked), registry,

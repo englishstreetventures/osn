@@ -234,7 +234,7 @@ Each guard sits **inside the statement that writes**, as a `WHERE` that counts t
 | `POST /api/claim` | `claimService.lookup` | **401** `Invalid credentials`, as a wrong code; no first-open stamp |
 | `GET /api/invite/:slug`, its images, event images | the slug reads in `invite.ts` / `event-image.ts` | **404**, as an unknown slug |
 | Every registry guest route | `resolveVisibleRegistry` | **404** `registry_not_found` |
-| Vendor enquiry list, thread, reply, quote; a vendor claiming a listing | the enquiry reads, `onVendorClaimed` | left out / **404**; a buffered enquiry is not sent to Zap |
+| Vendor enquiry list, thread, reply, quote; the daily hand-off of buffered enquiries once an operator confirms a claim | the enquiry reads, `claimReviewService.sweep` | left out / **404**; a buffered enquiry stays buffered and is not sent to Zap until a restore |
 | RSVP digest, gift-summary mail, change claims | their own reads | skipped |
 
 Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle into a deleted wedding by design, so a gift or an upgrade paid during the window is there after a restore. Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].

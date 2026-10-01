@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts } from "@cire/db";
 import { EmailError, EmailService, makeLogEmailLive, type LogEmailTransport } from "@shared/email";
 import { Effect, Layer } from "effect";
 

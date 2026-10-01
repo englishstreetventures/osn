@@ -60,6 +60,9 @@ export const CIRE_METRICS = {
   guestDataSwept: "cire.guest_data.swept",
   // Scheduled expired vendor-claim-token sweep (cron).
   vendorClaimsSwept: "cire.vendor_claims.swept",
+  // Vendor claims held for an operator: one per claim redeemed, per claim
+  // handed off after an operator confirmed it, and per failed hand-off.
+  vendorClaimReview: "cire.vendor_claim_review.events",
   // Scheduled abandoned-preview sweep (cron) — imports rows stuck in `preview`
   // past the staleness window, plus their uploaded-sheet R2 objects.
   stalePreviewsSwept: "cire.imports.previews_swept",
@@ -333,6 +336,10 @@ type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
 
 type VendorClaimsSweptAttrs = { result: "ok" | "error" };
+
+/** What happened to a vendor claim held for operator review. */
+export type VendorClaimReviewEvent = "requested" | "handed_off" | "handoff_error";
+type VendorClaimReviewAttrs = { event: VendorClaimReviewEvent };
 
 type StalePreviewsSweptAttrs = { result: "ok" | "error" };
 type OrganiserSessionCreatedAttrs = { result: "ok" | "error" };
@@ -640,6 +647,13 @@ const vendorClaimsSwept = createCounter<VendorClaimsSweptAttrs>({
   name: CIRE_METRICS.vendorClaimsSwept,
   description:
     "Expired vendor-claim tokens deleted by the scheduled sweep — increment is the row count, so the sum tracks reclaimed rows",
+  unit: "{claim}",
+});
+
+const vendorClaimReview = createCounter<VendorClaimReviewAttrs>({
+  name: CIRE_METRICS.vendorClaimReview,
+  description:
+    "Vendor claims held for operator review — redeemed (requested), confirmed and handed to the vendor (handed_off), or a hand-off that failed",
   unit: "{claim}",
 });
 
@@ -1025,6 +1039,9 @@ export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.in
  *  failed sweep records a single `error` increment. */
 export const metricGuestDataSwept = (result: "ok" | "error", count = 1): void =>
   guestDataSwept.add(count, { result });
+
+export const metricVendorClaimReview = (event: VendorClaimReviewEvent, count = 1): void =>
+  vendorClaimReview.add(count, { event });
 
 /** Same shape as `metricSessionSwept`, for expired vendor-claim tokens. */
 export const metricVendorClaimsSwept = (result: "ok" | "error", count = 1): void =>

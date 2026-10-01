@@ -845,7 +845,7 @@ top-level D1/R2 bindings (§3.2 nuance).
 
 > [!warning]
 > **Rolling cire-api back past soft delete un-deletes weddings.** Migration
-> `0075` adds `weddings.deleted_at`; a Worker built before it keeps the column
+> `0076` adds `weddings.deleted_at`; a Worker built before it keeps the column
 > but ignores it, so every soft-deleted wedding becomes visible again to its
 > guests, co-hosts and vendors, and nothing purges it. Before rolling back past
 > that release, restore or purge every row with `deleted_at IS NOT NULL`

@@ -6,6 +6,7 @@ import {
   events,
   families,
   guests,
+  vendorClaims,
   vendorEnquiries,
   weddingHosts,
 } from "@cire/db";
@@ -403,6 +404,38 @@ describe("enquiry-new email links (host/path correctness)", () => {
     expect(sent!.text).not.toContain("/vendor/claim?listing=");
     expect(sent!.text).not.toContain("localhost:4321");
     expect(sent!.text).not.toContain("invite.cireweddings.com");
+  });
+
+  it("listing with a claim awaiting an operator: no claim CTA, no new token, message buffered", async () => {
+    const { app, db, email } = buildApp();
+    db.update(directoryVendors)
+      .set({ reviewOrgId: "org_pending", reviewProfileId: "usr_pending" })
+      .where(eq(directoryVendors.id, DV_UNCLAIMED))
+      .run();
+    const res = await req(app, enquiriesPath, {
+      method: "POST",
+      profileId: BOOTSTRAP_OWNER,
+      body: JSON.stringify({
+        directoryVendorId: DV_UNCLAIMED,
+        category: "florals",
+        message: "hello pending vendor",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const sent = email.recorded().find((e) => e.to === "unclaimed@vendor.test");
+    expect(sent).toBeDefined();
+    expect(sent!.text).not.toContain("/claim?token=");
+    expect(sent!.html).not.toContain("/claim?token=");
+    expect(
+      db.select().from(vendorClaims).where(eq(vendorClaims.directoryVendorId, DV_UNCLAIMED)).all(),
+    ).toHaveLength(0);
+    const [enq] = db
+      .select()
+      .from(vendorEnquiries)
+      .where(eq(vendorEnquiries.directoryVendorId, DV_UNCLAIMED))
+      .all();
+    expect(enq!.zapChatId).toBeNull();
+    expect(enq!.pendingBody).toBe("hello pending vendor");
   });
 
   it("claimed listing: Reply link is a thread URL on the organiser origin", async () => {

@@ -1,0 +1,314 @@
+#!/usr/bin/env bun
+/**
+ * Operator tool for vendor claims held for review. A vendor who redeems a
+ * claim link does not get the listing: cire-api records the claim on the
+ * listing (`directory_vendors.review_*`) and waits for an operator, because the
+ * link went to an address the organiser chose. This script lists those claims
+ * and confirms or rejects one, by running SQL on the cire D1 through
+ * `wrangler d1 execute`, so each change is made under the operator's own
+ * Cloudflare login.
+ *
+ *   bun scripts/cire-vendor-claim-review.ts list    --env production
+ *   bun scripts/cire-vendor-claim-review.ts confirm dv_… --env production          # dry run
+ *   bun scripts/cire-vendor-claim-review.ts confirm dv_… --env production --apply
+ *   bun scripts/cire-vendor-claim-review.ts reject  dv_… --env production --apply
+ *
+ * Confirm also reads the claimant's organisation from the OSN D1 and refuses
+ * when OSN has no such organisation or the claiming profile is no longer a
+ * member of it.
+ *
+ * `--env` has no default: `local` (wrangler's local D1), `dev` or `production`.
+ * Confirm and reject are dry runs unless `--apply` is given; a dry run reads
+ * the claim, runs every check and prints the SQL it would send.
+ *
+ * Confirm moves the pending org and profile into `owner_org_id` and
+ * `claimed_by_profile_id` and puts the listing live; the daily cron (04:00
+ * UTC) then hands the vendor the enquiries couples sent while the listing was
+ * unclaimed. Reject clears the pending claim, which leaves the listing unowned
+ * and claimable again.
+ *
+ * It runs the wrangler installed in `cire/api` (the version whose `--json`
+ * output it reads), from that directory, against `cire/api/wrangler.toml`.
+ *
+ * `wrangler d1 execute --command` takes no bound parameters, so every value
+ * that reaches SQL is checked against a strict pattern first (`ID_PATTERN`),
+ * and every UPDATE repeats the state it was checked against in its WHERE, so a
+ * change made between the check and the write matches no row and is reported.
+ */
+
+export type Env = "local" | "dev" | "production";
+export type Command = "list" | "confirm" | "reject";
+
+export interface Args {
+  command: Command;
+  listingId: string | null;
+  env: Env;
+  apply: boolean;
+}
+
+/** The characters a cire listing, OSN org or OSN profile id is made of. */
+export const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const LISTING_PATTERN = /^dv_[A-Za-z0-9_-]{1,124}$/;
+
+const USAGE =
+  "usage: cire-vendor-claim-review.ts <list | confirm <listingId> | reject <listingId>> --env <local|dev|production> [--apply]";
+
+export function parseArgs(argv: readonly string[]): Args | { error: string } {
+  const positional: string[] = [];
+  let env: Env | null = null;
+  let apply = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--apply") apply = true;
+    else if (arg === "--env") {
+      const value = argv[++i];
+      if (value !== "local" && value !== "dev" && value !== "production") {
+        return { error: `--env must be local, dev or production\n${USAGE}` };
+      }
+      env = value;
+    } else if (arg.startsWith("-")) return { error: `unknown flag ${arg}\n${USAGE}` };
+    else positional.push(arg);
+  }
+  if (!env) return { error: `--env is required\n${USAGE}` };
+  const [command, listingId, extra] = positional;
+  if (extra !== undefined) return { error: USAGE };
+  if (command === "list") {
+    if (listingId !== undefined || apply) return { error: USAGE };
+    return { command, listingId: null, env, apply: false };
+  }
+  if (command === "confirm" || command === "reject") {
+    if (!listingId || !LISTING_PATTERN.test(listingId)) {
+      return { error: `a listing id (dv_…) is required\n${USAGE}` };
+    }
+    return { command, listingId, env, apply };
+  }
+  return { error: USAGE };
+}
+
+/** Which D1 a statement runs on: cire's, or OSN's (the claimant's organisation). */
+export type Db = "cire" | "osn";
+
+/**
+ * The wrangler arguments that point `d1 execute` at one tier's database, as
+ * `cire/api/wrangler.toml` and `osn/api/wrangler.toml` name them. `local`
+ * names no env and passes `--local`: the top-level block in both files carries
+ * the production database id, so `--remote` without `--env` would reach it.
+ */
+export function targetArgs(db: Db, env: Env): string[] {
+  const names =
+    db === "cire"
+      ? { local: "cire-db", dev: "cire-db-dev", production: "cire-db" }
+      : { local: "osn-db", dev: "osn-db-dev", production: "osn-db-prod" };
+  if (env === "local") return [names.local, "--local"];
+  return [names[env], "--env", env, "--remote"];
+}
+
+const quote = (id: string): string => {
+  if (!ID_PATTERN.test(id)) throw new Error(`refusing to put ${JSON.stringify(id)} in SQL`);
+  return `'${id}'`;
+};
+
+export const listSql = (): string =>
+  "SELECT id, name, email, website, review_org_id, review_profile_id, " +
+  "datetime(review_requested_at, 'unixepoch') AS requested_at " +
+  "FROM directory_vendors WHERE review_org_id IS NOT NULL ORDER BY review_requested_at, id;";
+
+export const showSql = (listingId: string): string =>
+  "SELECT d.id, d.name, d.email, d.website, d.owner_org_id, d.review_org_id, d.review_profile_id, " +
+  "(SELECT o.id FROM directory_vendors o WHERE o.owner_org_id = d.review_org_id) AS org_owns " +
+  `FROM directory_vendors d WHERE d.id = ${quote(listingId)};`;
+
+export const confirmSql = (listingId: string, orgId: string, profileId: string): string =>
+  "UPDATE directory_vendors SET owner_org_id = review_org_id, " +
+  "claimed_by_profile_id = review_profile_id, listed = 'live', " +
+  "review_org_id = NULL, review_profile_id = NULL, review_requested_at = NULL, " +
+  "updated_at = unixepoch() " +
+  `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)} ` +
+  `AND review_profile_id = ${quote(profileId)} AND owner_org_id IS NULL RETURNING id;`;
+
+/**
+ * The claimant's organisation as OSN holds it, and whether the claiming
+ * profile is still one of its members: a membership can end between the claim
+ * and the review.
+ */
+export const orgSql = (orgId: string, profileId: string): string =>
+  "SELECT o.id, o.handle, o.name, " +
+  `(SELECT m.role FROM organisation_members m WHERE m.organisation_id = o.id AND m.profile_id = ${quote(profileId)}) AS claimant_role, ` +
+  `(SELECT u.handle FROM users u WHERE u.id = ${quote(profileId)}) AS claimant_handle, ` +
+  `(SELECT a.email FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.id = ${quote(profileId)}) AS claimant_email ` +
+  `FROM organisations o WHERE o.id = ${quote(orgId)};`;
+
+export interface OrgRow {
+  id: string;
+  handle: string;
+  name: string;
+  claimant_role: string | null;
+  claimant_handle: string | null;
+  claimant_email: string | null;
+}
+
+/** The host part of an email address or website, lower-cased, without `www.`. */
+export function domainOf(value: string | null): string | null {
+  if (!value) return null;
+  const at = value.lastIndexOf("@");
+  let host = at >= 0 ? value.slice(at + 1) : value.replace(/^[a-z]+:\/\//i, "").split(/[/?#:]/)[0]!;
+  host = host
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "");
+  return host.length > 0 ? host : null;
+}
+
+/** A DB value as the operator should read it: quoted, with control characters escaped. */
+const shown = (value: string | null): string => JSON.stringify(value);
+
+export const rejectSql = (listingId: string, orgId: string): string =>
+  "UPDATE directory_vendors SET review_org_id = NULL, review_profile_id = NULL, " +
+  "review_requested_at = NULL, updated_at = unixepoch() " +
+  `WHERE id = ${quote(listingId)} AND review_org_id = ${quote(orgId)} RETURNING id;`;
+
+export interface ClaimRow {
+  id: string;
+  name: string;
+  email: string | null;
+  website: string | null;
+  owner_org_id: string | null;
+  review_org_id: string | null;
+  review_profile_id: string | null;
+  org_owns: string | null;
+}
+
+/** Why a claim cannot be confirmed or rejected now, or null when it can. */
+export function refusal(command: "confirm" | "reject", row: ClaimRow | undefined): string | null {
+  if (!row) return "no listing has that id";
+  if (row.review_org_id === null || row.review_profile_id === null) {
+    return "the listing has no claim waiting for review";
+  }
+  if (!ID_PATTERN.test(row.review_org_id) || !ID_PATTERN.test(row.review_profile_id)) {
+    return "the pending org or profile id has characters an id never has; fix it by hand";
+  }
+  if (command === "reject") return null;
+  if (row.owner_org_id !== null) return `the listing is already owned by ${row.owner_org_id}`;
+  if (row.org_owns !== null) {
+    return `org ${row.review_org_id} already owns listing ${row.org_owns}; an org owns at most one`;
+  }
+  return null;
+}
+
+/**
+ * One statement's result, as `wrangler d1 execute --json` prints it: an array
+ * with one entry per statement. Local runs carry no `meta.changes`, so writes
+ * use `RETURNING` and are counted by the rows they return.
+ */
+interface D1Result {
+  results?: unknown[];
+}
+
+/** Runs one SQL statement on a tier's database and returns wrangler's parsed `--json` output. */
+export type Runner = (db: Db, env: Env, sql: string) => Promise<D1Result[]>;
+
+export const wranglerRunner: Runner = async (db, env, sql) => {
+  const proc = Bun.spawn(
+    ["bunx", "wrangler", "d1", "execute", ...targetArgs(db, env), "--json", "--command", sql],
+    {
+      cwd: new URL(db === "cire" ? "../cire/api" : "../osn/api", import.meta.url).pathname,
+      stdout: "pipe",
+      stderr: "inherit",
+    },
+  );
+  const out = await new Response(proc.stdout).text();
+  if ((await proc.exited) !== 0)
+    throw new Error(`wrangler d1 execute failed: ${out.slice(0, 500)}`);
+  return JSON.parse(out) as D1Result[];
+};
+
+const firstResults = (out: D1Result[]): unknown[] => out[0]?.results ?? [];
+
+/** The whole tool, with the output and the wrangler call passed in. Returns the exit code. */
+export async function run(
+  argv: readonly string[],
+  runner: Runner,
+  print: (line: string) => void,
+): Promise<number> {
+  const args = parseArgs(argv);
+  if ("error" in args) {
+    print(args.error);
+    return 2;
+  }
+
+  if (args.command === "list") {
+    const rows = firstResults(await runner("cire", args.env, listSql()));
+    if (rows.length === 0) print("No vendor claims are waiting for review.");
+    for (const row of rows) print(JSON.stringify(row));
+    return 0;
+  }
+
+  const listingId = args.listingId!;
+  const [row] = firstResults(await runner("cire", args.env, showSql(listingId))) as ClaimRow[];
+  const refused = refusal(args.command, row);
+  if (refused) {
+    print(`${args.command} refused: ${refused}`);
+    return 1;
+  }
+  const claim = row!;
+  print(
+    `Listing ${claim.id} ${shown(claim.name)} (email ${shown(claim.email)}, website ${shown(claim.website)}; both typed by the organiser)`,
+  );
+  print(`Claimed by org ${claim.review_org_id}, profile ${claim.review_profile_id}`);
+
+  if (args.command === "confirm") {
+    const [org] = firstResults(
+      await runner("osn", args.env, orgSql(claim.review_org_id!, claim.review_profile_id!)),
+    ) as OrgRow[];
+    if (!org) {
+      print("confirm refused: OSN has no organisation with that id");
+      return 1;
+    }
+    print(`Organisation ${shown(org.name)} (handle ${shown(org.handle)})`);
+    if (org.claimant_role === null) {
+      print(
+        `confirm refused: profile ${claim.review_profile_id} is no longer a member of that organisation; reject the claim`,
+      );
+      return 1;
+    }
+    print(
+      `Claimant ${shown(org.claimant_handle)} (${org.claimant_role}), OSN account email ${shown(org.claimant_email)}`,
+    );
+    const claimant = domainOf(org.claimant_email);
+    const business = [domainOf(claim.website), domainOf(claim.email)].filter(Boolean);
+    print(
+      claimant && business.includes(claimant)
+        ? `The claimant's account email is at ${shown(claimant)}, a domain the organiser also typed for the listing. Not proof on its own: check it is the business's own domain, not a mail provider anyone can use.`
+        : `The claimant's account email domain matches neither the listing's website nor its email. Confirm only after checking with the business through contact details you find yourself.`,
+    );
+  }
+
+  const sql =
+    args.command === "confirm"
+      ? confirmSql(claim.id, claim.review_org_id!, claim.review_profile_id!)
+      : rejectSql(claim.id, claim.review_org_id!);
+  if (!args.apply) {
+    print(`Dry run (${args.env}). Would run:\n${sql}\nAdd --apply to run it.`);
+    return 0;
+  }
+
+  const changed = firstResults(await runner("cire", args.env, sql)).length;
+  if (changed !== 1) {
+    print(
+      `${args.command} changed ${changed} rows; the claim changed after the check. Run it again.`,
+    );
+    return 1;
+  }
+  print(
+    args.command === "confirm"
+      ? "Confirmed. The listing is live; the daily cron (04:00 UTC) hands the vendor their buffered enquiries."
+      : "Rejected. The listing is unowned and can be claimed again.",
+  );
+  return 0;
+}
+
+if (import.meta.main) {
+  process.exit(
+    await run(Bun.argv.slice(2), wranglerRunner, (line) => process.stdout.write(`${line}\n`)),
+  );
+}

@@ -1066,9 +1066,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
         ),
       )
       // Vendor-facing portal: listing self-management + claim redemption.
-      // Mounted at /api/vendor (NOT under the wedding/organiser group). The
-      // enquiry service is threaded in so a successful claim flushes any
-      // enquiries buffered against the just-claimed listing (onVendorClaimed).
+      // Mounted at /api/vendor (NOT under the wedding/organiser group). A
+      // redeemed claim is held for an operator; the enquiries buffered against
+      // the listing are handed over by the daily cron once one confirms it.
       .use(
         createVendorPortalRoutes(
           db,
@@ -1076,7 +1076,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
             directoryService: vendorDirectoryService,
             orgMembership: vendorOrgMembership,
             profileOrgs: vendorProfileOrgs,
-            enquiryService,
           },
           osnAuthOptions,
           vendorPortalLimiter,

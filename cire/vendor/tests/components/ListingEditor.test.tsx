@@ -52,6 +52,17 @@ const renderEditor = () =>
   ));
 
 describe("ListingEditor", () => {
+  it("shows a held claim as awaiting confirmation, with no form", async () => {
+    vi.spyOn(store, "fetchListing").mockResolvedValue(
+      listing({ ownerOrgId: null, listed: "draft", awaitingConfirmation: true }),
+    );
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("awaiting confirmation")).toBeInTheDocument());
+    expect(screen.getByText(/We check every claim by hand/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save listing" })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Acme Venues")).not.toBeInTheDocument();
+  });
+
   it("loads the existing listing into the form", async () => {
     vi.spyOn(store, "fetchListing").mockResolvedValue(listing());
     renderEditor();

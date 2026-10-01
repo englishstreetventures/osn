@@ -6,7 +6,6 @@ import {
   registryClaims,
   registryItems,
   registrySettings,
-  weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";

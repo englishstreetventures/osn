@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-967   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — the owner-gate alignment removes two unused imports and the finding tags in comments it rewrote. No rule was disabled and nothing was suppressed.
+965   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/trusting-dijkstra-1eji1a @ 2026-10-01 — after merging main (claim review): the merge removes three unused test imports it would otherwise have left. No rule was disabled and nothing was suppressed.

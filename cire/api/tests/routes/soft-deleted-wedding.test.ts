@@ -6,11 +6,9 @@ import {
   registryClaims,
   registryContributions,
   rsvps,
-  vendorClaims,
   vendorEnquiries,
   weddings,
 } from "@cire/db";
-import { hashToken } from "@shared/crypto/tokens";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -53,7 +51,8 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
  *  - A new code path inside a route already listed.
  *  - Crons, webhooks, emails and service fan-out, which are not routes: their
  *    own unit tests hold them (`tests/services/soft-delete-chokepoints.test.ts`,
- *    `tests/services/wedding-purge.test.ts`, the webhook route tests).
+ *    `tests/services/wedding-purge.test.ts`, `tests/services/claim-review.test.ts`,
+ *    the webhook route tests).
  */
 
 const WID = "wed_net";
@@ -67,12 +66,6 @@ const ENQUIRY = `enq_${WID}`;
 const LISTING = `dv_${WID}`;
 const VENDOR_PROFILE = "usr_vendor";
 const ORG = "org_vendor";
-/** A second org of the same vendor, owning no listing: an org that already
- *  owns one cannot claim another. */
-const CLAIMING_ORG = "org_claimer";
-const UNCLAIMED_LISTING = "dv_unclaimed";
-const BUFFERED_ENQUIRY = "enq_buffered";
-const CLAIM_TOKEN = "claim-token-for-the-net";
 
 let auth: OsnTestAuth;
 beforeAll(async () => {
@@ -142,9 +135,9 @@ type Fixture = {
 
 /**
  * One wedding with a row in every child table, a vendor in the org that owns
- * its enquiry's listing, a second unclaimed listing with a buffered enquiry and
- * a live claim token, the asset objects its rows name, and a guest who claimed
- * their code. `deleted` soft-deletes it after the claim, as an owner would.
+ * its enquiry's listing, the asset objects its rows name, and a guest who
+ * claimed their code. `deleted` soft-deletes it after the claim, as an owner
+ * would.
  */
 async function fixture(deleted: boolean): Promise<Fixture> {
   const db = createDb(":memory:");
@@ -157,33 +150,6 @@ async function fixture(deleted: boolean): Promise<Fixture> {
   db.update(vendorEnquiries)
     .set({ status: "open", zapChatId: "chat_existing" })
     .where(eq(vendorEnquiries.id, ENQUIRY))
-    .run();
-  db.insert(directoryVendors)
-    .values({ id: UNCLAIMED_LISTING, name: "Unclaimed", createdAt: now, updatedAt: now })
-    .run();
-  db.insert(vendorEnquiries)
-    .values({
-      id: BUFFERED_ENQUIRY,
-      weddingId: WID,
-      directoryVendorId: UNCLAIMED_LISTING,
-      vendorId: `ven_${WID}`,
-      createdBy: OWNER,
-      status: "open",
-      pendingBody: "Are you free in June?",
-      lastMessageAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-  db.insert(vendorClaims)
-    .values({
-      id: "vclaim_net",
-      directoryVendorId: UNCLAIMED_LISTING,
-      tokenHash: await Effect.runPromise(hashToken(CLAIM_TOKEN)),
-      email: "vendor@example.test",
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 86_400_000),
-    })
     .run();
 
   const zapCalls: string[] = [];
@@ -217,7 +183,7 @@ async function fixture(deleted: boolean): Promise<Fixture> {
     assets,
     enquiryZapClient: zap,
     orgMembership: async (orgId, profileId) =>
-      (orgId === ORG || orgId === CLAIMING_ORG) && profileId === VENDOR_PROFILE ? "member" : null,
+      orgId === ORG && profileId === VENDOR_PROFILE ? "member" : null,
     profileOrgs: async (profileId) =>
       profileId === VENDOR_PROFILE ? [{ id: ORG } as unknown as OsnOrgSummary] : [],
   });
@@ -435,24 +401,6 @@ const REQUESTS: Record<string, Row> = {
     live: status(201),
     deleted: status(404),
   },
-  "POST /api/vendor/claims/:token/consume": {
-    request: (f) =>
-      send(f, "POST", `/api/vendor/claims/${CLAIM_TOKEN}/consume`, {
-        as: VENDOR_PROFILE,
-        body: { orgId: CLAIMING_ORG },
-      }),
-    // Claiming the listing flushes the couple's buffered enquiry to Zap.
-    live: (res, f) => {
-      expect(res.status).toBe(200);
-      expect(f.zapCalls).toContain("provision");
-    },
-    // The claim itself is the vendor's and succeeds; the deleted wedding's
-    // enquiry is not sent and gets no chat.
-    deleted: (res, f) => {
-      expect(res.status).toBe(200);
-      expect(f.zapCalls).toEqual([]);
-    },
-  },
 };
 
 /** Mounted routes that hold no wedding, or reach one by decision. */
@@ -469,6 +417,8 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "POST /api/auth/signout": "organiser sign-out",
   "POST /api/claim/signout": "revokes the presented guest token; signing out is always allowed",
   "GET /api/vendor/claims/:token": "reads a listing claim token, not a wedding",
+  "POST /api/vendor/claims/:token/consume":
+    "puts a listing under operator review and reaches no wedding; the hand-off of buffered enquiries is the daily claim-review sweep, which skips a deleted wedding (tests/services/claim-review.test.ts)",
   "GET /api/vendor/orgs": "a vendor's own orgs",
   "GET /api/vendor/orgs/:orgId/listing": "a vendor org's own listing",
   "PUT /api/vendor/orgs/:orgId/listing": "a vendor org's own listing",

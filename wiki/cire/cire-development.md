@@ -93,9 +93,10 @@ A wedding with `weddings.deleted_at` set must be unreachable from every guest,
 vendor and co-host path. The four gates get this for free from
 `hostsService.authorize()`. Anything else that starts from a slug, a claim
 code, a guest session, a wedding id, or a row that belongs to a wedding — a
-public route, a vendor route, a cron, a mail, a service fan-out like
-`onVendorClaimed` — must carry the predicate from
-`cire/api/src/db/live-wedding.ts` in the statement it already runs:
+public route, a vendor route, a cron like the claim hand-off
+(`claimReviewService.sweep`), a mail, a service fan-out — must carry the
+predicate from `cire/api/src/db/live-wedding.ts` in the statement it already
+runs:
 `weddingIsLive` when the query reads `weddings`, `weddingIdIsLive(column)` when
 it holds only an id (it renders the column through `outerColumn()`, so the
 correlated `EXISTS` binds to the outer row). Answer a deleted wedding exactly as
@@ -251,7 +252,7 @@ table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
 and each statement needs its own `--> statement-breakpoint`, because
 `d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
 step that has to run before the drop goes at the top of the same file.
-`0074_wedding_owners.sql` is the example, and `migration-0074.test.ts` is the
+`0075_wedding_owners.sql` is the example, and `migration-0075.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no

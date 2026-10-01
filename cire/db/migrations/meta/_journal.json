@@ -124,15 +124,22 @@
     {
       "idx": 74,
       "version": "6",
-      "when": 1790841013768,
-      "tag": "0074_wedding_owners",
+      "when": 1790840616518,
+      "tag": "0074_directory_vendor_claim_review",
       "breakpoints": true
     },
     {
       "idx": 75,
       "version": "6",
-      "when": 1790841019388,
-      "tag": "0075_wedding_soft_delete",
+      "when": 1790844405612,
+      "tag": "0075_wedding_owners",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1790844411917,
+      "tag": "0076_wedding_soft_delete",
       "breakpoints": true
     }
   ]

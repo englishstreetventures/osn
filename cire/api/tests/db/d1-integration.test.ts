@@ -101,7 +101,7 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
-const MIGRATION_0074 = "0074_wedding_owners.sql";
+const MIGRATION_0075 = "0075_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -1084,7 +1084,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "consumeClaim burns the token and binds the listing from the bind's RETURNING row",
+    "consumeClaim burns the token and holds the claim, from the write's RETURNING row",
     async () => {
       const now = new Date();
       await db.insert(vendors).values({
@@ -1117,6 +1117,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         directory.issueClaimForListing({
           id: directoryVendorId,
           ownerOrgId: null,
+          reviewOrgId: null,
           email: "claim@example.com",
           name: "Claim Florals",
           phone: null,
@@ -1128,15 +1129,18 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const listing = await run(directory.consumeClaim(claimToken, "org_claim", "usr_claim"));
       expect(listing.id).toBe(directoryVendorId);
-      expect(listing.ownerOrgId).toBe("org_claim");
-      expect(listing.listed).toBe("live");
+      expect(listing.ownerOrgId).toBeNull();
+      expect(listing.awaitingConfirmation).toBe(true);
+      expect(listing.listed).toBe("draft");
       expect(listing.categories.toSorted()).toEqual(["decor_styling", "florals"]);
 
       const [row] = await db
         .select()
         .from(directoryVendors)
         .where(eq(directoryVendors.id, directoryVendorId));
-      expect(row?.claimedByProfileId).toBe("usr_claim");
+      expect(row?.claimedByProfileId).toBeNull();
+      expect(row?.reviewOrgId).toBe("org_claim");
+      expect(row?.reviewProfileId).toBe("usr_claim");
       // The bind's batch burned the listing's other token too.
       const claims = await db
         .select()
@@ -1181,6 +1185,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         directory.issueClaimForListing({
           id: "dv_open",
           ownerOrgId: null,
+          reviewOrgId: null,
           email: "open@example.com",
           name: "Open",
           phone: null,
@@ -1206,11 +1211,22 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(open?.consumedAt).toBeNull();
 
       // The unique owner index, on D1's own SQLite: a second owned row fails.
-      // ddl-lockstep.test.ts checks that migration 0072 builds the same index.
+      // ddl-lockstep.test.ts checks that migration 0071 builds the same index.
       await expect(
         db
           .insert(directoryVendors)
           .values({ id: "dv_dup", ownerOrgId: "org_owner", name: "Dup", ...base })
+          .run(),
+      ).rejects.toThrow();
+
+      // The same holds for an org's pending claim (migration 0074).
+      await db
+        .insert(directoryVendors)
+        .values({ id: "dv_pending", reviewOrgId: "org_pending", name: "Pending", ...base });
+      await expect(
+        db
+          .insert(directoryVendors)
+          .values({ id: "dv_pending2", reviewOrgId: "org_pending", name: "Pending 2", ...base })
           .run(),
       ).rejects.toThrow();
     },
@@ -2039,7 +2055,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "runs migration 0074 on D1's own SQLite: owners become seats, nothing cascades",
+    "runs migration 0075 on D1's own SQLite: owners become seats, nothing cascades",
     async () => {
       // Its own instance, built from the chain up to 0070, so the weddings the
       // migration moves are rows that exist before it runs — including one
@@ -2054,7 +2070,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = readdirSync(MIGRATIONS_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
-        const cut = files.indexOf(MIGRATION_0074);
+        const cut = files.indexOf(MIGRATION_0075);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
           for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
@@ -2068,7 +2084,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0074);
+        const statements = migrationStatements(MIGRATION_0075);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
