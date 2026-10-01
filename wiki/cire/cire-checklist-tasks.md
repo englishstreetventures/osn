@@ -6,7 +6,8 @@ related:
   - "[[cire-platform-plan]]"
   - "[[cire-host-portal-layout]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-25
+  - "[[cire-entitlements]]"
+last-reviewed: 2026-10-01
 ---
 # Checklist / Tasks
 
@@ -75,6 +76,14 @@ read/write split pattern used by the hosts routes in `app.ts`):
 | `PATCH` | `/tasks/reorder` | `weddingEditor` | `createTaskWriteRoutes` |
 | `PATCH` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `DELETE` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
+
+**Gold only, reads included.** Both factories mount `weddingTier(db, "gold")`
+directly behind their role gate, so a wedding below Gold gets
+`402 { "error": "payment_required", "tier": "gold" }` from every route above and
+its tasks stay where they are until it is back on Gold (an export for that case
+is englishstventures/osn#1316). In the portal the Checklist row is locked below
+Gold, and Overview neither reads `/tasks` nor shows the Checklist card: a refused
+tasks read there would blank the whole snapshot. See [[cire-entitlements]].
 
 `/tasks/reorder` is registered **before** `/tasks/:taskId` in the factory so the
 literal path wins over the param route — the ordering invariant Elysia

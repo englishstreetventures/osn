@@ -6,7 +6,8 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-09-27
+  - "[[cire-entitlements]]"
+last-reviewed: 2026-10-01
 ---
 # Invite design selector
 
@@ -22,8 +23,10 @@ round-trips.
   for api validation, the organiser selector, and the web registry keys.
 - **API** — both invite GETs surface `designId`;
   `PUT /api/organiser/weddings/:weddingId/invite/design` (weddingEditor)
-  validates against the catalog (unknown → 422) and gates `premium` tiers on
-  the `premium_templates` entitlement (403). `inviteService.setDesign` bumps
+  validates against the catalog (unknown → 422) and refuses a `premium` design
+  (403 `premium_design`) unless the wedding is on the Crimson plan tier or
+  holds the one-off `premium_templates` entitlement (`hasPremiumTemplates`,
+  one statement for both — see [[cire-entitlements]]). `inviteService.setDesign` bumps
   `updatedAt` only — never `imagesUpdatedAt` (WT-P-I1).
 - **Web** — `cire/invites/src/designs/`: `registry.ts` maps `DesignId` →
   per-design component tree (`classic/` holds the original layout);
@@ -33,7 +36,9 @@ round-trips.
   DetailsModal, EventCard, PulseAccountLink, invite-theme, invite-images) stay
   in `components/`.
 - **Organiser** — Design section in `InviteBuilder`; card per catalog entry,
-  lock badge on unentitled premium designs, instant save. **The live previews
+  lock badge on a premium design the wedding cannot use, instant save. The lock
+  reads `premium_templates` from the wedding list's `entitlements`, which the
+  API fills for a Crimson wedding as well as for one holding the row. **The live previews
   follow the pack** (2026-08-06): `invite/design-layout.ts` names each pack's
   structural signature and `HeroSample`/`SectionSample` render it, so switching
   designs visibly re-shapes the miniature. See [[cire-invite-builder]] §preview.

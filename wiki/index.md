@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # OSN Wiki
@@ -110,8 +110,8 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-organiser]] — the cire organiser overview surface
 - [[cire-budget]] — cire budget lines and spend roll-ups
 - [[cire-checklist-tasks]] — the cire planning checklist / tasks module
-- [[cire-entitlements]] — per-wedding capability gates
-- [[cire-upgrades]] — self-serve purchase of a locked module: catalogue, platform Stripe checkout, the webhook that grants
+- [[cire-entitlements]] — the plan tiers (Ivory, Gold, Crimson): what each opens, the tier gate, guest caps, changing a tier by hand
+- [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it

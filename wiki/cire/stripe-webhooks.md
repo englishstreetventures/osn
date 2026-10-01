@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-01
 ---
 
 # Stripe webhooks (cire-api)
@@ -114,8 +114,8 @@ not one a couple can change later.
 
    | Event | What it does |
    |---|---|
-   | `checkout.session.completed` | **grants the entitlement** and writes the `platform_sales` row |
-   | `checkout.session.expired` | closes the pending purchase so the module can be bought again |
+   | `checkout.session.completed` | **raises the wedding's tier** and writes the `platform_sales` row |
+   | `checkout.session.expired` | closes the pending purchase so the tier can be bought again |
    | `checkout.session.async_payment_failed` | the same, for a debit that bounced |
 
 5. Copy **that** endpoint's secret — not the Connect one:
@@ -125,15 +125,23 @@ not one a couple can change later.
    bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env dev
    ```
 
-The upgrade path also needs a **Price per purchasable module**, or nothing is
-for sale. Test-mode Prices for dev, live-mode for production; a test id in
-production fails at checkout. They are ordinary vars, in `wrangler.toml` under
-each tier's own `[env.<env>.vars]` — named envs inherit no vars:
+The upgrade path also needs **three Prices**, or nothing is for sale: one
+product per paid tier, each with a one-off Price, plus a second Price on the
+Crimson product for a wedding upgrading from Gold. Test-mode Prices for dev,
+live-mode for production; a test id in production fails at checkout. They are
+ordinary vars, in `wrangler.toml` under each tier's own `[env.<env>.vars]` —
+named envs inherit no vars — and they sit there commented out until the Prices
+exist:
 
 ```toml
-STRIPE_UPGRADE_PRICE_VENDORS  = "price_..."
-STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+STRIPE_UPGRADE_PRICE_GOLD              = "price_..."
+STRIPE_UPGRADE_PRICE_CRIMSON           = "price_..."
+STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD = "price_..."
 ```
+
+Leave `CRIMSON_FROM_GOLD` unset and a Gold wedding is simply not offered
+Crimson — never charged its full price a second time. Which Price sells which
+move is in [[cire-upgrades]] §Pricing.
 
 ## After either secret changes
 
@@ -165,7 +173,8 @@ secrets take the same value:
 ```bash
 STRIPE_SECRET_KEY=sk_test_… \
 STRIPE_WEBHOOK_SECRET=whsec_… STRIPE_PLATFORM_WEBHOOK_SECRET=whsec_… \
-STRIPE_UPGRADE_PRICE_VENDORS=price_… STRIPE_UPGRADE_PRICE_REGISTRY=price_… \
+STRIPE_UPGRADE_PRICE_GOLD=price_… STRIPE_UPGRADE_PRICE_CRIMSON=price_… \
+STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD=price_… \
   bun run --cwd cire/api dev:app
 ```
 
@@ -210,9 +219,11 @@ show here, and this is the first thing to read rather than the last:
 cd cire/api && bunx wrangler tail --env dev --format pretty
 ```
 
-**3. Buy something.** As a wedding **owner**, open a locked module's nav row →
-Upgrade → pay with a Stripe test card (`4242 4242 4242 4242`, any future expiry
-and CVC) → you should land back in the portal with the module open.
+**3. Buy something.** As a wedding **owner** on Ivory, open a locked module's
+nav row → **Upgrade to Gold** → pay with a Stripe test card
+(`4242 4242 4242 4242`, any future expiry and CVC) → you should land back in
+the portal with a toast naming Gold, and the wedding's Gold modules open. Then buy Crimson from the Vendors row:
+the dialog should read **Upgrade from Gold** at the from-Gold Price.
 
 **4. Prove it was the webhook that granted it, not the browser.** The return
 from Stripe only polls; nothing in the query string can grant. So check the
@@ -221,10 +232,10 @@ rows:
 ```bash
 cd cire/api
 bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
-  "SELECT entitlement, source, granted_at FROM wedding_entitlements WHERE source = 'purchase'"
+  "SELECT id, tier, tier_source, tier_granted_by FROM weddings WHERE tier_source = 'purchase'"
 
 bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
-  "SELECT id, entitlement, status, checkout_session_id FROM wedding_upgrade_purchases ORDER BY created_at DESC LIMIT 5"
+  "SELECT id, entitlement, from_tier, status, checkout_session_id FROM wedding_upgrade_purchases ORDER BY created_at DESC LIMIT 5"
 
 bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
   "SELECT purchase_id, entitlement, amount_minor, currency FROM platform_sales ORDER BY settled_at DESC LIMIT 5"
@@ -260,7 +271,7 @@ bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
 | Gifts settle, upgrades never do | only the Connect endpoint exists |
 | Upgrades settle, gifts never do | only the platform endpoint exists |
 | Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design |
-| Module missing from the upgrade dialog | no `STRIPE_UPGRADE_PRICE_*` for that key in this tier. Absent configuration never means free |
+| Dialog says upgrades are not available | no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
 | Checkout 404s | the same, from the session route |
 | Secret changed and nothing changed | warm isolates. Redeploy |
 
@@ -270,7 +281,7 @@ bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
 
 - [[cire-upgrades]] — the upgrade purchase lifecycle, the double-charge guard, retention
 - [[cire-registry]] — gifts, Connect onboarding, the seven gift events in context
-- [[cire-entitlements]] — what a granted row unlocks
+- [[cire-entitlements]] — what each tier unlocks
 - [[production-deploy]] §3.8, §3.9 — where these sit in the deploy checklist
 - [[dev-environment]] — what the dev tier is and how a merge reaches it
 - [[subprocessors]] — Stripe's standing as a processor

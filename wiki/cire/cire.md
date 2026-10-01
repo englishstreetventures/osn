@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # Cire
@@ -150,7 +150,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the
@@ -193,7 +193,7 @@ Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The 
 - **Per-user spam limiter** — the couple-side `POST /enquiries` and vendor-side `POST /enquiries/:id/messages` (reply / quote) run through a per-user rate limiter to prevent spam across enquiries.
 - **Not E2E encrypted** — the c2b thread is server-visible (not end-to-end encrypted). A disclosure notice for guests/vendors is planned for PR C.
 
-Auth boundaries: couple routes are under `/api/organiser/weddings/:weddingId/enquiries` — reads are `weddingMember`-gated (viewer co-hosts can read), writes are `weddingEditor`-gated (viewer co-hosts get 403 `read_only_role`), and both then require the `vendors` entitlement (402 `payment_required` without it, before the write limiter — see [[cire-entitlements]]). Every id-bearing handler re-scopes the loaded enquiry to the gated `weddingId` and returns 404 on a cross-tenant id. Vendor routes are under `/api/vendor/enquiries` — gated by `vendorOrgMember()`, which resolves the listing's `owner_org_id` and 404s on any org mismatch (no enumeration). Compliance rows: [[data-map]] (S4 section) + [[retention]] (S4 rows) + [[scope-matrix]] (DSA Art. 30 out-of-scope note). Deploy-time step: [[production-deploy]] §10 (cire→zap ARC key registration).
+Auth boundaries: couple routes are under `/api/organiser/weddings/:weddingId/enquiries` — reads are `weddingMember`-gated (viewer co-hosts can read), writes are `weddingEditor`-gated (viewer co-hosts get 403 `read_only_role`), and both then require the Crimson plan tier (402 `payment_required` below it, before the write limiter — see [[cire-entitlements]]). Every id-bearing handler re-scopes the loaded enquiry to the gated `weddingId` and returns 404 on a cross-tenant id. Vendor routes are under `/api/vendor/enquiries` — gated by `vendorOrgMember()`, which resolves the listing's `owner_org_id` and 404s on any org mismatch (no enumeration). Compliance rows: [[data-map]] (S4 section) + [[retention]] (S4 rows) + [[scope-matrix]] (DSA Art. 30 out-of-scope note). Deploy-time step: [[production-deploy]] §10 (cire→zap ARC key registration).
 
 ## Compliance
 

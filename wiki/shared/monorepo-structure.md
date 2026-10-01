@@ -64,7 +64,7 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-01
 ---
 
 # Monorepo Structure
@@ -114,7 +114,7 @@ cire/
   db/                  # @cire/db — Drizzle schema + D1 migrations
   theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list)
   ui/                  # @cire/ui — cire's house component layer on top of @shared/ui. Version-less like every @cire/* package
-  invite-designs/      # @cire/invite-designs — the invite design catalog: ids, names, entitlement tiers
+  invite-designs/      # @cire/invite-designs — the invite design catalog: ids, names, free or premium (premium opens with Crimson)
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
 shared/
   color/               # @shared/color — OKLCH parsing / conversion / contrast maths, lifted out of @cire/theme so no @shared/* depends on a @cire/* one
