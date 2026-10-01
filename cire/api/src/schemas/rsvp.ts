@@ -85,6 +85,11 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // — see [[wiki/compliance/dpia/cire-guest-data]], organiser-attested
 // variant). Same caps and consent gate as the guest path.
 //
+// `dietary` and `dietaryPresets` stay absent when the body omits them: a body
+// with neither is a status-only reply, which for a plus-one keeps the
+// household's dietary answer (see `organiserRsvpService.record`). Either one
+// present makes it a dietary edit, the other counting as empty.
+//
 // `dietaryAttestation` is the version of the attestation wording the portal
 // showed (`ORGANISER_DIETARY_ATTESTATION.version` in `@cire/dietary`). The
 // route refuses dietary data unless it is the version this API stamps, and
@@ -92,8 +97,8 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // not stored.
 export const OrganiserRsvpBody = Schema.Struct({
   status: Schema.Literals(["attending", "declined", "maybe"]),
-  dietary: DietaryText.pipe(Schema.withDecodingDefaultType(Effect.succeed(""))),
-  dietaryPresets: DietaryPresets.pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
+  dietary: Schema.optionalKey(DietaryText),
+  dietaryPresets: Schema.optionalKey(DietaryPresets),
   dietaryConsent: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
   dietaryAttestation: Schema.String.check(Schema.isMaxLength(64)).pipe(
     Schema.withDecodingDefaultType(Effect.succeed("")),
