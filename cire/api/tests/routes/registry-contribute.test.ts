@@ -450,6 +450,18 @@ describe("what reaches Stripe, and what does not", () => {
     expect(rows[0]?.itemId).toBeNull();
   });
 
+  it("treats an empty item id as no item at all", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const cookie = await guestCookie(app);
+
+    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "" });
+
+    expect(res.status).toBe(200);
+    const rows = await db.select().from(registryContributions).all();
+    expect(rows[0]?.itemId).toBeNull();
+  });
+
   it("checks the household and the item inside the registry gate's one statement", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
