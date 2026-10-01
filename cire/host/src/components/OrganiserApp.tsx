@@ -44,6 +44,7 @@ import { invalidateCatalogue } from "../lib/upgrade-store";
 import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
+import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
@@ -164,7 +165,10 @@ function WeddingDashboard(props: {
   const surfaces = () => surfacesFor(props.wedding.role);
 
   return (
-    <Show when={surfaces().canOpenDashboard} fallback={<RunSheetSeat />}>
+    <Show
+      when={surfaces().canOpenDashboard}
+      fallback={<RunSheetSeat weddingId={props.weddingId} onLeft={props.onLeft} />}
+    >
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
           weddingId={props.weddingId}
@@ -215,13 +219,17 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
  *  wedding is still listed for them — that is how they reach it at all — so
  *  this says what the seat covers rather than leaving them on a dashboard whose
  *  every panel errors. */
-function RunSheetSeat() {
+function RunSheetSeat(props: { weddingId: string; onLeft: () => void }) {
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
-      <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
-      <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
-        {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
-      </p>
+    <div class="flex flex-col gap-6">
+      <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
+        <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
+        <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
+          {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
+        </p>
+      </div>
+      {/* A helper never reaches the co-host panel, so their way out lives here. */}
+      <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
     </div>
   );
 }

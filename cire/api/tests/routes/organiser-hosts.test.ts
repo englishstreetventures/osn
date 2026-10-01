@@ -611,12 +611,14 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     ).toBe(before + 1);
   });
 
-  it("refuses a helper (the member gate does not admit them) and keeps the seat", async () => {
+  it("lets a helper leave too — holding a seat is the whole test", async () => {
     const { db, app } = build();
     seedHostSeat(db, COHOST, "helper");
+    seedNotice(db, COHOST);
     const res = await req(app, "DELETE", leavePath, COHOST);
-    expect(res.status).toBe(403);
-    expect(await seatIds(db)).toEqual([COHOST]);
+    expect(res.status).toBe(200);
+    expect(await seatIds(db)).toEqual([]);
+    expect(await noticeIds(db)).toEqual([]);
   });
 
   it("returns 403 on a second call, once the seat is gone", async () => {
