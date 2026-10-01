@@ -659,7 +659,7 @@ describe("flushBufferedEnquiry", () => {
       db,
       flushBufferedEnquiry(
         zap.client,
-        { id: "enq_x", createdBy: "usr_x", pendingBody: null },
+        { id: "enq_x", createdBy: "usr_x", pendingBody: null, handoffChatId: null },
         VENDOR_PROFILE_ID,
       ),
     );
@@ -681,10 +681,76 @@ describe("flushBufferedEnquiry", () => {
     const stale = readEnquiry(db, opened.value.id);
     await run(db, flushBufferedEnquiry(zap.client, stale, VENDOR_PROFILE_ID));
 
-    // A second runner holding the stale row provisions, but cannot overwrite.
+    // A second runner holding the stale row cannot stage, so it sends nothing.
     const second = await run(db, flushBufferedEnquiry(zap.client, stale, VENDOR_PROFILE_ID));
     expect(Exit.isSuccess(second) && second.value).toBe(false);
     expect(readEnquiry(db, opened.value.id).zapChatId).toBe("chat_1");
+    expect(zap.sendCalls).toHaveLength(1);
+  });
+
+  it("stages the chat before sending, so a failed send keeps no visible thread", async () => {
+    const db = db0();
+    const zap = fakeZap();
+    const svc = createEnquiryService({
+      zap: zap.client,
+      sendEmail: fakeEmail().sendEmail,
+      threadBaseUrl: THREAD_BASE,
+    });
+    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
+    if (!Exit.isSuccess(opened)) throw new Error("open failed");
+    const failing: ZapChatClient = {
+      ...zap.client,
+      sendC2bMessage: async () => {
+        throw new Error("zap down");
+      },
+    };
+    await run(
+      db,
+      flushBufferedEnquiry(failing, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
+    );
+    const staged = readEnquiry(db, opened.value.id);
+    expect(staged.handoffChatId).toBe("chat_1");
+    expect(staged.zapChatId).toBeNull();
+
+    // The retry sends into the staged chat and provisions nothing.
+    const res = await run(db, flushBufferedEnquiry(zap.client, staged, VENDOR_PROFILE_ID));
+    expect(Exit.isSuccess(res) && res.value).toBe(true);
+    expect(zap.provisionCalls).toHaveLength(1);
+    expect(zap.sendCalls.map((c) => c.chatId)).toEqual(["chat_1"]);
+    const after = readEnquiry(db, opened.value.id);
+    expect(after.zapChatId).toBe("chat_1");
+    expect(after.handoffChatId).toBeNull();
+    expect(after.pendingBody).toBeNull();
+  });
+
+  it("does not send twice when an earlier run sent but failed to record it", async () => {
+    const db = db0();
+    const zap = fakeZap();
+    const svc = createEnquiryService({
+      zap: zap.client,
+      sendEmail: fakeEmail().sendEmail,
+      threadBaseUrl: THREAD_BASE,
+    });
+    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
+    if (!Exit.isSuccess(opened)) throw new Error("open failed");
+    // The chat was staged and the body landed in it, but the final write never ran.
+    await zap.client.sendC2bMessage("chat_staged", {
+      senderProfileId: ORGANISER_PROFILE_ID,
+      body: "Are you free on our date?",
+    });
+    db.update(vendorEnquiries)
+      .set({ handoffChatId: "chat_staged" })
+      .where(eq(vendorEnquiries.id, opened.value.id))
+      .run();
+
+    const res = await run(
+      db,
+      flushBufferedEnquiry(zap.client, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
+    );
+    expect(Exit.isSuccess(res) && res.value).toBe(true);
+    expect(zap.sendCalls).toHaveLength(1);
+    expect(zap.provisionCalls).toHaveLength(0);
+    expect(readEnquiry(db, opened.value.id).zapChatId).toBe("chat_staged");
   });
 });
 

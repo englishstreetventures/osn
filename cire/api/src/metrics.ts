@@ -60,7 +60,8 @@ export const CIRE_METRICS = {
   // Scheduled expired vendor-claim-token sweep (cron).
   vendorClaimsSwept: "cire.vendor_claims.swept",
   // Vendor claims held for an operator: one per claim redeemed, per claim
-  // handed off after an operator confirmed it, and per failed hand-off.
+  // handed off after an operator confirmed it, per failed hand-off, and per
+  // daily operator reminder sent or failed.
   vendorClaimReview: "cire.vendor_claim_review.events",
   // Scheduled abandoned-preview sweep (cron) — imports rows stuck in `preview`
   // past the staleness window, plus their uploaded-sheet R2 objects.
@@ -303,7 +304,12 @@ type SessionSweptAttrs = { result: "ok" | "error" };
 type VendorClaimsSweptAttrs = { result: "ok" | "error" };
 
 /** What happened to a vendor claim held for operator review. */
-export type VendorClaimReviewEvent = "requested" | "handed_off" | "handoff_error";
+export type VendorClaimReviewEvent =
+  | "requested"
+  | "handed_off"
+  | "handoff_error"
+  | "operator_alerted"
+  | "operator_alert_error";
 type VendorClaimReviewAttrs = { event: VendorClaimReviewEvent };
 
 type StalePreviewsSweptAttrs = { result: "ok" | "error" };
@@ -614,7 +620,7 @@ const vendorClaimsSwept = createCounter<VendorClaimsSweptAttrs>({
 const vendorClaimReview = createCounter<VendorClaimReviewAttrs>({
   name: CIRE_METRICS.vendorClaimReview,
   description:
-    "Vendor claims held for operator review — redeemed (requested), confirmed and handed to the vendor (handed_off), or a hand-off that failed",
+    "Vendor claims held for operator review — redeemed (requested), confirmed and handed to the vendor (handed_off), a hand-off that failed, or the daily operator reminder sent (operator_alerted) or failed",
   unit: "{claim}",
 });
 

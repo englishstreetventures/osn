@@ -62,6 +62,8 @@ export interface EnquiryRow {
   vendorId: string;
   zapChatId: string | null;
   pendingBody: string | null;
+  /** Hand-off staging only; never a sign that a thread exists. */
+  handoffChatId: string | null;
   status: "open" | "quoted" | "closed";
   createdBy: string;
   quotedMinor: number | null;
@@ -177,52 +179,91 @@ const threadUrl = (base: string, enquiryId: string): string =>
 
 /**
  * Hand one buffered enquiry (open, no chat, `pendingBody` set) to the vendor
- * who now owns its listing: provision the chat, send the buffered body, then
- * record the chat and clear `pendingBody`. Answers whether the enquiry was
- * handed over; any failure is logged and answers false, never fails, so one bad
- * enquiry cannot stop the others.
+ * who now owns its listing. Answers whether the enquiry was handed over; any
+ * failure is logged and answers false, never fails, so one bad enquiry cannot
+ * stop the others.
  *
- * Nothing is cleared before the send succeeds, so a failure leaves the
- * enquiry buffered and the next run retries it; the failure bumps
- * `updated_at`, which moves it to the back of the sweep's queue. A chat
- * provisioned before a failed send is not reused: recording it early would
- * leave an open enquiry with both a chat and a buffered body. The final UPDATE matches only
- * while the enquiry is open with `zap_chat_id IS NULL`, so a second runner
- * cannot overwrite the first's chat and a thread the couple closed meanwhile
- * is not marked delivered. The daily cron calls this (`claimReviewService.sweep`) for listings an
- * operator has confirmed; nothing in the request path does.
+ * Three steps, each safe to repeat:
+ *  1. Stage a chat. A chat staged by an earlier run (`handoffChatId`) is
+ *     reused. Otherwise one is provisioned and recorded in `handoff_chat_id`
+ *     before anything is sent, under a guard that matches only an open,
+ *     undelivered enquiry with nothing staged; losing that guard answers
+ *     false and sends nothing, so two runners never both send.
+ *  2. Send the buffered body, unless a reused chat already holds a message.
+ *     Nothing reaches a staged chat but this send (every reply path refuses
+ *     while `zap_chat_id` is null), so a message there means an earlier run
+ *     sent it and failed to record it.
+ *  3. Record delivery: `zap_chat_id` set, `pending_body` and `handoff_chat_id`
+ *     cleared, in one UPDATE that matches only while the enquiry is open with
+ *     `zap_chat_id IS NULL`.
+ *
+ * `zap_chat_id` alone tells every reader that a thread exists, and it is set
+ * only once the body is delivered, so an open enquiry never shows a chat while
+ * its first message waits. A failure bumps `updated_at`, which moves the
+ * enquiry to the back of the sweep's queue. The daily cron calls this
+ * (`claimReviewService.sweep`) for listings an operator has confirmed;
+ * nothing in the request path does.
  */
 export function flushBufferedEnquiry(
   zap: ZapChatClient,
-  enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody">,
+  enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody" | "handoffChatId">,
   vendorProfileId: string,
 ): Effect.Effect<boolean, never, DbService> {
   return Effect.gen(function* () {
     if (enq.pendingBody === null) return false;
     const body = enq.pendingBody;
     const db = yield* DbService;
-    const { chatId } = yield* Effect.promise(() =>
-      zap.provisionC2bChat({
-        memberProfileIds: [enq.createdBy, vendorProfileId],
-        createdByProfileId: enq.createdBy,
-        title: undefined,
-      }),
+    const undelivered = and(
+      eq(vendorEnquiries.id, enq.id),
+      eq(vendorEnquiries.status, "open"),
+      isNull(vendorEnquiries.zapChatId),
     );
-    yield* Effect.promise(() =>
-      zap.sendC2bMessage(chatId, { senderProfileId: enq.createdBy, body }),
-    );
+
+    let chatId = enq.handoffChatId ?? null;
+    let alreadySent = false;
+    if (chatId === null) {
+      const provisioned = yield* Effect.promise(() =>
+        zap.provisionC2bChat({
+          memberProfileIds: [enq.createdBy, vendorProfileId],
+          createdByProfileId: enq.createdBy,
+          title: undefined,
+        }),
+      );
+      const staged = yield* dbQuery(() =>
+        db
+          .update(vendorEnquiries)
+          .set({ handoffChatId: provisioned.chatId })
+          .where(and(undelivered, isNull(vendorEnquiries.handoffChatId)))
+          .run(),
+      );
+      if (rowsChanged(staged) !== 1) return false;
+      chatId = provisioned.chatId;
+    } else {
+      const stagedChat = chatId;
+      const { messages } = yield* Effect.promise(() =>
+        zap.listC2bMessages(stagedChat, { limit: 1 }),
+      );
+      alreadySent = messages.length > 0;
+    }
+
+    const deliverTo = chatId;
+    if (!alreadySent) {
+      yield* Effect.promise(() =>
+        zap.sendC2bMessage(deliverTo, { senderProfileId: enq.createdBy, body }),
+      );
+    }
     const now = new Date();
     const result = yield* dbQuery(() =>
       db
         .update(vendorEnquiries)
-        .set({ zapChatId: chatId, pendingBody: null, lastMessageAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(vendorEnquiries.id, enq.id),
-            eq(vendorEnquiries.status, "open"),
-            isNull(vendorEnquiries.zapChatId),
-          ),
-        )
+        .set({
+          zapChatId: deliverTo,
+          handoffChatId: null,
+          pendingBody: null,
+          lastMessageAt: now,
+          updatedAt: now,
+        })
+        .where(undelivered)
         .run(),
     );
     return rowsChanged(result) === 1;
@@ -385,6 +426,7 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
           vendorId,
           zapChatId,
           pendingBody,
+          handoffChatId: null,
           status: "open",
           createdBy: input.createdBy,
           quotedMinor: null,

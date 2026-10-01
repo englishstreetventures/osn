@@ -7,7 +7,11 @@ import { Effect } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { claimReviewService } from "../../src/services/claim-review";
+import {
+  claimReviewService,
+  type ClaimReviewSweepOptions,
+  type PendingClaimsSummary,
+} from "../../src/services/claim-review";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { captureLogs } from "../test-helpers/capture-logs";
 
@@ -17,6 +21,7 @@ const VENDOR = "usr_vendor";
 function fakeZap() {
   const provisions: string[][] = [];
   const sent: string[] = [];
+  const byChat: Record<string, string[]> = {};
   let seq = 0;
   const client: ZapChatClient = {
     async provisionC2bChat(input) {
@@ -24,12 +29,20 @@ function fakeZap() {
       seq += 1;
       return { chatId: `chat_${seq}` };
     },
-    async sendC2bMessage(_chatId, input) {
+    async sendC2bMessage(chatId, input) {
       sent.push(input.body);
+      (byChat[chatId] ??= []).push(input.body);
       return { messageId: `msg_${seq}`, createdAt: 0 };
     },
-    async listC2bMessages() {
-      return { messages: [] };
+    async listC2bMessages(chatId) {
+      return {
+        messages: (byChat[chatId] ?? []).map((body, i) => ({
+          id: `msg_${chatId}_${i}`,
+          senderProfileId: COUPLE,
+          body,
+          createdAt: 0,
+        })),
+      };
     },
   } as ZapChatClient;
   return { client, provisions, sent };
@@ -110,8 +123,11 @@ function db0() {
 }
 
 const sweep = (db: TestDb, zap: ZapChatClient | null, limit?: number) =>
+  sweepWith(db, zap, limit === undefined ? {} : { limit });
+
+const sweepWith = (db: TestDb, zap: ZapChatClient | null, options: ClaimReviewSweepOptions) =>
   Effect.runPromise(
-    claimReviewService.sweep(zap, limit).pipe(Effect.provideService(DbService, db)),
+    claimReviewService.sweep(zap, options).pipe(Effect.provideService(DbService, db)),
   );
 
 const enquiry = (db: TestDb, id: string) =>
@@ -191,8 +207,48 @@ describe("claimReviewService.sweep", () => {
 
     expect((await sweep(db, down)).handedOff).toBe(0);
     expect(enquiry(db, id!).pendingBody).not.toBeNull();
+    // The failed run left its chat staged, not delivered: no reader sees a
+    // thread while the first message waits.
+    expect(enquiry(db, id!).zapChatId).toBeNull();
+    expect(enquiry(db, id!).handoffChatId).toBe("chat_1");
+
     expect((await sweep(db, zap.client)).handedOff).toBe(1);
     expect(enquiry(db, id!).pendingBody).toBeNull();
+    // The retry reused the staged chat rather than provisioning another.
+    expect(zap.provisions).toHaveLength(1);
+    expect(enquiry(db, id!).zapChatId).toBe("chat_1");
+    expect(enquiry(db, id!).handoffChatId).toBeNull();
+  });
+
+  it("emails the operator once a run when claims wait, with counts only", async () => {
+    const db = db0();
+    listing(db, "dv_p1", null, "org_a");
+    listing(db, "dv_p2", null, "org_b");
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000 - 60_000);
+    db.update(directoryVendors)
+      .set({ reviewRequestedAt: threeDaysAgo })
+      .where(eq(directoryVendors.id, "dv_p1"))
+      .run();
+    db.update(directoryVendors)
+      .set({ reviewRequestedAt: new Date() })
+      .where(eq(directoryVendors.id, "dv_p2"))
+      .run();
+
+    const alerts: PendingClaimsSummary[] = [];
+    const alertOperator = (summary: PendingClaimsSummary) =>
+      Effect.sync(() => void alerts.push(summary));
+    await sweepWith(db, null, { alertOperator });
+    expect(alerts).toEqual([{ pending: 2, oldestWaitingDays: 3 }]);
+  });
+
+  it("does not email the operator when no claim waits", async () => {
+    const db = db0();
+    listing(db, "dv_confirmed", VENDOR, null);
+    const alerts: PendingClaimsSummary[] = [];
+    await sweepWith(db, null, {
+      alertOperator: (summary) => Effect.sync(() => void alerts.push(summary)),
+    });
+    expect(alerts).toHaveLength(0);
   });
 
   it("without vendor chat, hands nothing off and keeps every enquiry buffered", async () => {

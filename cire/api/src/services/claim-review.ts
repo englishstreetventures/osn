@@ -13,7 +13,9 @@
  *    sent after the confirm go straight to the vendor. A failed hand-off
  *    moves its enquiry to the back of the queue.
  *  - Reminder. It counts the claims still waiting and logs a warning when any
- *    are, so an operator reading Workers Logs sees them daily.
+ *    are. When the deployment configures an operator address, it also hands
+ *    the count and the oldest claim's age to `alertOperator`, which the cron
+ *    turns into one email: at most one a day, however many claims wait.
  *
  * Each hand-off costs two zap-api calls and one D1 write, and the cron's one
  * invocation shares the Free plan's per-invocation ceilings (50 external
@@ -42,6 +44,24 @@ export interface ClaimReviewSweepResult {
   pending: number;
 }
 
+/** What the operator reminder is told: counts only, never a listing or claimant. */
+export interface PendingClaimsSummary {
+  pending: number;
+  oldestWaitingDays: number;
+}
+
+export interface ClaimReviewSweepOptions {
+  /** Buffered enquiries handed off this run. */
+  limit?: number;
+  /**
+   * Called once when at least one claim waits. It must not fail: the caller
+   * absorbs a transport error, so a mail outage cannot stop the hand-off.
+   */
+  alertOperator?: (summary: PendingClaimsSummary) => Effect.Effect<void, never>;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const claimReviewService = {
   /**
    * `zap` null (vendor chat not configured) skips the hand-off and leaves
@@ -49,8 +69,9 @@ export const claimReviewService = {
    */
   sweep(
     zap: ZapChatClient | null,
-    limit: number = HANDOFFS_PER_RUN,
+    options: ClaimReviewSweepOptions = {},
   ): Effect.Effect<ClaimReviewSweepResult, ClaimReviewSweepError, DbService> {
+    const limit = options.limit ?? HANDOFFS_PER_RUN;
     return Effect.gen(function* () {
       const db = yield* DbService;
 
@@ -62,6 +83,7 @@ export const claimReviewService = {
                 id: vendorEnquiries.id,
                 createdBy: vendorEnquiries.createdBy,
                 pendingBody: vendorEnquiries.pendingBody,
+                handoffChatId: vendorEnquiries.handoffChatId,
                 vendorProfileId: directoryVendors.claimedByProfileId,
               })
               .from(vendorEnquiries)
@@ -89,7 +111,10 @@ export const claimReviewService = {
           ),
           dbQuery(() =>
             db
-              .select({ n: sql<number>`count(*)` })
+              .select({
+                n: sql<number>`count(*)`,
+                oldest: sql<number | null>`min(${directoryVendors.reviewRequestedAt})`,
+              })
               .from(directoryVendors)
               .where(isNotNull(directoryVendors.reviewOrgId))
               .all(),
@@ -103,6 +128,15 @@ export const claimReviewService = {
       const pending = counted?.n ?? 0;
       if (pending > 0) {
         yield* Effect.logWarning("vendor claims awaiting operator review", { pending });
+        if (options.alertOperator) {
+          // `review_requested_at` is stored in seconds; the raw aggregate
+          // bypasses Drizzle's timestamp mapping.
+          const oldestMs = counted?.oldest != null ? counted.oldest * 1000 : Date.now();
+          const oldestWaitingDays = Math.max(0, Math.floor((Date.now() - oldestMs) / DAY_MS));
+          yield* options
+            .alertOperator({ pending, oldestWaitingDays })
+            .pipe(Effect.withSpan("cire.claimReview.alertOperator"));
+        }
       }
 
       if (!zap) {
