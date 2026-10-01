@@ -172,7 +172,7 @@ the guard regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstventures/osn#1325 — see below)* |
-| cire/host | static | 256259 B | 267959 B *(re-baselined, englishstventures/osn#1238 — see below)* |
+| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstventures/osn#1304 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -236,6 +236,17 @@ Kobalte's switch the same change measured 257162 B, which is why `@shared/ui`'s
 on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
 `ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
 total the guard prints.*
+
+Equal wedding owners and the wedding soft delete (englishstventures/osn#1304)
+raised it again. `main` measured **265496 B** against the 267959 B threshold,
+2463 B of headroom. The owner rows and step-down in the hosts panel, the
+delete dialog in Settings and the "Recently deleted" list with Restore came to
+**268459 B**, **+2963 B**, with no new dependency.
+
+*Measured 2026-10-01 — `rm -rf cire/host/dist && bunx --bun astro build` in
+`cire/host`, then `scripts/guard-bundle-size.sh .`, on
+`claude/trusting-dijkstra-1eji1a` and on `origin/main`, reading the total the
+guard prints.*
 
 ### `cire/invites` went up for the household member step
 
