@@ -178,33 +178,18 @@ const seenMarker = (weddingId: string, osnProfileId: string): SQL =>
   sql`coalesce((SELECT ${hostRsvpNotices.seenSeq} FROM ${hostRsvpNotices} WHERE ${hostRsvpNotices.weddingId} = ${weddingId} AND ${hostRsvpNotices.osnProfileId} = ${osnProfileId}), 0)`;
 
 /**
- * The caller's unseen rows, `UNSEEN_SCAN_LIMIT + 1` of them from one end of
- * the range, as a CTE named `w`. Served by `rsvp_changes_wedding_idx` with a
- * rowid range in either direction (pinned by a plan test), so each read costs
- * at most that many rows however long the unseen range is.
+ * The caller's unseen rows in one wedding. Each feed read takes
+ * `UNSEEN_SCAN_LIMIT + 1` of them from one end of the range, as a CTE named
+ * `w` carrying only the columns that read uses (the card's is materialised and
+ * scanned more than once). Served by `rsvp_changes_wedding_idx` with a rowid
+ * range in either direction (pinned by a plan test), so each read costs at most
+ * that many rows however long the unseen range is.
  */
-function unseenWindow(db: Db, weddingId: string, osnProfileId: string, from: "newest" | "oldest") {
-  return db.$with("w").as(
-    db
-      .select({
-        seq: rsvpChanges.seq,
-        familyId: rsvpChanges.familyId,
-        guestId: rsvpChanges.guestId,
-        eventId: rsvpChanges.eventId,
-        kind: rsvpChanges.kind,
-        createdAt: rsvpChanges.createdAt,
-      })
-      .from(rsvpChanges)
-      .where(
-        and(
-          eq(rsvpChanges.weddingId, weddingId),
-          gt(rsvpChanges.seq, seenMarker(weddingId, osnProfileId)),
-        ),
-      )
-      .orderBy(from === "newest" ? desc(rsvpChanges.seq) : asc(rsvpChanges.seq))
-      .limit(UNSEEN_SCAN_LIMIT + 1),
+const unseenIn = (weddingId: string, osnProfileId: string): SQL | undefined =>
+  and(
+    eq(rsvpChanges.weddingId, weddingId),
+    gt(rsvpChanges.seq, seenMarker(weddingId, osnProfileId)),
   );
-}
 
 /** One row of {@link buildUnseenHouseholdsQuery}: a (household, kind) group. */
 export interface UnseenHouseholdRow {
@@ -229,7 +214,19 @@ export interface UnseenHouseholdRow {
  * household names are joined after the fold, outside the window.
  */
 export function buildUnseenHouseholdsQuery(db: Db, weddingId: string, osnProfileId: string) {
-  const w = unseenWindow(db, weddingId, osnProfileId, "newest");
+  const w = db.$with("w").as(
+    db
+      .select({
+        seq: rsvpChanges.seq,
+        familyId: rsvpChanges.familyId,
+        kind: rsvpChanges.kind,
+        createdAt: rsvpChanges.createdAt,
+      })
+      .from(rsvpChanges)
+      .where(unseenIn(weddingId, osnProfileId))
+      .orderBy(desc(rsvpChanges.seq))
+      .limit(UNSEEN_SCAN_LIMIT + 1),
+  );
   const newestFamilies = db
     .select({ familyId: w.familyId })
     .from(w)
@@ -270,7 +267,14 @@ export interface UnseenPairRow {
  * what it badged (see {@link summarisePairs}).
  */
 export function buildUnseenPairsQuery(db: Db, weddingId: string, osnProfileId: string) {
-  const w = unseenWindow(db, weddingId, osnProfileId, "oldest");
+  const w = db.$with("w").as(
+    db
+      .select({ seq: rsvpChanges.seq, guestId: rsvpChanges.guestId, eventId: rsvpChanges.eventId })
+      .from(rsvpChanges)
+      .where(unseenIn(weddingId, osnProfileId))
+      .orderBy(asc(rsvpChanges.seq))
+      .limit(UNSEEN_SCAN_LIMIT + 1),
+  );
   return db
     .with(w)
     .select({
