@@ -20,7 +20,7 @@ import { originGuard } from "./lib/origin-guard";
 import {
   createOwnerNotices,
   OWNER_NOTICE_WINDOW_MS,
-  OWNER_NOTICES_PER_WEDDING,
+  OWNER_NOTICES_PER_WINDOW,
 } from "./lib/owner-notice-email";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
@@ -177,10 +177,10 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  * anyone deletes or restores weddings by hand.
  */
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
-/** Owner notices per wedding: keeps a promote/demote loop from spending the
- *  mail provider's daily allowance. Keyed by wedding id. */
+/** Owner notices per wedding and per acting owner: keeps a promote/demote loop
+ *  from spending the mail provider's daily allowance. */
 const defaultOwnerNoticeThrottle = createRateLimiter({
-  maxRequests: OWNER_NOTICES_PER_WEDDING,
+  maxRequests: OWNER_NOTICES_PER_WINDOW,
   windowMs: OWNER_NOTICE_WINDOW_MS,
 });
 /**

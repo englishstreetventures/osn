@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { hostRsvpNotices, weddingHosts } from "@cire/db";
+import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -11,7 +12,11 @@ import { createDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
-import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
+import type {
+  OsnHandleResolver,
+  OsnOrganiserEmailLookup,
+  OsnProfileDisplayResolver,
+} from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -1079,5 +1084,147 @@ describe("co-host dashboard access (weddingMember)", () => {
         guestCap: 100,
       },
     ]);
+  });
+});
+
+describe("owner change notices", () => {
+  const SECOND = "usr_second";
+  const THIRD = "usr_third";
+  const ADDRESSES: Record<string, string> = {
+    [OWNER]: "alice@example.test",
+    [SECOND]: "second@example.test",
+    [THIRD]: "third@example.test",
+    [COHOST]: "bob@example.test",
+  };
+  const lookup: OsnOrganiserEmailLookup = async (ids) => ({
+    answered: true,
+    emails: new Map(ids.flatMap((id) => (ADDRESSES[id] ? [[id, ADDRESSES[id]] as const] : []))),
+  });
+
+  /** An app with three owners and a co-host, whose owner notices land in a
+   *  recorder. */
+  function noticeApp(overrides: Partial<AppOptions> = {}) {
+    const mail = makeLogEmailLive();
+    const built = buildApp({
+      organiserEmailLookup: lookup,
+      resolveOsnProfileDisplays: stubDisplayResolver,
+      emailLayer: mail.layer,
+      ownerNoticeThrottle: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+      ...overrides,
+    });
+    seedHostSeat(built.db, SECOND, "owner");
+    seedHostSeat(built.db, THIRD, "owner");
+    seedHostSeat(built.db, COHOST, "editor");
+    return { ...built, mail };
+  }
+
+  const byAddress = (mail: ReturnType<typeof makeLogEmailLive>) =>
+    new Map(mail.recorded().map((m) => [m.to, m]));
+
+  it("mails the removed owner, the remover and every other owner once, naming the remover", async () => {
+    const { app, mail } = noticeApp();
+    const res = await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER);
+    expect(res.status).toBe(200);
+
+    const sent = mail.recorded();
+    expect(sent.map((m) => m.to).sort()).toEqual(
+      ["alice@example.test", "second@example.test", "third@example.test"].sort(),
+    );
+    expect(sent.every((m) => m.template === "wedding-owner-change")).toBe(true);
+    const to = byAddress(mail);
+    expect(to.get("second@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) removed you as an owner of Hosts Wedding.",
+    );
+    expect(to.get("third@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) removed one of the owners of Hosts Wedding.",
+    );
+    expect(to.get("alice@example.test")?.text).toContain("You removed");
+    // The co-host is not an owner and hears nothing.
+    expect(to.has("bob@example.test")).toBe(false);
+  });
+
+  it("mails on a demotion, with the new role", async () => {
+    const { app, mail } = noticeApp();
+    const res = await req(app, "PUT", `${hostsPath}/${SECOND}/role`, OWNER, { role: "viewer" });
+    expect(res.status).toBe(200);
+    const to = byAddress(mail);
+    expect(to.size).toBe(3);
+    expect(to.get("second@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) changed your role on Hosts Wedding from owner to viewer.",
+    );
+  });
+
+  it("mails on a self step-down and on an owner leaving, once per person", async () => {
+    const { app, mail } = noticeApp();
+    const res = await req(app, "PUT", `${hostsPath}/${OWNER}/role`, OWNER, { role: "editor" });
+    expect(res.status).toBe(200);
+    let to = byAddress(mail);
+    expect(to.size).toBe(3);
+    expect(to.get("alice@example.test")?.text).toContain(
+      "You stepped down as an owner of Hosts Wedding. You are now an editor.",
+    );
+    expect(to.get("second@example.test")?.text).toContain(
+      "Alice Owner (@alice_owner) stepped down as an owner of Hosts Wedding",
+    );
+
+    mail.reset();
+    const left = await req(app, "DELETE", `${hostsPath}/me`, SECOND);
+    expect(left.status).toBe(200);
+    to = byAddress(mail);
+    // The leaver and the one owner who remains.
+    expect([...to.keys()].sort()).toEqual(["second@example.test", "third@example.test"]);
+    expect(to.get("second@example.test")?.text).toContain("You left Hosts Wedding.");
+  });
+
+  it("sends nothing for a co-host's removal or role change, a promotion, or a refused change", async () => {
+    const { app, mail, db } = noticeApp();
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "viewer" })).status,
+    ).toBe(200);
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "owner" })).status,
+    ).toBe(200);
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "owner" })).status,
+    ).toBe(200);
+    db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).run();
+    expect((await req(app, "DELETE", `${hostsPath}/${STRANGER}`, OWNER)).status).toBe(200);
+    expect(mail.recorded()).toEqual([]);
+
+    // The last owner cannot go, so there is nothing to tell.
+    db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, SECOND)).run();
+    db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, THIRD)).run();
+    expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER)).status).toBe(409);
+    expect(mail.recorded()).toEqual([]);
+  });
+
+  it("sends nothing without an address lookup, and the change still lands", async () => {
+    const { app, mail } = noticeApp({ organiserEmailLookup: undefined });
+    expect((await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
+    expect(mail.recorded()).toEqual([]);
+  });
+
+  it("names nobody when osn-api cannot, and a failed lookup never fails the request", async () => {
+    const { app, mail } = noticeApp({ resolveOsnProfileDisplays: emptyDisplayResolver });
+    expect((await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
+    expect(byAddress(mail).get("second@example.test")?.text).toContain("Another owner removed you");
+
+    const down = noticeApp({
+      organiserEmailLookup: async () => {
+        throw new Error("osn-api down");
+      },
+    });
+    expect((await req(down.app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
+    expect(down.mail.recorded()).toEqual([]);
+  });
+
+  it("stops mailing a wedding once its throttle is spent", async () => {
+    const { app, mail } = noticeApp({
+      ownerNoticeThrottle: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    expect((await req(app, "DELETE", `${hostsPath}/${SECOND}`, OWNER)).status).toBe(200);
+    expect(mail.recorded()).toHaveLength(3);
+    expect((await req(app, "DELETE", `${hostsPath}/${THIRD}`, OWNER)).status).toBe(200);
+    expect(mail.recorded()).toHaveLength(3);
   });
 });

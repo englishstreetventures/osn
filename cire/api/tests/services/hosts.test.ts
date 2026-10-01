@@ -829,3 +829,32 @@ describe("equal owners", () => {
     });
   });
 });
+
+describe("the prior role a write reports", () => {
+  it("setRole reports the role the seat held before the change", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "owner");
+    const demoted = await run(
+      db,
+      hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: ALICE, role: "viewer" }),
+    );
+    expect(demoted).toMatchObject({ role: "viewer", previousRole: "owner" });
+
+    const again = await run(
+      db,
+      hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: ALICE, role: "viewer" }),
+    );
+    expect(again.previousRole).toBe("viewer");
+  });
+
+  it("remove reports the removed seat's role, and null when there was no seat", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "owner");
+    expect(
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE })),
+    ).toEqual({ removedRole: "owner" });
+    expect(
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE })),
+    ).toEqual({ removedRole: null });
+  });
+});

@@ -15,8 +15,13 @@
  *
  * Fail-soft throughout: the write has committed before this runs, and a notice
  * that cannot be sent (no address, osn-api down, Resend down) is logged and
- * counted, never returned to the caller. A per-wedding throttle keeps a
- * promote/demote loop from spending the mail provider's daily allowance.
+ * counted, never returned to the caller.
+ *
+ * A throttle keyed both by wedding and by the owner who acted bounds how much
+ * mail one person can cause, so a promote/demote loop cannot spend the mail
+ * provider's daily allowance, and starting a fresh wedding does not reset the
+ * count. It is the in-memory limiter, so the bound holds per Worker isolate,
+ * not across them.
  */
 
 import { weddingHosts, weddings } from "@cire/db";
@@ -34,8 +39,9 @@ import type { HostRole } from "../services/hosts";
 import type { OsnOrganiserEmailLookup, OsnProfileDisplayResolver } from "../services/osn-bridge";
 import { getWaitUntil } from "./execution-ctx";
 
-/** Owner notices one wedding may send per {@link OWNER_NOTICE_WINDOW_MS}. */
-export const OWNER_NOTICES_PER_WEDDING = 10;
+/** Owner notices one wedding, or one acting owner, may cause per
+ *  {@link OWNER_NOTICE_WINDOW_MS}. */
+export const OWNER_NOTICES_PER_WINDOW = 10;
 export const OWNER_NOTICE_WINDOW_MS = 60 * 60 * 1000;
 
 export interface OwnerNoticeDeps {
@@ -46,7 +52,7 @@ export interface OwnerNoticeDeps {
   readonly emailLayer: Layer.Layer<EmailService>;
   /** The organiser portal, linked from every notice. */
   readonly portalUrl: string;
-  /** Keyed by wedding id. */
+  /** Keyed `wedding:<id>` and `actor:<profile id>`; a notice needs both. */
   readonly throttle: RateLimiterBackend;
 }
 
@@ -96,7 +102,7 @@ const RESTORE_FORMAT = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-/** e.g. "9 October 2026, 14:05 UTC". */
+/** e.g. "9 October 2026 at 14:05 UTC". */
 export function formatRestoreUntil(at: Date): string {
   return `${RESTORE_FORMAT.format(at)} UTC`;
 }
@@ -164,6 +170,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
   const deliver = (
     kind: OwnerNoticeKind,
     weddingId: string,
+    actorOsnProfileId: string,
     build: () => Effect.Effect<
       { recipients: Recipient[]; named: string[]; render: RenderFor } | null,
       never,
@@ -171,7 +178,11 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
     >,
   ): Effect.Effect<void, never, DbService> =>
     Effect.gen(function* () {
-      const allowed = yield* Effect.promise(async () => deps.throttle.check(weddingId));
+      const allowed = yield* Effect.promise(
+        async () =>
+          (await deps.throttle.check(`wedding:${weddingId}`)) &&
+          (await deps.throttle.check(`actor:${actorOsnProfileId}`)),
+      );
       if (!allowed) return "throttled" as const;
 
       const plan = yield* build();
@@ -216,7 +227,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
   return {
     /** An owner was removed or demoted. */
     ownerChanged(input: OwnerChangedInput): Effect.Effect<void, never, DbService> {
-      return deliver("owner_change", input.weddingId, () =>
+      return deliver("owner_change", input.weddingId, input.actorOsnProfileId, () =>
         Effect.gen(function* () {
           const wedding = yield* weddingOwners(input.weddingId);
           if (!wedding) return null;
@@ -255,7 +266,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
 
     /** An owner started deleting the wedding. */
     deleteStarted(input: DeleteStartedInput): Effect.Effect<void, never, DbService> {
-      return deliver("delete_started", input.weddingId, () =>
+      return deliver("delete_started", input.weddingId, input.actorOsnProfileId, () =>
         Effect.gen(function* () {
           const wedding = yield* weddingOwners(input.weddingId);
           if (!wedding) return null;

@@ -67,9 +67,16 @@ describe("wedding-owner-change", () => {
     expect(others.text).toContain("@jonah left Ama & Jonah.");
   });
 
-  it("falls back to a generic name when OSN could not say who acted", () => {
+  it("falls back to generic wording when OSN could not say who was involved", () => {
     const out = renderTemplate("wedding-owner-change", { ...change, actorName: null });
     expect(out.text).toContain("Another owner removed @jonah");
+
+    const unnamed = renderTemplate("wedding-owner-change", {
+      ...change,
+      actorName: null,
+      subjectName: null,
+    });
+    expect(unnamed.text).toContain("Another owner removed one of the owners of Ama & Jonah.");
   });
 
   it("escapes the names in the HTML body and keeps the subject on one line", () => {

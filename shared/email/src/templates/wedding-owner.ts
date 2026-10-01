@@ -47,7 +47,7 @@ export interface WeddingDeleteStartedData {
   readonly weddingName: string;
   /** Who deleted it. `null` when OSN could not say. */
   readonly actorName: string | null;
-  /** When the restore window closes, already formatted, e.g. "9 October 2026, 14:05 UTC". */
+  /** When the restore window closes, already formatted, e.g. "9 October 2026 at 14:05 UTC". */
   readonly restoreUntil: string;
   /** The restore window in days. */
   readonly restoreDays: number;
@@ -79,7 +79,14 @@ interface OwnerChangeCopy {
 function ownerChangeCopy(data: WeddingOwnerChangeData): OwnerChangeCopy {
   const wedding = data.weddingName;
   const actor = data.actorName ?? "Another owner";
-  const subject = data.subjectName ?? "an owner";
+  // What happened to the subject, worded so an unknown name still reads well.
+  const removedSubject = data.subjectName
+    ? `removed ${data.subjectName} as an owner of ${data.weddingName}`
+    : `removed one of the owners of ${data.weddingName}`;
+  const demotedSubject = (role: string) =>
+    data.subjectName
+      ? `changed ${data.subjectName}'s role on ${data.weddingName} from owner to ${role}`
+      : `changed one owner's role on ${data.weddingName} to ${role}`;
   const role = data.newRole ?? "editor";
   const asRole = `${article(role)} ${role}`;
   const demoted = data.change === "demoted";
@@ -105,9 +112,7 @@ function ownerChangeCopy(data: WeddingOwnerChangeData): OwnerChangeCopy {
 
   if (data.audience === "actor") {
     return {
-      lead: demoted
-        ? `You changed ${subject}'s role on ${wedding} from owner to ${role}.`
-        : `You removed ${subject} as an owner of ${wedding}.`,
+      lead: demoted ? `You ${demotedSubject(role)}.` : `You ${removedSubject}.`,
       advice: `We send this to every owner, you included. If this was not you, someone else is signed in to your account: secure it, then sign in to the organiser portal and check who can manage the wedding.`,
     };
   }
@@ -121,9 +126,7 @@ function ownerChangeCopy(data: WeddingOwnerChangeData): OwnerChangeCopy {
     };
   }
   return {
-    lead: demoted
-      ? `${actor} changed ${subject}'s role on ${wedding} from owner to ${role}.`
-      : `${actor} removed ${subject} as an owner of ${wedding}.`,
+    lead: demoted ? `${actor} ${demotedSubject(role)}.` : `${actor} ${removedSubject}.`,
     advice: check,
   };
 }
