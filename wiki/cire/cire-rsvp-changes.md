@@ -9,7 +9,7 @@ related:
   - "[[email]]"
   - "[[retention]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 # RSVP changes
 
@@ -77,6 +77,13 @@ Runs in the 04:00 UTC cron (`scheduled` in `cire/api/src/index.ts`), only when o
 5. One osn-api lookup (`POST /internal/accounts/emails`, scope `account:email-read`, through `createOrganiserEmailLookupFromEnv`). The lookup says whether osn-api **answered**: if any call failed, nobody is mailed, no marker moves, and the next run asks again. An id missing from an answer has no address, and that recipient's marker moves.
 6. One Resend batch call for every email (`EmailService.sendBatch`, `POST /emails/batch`, up to 100), all or nothing. A sent batch moves each recipient's marker to the newest change it covered; a failed one moves none, so the next run includes them.
 7. One upsert moves every marker (never backwards, never touching the switch), and writes a row only for someone who still owns the wedding or holds a seat on it.
+
+**Stopping it without signing in.** When cire-api has both `CIRE_API_ORIGIN` and `CIRE_OIDC_CLIENT_SECRET`, each email links `GET /api/rsvp-digest/stop?t=<token>` and names the same URL in `List-Unsubscribe` / `List-Unsubscribe-Post` (RFC 8058), so a mail client can offer one-click unsubscribe. Without either, the email carries neither and the route answers 503.
+
+- The token (`cire/api/src/lib/digest-stop.ts`) is the wedding id and the recipient's profile id with an HMAC-SHA256 over them. Its key is derived by HKDF from `CIRE_OIDC_CLIENT_SECRET` under its own `info`, derived once per cron run. It does not expire; rotating the client secret voids every link already sent.
+- `GET` only shows a page asking to confirm, because mail scanners fetch every link. Its button, and a mail client's one-click call, `POST` to the same URL, which turns that person's digest off (`rsvpChangeService.setDigest`) — only while they hold a seat with the `editor` capability, so a link from before a seat was removed writes nothing. The page reads the same either way.
+- Mounted before the origin guard (a one-click POST has no `Origin`), behind its own per-IP limiter (30/min). Pages are fixed HTML with `no-store`, `no-referrer` and a CSP that allows no script.
+- Anyone who holds the token can do exactly one thing: turn that one digest off. It sits in the email at Resend, and in Workers request logs (7 days) once used. Each use logs `rsvp digest stop` with `outcome` (`stopped`, `no_seat`, `invalid`) and never the token.
 
 A run ends with one `rsvp digest run complete` log line carrying the counts — the only signal that reaches production, since cire metrics are a no-op on workerd ([[cire-workerd]]).
 
