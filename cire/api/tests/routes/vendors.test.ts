@@ -228,7 +228,7 @@ describe("vendor CRM routes", () => {
       locationText: null,
     });
     expect(seedRes.status).toBe(200);
-    const result = (await seedRes.json()) as Record<string, unknown>;
+    const result = (await seedRes.json()) as { directoryVendorId: string; invited: boolean };
     // The organiser learns the listing id and that the invite went out —
     // never the link, which would let them claim the vendor's listing.
     expect(result).toEqual({ directoryVendorId: expect.any(String), invited: true });

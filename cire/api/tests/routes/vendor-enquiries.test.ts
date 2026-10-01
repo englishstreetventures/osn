@@ -604,7 +604,7 @@ describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
       { orgId: ORG_OK },
     );
     expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({ error: "org_has_listing" });
+    expect((await refused.json()) as unknown).toEqual({ error: "org_has_listing" });
     expect(
       db.select().from(directoryVendors).where(eq(directoryVendors.id, dvId)).get()!.ownerOrgId,
     ).toBeNull();
