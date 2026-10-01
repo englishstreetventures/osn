@@ -35,8 +35,8 @@ describe("deriveCap", () => {
 function seedWedding(db: ReturnType<typeof createDb>, id = "wed_test") {
   const now = new Date();
   db.$client.exec(
-    `INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, code_style, currency, created_at, updated_at)
-     VALUES ('${id}', '${id}-slug', 'Test', 'usr_owner', 'secure', 'AUD', ${now.getTime()}, ${now.getTime()});`,
+    `INSERT INTO weddings (id, slug, display_name, code_style, currency, created_at, updated_at)
+     VALUES ('${id}', '${id}-slug', 'Test', 'secure', 'AUD', ${now.getTime()}, ${now.getTime()});`,
   );
   return id;
 }

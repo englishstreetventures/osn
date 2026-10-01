@@ -7,7 +7,6 @@ import {
   registryItems,
   registrySettings,
   weddingEntitlements,
-  weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
@@ -25,6 +24,7 @@ import type {
 import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
 import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const SLUG = "cire-wedding";
 const OTHER_WEDDING_ID = "wed_other";
@@ -144,16 +144,14 @@ function buildApp(
   const assets = createAssetsStub();
   const now = new Date();
 
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: OTHER_SLUG,
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: OTHER_SLUG,
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   db.insert(families)
     .values({
       id: "fam_other",

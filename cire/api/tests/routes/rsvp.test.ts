@@ -18,6 +18,7 @@ import { hostCodeService } from "../../src/services/host-code";
 import { eff } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
@@ -872,17 +873,15 @@ describe("POST /api/rsvp — RSVP deadline", () => {
           expect(data.error).toBe("Unauthorized");
         } finally {
           // Restore the wedding row (and FK enforcement) for the rest of the
-          // suite — the whole file shares one in-memory db.
-          db.insert(weddings)
-            .values({
-              id: BOOTSTRAP_WEDDING_ID,
-              slug: "cire-wedding",
-              displayName: "Cire Wedding",
-              ownerOsnProfileId: "usr_dev_bootstrap_owner",
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .run();
+          // suite — the whole file shares one in-memory db. Its owner seat
+          // outlived it, foreign keys being off, so only the row comes back.
+          insertWedding(db, {
+            id: BOOTSTRAP_WEDDING_ID,
+            slug: "cire-wedding",
+            displayName: "Cire Wedding",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
           db.run(sql`PRAGMA foreign_keys = ON`);
         }
       }),

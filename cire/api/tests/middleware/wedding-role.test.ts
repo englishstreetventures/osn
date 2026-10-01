@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { decideCapability, policyFor } from "../../src/middleware/wedding-role";
+import {
+  assignableRolesFor,
+  decideCapability,
+  mayAssignRole,
+  policyFor,
+} from "../../src/middleware/wedding-role";
 import type { WeddingCapability, WeddingRole } from "../../src/middleware/wedding-role";
 
 // The authorisation table itself, asserted role by role and capability by
@@ -9,19 +14,21 @@ import type { WeddingCapability, WeddingRole } from "../../src/middleware/weddin
 // deliberate decision shows up here as a failure rather than as silence.
 
 const ROLES: readonly WeddingRole[] = ["owner", "editor", "viewer", "helper"];
-const CAPABILITIES: readonly WeddingCapability[] = ["member", "editor", "runSheet"];
+const CAPABILITIES: readonly WeddingCapability[] = ["member", "editor", "runSheet", "manage"];
 
 /** Every (role, capability) pair, as `allowed` booleans. Written out in full on
  *  purpose — a table that derives its expectations from the code under test
  *  would agree with any change to it. */
 const EXPECTED: Record<WeddingRole, Record<WeddingCapability, boolean>> = {
-  owner: { member: true, editor: true, runSheet: true },
-  editor: { member: true, editor: true, runSheet: true },
-  viewer: { member: true, editor: false, runSheet: true },
+  // `manage` is the owner-only surface, and the owner's alone: every owner of
+  // a wedding holds it, no other role does.
+  owner: { member: true, editor: true, runSheet: true, manage: true },
+  editor: { member: true, editor: true, runSheet: true, manage: false },
+  viewer: { member: true, editor: false, runSheet: true, manage: false },
   // The whole point of the role: the run sheet, and nothing else. `member`
   // being false here is what keeps a helper out of the guest list, the budget,
   // the registry, the vendors and the RSVPs.
-  helper: { member: false, editor: false, runSheet: true },
+  helper: { member: false, editor: false, runSheet: true, manage: false },
 };
 
 describe("policyFor", () => {
@@ -78,5 +85,42 @@ describe("policy shape", () => {
 
   it("grants the owner every capability there is", () => {
     expect([...policyFor("owner").capabilities].toSorted()).toEqual([...CAPABILITIES].toSorted());
+  });
+});
+
+describe("assignableRolesFor", () => {
+  it("lets an owner grant every role, owner included", () => {
+    expect([...assignableRolesFor("owner")].toSorted()).toEqual([
+      "editor",
+      "helper",
+      "owner",
+      "viewer",
+    ]);
+  });
+
+  it("caps an editor at their own role — never owner", () => {
+    expect([...assignableRolesFor("editor")].toSorted()).toEqual(["editor", "helper", "viewer"]);
+    expect(mayAssignRole("editor", "owner")).toBe(false);
+  });
+
+  it("lets a viewer and a helper grant nothing", () => {
+    expect(assignableRolesFor("viewer")).toEqual([]);
+    expect(assignableRolesFor("helper")).toEqual([]);
+  });
+
+  it("lets only the roles holding `manage` grant owner", () => {
+    // The property behind the rule: granting owner hands over the power to
+    // remove every other seat, so only those who already hold it may grant it.
+    const granting = ROLES.filter((role) => mayAssignRole(role, "owner"));
+    const managing = ROLES.filter((role) => decideCapability(role, "manage").allowed);
+    expect(granting).toEqual(managing);
+  });
+
+  it("never lets a role grant one that outranks it", () => {
+    const rank: Record<WeddingRole, number> = { helper: 0, viewer: 1, editor: 2, owner: 3 };
+    for (const role of ROLES) {
+      for (const granted of assignableRolesFor(role))
+        expect(rank[granted]).toBeLessThanOrEqual(rank[role]);
+    }
   });
 });

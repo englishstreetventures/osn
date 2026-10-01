@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -14,6 +14,7 @@ import { stateExportService } from "../../src/services/state-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
 
@@ -534,16 +535,14 @@ describe("empty wedding (T-S4)", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const now = new Date();
-        db.insert(weddings)
-          .values({
-            id: "wed_empty",
-            slug: "empty-wedding",
-            displayName: "Empty Wedding",
-            ownerOsnProfileId: "usr_empty",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        insertWedding(db, {
+          id: "wed_empty",
+          slug: "empty-wedding",
+          displayName: "Empty Wedding",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_empty"],
+        });
 
         const eventsCsv = yield* stateExportService.eventsCsv("wed_empty");
         const guestsCsv = yield* stateExportService.guestsCsv("wed_empty");

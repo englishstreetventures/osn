@@ -9,7 +9,6 @@ import {
   vendorEnquiries,
   weddingEntitlements,
   weddingHosts,
-  weddings,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -22,6 +21,7 @@ import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Owner of the seeded sample wedding (DEV_OWNER_PROFILE_ID).
 const BOOTSTRAP_OWNER = "usr_dev_bootstrap_owner";
@@ -81,16 +81,14 @@ function makeFakeZap() {
 
 function seedOtherWedding(db: Db) {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: OTHER_OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OTHER_OWNER],
+  });
   db.insert(events)
     .values({
       id: "evt_other",

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingFaqs, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingFaqs, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { asc, eq } from "drizzle-orm";
@@ -14,6 +14,7 @@ import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Fixed local dev owner of the seeded sample wedding (DEV_OWNER_PROFILE_ID).
 const OWNER = "usr_dev_bootstrap_owner";
@@ -51,16 +52,14 @@ function buildApp(opts?: { inviteLimiter?: RateLimiterBackend }) {
       })
       .run();
   }
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING,
-      slug: "faq-other",
-      displayName: "Other",
-      ownerOsnProfileId: STRANGER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING,
+    slug: "faq-other",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: [STRANGER],
+  });
   const app = createApp(db, {
     osnTestKey: auth.key,
     // Generous per-test limiter so the shared module default can't bleed across

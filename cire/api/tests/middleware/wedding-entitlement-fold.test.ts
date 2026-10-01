@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingEntitlements, weddingHosts, weddings } from "@cire/db";
+import { weddingEntitlements, weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
@@ -10,12 +10,13 @@ import { weddingEntitlement } from "../../src/middleware/wedding-entitlement";
 import { weddingMember } from "../../src/middleware/wedding-member";
 import { weddingOwner } from "../../src/middleware/wedding-owner";
 import { countingDb, appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * Proves P-W1: folding the entitlement-set fetch into the role gate's own
  * authorize() query — rather than a separate round trip after it — must (a)
  * drop a GATED route's query count —
- * previously the role gate's own 1-2 queries PLUS a separate
+ * previously the role gate's own query PLUS a separate
  * `entitlementService.has()` query — and (b) leave every route that mounts
  * ONLY a role gate, no entitlement gate, at EXACTLY the query count it always
  * had. (b) is the one a naive "always fetch the set in the role gate" fix
@@ -32,16 +33,14 @@ const COHOST = "usr_cohost";
 function buildDb(opts: { grantVendors: boolean }) {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "fold-wedding",
-      displayName: "Fold Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "fold-wedding",
+    displayName: "Fold Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OWNER],
+  });
   db.insert(weddingHosts)
     .values({
       id: "whost_cohost",
@@ -162,13 +161,13 @@ function ungatedEditorApp(db: Db, profileId: string) {
 }
 
 describe("P-W1: role-gate/entitlement-gate query fold", () => {
-  it("a co-host on a GATED route costs 2 selects, not 3", async () => {
+  it("a co-host on a GATED route costs 1 select, not 2", async () => {
     const db = buildDb({ grantVendors: true });
     const { db: counted, selectCount } = countingDb(db);
     const res = await appRequest(gatedApp(counted, COHOST), `/w/${WEDDING_ID}/thing`);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ ok: true });
-    expect(selectCount()).toBe(2);
+    expect(selectCount()).toBe(1);
   });
 
   it("an owner on a GATED route costs 1 select, not 2", async () => {
@@ -185,29 +184,29 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
     const res = await appRequest(gatedApp(counted, COHOST), `/w/${WEDDING_ID}/thing`);
     expect(res.status).toBe(402);
     expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
-    expect(selectCount()).toBe(2);
+    expect(selectCount()).toBe(1);
   });
 
-  it("weddingEditor's fold matches weddingMember's — 2 selects for a co-host, granted", async () => {
+  it("weddingEditor's fold matches weddingMember's — 1 select for a co-host, granted", async () => {
     const db = buildDb({ grantVendors: true });
     const { db: counted, selectCount } = countingDb(db);
     const res = await appRequest(gatedEditorApp(counted, COHOST), `/w/${WEDDING_ID}/thing`, {
       method: "POST",
     });
     expect(res.status).toBe(200);
-    expect(selectCount()).toBe(2);
+    expect(selectCount()).toBe(1);
   });
 
-  it("a co-host on a route with ONLY the role gate (no entitlement gate) still costs 2 selects — UNCHANGED", async () => {
+  it("a co-host on a route with ONLY the role gate (no entitlement gate) costs the 1 select authorize() always costs", async () => {
     const db = buildDb({ grantVendors: true });
     const { db: counted, selectCount } = countingDb(db);
     const res = await appRequest(ungatedApp(counted, COHOST), `/w/${WEDDING_ID}/thing`);
     expect(res.status).toBe(200);
-    // Same 2 selects authorize() has always cost a co-host (owner-row lookup +
-    // host-row lookup). A regression here means the role gate started paying
-    // for the entitlement fold even though nothing downstream asked for it —
-    // exactly the repo-wide regression this task exists to avoid.
-    expect(selectCount()).toBe(2);
+    // The one select authorize() costs everyone (the wedding row joined to
+    // the caller's seat). A regression here means the role gate started
+    // paying for the entitlement fold even though nothing downstream asked
+    // for it — exactly the repo-wide regression this task exists to avoid.
+    expect(selectCount()).toBe(1);
   });
 
   it("an owner on a route with ONLY the role gate still costs 1 select — UNCHANGED", async () => {
@@ -218,7 +217,7 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
     expect(selectCount()).toBe(1);
   });
 
-  it("weddingEditor with no entitlement key: co-host still 2 selects, owner still 1 — UNCHANGED", async () => {
+  it("weddingEditor with no entitlement key: 1 select for a co-host and an owner alike", async () => {
     const dbCohost = buildDb({ grantVendors: true });
     const { db: countedCohost, selectCount: countCohost } = countingDb(dbCohost);
     const resCohost = await appRequest(
@@ -227,7 +226,7 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
       { method: "POST" },
     );
     expect(resCohost.status).toBe(200);
-    expect(countCohost()).toBe(2);
+    expect(countCohost()).toBe(1);
 
     const dbOwner = buildDb({ grantVendors: true });
     const { db: countedOwner, selectCount: countOwner } = countingDb(dbOwner);
@@ -253,8 +252,8 @@ describe("P-W1: role-gate/entitlement-gate query fold", () => {
     const res = await appRequest(mismatchedApp(counted, COHOST), `/w/${WEDDING_ID}/thing`);
     expect(res.status).toBe(402);
     expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "registry" });
-    // 2 for the role gate, plus the fallback has() the mismatch forced.
-    expect(selectCount()).toBe(3);
+    // 1 for the role gate, plus the fallback has() the mismatch forced.
+    expect(selectCount()).toBe(2);
   });
 
   it("answers correctly with no role gate above it, at the old cost", async () => {
@@ -413,16 +412,14 @@ describe("a fold answers for its own wedding only", () => {
   function withPaidNeighbour() {
     const db = buildDb({ grantVendors: false });
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_paid",
-        slug: "paid-wedding",
-        displayName: "Paid Wedding",
-        ownerOsnProfileId: OWNER,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_paid",
+      slug: "paid-wedding",
+      displayName: "Paid Wedding",
+      createdAt: now,
+      updatedAt: now,
+      owners: [OWNER],
+    });
     db.insert(weddingEntitlements)
       .values({
         weddingId: "wed_paid",

@@ -30,6 +30,7 @@ import {
   type RsvpDigestResult,
 } from "../../src/services/rsvp-digest";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_digest_editor";
@@ -38,6 +39,8 @@ const VIEWER = "usr_digest_viewer";
 const HELPER = "usr_digest_helper";
 const ORIGIN = "https://host.example.test";
 const NOW = new Date("2026-09-27T04:00:00Z");
+/** When a fixture wedding's owner was seated: before every change it makes. */
+const SEATED = new Date("2026-01-01T00:00:00Z");
 
 const ADDRESSES: Record<string, string> = {
   [OWNER]: "owner@example.test",
@@ -51,6 +54,11 @@ function fixture() {
   const db = createDb(":memory:");
   seedDb(db);
   const created = new Date("2026-01-01T00:00:00Z");
+  // The owner was seated when the wedding was made, long before any change.
+  db.update(weddingHosts)
+    .set({ createdAt: created })
+    .where(eq(weddingHosts.osnProfileId, OWNER))
+    .run();
   for (const [id, osnProfileId, role] of [
     ["whost_d_editor", EDITOR, "editor"],
     ["whost_d_legacy", LEGACY_HOST, "host"],
@@ -155,6 +163,28 @@ describe("rsvpDigestService.sendDailyDigests", () => {
       "owner@example.test",
     ]);
     expect(result).toEqual({ sent: 3, failed: 0, noAddress: 0, lookupFailed: 0, deferred: 0 });
+  });
+
+  it("mails every owner of the wedding, a second owner as much as the first", async () => {
+    const { db, ada } = fixture();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_d_coowner",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_digest_coowner",
+        addedByOsnProfileId: OWNER,
+        role: "owner",
+        createdAt: SEATED,
+      })
+      .run();
+    change(db, ada, "reply_new");
+    const { sent, layer } = transport();
+    await run(
+      db,
+      layer,
+      lookupOf({ [OWNER]: ADDRESSES[OWNER]!, usr_digest_coowner: "coowner@example.test" }).lookup,
+    );
+    expect(recipients(sent)).toEqual(["coowner@example.test", "owner@example.test"]);
   });
 
   it("counts households per kind of change, with the wedding's name and RSVP link", async () => {
@@ -366,17 +396,14 @@ describe("rsvpDigestService.sendDailyDigests", () => {
 
   it("keeps each wedding's changes to its own organisers", async () => {
     const { db, ada } = fixture();
-    const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_digest_other",
-        slug: "digest-other",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other_owner",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_digest_other",
+      slug: "digest-other",
+      displayName: "Other",
+      createdAt: SEATED,
+      updatedAt: SEATED,
+      owners: ["usr_other_owner"],
+    });
     change(db, ada, "reply_new", undefined, "wed_digest_other");
     const { sent, layer } = transport();
     await run(db, layer, lookupOf({ ...ADDRESSES, usr_other_owner: "other@example.test" }).lookup);
@@ -457,17 +484,14 @@ describe("rsvpDigestService.sendDailyDigests", () => {
 
   it("asks osn-api about an organiser of two weddings once", async () => {
     const { db, ada } = fixture();
-    const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_digest_second",
-        slug: "digest-second",
-        displayName: "Second",
-        ownerOsnProfileId: OWNER,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_digest_second",
+      slug: "digest-second",
+      displayName: "Second",
+      createdAt: SEATED,
+      updatedAt: SEATED,
+      owners: [OWNER],
+    });
     change(db, ada, "reply_new");
     change(db, ada, "reply_new", undefined, "wed_digest_second");
     const { lookup, calls } = lookupOf({ [OWNER]: ADDRESSES[OWNER]! });
@@ -557,17 +581,14 @@ describe("rsvpDigestService.sendDailyDigests", () => {
 
   it("gives every waiting wedding a place before any wedding gets a second", async () => {
     const { db, ada } = fixture();
-    const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_digest_small",
-        slug: "digest-small",
-        displayName: "Small",
-        ownerOsnProfileId: "usr_small_owner",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_digest_small",
+      slug: "digest-small",
+      displayName: "Small",
+      createdAt: SEATED,
+      updatedAt: SEATED,
+      owners: ["usr_small_owner"],
+    });
     change(db, ada, "reply_new");
     change(db, ada, "reply_new", undefined, "wed_digest_small");
     const { sent, layer } = transport();

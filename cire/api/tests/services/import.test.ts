@@ -29,6 +29,7 @@ import {
   StaleDesiredState,
 } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { insertWedding } from "../test-helpers/wedding";
 
 /** Build a fresh in-memory DB layer for each test. */
 function freshDbLayer(seed: boolean) {
@@ -86,16 +87,14 @@ function seedOtherWedding(
 ): { weddingId: string; eventId: string; familyId: string; guestId: string } {
   const weddingId = opts.weddingId ?? "wed_other";
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: weddingId,
-      slug: `slug-${weddingId}`,
-      displayName: "Other",
-      ownerOsnProfileId: "usr_other",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: weddingId,
+    slug: `slug-${weddingId}`,
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_other"],
+  });
   const eventId = crypto.randomUUID();
   db.insert(events)
     .values({

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -8,11 +8,15 @@ import { createApp } from "../../src/app";
 import type { AppOptions } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
+import { MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_hosts";
 const OWNER = "usr_owner";
@@ -63,22 +67,22 @@ const throwingDisplayResolver: OsnProfileDisplayResolver = async () => {
   throw new Error("osn-api 500");
 };
 
+/** The wedding, its owner seated a minute back so seats a test adds list after
+ *  theirs — `created_at` is stored in seconds. */
 function seedWedding(db: Db) {
-  const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "hosts-wedding",
-      displayName: "Hosts Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  const seated = new Date(Date.now() - 60_000);
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "hosts-wedding",
+    displayName: "Hosts Wedding",
+    createdAt: seated,
+    updatedAt: seated,
+    owners: [OWNER],
+  });
 }
 
-/** Row a co-host seat directly, so a test can call as any of the roles a seat
- *  may hold. Typed off the service rather than listed, so a role the API starts
+/** Row a seat directly, so a test can call as any of the roles a seat may
+ *  hold, owner included. Typed off the service rather than listed, so a role the API starts
  *  assigning can be seeded here without the literal being widened by hand. */
 function seedHostSeat(db: Db, osnProfileId: string, role: AssignableHostRole) {
   db.insert(weddingHosts)
@@ -99,6 +103,10 @@ function buildApp(overrides: Partial<AppOptions> = {}) {
   const app = createApp(db, {
     osnTestKey: auth.key,
     resolveOsnProfileByHandle: stubResolver,
+    // A fresh limiter per app: the module-level default is shared
+    // process-wide, so the calls in this file would otherwise 429 whichever
+    // test ran last. The limiter's own test passes a tight one.
+    hostLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     ...overrides,
   });
   return { db, app };
@@ -158,14 +166,13 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(row).toEqual({ addedBy: COHOST, role: "viewer" });
   });
 
-  it("lets an editor add a VIEWER too — the grantable roles are unrestricted", async () => {
+  it("lets an editor add a VIEWER too — anything up to their own role", async () => {
     const { db, app } = buildApp();
     seedHostSeat(db, COHOST, "editor");
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "viewer" });
     expect(res.status).toBe(201);
-    // `editor` is the ceiling of what anyone can grant (the owner is never rowed
-    // into this table), so an editor granting `editor` is granting a PEER, not
-    // a superior — there is no seat above their own to hand out.
+    // `editor` is the ceiling of what an editor can grant, so an editor
+    // granting `editor` is granting a PEER, not a superior.
     const [row] = db
       .select({ role: weddingHosts.role })
       .from(weddingHosts)
@@ -174,13 +181,10 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(row?.role).toBe("viewer");
   });
 
-  it("refuses an editor re-adding the OWNER as a co-host (409 owner_is_host)", async () => {
-    // The bug the owner/caller split exists to prevent. The handler used to
-    // pass the caller's own id as the "owner" the service compares against;
-    // with an editor calling, that check would have compared the owner's
-    // profile id against the EDITOR's, missed, and rowed the owner in as a
-    // co-host — after which a later "remove host" would appear to strip the
-    // owner from their own wedding.
+  it("refuses an editor re-adding an OWNER at a lower role (409 already_host)", async () => {
+    // An owner holds a seat like everyone else, so the unique seat index is
+    // what stops an editor seating the owner a second time as a viewer — after
+    // which removing "that viewer" would appear to strip the owner.
     const { db, app } = buildApp({
       // A handle that resolves to the wedding's OWNER.
       resolveOsnProfileByHandle: async () => ({ ok: true, profileId: OWNER, handle: "dave" }),
@@ -189,13 +193,71 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
 
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "dave" });
     expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "owner_is_host" });
+    expect(await jsonBody(res)).toEqual({ error: "already_host" });
     const rows = db
-      .select({ id: weddingHosts.id })
+      .select({ role: weddingHosts.role })
       .from(weddingHosts)
       .where(eq(weddingHosts.osnProfileId, OWNER))
       .all();
+    expect(rows).toEqual([{ role: "owner" }]);
+  });
+
+  it("refuses an editor seating an OWNER (403 owner_role_forbidden) before resolving the handle", async () => {
+    // Only an owner may grant owner: an owner can remove every other seat, so
+    // an editor who could mint one could make themselves unremovable.
+    let resolved = 0;
+    const { db, app } = buildApp({
+      resolveOsnProfileByHandle: async (handle) => {
+        resolved += 1;
+        return stubResolver(handle);
+      },
+    });
+    seedHostSeat(db, COHOST, "editor");
+    const refusals = { result: "owner_role_forbidden", role: "owner" };
+    const before = await counterValue(CIRE_METRICS.hostAdded, refusals);
+
+    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "owner" });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "owner_role_forbidden" });
+    expect(resolved).toBe(0);
+    expect(await counterValue(CIRE_METRICS.hostAdded, refusals)).toBe(before + 1);
+    const rows = db
+      .select()
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
+      .all();
     expect(rows).toEqual([]);
+  });
+
+  it("lets an owner invite a second owner through the same add", async () => {
+    const { db, app } = buildApp();
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "owner" });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { host: { osnProfileId: string; role: string } };
+    expect(body.host).toMatchObject({ osnProfileId: COHOST, role: "owner" });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row).toMatchObject({ role: "owner", addedByOsnProfileId: OWNER });
+
+    // The new owner holds the owner surface at once.
+    const asNewOwner = await req(app, "PUT", `${hostsPath}/${OWNER}/role`, COHOST, {
+      role: "owner",
+    });
+    expect(asNewOwner.status).toBe(200);
+  });
+
+  it("lets a second owner invite a third", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "owner");
+    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "owner" });
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 409 owner_cap_reached once the wedding holds MAX_OWNERS_PER_WEDDING owners", async () => {
+    const { db, app } = buildApp();
+    for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_owner_${i}`, "owner");
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "owner" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "owner_cap_reached" });
   });
 
   it("returns 403 read_only_role for a VIEWER co-host trying to add a host", async () => {
@@ -289,9 +351,9 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(row!.role).toBe("viewer");
   });
 
-  it("rejects an unknown role value with 400 (closed enum — no 'owner', no legacy 'host')", async () => {
+  it("rejects an unknown role value with 400 (closed enum — no legacy 'host')", async () => {
     const { app } = buildApp();
-    for (const role of ["owner", "host", "admin"]) {
+    for (const role of ["host", "admin", "OWNER"]) {
       const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role });
       expect(res.status).toBe(400);
     }
@@ -339,13 +401,34 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("lists hosts for the owner", async () => {
+  it("lists every seat for the owner, the owner's own included", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { hosts: { osnProfileId: string }[] };
-    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+    const body = (await res.json()) as {
+      hosts: { osnProfileId: string; role: string }[];
+      total: number;
+    };
+    expect(body.hosts.map((h) => [h.osnProfileId, h.role])).toEqual([
+      [OWNER, "owner"],
+      [COHOST, "editor"],
+    ]);
+    expect(body.total).toBe(2);
+    // Owners are seats; there is no separate owner field to fall out of step.
+    expect(body).not.toHaveProperty("owner");
+  });
+
+  it("lists a second owner as an owner, alongside the first", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "owner");
+    const res = await req(app, "GET", hostsPath, COHOST);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; role: string }[] };
+    expect(body.hosts.filter((h) => h.role === "owner").map((h) => h.osnProfileId)).toEqual([
+      OWNER,
+      COHOST,
+    ]);
   });
 
   it("carries a helper seat's role through to the panel", async () => {
@@ -356,31 +439,33 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string; role: string }[] };
-    expect(body.hosts).toEqual([expect.objectContaining({ osnProfileId: COHOST, role: "helper" })]);
+    expect(body.hosts).toContainEqual(
+      expect.objectContaining({ osnProfileId: COHOST, role: "helper" }),
+    );
   });
 
-  it("lists hosts for a CO-HOST too (member read)", async () => {
+  it("lists every seat for a CO-HOST too (member read)", async () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await req(app, "GET", hostsPath, COHOST);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string }[] };
-    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([OWNER, COHOST]);
   });
 
-  it("always names the owner separately from the co-host list, with their resolved handle", async () => {
-    // The owner is never a `wedding_hosts` row, so this is the only place a
-    // caller learns who owns the wedding. Asserted for a CO-HOST caller too —
-    // the whole point is that someone who isn't the owner can still see them.
+  it("names the owner with their resolved handle, as a seat in the list", async () => {
+    // Asserted for a CO-HOST caller — someone who isn't an owner can still see
+    // who owns the wedding.
     const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
     seedCohost(db);
     const res = await req(app, "GET", hostsPath, COHOST);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      owner: { osnProfileId: string; handle?: string; displayName?: string };
+      hosts: { osnProfileId: string; role: string; handle?: string; displayName?: string }[];
     };
-    expect(body.owner).toEqual({
+    expect(body.hosts[0]).toMatchObject({
       osnProfileId: OWNER,
+      role: "owner",
       handle: "alice_owner",
       displayName: "Alice Owner",
     });
@@ -391,8 +476,9 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     seedCohost(db);
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { owner: { osnProfileId: string; handle?: string } };
-    expect(body.owner).toEqual({ osnProfileId: OWNER });
+    const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
+    expect(body.hosts[0]!.osnProfileId).toBe(OWNER);
+    expect(body.hosts[0]!.handle).toBeUndefined();
   });
 
   it("returns 403 for a stranger", async () => {
@@ -410,10 +496,10 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const body = (await res.json()) as {
       hosts: { osnProfileId: string; handle?: string; displayName?: string }[];
     };
-    expect(body.hosts).toHaveLength(1);
-    expect(body.hosts[0]!.osnProfileId).toBe(COHOST);
-    expect(body.hosts[0]!.handle).toBe("bob");
-    expect(body.hosts[0]!.displayName).toBe("Bob Jones");
+    expect(body.hosts).toHaveLength(2);
+    expect(body.hosts[1]!.osnProfileId).toBe(COHOST);
+    expect(body.hosts[1]!.handle).toBe("bob");
+    expect(body.hosts[1]!.displayName).toBe("Bob Jones");
   });
 
   it("falls back to profileId (no handle key) when the resolver returns an empty map", async () => {
@@ -422,9 +508,9 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
-    expect(body.hosts).toHaveLength(1);
-    expect(body.hosts[0]!.osnProfileId).toBe(COHOST);
-    expect(body.hosts[0]!.handle).toBeUndefined();
+    expect(body.hosts).toHaveLength(2);
+    expect(body.hosts[1]!.osnProfileId).toBe(COHOST);
+    expect(body.hosts.every((h) => h.handle === undefined)).toBe(true);
   });
 
   it("still 200s with profileId when NO display resolver is wired (ARC key absent)", async () => {
@@ -433,8 +519,8 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
-    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
-    expect(body.hosts[0]!.handle).toBeUndefined();
+    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([OWNER, COHOST]);
+    expect(body.hosts.every((h) => h.handle === undefined)).toBe(true);
   });
 
   it("still 200s (profileId fallback) when the display resolver throws", async () => {
@@ -443,8 +529,8 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     const res = await req(app, "GET", hostsPath, OWNER);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
-    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
-    expect(body.hosts[0]!.handle).toBeUndefined();
+    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([OWNER, COHOST]);
+    expect(body.hosts.every((h) => h.handle === undefined)).toBe(true);
   });
 
   it("omits handle for an unresolved host but keeps it for a resolved one (partial map)", async () => {
@@ -503,7 +589,9 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, COHOST);
     expect(res.status).toBe(403);
     // The row is untouched.
-    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toHaveLength(1);
   });
 
   it("removes a host for the owner", async () => {
@@ -511,7 +599,45 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     seedCohost(db);
     const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
     expect(res.status).toBe(200);
-    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toEqual([]);
+  });
+
+  it("lets an owner remove another owner, or leave while another remains", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "owner");
+    seedHostSeat(db, "usr_carol", "owner");
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER)).status).toBe(200);
+    expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER)).status).toBe(200);
+    const owners = db
+      .select({ id: weddingHosts.osnProfileId })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.role, "owner"))
+      .all();
+    expect(owners).toEqual([{ id: "usr_carol" }]);
+  });
+
+  it("returns 409 last_owner when the only owner tries to leave, and keeps their seat", async () => {
+    const { db, app } = buildApp();
+    const before = await counterValue(CIRE_METRICS.hostRemoved, { result: "last_owner" });
+    const res = await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "last_owner" });
+    expect(await counterValue(CIRE_METRICS.hostRemoved, { result: "last_owner" })).toBe(before + 1);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, OWNER)).all(),
+    ).toHaveLength(1);
+  });
+
+  it("refuses the second of two owners removing each other in turn", async () => {
+    const { app } = buildApp();
+    // Re-seated via the API so the second owner is a real caller.
+    await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "owner" });
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER)).status).toBe(200);
+    // Bob is no owner now, so the gate refuses him before the guard is asked.
+    expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, COHOST)).status).toBe(403);
+    expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER)).status).toBe(409);
   });
 
   it("returns 404 for an unknown wedding", async () => {
@@ -597,7 +723,50 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(row!.runSheetScope).toBe("own");
   });
 
-  it("returns 404 host_not_found for a profile that isn't a co-host", async () => {
+  it("promotes a co-host to owner, after which they hold the owner surface", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "owner" });
+    expect(res.status).toBe(200);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("owner");
+    const asNewOwner = await req(app, "DELETE", `${hostsPath}/${OWNER}`, COHOST);
+    expect(asNewOwner.status).toBe(200);
+  });
+
+  it("returns 409 owner_cap_reached for a promotion past the owner ceiling", async () => {
+    const { db, app } = buildApp();
+    for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) seedHostSeat(db, `usr_owner_${i}`, "owner");
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "owner" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "owner_cap_reached" });
+  });
+
+  it("lets an owner step down while another owner remains", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "owner");
+    const res = await req(app, "PUT", `${hostsPath}/${OWNER}/role`, OWNER, { role: "editor" });
+    expect(res.status).toBe(200);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, OWNER)).all();
+    expect(row!.role).toBe("editor");
+    // Stepped down, so the owner surface is gone.
+    expect((await req(app, "PUT", rolePath, OWNER, { role: "viewer" })).status).toBe(403);
+  });
+
+  it("returns 409 last_owner when the only owner tries to step down", async () => {
+    const { db, app } = buildApp();
+    const labels = { result: "last_owner", role: "viewer" };
+    const before = await counterValue(CIRE_METRICS.hostRoleChanged, labels);
+    const res = await req(app, "PUT", `${hostsPath}/${OWNER}/role`, OWNER, { role: "viewer" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "last_owner" });
+    expect(await counterValue(CIRE_METRICS.hostRoleChanged, labels)).toBe(before + 1);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, OWNER)).all();
+    expect(row!.role).toBe("owner");
+  });
+
+  it("returns 404 host_not_found for a profile that holds no seat", async () => {
     const { app } = buildApp();
     const res = await req(app, "PUT", `${hostsPath}/usr_ghost/role`, OWNER, { role: "viewer" });
     expect(res.status).toBe(404);
@@ -607,8 +776,10 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
   it("returns 400 for a bad role value", async () => {
     const { db, app } = buildApp();
     seedCohost(db, "editor");
-    const res = await req(app, "PUT", rolePath, OWNER, { role: "owner" });
-    expect(res.status).toBe(400);
+    for (const role of ["host", "admin"]) {
+      const res = await req(app, "PUT", rolePath, OWNER, { role });
+      expect(res.status).toBe(400);
+    }
   });
 });
 

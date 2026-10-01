@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { slugifyDisplayName, weddingsService } from "../../src/services/weddings";
+import { insertWedding } from "../test-helpers/wedding";
 
 describe("slugifyDisplayName", () => {
   it("lowercases and hyphenates words", () => {
@@ -45,8 +46,17 @@ describe("weddingsService.createForOwner", () => {
     expect(summary.displayName).toBe("Beach Wedding");
 
     const [row] = db.select().from(weddings).where(eq(weddings.id, summary.id)).all();
-    expect(row!.ownerOsnProfileId).toBe("usr_owner");
     expect(row!.codeStyle).toBe("secure");
+    // The wedding and its creator's owner seat land together.
+    const seats = db
+      .select()
+      .from(weddingHosts)
+      .where(eq(weddingHosts.weddingId, summary.id))
+      .all();
+    expect(seats.map((h) => [h.osnProfileId, h.role, h.addedByOsnProfileId])).toEqual([
+      ["usr_owner", "owner", "usr_owner"],
+    ]);
+    expect(seats[0]!.id).toMatch(/^whost_/);
   });
 
   it("gives same-named weddings distinct slugs (random suffix)", async () => {
@@ -59,16 +69,20 @@ describe("weddingsService.createForOwner", () => {
 
   it("fails with WeddingCreateError when the insert keeps throwing (T-E1)", async () => {
     const db = createDb(":memory:");
-    // Wrap the real db so every insert().run() rejects — exhausts the retry
-    // loop and surfaces the tagged error rather than a defect.
+    // Wrap the real db so every insert rejects when the batch awaits it —
+    // exhausts the retry loop and surfaces the tagged error rather than a
+    // defect.
     const failing = {
       ...db,
       insert: () => ({
-        values: () => ({
-          run: () => {
-            throw new Error("forced insert failure");
-          },
-        }),
+        // Rejected with a handler already attached: the batch rejects when it
+        // reaches the first statement, and the one after it is never left as
+        // an unhandled rejection.
+        values: () => {
+          const failed = Promise.reject(new Error("forced insert failure"));
+          failed.catch(() => {});
+          return failed;
+        },
       }),
     } as unknown as ReturnType<typeof createDb>;
 
@@ -90,47 +104,39 @@ describe("weddingsService.listForMember", () => {
     const db = createDb(":memory:");
     const now = Date.now();
     // Insert out of creation order to prove the ORDER BY (not insertion order).
-    db.insert(weddings)
-      .values({
-        id: "wed_mid",
-        slug: "mid",
-        displayName: "Middle",
-        ownerOsnProfileId: "usr_owner",
-        createdAt: new Date(now + 2_000),
-        updatedAt: new Date(now + 2_000),
-      })
-      .run();
-    db.insert(weddings)
-      .values({
-        id: "wed_first",
-        slug: "first",
-        displayName: "First",
-        ownerOsnProfileId: "usr_owner",
-        createdAt: new Date(now + 1_000),
-        updatedAt: new Date(now + 1_000),
-      })
-      .run();
-    db.insert(weddings)
-      .values({
-        id: "wed_last",
-        slug: "last",
-        displayName: "Last",
-        ownerOsnProfileId: "usr_owner",
-        createdAt: new Date(now + 3_000),
-        updatedAt: new Date(now + 3_000),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_mid",
+      slug: "mid",
+      displayName: "Middle",
+      createdAt: new Date(now + 2_000),
+      updatedAt: new Date(now + 2_000),
+      owners: ["usr_owner"],
+    });
+    insertWedding(db, {
+      id: "wed_first",
+      slug: "first",
+      displayName: "First",
+      createdAt: new Date(now + 1_000),
+      updatedAt: new Date(now + 1_000),
+      owners: ["usr_owner"],
+    });
+    insertWedding(db, {
+      id: "wed_last",
+      slug: "last",
+      displayName: "Last",
+      createdAt: new Date(now + 3_000),
+      updatedAt: new Date(now + 3_000),
+      owners: ["usr_owner"],
+    });
     // A wedding belonging to someone else must not leak in.
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_someone_else",
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other",
+      displayName: "Other",
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+      owners: ["usr_someone_else"],
+    });
 
     const list = await run(db, weddingsService.listForMember("usr_owner"));
     expect(list.map((w) => w.id)).toEqual(["wed_first", "wed_mid", "wed_last"]);
@@ -143,31 +149,27 @@ describe("weddingsService.listForMember", () => {
     expect(list).toEqual([]);
   });
 
-  it("includes co-hosted weddings with their seat role, after owned ones (T-U2)", async () => {
+  it("includes co-hosted weddings with their seat role, oldest seat first (T-U2)", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
     // One owned by the member.
-    db.insert(weddings)
-      .values({
-        id: "wed_owned",
-        slug: "owned",
-        displayName: "Owned",
-        ownerOsnProfileId: "usr_member",
-        createdAt: new Date(now + 1_000),
-        updatedAt: new Date(now + 1_000),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_owned",
+      slug: "owned",
+      displayName: "Owned",
+      createdAt: new Date(now + 1_000),
+      updatedAt: new Date(now + 1_000),
+      owners: ["usr_member"],
+    });
     // One owned by someone else, co-hosted by the member.
-    db.insert(weddings)
-      .values({
-        id: "wed_cohosted",
-        slug: "cohosted",
-        displayName: "Co-hosted",
-        ownerOsnProfileId: "usr_other_owner",
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_cohosted",
+      slug: "cohosted",
+      displayName: "Co-hosted",
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+      owners: ["usr_other_owner"],
+    });
     db.insert(weddingHosts)
       .values({
         id: "whost_1",
@@ -186,19 +188,31 @@ describe("weddingsService.listForMember", () => {
     ]);
   });
 
+  it("lists a wedding as owned for each of its owners, once each", async () => {
+    const db = createDb(":memory:");
+    insertWedding(db, {
+      id: "wed_shared",
+      slug: "shared",
+      displayName: "Shared",
+      owners: ["usr_ada", "usr_bo"],
+    });
+    for (const owner of ["usr_ada", "usr_bo"]) {
+      const list = await run(db, weddingsService.listForMember(owner));
+      expect(list.map((w) => [w.id, w.role])).toEqual([["wed_shared", "owner"]]);
+    }
+  });
+
   it("surfaces a viewer seat's role in the list", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
-    db.insert(weddings)
-      .values({
-        id: "wed_viewed",
-        slug: "viewed",
-        displayName: "Viewed",
-        ownerOsnProfileId: "usr_other_owner",
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_viewed",
+      slug: "viewed",
+      displayName: "Viewed",
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+      owners: ["usr_other_owner"],
+    });
     db.insert(weddingHosts)
       .values({
         id: "whost_v",

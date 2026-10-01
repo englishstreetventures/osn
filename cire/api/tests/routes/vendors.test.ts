@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 
 import { createApp } from "../../src/app";
@@ -10,6 +10,7 @@ import type { VendorDto } from "../../src/services/vendors";
 import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
@@ -45,16 +46,14 @@ function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
       createdAt: now,
     })
     .run();
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
 
   // Grant the `vendors` entitlement so the route gate passes (unless opted out
   // for an explicit 402-test that must exercise the un-entitled path).

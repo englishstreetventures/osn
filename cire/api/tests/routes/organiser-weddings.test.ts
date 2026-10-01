@@ -29,6 +29,7 @@ import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Owner of the seeded sample wedding (see seedBootstrapWedding — the fixed local
 // dev id DEV_OWNER_PROFILE_ID).
@@ -62,16 +63,14 @@ function buildApp() {
 
 function seedOtherWedding(db: TestDb) {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: "other-wedding",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: OTHER_OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: "other-wedding",
+    displayName: "Other Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OTHER_OWNER],
+  });
   db.insert(events)
     .values({
       id: "evt_other",
@@ -287,8 +286,16 @@ describe("POST /api/organiser/weddings", () => {
 
     // Persisted, owned by the caller.
     const [row] = db.select().from(weddings).where(eq(weddings.id, body.wedding.id)).all();
-    expect(row!.ownerOsnProfileId).toBe("usr_newcomer");
     expect(row!.codeStyle).toBe("secure");
+    // Owned through an `owner` seat — the only owner a new wedding has.
+    const seats = db
+      .select()
+      .from(weddingHosts)
+      .where(eq(weddingHosts.weddingId, body.wedding.id))
+      .all();
+    expect(seats.map((h) => [h.osnProfileId, h.role, h.addedByOsnProfileId])).toEqual([
+      ["usr_newcomer", "owner", "usr_newcomer"],
+    ]);
   });
 
   it("defaults to the secure code style when codeStyle is omitted", async () => {

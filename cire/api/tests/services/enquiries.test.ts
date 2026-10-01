@@ -6,7 +6,6 @@ import {
   directoryVendors,
   vendorEnquiries,
   vendors,
-  weddings,
 } from "@cire/db";
 import type { SendEmailInput } from "@shared/email";
 import { eq } from "drizzle-orm";
@@ -23,6 +22,7 @@ import {
   ZapUnavailable,
 } from "../../src/services/enquiries";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
+import { insertWedding } from "../test-helpers/wedding";
 
 // ---------------------------------------------------------------------------
 // Fixtures — a claimed + an unclaimed directory listing under the seed wedding.
@@ -623,16 +623,14 @@ describe("enquiryService.onVendorClaimed", () => {
       const vid = `ven_flush_${i}`;
       const eid = `enq_flush_${i}`;
       ids.push(eid);
-      db.insert(weddings)
-        .values({
-          id: wid,
-          slug: `flush-${i}`,
-          displayName: `Flush ${i}`,
-          ownerOsnProfileId: ORGANISER_PROFILE_ID,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      insertWedding(db, {
+        id: wid,
+        slug: `flush-${i}`,
+        displayName: `Flush ${i}`,
+        createdAt: now,
+        updatedAt: now,
+        owners: [ORGANISER_PROFILE_ID],
+      });
       db.insert(vendors)
         .values({
           id: vid,

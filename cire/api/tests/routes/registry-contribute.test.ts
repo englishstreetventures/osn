@@ -21,6 +21,7 @@ import {
   type StripeClient,
 } from "../../src/services/stripe";
 import { appRequest, jsonBody, recordStatements, TEST_ORIGIN } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * A guest giving money.
@@ -112,16 +113,14 @@ function buildApp({
   const now = new Date();
   // A second wedding with its own household, so "a cookie for one wedding buys
   // nothing on another" has a real target rather than a fabricated id.
-  db.insert(weddings)
-    .values({
-      id: "wed_other",
-      slug: "other-wedding",
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_other",
+    slug: "other-wedding",
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   db.insert(families)
     .values({
       id: "fam_other",

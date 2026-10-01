@@ -1,13 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  families,
-  guests,
-  hostRsvpNotices,
-  rsvpChanges,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, hostRsvpNotices, rsvpChanges } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit } from "effect";
@@ -32,6 +25,7 @@ import {
   type PriorReply,
 } from "../../src/services/rsvp-changes";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_changes_editor";
@@ -340,16 +334,14 @@ describe("rsvpChangeService.feed", () => {
   it("never shows another wedding's changes", async () => {
     const { db, ada } = fixture();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_elsewhere",
-        slug: "elsewhere",
-        displayName: "Elsewhere",
-        ownerOsnProfileId: OWNER,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_elsewhere",
+      slug: "elsewhere",
+      displayName: "Elsewhere",
+      createdAt: now,
+      updatedAt: now,
+      owners: [OWNER],
+    });
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
     const feed = await ok(db, rsvpChangeService.feed("wed_elsewhere", OWNER));
     expect(feed.households).toBe(0);

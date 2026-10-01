@@ -43,8 +43,8 @@ const secondsAt = (ms: number) => Math.floor(ms / 1000);
 function seedWedding(db: Db, id = "wed_test") {
   const t = Date.now();
   db.$client.exec(
-    `INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, code_style, currency, created_at, updated_at)
-     VALUES ('${id}', '${id}-slug', 'Test', 'usr_owner', 'secure', 'AUD', ${t}, ${t});`,
+    `INSERT INTO weddings (id, slug, display_name, code_style, currency, created_at, updated_at)
+     VALUES ('${id}', '${id}-slug', 'Test', 'secure', 'AUD', ${t}, ${t});`,
   );
   return id;
 }

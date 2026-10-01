@@ -22,6 +22,7 @@ import {
   vendors,
   weddingFaqs,
   weddingEntitlements,
+  weddingHosts,
   weddingInviteCustomisations,
   weddings,
   BOOTSTRAP_WEDDING_ID,
@@ -53,6 +54,7 @@ import { type AccountLinkGate, claimService } from "../../src/services/claim";
 import { ClaimInvalid, createDirectoryService } from "../../src/services/directory";
 import { BASE_GUEST_CAP } from "../../src/services/entitlements";
 import { giftExportService } from "../../src/services/gift-export";
+import { hostsService, MAX_OWNERS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
@@ -68,6 +70,7 @@ import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
 import { tasksService } from "../../src/services/tasks";
+import { ownerSeat } from "../test-helpers/wedding";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // The rest of the suite runs on synchronous bun:sqlite; these exercise the
@@ -81,6 +84,7 @@ import { tasksService } from "../../src/services/tasks";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
+const MIGRATION_0071 = "0071_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -141,10 +145,13 @@ async function seed(): Promise<void> {
     id: BOOTSTRAP_WEDDING_ID,
     slug: "w",
     displayName: "W",
-    ownerOsnProfileId: "usr_test",
     createdAt: now,
     updatedAt: now,
   });
+  // Seated a minute back, so a change made during a test is after the seat.
+  await db
+    .insert(weddingHosts)
+    .values(ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_test", new Date(now.getTime() - 60_000)));
   await db.insert(events).values([
     {
       id: EVENT_A,
@@ -1660,7 +1667,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_blank",
           slug: "d1-blank",
           displayName: "Blank",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1668,7 +1674,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_full",
           slug: "d1-full",
           displayName: "Full",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1723,7 +1728,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_off",
           slug: "d1-off",
           displayName: "Off",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1731,7 +1735,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_d1_on",
           slug: "d1-on",
           displayName: "On",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         },
@@ -1924,7 +1927,6 @@ describe("cire/api over real D1 (Miniflare)", () => {
           id: "wed_chain",
           slug: "chain",
           displayName: "Chain",
-          ownerOsnProfileId: "usr_test",
           createdAt: stamp,
           updatedAt: stamp,
         });
@@ -1945,6 +1947,185 @@ describe("cire/api over real D1 (Miniflare)", () => {
       } finally {
         await chainMf.dispose();
       }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0071 on D1's own SQLite: owners become seats, nothing cascades",
+    async () => {
+      // Its own instance, built from the chain up to 0070, so the weddings the
+      // migration moves are rows that exist before it runs — including one
+      // whose owner already holds a seat, which takes the upsert branch.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = readdirSync(MIGRATIONS_DIR)
+          .filter((f) => f.endsWith(".sql"))
+          .toSorted();
+        const cut = files.indexOf(MIGRATION_0071);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at) VALUES ('wed_m1', 'm1', 'M1', 'usr_m1', 100, 100), ('wed_m2', 'm2', 'M2', 'usr_m2', 200, 200)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_keep', 'wed_m2', 'usr_m2', 'usr_x', 'viewer', 150), ('whost_ed', 'wed_m1', 'usr_ed', 'usr_m1', 'editor', 120)",
+          "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_m1', 'wed_m1', 'M-0001', 'M', 0, 0)",
+          "INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES ('g_m1', 'fam_m1', 'Ada', 0, 0)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        const statements = migrationStatements(MIGRATION_0071);
+        expect(statements).toHaveLength(3);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const seats = await chainD1
+          .prepare(
+            "SELECT id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at FROM wedding_hosts ORDER BY wedding_id, osn_profile_id",
+          )
+          .all<{
+            id: string;
+            wedding_id: string;
+            osn_profile_id: string;
+            added_by_osn_profile_id: string;
+            role: string;
+            created_at: number;
+          }>();
+        expect(seats.results.map((r) => [r.wedding_id, r.osn_profile_id, r.role])).toEqual([
+          ["wed_m1", "usr_ed", "editor"],
+          ["wed_m1", "usr_m1", "owner"],
+          ["wed_m2", "usr_m2", "owner"],
+        ]);
+        const minted = seats.results.find((r) => r.osn_profile_id === "usr_m1")!;
+        expect(minted.id).toMatch(
+          /^whost_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        expect(minted).toMatchObject({ added_by_osn_profile_id: "usr_m1", created_at: 100 });
+        // The owner who already held a seat keeps it — its id and history.
+        expect(seats.results.find((r) => r.osn_profile_id === "usr_m2")).toMatchObject({
+          id: "whost_keep",
+          added_by_osn_profile_id: "usr_x",
+          created_at: 150,
+        });
+
+        const columns = await chainD1
+          .prepare("PRAGMA table_info(weddings)")
+          .all<{ name: string }>();
+        expect(columns.results.map((c) => c.name)).not.toContain("owner_osn_profile_id");
+        const left = await chainD1
+          .prepare(
+            "SELECT (SELECT count(*) FROM weddings) AS w, (SELECT count(*) FROM families) AS f, (SELECT count(*) FROM guests) AS g",
+          )
+          .first<{ w: number; f: number; g: number }>();
+        expect(left).toEqual({ w: 2, f: 1, g: 1 });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guards the last owner and both seat ceilings over D1's batch path",
+    async () => {
+      // On D1 the role change and the removal each ride one atomic batch with
+      // the read that explains a refusal; bun:sqlite runs them one at a time.
+      // These are the results those batches hand back.
+      const seatRole = async (osnProfileId: string) =>
+        (
+          await db
+            .select({ role: weddingHosts.role })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.osnProfileId, osnProfileId))
+        )[0]?.role;
+
+      const added = await run(
+        hostsService.add({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          addedByOsnProfileId: "usr_test",
+          role: "owner",
+        }),
+      );
+      expect(added.role).toBe("owner");
+
+      // Two owners: one may step down, after which the other is the last.
+      await run(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          role: "editor",
+        }),
+      );
+      expect(await seatRole("usr_second")).toBe("editor");
+      const demote = await Effect.runPromiseExit(
+        hostsService
+          .setRole({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_test", role: "viewer" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(demote) && Cause.squash(demote.cause)).toMatchObject({
+        _tag: "LastOwner",
+      });
+
+      // The last owner's removal is refused and keeps their RSVP marker.
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_test", false));
+      const removal = await Effect.runPromiseExit(
+        hostsService
+          .remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_test" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(removal) && Cause.squash(removal.cause)).toMatchObject({
+        _tag: "LastOwner",
+      });
+      expect(await seatRole("usr_test")).toBe("owner");
+      expect(
+        await db.select().from(hostRsvpNotices).where(eq(hostRsvpNotices.osnProfileId, "usr_test")),
+      ).toHaveLength(1);
+
+      // A co-host's removal goes through, marker and all.
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_second", false));
+      await run(
+        hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+      );
+      expect(await seatRole("usr_second")).toBeUndefined();
+      expect(
+        await db
+          .select()
+          .from(hostRsvpNotices)
+          .where(eq(hostRsvpNotices.osnProfileId, "usr_second")),
+      ).toHaveLength(0);
+
+      // The owner ceiling, counted inside the INSERT.
+      for (let i = 1; i < MAX_OWNERS_PER_WEDDING; i += 1) {
+        await run(
+          hostsService.add({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: `usr_owner_${i}`,
+            addedByOsnProfileId: "usr_test",
+            role: "owner",
+          }),
+        );
+      }
+      const overCap = await Effect.runPromiseExit(
+        hostsService
+          .add({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_one_more",
+            addedByOsnProfileId: "usr_test",
+            role: "owner",
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(overCap) && Cause.squash(overCap.cause)).toMatchObject({
+        _tag: "HostConflict",
+        reason: "owner_cap_reached",
+      });
     },
     MF_TIMEOUT_MS,
   );

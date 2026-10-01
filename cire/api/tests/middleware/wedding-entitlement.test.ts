@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddings } from "@cire/db";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
@@ -10,6 +9,7 @@ import { createDb } from "../../src/db/setup";
 import { weddingEntitlement } from "../../src/middleware/wedding-entitlement";
 import { entitlementService } from "../../src/services/entitlements";
 import { appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 /** A stub Db whose every query throws a transient error — simulates D1 defect. */
 function buildThrowingDb(): Db {
@@ -25,26 +25,22 @@ function buildThrowingDb(): Db {
 function buildDb(): Db {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: "wed_x",
-      slug: "wed-x-slug",
-      displayName: "Wedding X",
-      ownerOsnProfileId: "usr_o",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-  db.insert(weddings)
-    .values({
-      id: "wed_y",
-      slug: "wed-y-slug",
-      displayName: "Wedding Y",
-      ownerOsnProfileId: "usr_o",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_x",
+    slug: "wed-x-slug",
+    displayName: "Wedding X",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_o"],
+  });
+  insertWedding(db, {
+    id: "wed_y",
+    slug: "wed-y-slug",
+    displayName: "Wedding Y",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_o"],
+  });
   return db;
 }
 
