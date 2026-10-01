@@ -133,6 +133,9 @@ export const CIRE_METRICS = {
   // Deleted weddings past their window that a purge run left for a later one
   // because of its per-run cap — the backlog, recorded once per run.
   weddingPurgeBacklog: "cire.wedding.purge.backlog",
+  // The email to a wedding's owners when one is removed or demoted, or the
+  // wedding is deleted: one count per notice, not per recipient.
+  ownerNotice: "cire.owner_notice.dispatched",
   // A Stripe Connect refund or dispute whose gift cire cannot find — the gift
   // was never recorded here, or its wedding was purged.
   registryStripeUnmatched: "cire.registry.stripe.unmatched",
@@ -266,6 +269,11 @@ export type WeddingRestoredResult =
   | "not_found"
   | "error";
 export type WeddingPurgedResult = "ok" | "held" | "error";
+/** Which owner notice was attempted. */
+export type OwnerNoticeKind = "owner_change" | "delete_started";
+/** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
+ *  throttle, or the lookup or send failed. */
+export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";
 export type StripeUnmatchedEvent = "refund" | "dispute";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
@@ -591,6 +599,7 @@ type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingDeletedAttrs = { result: WeddingDeletedResult };
 type WeddingRestoredAttrs = { result: WeddingRestoredResult };
 type WeddingPurgedAttrs = { result: WeddingPurgedResult };
+type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
@@ -963,6 +972,12 @@ const weddingDeleted = createCounter<WeddingDeletedAttrs>({
   unit: "{wedding}",
 });
 
+const ownerNotice = createCounter<OwnerNoticeAttrs>({
+  name: CIRE_METRICS.ownerNotice,
+  description: "Owner notices (owner removed or demoted, wedding deleted), by kind and outcome",
+  unit: "{notice}",
+});
+
 const weddingRestored = createCounter<WeddingRestoredAttrs>({
   name: CIRE_METRICS.weddingRestored,
   description: "Owner restores of a soft-deleted wedding, by outcome",
@@ -1277,6 +1292,9 @@ export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
 
 export const metricWeddingDeleted = (result: WeddingDeletedResult): void =>
   weddingDeleted.inc({ result });
+
+export const metricOwnerNotice = (kind: OwnerNoticeKind, result: OwnerNoticeResult): void =>
+  ownerNotice.inc({ kind, result });
 
 export const metricWeddingRestored = (result: WeddingRestoredResult): void =>
   weddingRestored.inc({ result });

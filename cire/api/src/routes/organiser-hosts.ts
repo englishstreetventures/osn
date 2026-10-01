@@ -4,6 +4,8 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { dispatchNotice } from "../lib/owner-notice-email";
+import type { OwnerChangedInput, OwnerNotices } from "../lib/owner-notice-email";
 import {
   type HostRoleChangeResult,
   measureHostResolve,
@@ -61,6 +63,23 @@ function roleChangeFailure(err: HostNotFound | LastOwner | HostWriteError): Host
 class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
   reason: string;
 }> {}
+
+/**
+ * Tell the owners an owner was removed or demoted, once the write has
+ * committed. A no-op when notices are not configured.
+ */
+const notifyOwnerChange = (
+  db: Db,
+  request: Request,
+  notices: OwnerNotices | undefined,
+  input: OwnerChangedInput,
+): Effect.Effect<void> =>
+  notices
+    ? dispatchNotice(
+        request,
+        notices.ownerChanged(input).pipe(Effect.provideService(DbService, db)),
+      )
+    : Effect.void;
 
 /**
  * Seat LISTING — every member (weddingMember). Owners and co-hosts come back in
@@ -165,6 +184,7 @@ export const createOrganiserHostsWriteRoutes = (
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
+  ownerNotices?: OwnerNotices,
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
@@ -291,11 +311,12 @@ export const createOrganiserHostsWriteRoutes = (
         // has nothing to say about it.
         .put(
           "/hosts/:osnProfileId/role",
-          async ({ request, weddingId, params, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, osnProfileId, params, set }) => {
+            if (!weddingId || !osnProfileId) {
               set.status = 500;
               return { error: "Internal error" };
             }
+            const actorOsnProfileId = osnProfileId;
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
@@ -312,6 +333,17 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRoleChanged("ok", host.role));
+                // An owner moved below owner, the caller's own step-down
+                // included: every owner hears of it, and so does the person.
+                if (host.previousRole === "owner" && host.role !== "owner") {
+                  yield* notifyOwnerChange(db, request, ownerNotices, {
+                    weddingId,
+                    actorOsnProfileId,
+                    subjectOsnProfileId: host.osnProfileId,
+                    change: "demoted",
+                    newRole: host.role,
+                  });
+                }
                 return {
                   host: {
                     osnProfileId: host.osnProfileId,
@@ -359,8 +391,8 @@ export const createOrganiserHostsWriteRoutes = (
         )
         // Remove any seat — a co-host's, another owner's, or the caller's own.
         // 409 `last_owner` when it is the wedding's only owner.
-        .delete("/hosts/:osnProfileId", ({ weddingId, params, set }) => {
-          if (!weddingId) {
+        .delete("/hosts/:osnProfileId", ({ request, weddingId, osnProfileId, params, set }) => {
+          if (!weddingId || !osnProfileId) {
             set.status = 500;
             return { error: "Internal error" };
           }
@@ -368,6 +400,16 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
+              Effect.tap(({ removedRole }) =>
+                removedRole === "owner"
+                  ? notifyOwnerChange(db, request, ownerNotices, {
+                      weddingId,
+                      actorOsnProfileId: osnProfileId,
+                      subjectOsnProfileId: params.osnProfileId,
+                      change: "removed",
+                    })
+                  : Effect.void,
+              ),
               Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
               Effect.catchTags({
                 LastOwner: () =>
@@ -403,7 +445,7 @@ export const createOrganiserHostsWriteRoutes = (
       group
         .use(weddingSeat(db))
         .use(rateLimitMiddlewareByUser(limiter))
-        .delete("/hosts/me", ({ weddingId, osnProfileId, set }) => {
+        .delete("/hosts/me", ({ request, weddingId, osnProfileId, set }) => {
           if (!weddingId || !osnProfileId) {
             set.status = 500;
             return { error: "Internal error" };
@@ -415,6 +457,16 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
+              Effect.tap(({ removedRole }) =>
+                removedRole === "owner"
+                  ? notifyOwnerChange(db, request, ownerNotices, {
+                      weddingId,
+                      actorOsnProfileId: osnProfileId,
+                      subjectOsnProfileId: osnProfileId,
+                      change: "removed",
+                    })
+                  : Effect.void,
+              ),
               Effect.as({ left: true }),
               Effect.catchTags({
                 LastOwner: () =>

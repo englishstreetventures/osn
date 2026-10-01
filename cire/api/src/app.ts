@@ -17,6 +17,11 @@ import type { AccountLinking } from "./lib/account-linking";
 import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
 import { originGuard } from "./lib/origin-guard";
+import {
+  createOwnerNotices,
+  OWNER_NOTICE_WINDOW_MS,
+  OWNER_NOTICES_PER_WEDDING,
+} from "./lib/owner-notice-email";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
@@ -97,6 +102,7 @@ import type {
   OsnHandleResolver,
   OsnHandleSearchResolver,
   OsnOrgMembershipResolver,
+  OsnOrganiserEmailLookup,
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
@@ -171,6 +177,12 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  * anyone deletes or restores weddings by hand.
  */
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
+/** Owner notices per wedding: keeps a promote/demote loop from spending the
+ *  mail provider's daily allowance. Keyed by wedding id. */
+const defaultOwnerNoticeThrottle = createRateLimiter({
+  maxRequests: OWNER_NOTICES_PER_WEDDING,
+  windowMs: OWNER_NOTICE_WINDOW_MS,
+});
 /**
  * Default per-IP limiter for the co-host autocomplete (S-L1). osnAuth-gated
  * already, so this just caps the per-keystroke ARC-sign + S2S amplifier (the
@@ -458,6 +470,15 @@ export interface AppOptions {
    */
   resolveOsnProfileDisplays?: OsnProfileDisplayResolver;
   /**
+   * Resolves organiser profile ids to their account addresses (server-to-server
+   * over ARC, `account:email-read`) for the owner notices: an owner removed or
+   * demoted, a wedding deleted. KEY-OPTIONAL: when omitted, no notice is sent
+   * and every route behaves the same. Sent through `emailLayer`.
+   */
+  organiserEmailLookup?: OsnOrganiserEmailLookup;
+  /** Override the per-wedding owner-notice throttle (useful for testing). */
+  ownerNoticeThrottle?: RateLimiterBackend;
+  /**
    * Suggests OSN profiles whose handle starts with a typed prefix (server-to-
    * server over ARC) for the add-co-host autocomplete. KEY-OPTIONAL + FAIL-SOFT:
    * when omitted (no ARC key) or unreachable, the search route returns an empty
@@ -653,6 +674,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
+    organiserEmailLookup,
+    ownerNoticeThrottle = defaultOwnerNoticeThrottle,
     resolveOsnHandleSearch,
     resolveOsnConnectionSearch,
     turnstileVerifier = null,
@@ -730,6 +753,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // (host.cireweddings.com) — NOT `webOrigin`, which is the guest invite site.
     threadBaseUrl: `${organiserOrigin.replace(/\/+$/, "")}/vendors/enquiries`,
   });
+
+  // Owner notices go out through the same transport as the vendor emails, and
+  // only when osn-api can be asked for the owners' addresses.
+  const ownerNotices = organiserEmailLookup
+    ? createOwnerNotices({
+        lookup: organiserEmailLookup,
+        resolveDisplays: resolveOsnProfileDisplays,
+        emailLayer: vendorEmailLayer,
+        portalUrl: organiserOrigin.replace(/\/+$/, ""),
+        throttle: ownerNoticeThrottle,
+      })
+    : undefined;
 
   // `db` turns on the organiser session cookie path in `osnAuth` — the way every
   // browser authenticates now that the passkey ceremony lives on musubi.social.
@@ -932,7 +967,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // instances so the read isn't gated by the write limiter.
       .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
-        createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
+        createOrganiserHostsWriteRoutes(
+          db,
+          osnAuthOptions,
+          hostLimiter,
+          resolveOsnProfileByHandle,
+          ownerNotices,
+        ),
       )
       // Co-host autocomplete, sourced from the caller's OSN connections first
       // and the global handle search second. osnAuth-only (not wedding-scoped) —
@@ -1133,7 +1174,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // same reason as the upgrade routes below, and before the no-Stripe early
   // return so they exist in every deployment.
   const withLifecycle: AnyElysia = rootApp
-    .use(createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+    .use(
+      createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter, ownerNotices),
+    )
     .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter));
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
     ? withLifecycle.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
