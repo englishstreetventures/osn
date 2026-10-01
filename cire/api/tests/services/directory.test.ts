@@ -6,7 +6,6 @@ import {
   directoryVendors,
   vendorClaims,
   vendors,
-  weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -21,6 +20,7 @@ import {
 } from "../../src/services/directory";
 import { VendorNotInWedding } from "../../src/services/vendors";
 import { recordStatements } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER_WEDDING = "wed_other";
 const TEST_ORIGIN = "https://vendor.test.example.com";
@@ -28,16 +28,14 @@ const TEST_ORIGIN = "https://vendor.test.example.com";
 function db0() {
   const db = createDb(":memory:");
   seedDb(db);
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING,
-      slug: "other",
-      displayName: "Other Wedding",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING,
+    slug: "other",
+    displayName: "Other Wedding",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    owners: ["usr_bob"],
+  });
   return db;
 }
 
@@ -1248,26 +1246,22 @@ describe("directoryService.browse + getLiveListingById", () => {
     const now = new Date();
 
     // Weddings W1 and W2
-    db.insert(weddings)
-      .values({
-        id: "W1",
-        slug: "wedding-w1",
-        displayName: "Wedding W1",
-        ownerOsnProfileId: "usr_w1",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    db.insert(weddings)
-      .values({
-        id: "W2",
-        slug: "wedding-w2",
-        displayName: "Wedding W2",
-        ownerOsnProfileId: "usr_w2",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "W1",
+      slug: "wedding-w1",
+      displayName: "Wedding W1",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_w1"],
+    });
+    insertWedding(db, {
+      id: "W2",
+      slug: "wedding-w2",
+      displayName: "Wedding W2",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_w2"],
+    });
 
     // Live listing LA — venue + catering, Sydney, description contains "garden venue"
     db.insert(directoryVendors)

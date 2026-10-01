@@ -1,4 +1,4 @@
-import { sessions } from "@cire/db";
+import { families, sessions, weddings } from "@cire/db";
 import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
 import { and, eq, lte, sql } from "drizzle-orm";
@@ -6,6 +6,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
@@ -81,8 +82,21 @@ export const sessionService = {
         return yield* Effect.fail(new SessionInvalid({ reason: "missing" }));
       }
       const tokenHash = yield* hashToken(token);
+      // A session for a soft-deleted wedding matches no row and reads as
+      // missing. It is refused, not revoked: `sessionAuth` answers 401 without
+      // clearing the cookie, so the same cookie works again after a restore.
       const [row] = yield* dbQuery(() =>
-        db.select().from(sessions).where(eq(sessions.token, tokenHash)).all(),
+        db
+          .select({
+            familyId: sessions.familyId,
+            expiresAt: sessions.expiresAt,
+            memberGuestId: sessions.memberGuestId,
+          })
+          .from(sessions)
+          .innerJoin(families, eq(families.id, sessions.familyId))
+          .innerJoin(weddings, eq(weddings.id, families.weddingId))
+          .where(and(eq(sessions.token, tokenHash), weddingIsLive))
+          .all(),
       );
       if (!row) {
         return yield* Effect.fail(new SessionInvalid({ reason: "missing" }));

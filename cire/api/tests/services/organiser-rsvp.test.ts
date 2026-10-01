@@ -1,14 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import {
-  BOOTSTRAP_WEDDING_ID,
-  events,
-  families,
-  guestEvents,
-  guests,
-  rsvps,
-  weddings,
-} from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
 import {
   ORGANISER_DIETARY_ATTESTATION,
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
@@ -24,6 +16,7 @@ import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { organiserRsvpService } from "../../src/services/organiser-rsvp";
 import { dietaryConsentVersionFor, rsvpService } from "../../src/services/rsvp";
 import { seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 // Ada (Testfamily) is invited to catholic + hindu + reception, NOT mehendi.
 // (Mirrors the guest RSVP route test fixtures.)
@@ -44,16 +37,14 @@ const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
  *  cross-tenant isolation can be exercised (wedding B's guest/event). */
 function seedForeignWedding() {
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: "wed_foreign",
-      slug: "foreign",
-      displayName: "Foreign Wedding",
-      ownerOsnProfileId: "usr_foreign_owner",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: "wed_foreign",
+    slug: "foreign",
+    displayName: "Foreign Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_foreign_owner"],
+  });
   db.insert(families)
     .values({
       id: "fam_foreign",

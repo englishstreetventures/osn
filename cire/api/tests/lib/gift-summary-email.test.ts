@@ -4,9 +4,10 @@
  *
  * The behaviour worth pinning is what happens when things go wrong: by the time
  * this runs the deletes have committed, so nothing here may fail the caller.
- * A wedding whose address osn-api could not resolve is skipped silently, a
- * bounced send costs one couple its summary and no more, and a lookup that
- * throws outright still leaves the effect successful.
+ * An owner whose address osn-api could not resolve is skipped silently, a
+ * bounced send costs one owner their summary and no more, and a lookup that
+ * throws outright still leaves the effect successful. Every owner of a wedding
+ * gets the summary, once per address.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -42,7 +43,7 @@ function notice(overrides: Partial<GiftSummaryNotice> = {}): GiftSummaryNotice {
   return {
     weddingId: "wed_1",
     weddingName: "Ada and Bo",
-    ownerOsnProfileId: "usr_owner1",
+    ownerOsnProfileIds: ["usr_owner1"],
     currency: "AUD",
     finalEventOn: "2025-08-20",
     summary: {
@@ -95,7 +96,7 @@ describe("sendGiftSummaryEmails", () => {
 
     const exit = await Effect.runPromiseExit(
       sendGiftSummaryEmails(
-        [notice(), notice({ weddingId: "wed_2", ownerOsnProfileId: "usr_gone" })],
+        [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_gone"] })],
         lookupOf({ usr_owner1: "couple@example.com" }),
       ).pipe(Effect.provide(layer)),
     );
@@ -103,6 +104,67 @@ describe("sendGiftSummaryEmails", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.to).toBe("couple@example.com");
+  });
+
+  it("sends the summary to every owner of the wedding, in one lookup", async () => {
+    const { layer, calls } = makeRecordingStub();
+    const asked: string[][] = [];
+
+    const exit = await Effect.runPromiseExit(
+      sendGiftSummaryEmails(
+        [notice({ ownerOsnProfileIds: ["usr_owner1", "usr_owner2"] })],
+        (ids) => {
+          asked.push([...ids]);
+          return Promise.resolve(
+            new Map([
+              ["usr_owner1", "ada@example.com"],
+              ["usr_owner2", "bo@example.com"],
+            ]),
+          );
+        },
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(asked).toEqual([["usr_owner1", "usr_owner2"]]);
+    expect(calls.map((c) => c.to).toSorted()).toEqual(["ada@example.com", "bo@example.com"]);
+    // The same summary to each.
+    expect(calls[0]?.data).toEqual(calls[1]?.data);
+  });
+
+  it("sends once to an address two owners share", async () => {
+    const { layer, calls } = makeRecordingStub();
+
+    await Effect.runPromise(
+      sendGiftSummaryEmails(
+        [notice({ ownerOsnProfileIds: ["usr_owner1", "usr_owner2"] })],
+        lookupOf({ usr_owner1: "us@example.com", usr_owner2: "us@example.com" }),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(calls.map((c) => c.to)).toEqual(["us@example.com"]);
+  });
+
+  it("still mails one owner when the other has no address, or the other's send fails", async () => {
+    const calls: SendEmailInput[] = [];
+    const layer = Layer.succeed(EmailService, {
+      send: (input: SendEmailInput) =>
+        input.to === "bounce@example.com"
+          ? Effect.fail(new EmailError({ reason: "api_unreachable", cause: new Error("bounced") }))
+          : Effect.sync(() => {
+              calls.push(input);
+            }),
+    });
+
+    const exit = await Effect.runPromiseExit(
+      sendGiftSummaryEmails(
+        [notice({ ownerOsnProfileIds: ["usr_bounce", "usr_gone", "usr_owner1"] })],
+        lookupOf({ usr_bounce: "bounce@example.com", usr_owner1: "couple@example.com" }),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(calls.map((c) => c.to)).toEqual(["couple@example.com"]);
   });
 
   it("succeeds when the transport rejects every send", async () => {

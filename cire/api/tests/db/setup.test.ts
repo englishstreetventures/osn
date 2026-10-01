@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import * as schema from "@cire/db";
 import { eq } from "drizzle-orm";
 
-import { createDb, DDL, seedDb } from "../../src/db/setup";
+import { createDb, DDL, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
 
 describe("multi-tenant schema", () => {
   it("seeds a bootstrap wedding and scopes families/events to it", () => {
@@ -13,7 +13,15 @@ describe("multi-tenant schema", () => {
     const weddings = db.select().from(schema.weddings).all();
     expect(weddings).toHaveLength(1);
     expect(weddings[0]!.id).toBe("wed_bootstrap");
-    expect(weddings[0]!.ownerOsnProfileId).toBe("usr_dev_bootstrap_owner");
+    // Owned through a seat: the dev owner's, under its fixed id.
+    const owners = db
+      .select()
+      .from(schema.weddingHosts)
+      .where(eq(schema.weddingHosts.role, "owner"))
+      .all();
+    expect(owners.map((o) => [o.id, o.weddingId, o.osnProfileId])).toEqual([
+      [DEV_OWNER_SEAT_ID, "wed_bootstrap", "usr_dev_bootstrap_owner"],
+    ]);
 
     const families = db.select().from(schema.families).all();
     expect(families.length).toBeGreaterThan(0);
@@ -50,7 +58,6 @@ describe("multi-tenant schema", () => {
         id: "wed_t",
         slug: "t",
         displayName: "T",
-        ownerOsnProfileId: "usr_t",
         createdAt: now,
         updatedAt: now,
       })

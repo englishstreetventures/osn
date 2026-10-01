@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
@@ -14,6 +14,7 @@ import { weddingTier } from "../../src/middleware/wedding-tier";
 import type { PaidTier, Tier } from "../../src/services/tiers";
 import { appRequest, countingDb, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * The plan-tier gate, and the claim it rests on: the role gate in front of it
@@ -32,16 +33,13 @@ const HELPER = "usr_helper";
 function buildDb(tier: Tier) {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "tier-wedding",
-      displayName: "Tier Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "tier-wedding",
+    displayName: "Tier Wedding",
+    owners: [OWNER],
+    createdAt: now,
+  });
   for (const [osnProfileId, role] of [
     [EDITOR, "editor"],
     [HELPER, "helper"],
@@ -155,16 +153,16 @@ describe("weddingTier", () => {
 });
 
 describe("weddingTier behind a role gate costs no query of its own", () => {
-  // Owner: one select (the wedding row). Co-host: two (the wedding row, then
-  // the seat). The same with the tier gate mounted as without it.
+  // One select for every caller: the wedding row joined to the caller's seat.
+  // The same with the tier gate mounted as without it.
   const cases: { gate: RoleGate; caller: string; selects: number }[] = [
     { gate: "member", caller: OWNER, selects: 1 },
-    { gate: "member", caller: EDITOR, selects: 2 },
+    { gate: "member", caller: EDITOR, selects: 1 },
     { gate: "editor", caller: OWNER, selects: 1 },
-    { gate: "editor", caller: EDITOR, selects: 2 },
+    { gate: "editor", caller: EDITOR, selects: 1 },
     { gate: "owner", caller: OWNER, selects: 1 },
     { gate: "runSheet", caller: OWNER, selects: 1 },
-    { gate: "runSheet", caller: HELPER, selects: 2 },
+    { gate: "runSheet", caller: HELPER, selects: 1 },
   ];
 
   for (const { gate, caller, selects } of cases) {
@@ -267,17 +265,14 @@ describe("the tier is the wedding's own", () => {
   it("is not lifted by another wedding on Crimson", async () => {
     const db = buildDb("ivory");
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_paid",
-        slug: "paid-wedding",
-        displayName: "Paid Wedding",
-        ownerOsnProfileId: OWNER,
-        tier: "crimson",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_paid",
+      slug: "paid-wedding",
+      displayName: "Paid Wedding",
+      owners: [OWNER],
+      tier: "crimson",
+      createdAt: now,
+    });
     for (const gate of ["member", "editor", "owner", "runSheet"] as const) {
       const res = await appRequest(gated(db, OWNER, gate, "gold"), path);
       expect(res.status, gate).toBe(402);

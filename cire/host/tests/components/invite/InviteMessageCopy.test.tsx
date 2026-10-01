@@ -89,7 +89,7 @@ function withClipboard() {
 }
 
 interface Setup {
-  canManage?: boolean;
+  canEdit?: boolean;
   savedLine?: string | null;
   draftLine?: string;
 }
@@ -105,7 +105,7 @@ function mount(answer: Response | Error = json(HOUSEHOLDS), setup: Setup = {}) {
       weddingId="wed_1"
       weddingName="Nadia & Sam"
       weddingSlug="nadia-sam"
-      canManage={setup.canManage ?? true}
+      canEdit={setup.canEdit ?? true}
       savedLine={setup.savedLine ?? null}
       draftLine={draftLine()}
     />
@@ -211,9 +211,9 @@ describe("InviteMessageCopy", () => {
     }
   });
 
-  it("for a co-host, copies the message but marks nothing, since only the owner may", async () => {
+  it("for a viewer, copies the message but marks nothing, since only an owner or editor may", async () => {
     withClipboard();
-    mount(json(HOUSEHOLDS), { canManage: false });
+    mount(json(HOUSEHOLDS), { canEdit: false });
     await loaded();
     fireEvent.change(picker(), { target: { value: "fam_a" } });
 

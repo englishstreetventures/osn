@@ -128,7 +128,7 @@ describe("wedding_hosts schema", () => {
   it("defaults role to 'host'", () => {
     const db = makeDb();
     insertHost(db, "whost-1", "usr_alice");
-    const [row] = db.select().from(weddingHosts).all();
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.id, "whost-1")).all();
     expect(row?.role).toBe("host");
   });
 
@@ -145,7 +145,6 @@ describe("wedding_hosts schema", () => {
         id: "wed_two",
         slug: "two",
         displayName: "Two",
-        ownerOsnProfileId: "usr_owner",
         createdAt: now,
         updatedAt: now,
       })
@@ -160,7 +159,9 @@ describe("wedding_hosts schema", () => {
         createdAt: now,
       })
       .run();
-    expect(db.select().from(weddingHosts).all()).toHaveLength(2);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, "usr_alice")).all(),
+    ).toHaveLength(2);
   });
 
   it("rejects a host whose wedding_id does not exist (FK enforcement)", () => {
@@ -186,7 +187,6 @@ describe("wedding_hosts schema", () => {
         id: "wed_doomed",
         slug: "doomed",
         displayName: "Doomed",
-        ownerOsnProfileId: "usr_owner",
         createdAt: now,
         updatedAt: now,
       })
@@ -200,9 +200,11 @@ describe("wedding_hosts schema", () => {
         createdAt: now,
       })
       .run();
-    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+    const doomed = () =>
+      db.select().from(weddingHosts).where(eq(weddingHosts.weddingId, "wed_doomed")).all();
+    expect(doomed()).toHaveLength(1);
     db.delete(schema.weddings).where(eq(schema.weddings.id, "wed_doomed")).run();
-    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
+    expect(doomed()).toHaveLength(0);
   });
 });
 

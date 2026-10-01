@@ -1,17 +1,17 @@
-import type { HostRole, RunSheetScope } from "../services/hosts";
+import type { RunSheetScope, WeddingRole } from "../services/hosts";
 
-/** The caller's effective role on a wedding: its owner, or the app-layer role
- *  of their `wedding_hosts` seat. */
-export type WeddingRole = "owner" | HostRole;
+/** The caller's effective role on a wedding: the app-layer role of their
+ *  `wedding_hosts` seat. Every organiser, owners included, holds one. */
+export type { WeddingRole };
 
 /**
  * What a gate asks about — one name per gate, not per route. `member` is the
  * read surface (`weddingMember()`), `editor` the module writes
- * (`weddingEditor()`), `runSheet` the day-of run sheet (`weddingRunSheet()`).
- * The owner-only surface has no capability: `weddingOwner()` compares ids and
- * never consults a role.
+ * (`weddingEditor()`), `runSheet` the day-of run sheet (`weddingRunSheet()`),
+ * and `manage` the wedding itself — who helps, claim codes, settings, billing,
+ * exports, deletion (`weddingOwner()`).
  */
-export type WeddingCapability = "member" | "editor" | "runSheet";
+export type WeddingCapability = "member" | "editor" | "runSheet" | "manage";
 
 type RolePolicy = {
   capabilities: readonly WeddingCapability[];
@@ -43,6 +43,9 @@ const DENY_ALL: RolePolicy = { capabilities: [], refusal: "forbidden" };
 export function policyFor(role: WeddingRole): RolePolicy {
   switch (role) {
     case "owner":
+      // Every owner holds every owner power, and holds it alone of the roles:
+      // no other role carries `manage`.
+      return { capabilities: ["member", "editor", "runSheet", "manage"], refusal: "forbidden" };
     case "editor":
       return { capabilities: ["member", "editor", "runSheet"], refusal: "forbidden" };
     case "viewer":

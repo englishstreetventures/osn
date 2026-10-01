@@ -26,6 +26,7 @@ import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 let auth: OsnTestAuth;
 let bearer: string;
@@ -1582,16 +1583,14 @@ describe("GET /changes/head", () => {
     const { app, db } = buildApp();
     await seedSheets(app);
     const before = await headOf(app);
-    db.insert(weddings)
-      .values({
-        id: "wed_other_head",
-        slug: "other-head",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other_owner",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other_head",
+      slug: "other-head",
+      displayName: "Other",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      owners: ["usr_other_owner"],
+    });
     db.insert(imports)
       .values({
         id: "chg_other_wedding",
@@ -2435,16 +2434,14 @@ describe("authz — /changes gate", () => {
     // A second wedding owned by the same caller.
     const OTHER = "wed_other_changes";
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: OTHER,
-        slug: "other-changes",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_dev_bootstrap_owner",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: OTHER,
+      slug: "other-changes",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_dev_bootstrap_owner"],
+    });
 
     const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
       eventsCsv: EVENTS_CSV,
@@ -2912,16 +2909,14 @@ describe("wedding scoping: a change is tenant-isolated", () => {
 
   function addSecondWedding(db: ReturnType<typeof buildApp>["db"]) {
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_second",
-        slug: "second-wedding",
-        displayName: "Second Wedding",
-        ownerOsnProfileId: "usr_someone_else",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_second",
+      slug: "second-wedding",
+      displayName: "Second Wedding",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_someone_else"],
+    });
     db.insert(events)
       .values({
         id: OTHER_EVENT,

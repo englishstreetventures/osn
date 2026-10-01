@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
@@ -16,6 +16,7 @@ import {
   STORED_HOST_ROLES,
 } from "../../src/services/hosts";
 import type { StoredHostRole } from "../../src/services/hosts";
+import { insertWedding } from "../test-helpers/wedding";
 
 /** Every value the role column may hold, taken from the guard rather than
  *  restated — a restated list stops matching the column when it is widened. */
@@ -25,21 +26,44 @@ const OWNER = "usr_owner";
 const ALICE = "usr_alice";
 const WEDDING_ID = "wed_test";
 
+/** A wedding whose owner was seated a minute ago, so seats added during a test
+ *  sort after theirs — `created_at` is stored in seconds. */
 function buildDb() {
   const db = createDb(":memory:");
-  const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "test-wedding",
-      displayName: "Test Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  const seated = new Date(Date.now() - 60_000);
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "test-wedding",
+    displayName: "Test Wedding",
+    createdAt: seated,
+    updatedAt: seated,
+    owners: [OWNER],
+  });
   return db;
 }
+
+type TestDb = ReturnType<typeof createDb>;
+
+/** Seat `osnProfileId` directly, with no cap or role check in the way. */
+function seat(db: TestDb, osnProfileId: string, role: "owner" | "editor" | "viewer" | "helper") {
+  db.insert(weddingHosts)
+    .values({
+      id: `whost_${osnProfileId}`,
+      weddingId: WEDDING_ID,
+      osnProfileId,
+      addedByOsnProfileId: OWNER,
+      role,
+      createdAt: new Date(),
+    })
+    .run();
+}
+
+const roleOf = (db: TestDb, osnProfileId: string) =>
+  db
+    .select({ role: weddingHosts.role })
+    .from(weddingHosts)
+    .where(and(eq(weddingHosts.weddingId, WEDDING_ID), eq(weddingHosts.osnProfileId, osnProfileId)))
+    .all()[0]?.role;
 
 const run = <A, E>(db: ReturnType<typeof createDb>, eff: Effect.Effect<A, E, DbService>) =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
@@ -60,7 +84,8 @@ describe("hostConflictReason", () => {
 });
 
 describe("normaliseHostRole", () => {
-  it("passes editor and viewer through", () => {
+  it("passes owner, editor and viewer through", () => {
+    expect(normaliseHostRole("owner")).toBe("owner");
     expect(normaliseHostRole("editor")).toBe("editor");
     expect(normaliseHostRole("viewer")).toBe("viewer");
   });
@@ -109,7 +134,6 @@ describe("hostsService.add", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
@@ -131,7 +155,6 @@ describe("hostsService.add", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "viewer",
       }),
     );
@@ -148,7 +171,6 @@ describe("hostsService.add", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
@@ -159,18 +181,19 @@ describe("hostsService.add", () => {
           weddingId: WEDDING_ID,
           osnProfileId: ALICE,
           addedByOsnProfileId: OWNER,
-          ownerOsnProfileId: OWNER,
           role: "editor",
         })
         .pipe(Effect.flip),
     );
     expect(err._tag).toBe("HostConflict");
     expect((err as { reason: string }).reason).toBe("already_host");
-    // Still exactly one row — no duplicate seat.
-    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+    // Still one seat each — the owner's and Alice's — no duplicate.
+    expect(db.select().from(weddingHosts).all()).toHaveLength(2);
   });
 
-  it("rejects adding the owner as a host (owner_is_host) without a DB write", async () => {
+  it("refuses to seat an owner again (already_host) and leaves their owner seat alone", async () => {
+    // An owner holds a seat like everyone else, so the unique index answers
+    // this too — an editor cannot quietly re-add an owner at a lower role.
     const db = buildDb();
     const err = await run(
       db,
@@ -178,15 +201,86 @@ describe("hostsService.add", () => {
         .add({
           weddingId: WEDDING_ID,
           osnProfileId: OWNER,
-          addedByOsnProfileId: OWNER,
-          ownerOsnProfileId: OWNER,
-          role: "editor",
+          addedByOsnProfileId: ALICE,
+          role: "viewer",
         })
         .pipe(Effect.flip),
     );
     expect(err._tag).toBe("HostConflict");
-    expect((err as { reason: string }).reason).toBe("owner_is_host");
-    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
+    expect((err as { reason: string }).reason).toBe("already_host");
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+    expect(roleOf(db, OWNER)).toBe("owner");
+  });
+
+  it("seats a second owner, attributed to the owner who invited them", async () => {
+    const db = buildDb();
+    const host = await run(
+      db,
+      hostsService.add({
+        weddingId: WEDDING_ID,
+        osnProfileId: ALICE,
+        addedByOsnProfileId: OWNER,
+        role: "owner",
+      }),
+    );
+    expect(host.role).toBe("owner");
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, ALICE)).all();
+    expect(row).toMatchObject({ role: "owner", addedByOsnProfileId: OWNER, runSheetScope: "own" });
+  });
+
+  it("counts owners towards MAX_HOSTS_PER_WEDDING: a full wedding refuses an owner too", async () => {
+    const db = buildDb();
+    // The creator's seat plus 49 more fills the wedding.
+    for (let i = 1; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+    const err = await run(
+      db,
+      hostsService
+        .add({
+          weddingId: WEDDING_ID,
+          osnProfileId: ALICE,
+          addedByOsnProfileId: OWNER,
+          role: "owner",
+        })
+        .pipe(Effect.flip),
+    );
+    expect(err._tag).toBe("HostConflict");
+    expect((err as { reason: string }).reason).toBe("host_cap_reached");
+    expect(roleOf(db, ALICE)).toBeUndefined();
+  });
+
+  it("leaves fewer seats for everyone else on a wedding with more owners", async () => {
+    const db = buildDb();
+    for (let i = 1; i < 10; i += 1) seat(db, `usr_owner_${i}`, "owner");
+    for (let i = 10; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "viewer");
+    const err = await run(
+      db,
+      hostsService
+        .add({
+          weddingId: WEDDING_ID,
+          osnProfileId: ALICE,
+          addedByOsnProfileId: OWNER,
+          role: "viewer",
+        })
+        .pipe(Effect.flip),
+    );
+    expect((err as { reason: string }).reason).toBe("host_cap_reached");
+  });
+
+  it("seats anyone, an owner included, into the last free seat", async () => {
+    const db = buildDb();
+    for (let i = 2; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+    await run(
+      db,
+      hostsService.add({
+        weddingId: WEDDING_ID,
+        osnProfileId: ALICE,
+        addedByOsnProfileId: OWNER,
+        role: "owner",
+      }),
+    );
+    expect(roleOf(db, ALICE)).toBe("owner");
+    const { total } = await run(db, hostsService.list(WEDDING_ID));
+    expect(total).toBe(MAX_HOSTS_PER_WEDDING);
   });
 });
 
@@ -195,16 +289,14 @@ describe("hostsService.list", () => {
     const db = buildDb();
     // A second wedding whose host must not leak in.
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_other",
-        slug: "other",
-        displayName: "Other",
-        ownerOsnProfileId: "usr_other",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other"],
+    });
     db.insert(weddingHosts)
       .values({
         id: "whost_other",
@@ -221,36 +313,39 @@ describe("hostsService.list", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
     const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
-    expect(hosts.map((h) => h.osnProfileId)).toEqual([ALICE]);
+    // Owners are seats too, listed with their role.
+    expect(hosts.map((h) => [h.osnProfileId, h.role])).toEqual([
+      [OWNER, "owner"],
+      [ALICE, "editor"],
+    ]);
     // Attribution rides along: with editors able to create seats, "who added
     // this one" is what lets an owner spot a seat they didn't create.
-    expect(hosts.map((h) => h.addedByOsnProfileId)).toEqual([OWNER]);
-    // `total` counts the wedding's OWN rows — the other wedding's host is
+    expect(hosts.map((h) => h.addedByOsnProfileId)).toEqual([OWNER, OWNER]);
+    // `total` counts the wedding's OWN rows — the other wedding's seats are
     // excluded from it as well as from the list.
-    expect(total).toBe(1);
+    expect(total).toBe(2);
   });
 
-  it("caps the seats a wedding can hold, so every seat stays listable (S-H1)", async () => {
+  it("caps the seats a wedding can hold, so every seat stays listable", async () => {
     // The property the cap defends, driven the way the security review drove
-    // the bug: seats past the list ceiling are invisible to the owner, and
+    // the bug: seats past the list ceiling are invisible to the owners, and
     // DELETE needs a profile id they can only get from that list — so an
-    // uncapped add lets an editor create co-hosts the owner cannot remove.
-    // "Additive, and the owner reverses it" only holds while every seat is
-    // listed, which is what keeps the cap below the ceiling.
+    // uncapped add lets one owner create seats the others cannot remove.
+    // "Any owner can take a seat back" only holds while every seat is listed,
+    // which is what keeps the cap below the ceiling. The owner's own seat
+    // counts, so 49 more fill the wedding.
     const db = buildDb();
-    for (let i = 0; i < MAX_HOSTS_PER_WEDDING; i += 1) {
+    for (let i = 1; i < MAX_HOSTS_PER_WEDDING; i += 1) {
       await run(
         db,
         hostsService.add({
           weddingId: WEDDING_ID,
           osnProfileId: `usr_seat_${i}`,
           addedByOsnProfileId: OWNER,
-          ownerOsnProfileId: OWNER,
           role: "editor",
         }),
       );
@@ -263,7 +358,6 @@ describe("hostsService.list", () => {
           weddingId: WEDDING_ID,
           osnProfileId: "usr_one_too_many",
           addedByOsnProfileId: OWNER,
-          ownerOsnProfileId: OWNER,
           role: "editor",
         })
         .pipe(Effect.flip),
@@ -271,7 +365,8 @@ describe("hostsService.list", () => {
     expect(err._tag).toBe("HostConflict");
     expect((err as { reason: string }).reason).toBe("host_cap_reached");
 
-    // The refusal is real: no row was written, and the whole set is listed.
+    // The refusal is real: no row was written, and the whole set — the owner's
+    // seat included — is listed.
     const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
     expect(total).toBe(MAX_HOSTS_PER_WEDDING);
     expect(hosts).toHaveLength(MAX_HOSTS_PER_WEDDING);
@@ -299,12 +394,14 @@ describe("hostsService.list", () => {
     }
     const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
     expect(hosts).toHaveLength(200);
-    expect(total).toBe(205);
+    expect(total).toBe(206);
   });
 
-  it("returns an empty list for a wedding with no co-hosts", async () => {
+  it("lists only the owner for a wedding with no co-hosts", async () => {
     const db = buildDb();
-    expect(await run(db, hostsService.list(WEDDING_ID))).toEqual({ hosts: [], total: 0 });
+    const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
+    expect(hosts.map((h) => [h.osnProfileId, h.role])).toEqual([[OWNER, "owner"]]);
+    expect(total).toBe(1);
   });
 });
 
@@ -317,12 +414,12 @@ describe("hostsService.remove", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
     await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
-    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
+    expect(roleOf(db, ALICE)).toBeUndefined();
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
     // Idempotent — removing again succeeds.
     await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
   });
@@ -330,16 +427,14 @@ describe("hostsService.remove", () => {
   it("does not remove a host from a different wedding (cross-tenant guard)", async () => {
     const db = buildDb();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_b",
-        slug: "b",
-        displayName: "B",
-        ownerOsnProfileId: "usr_b",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_b",
+      slug: "b",
+      displayName: "B",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_b"],
+    });
     db.insert(weddingHosts)
       .values({
         id: "whost_b",
@@ -352,7 +447,11 @@ describe("hostsService.remove", () => {
     // Removing ALICE scoped to WEDDING_ID must NOT touch wed_b's row.
     await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
     expect(
-      db.select().from(weddingHosts).where(eq(weddingHosts.weddingId, "wed_b")).all(),
+      db
+        .select()
+        .from(weddingHosts)
+        .where(and(eq(weddingHosts.weddingId, "wed_b"), eq(weddingHosts.osnProfileId, ALICE)))
+        .all(),
     ).toHaveLength(1);
   });
 });
@@ -366,7 +465,6 @@ describe("hostsService.setRole", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
@@ -386,12 +484,12 @@ describe("hostsService.setRole", () => {
     expect(again.role).toBe("viewer");
   });
 
-  it("fails HostNotFound for a profile that isn't a co-host (incl. the owner)", async () => {
+  it("fails HostNotFound for a profile that holds no seat", async () => {
     const db = buildDb();
     const err = await run(
       db,
       hostsService
-        .setRole({ weddingId: WEDDING_ID, osnProfileId: OWNER, role: "viewer" })
+        .setRole({ weddingId: WEDDING_ID, osnProfileId: "usr_stranger", role: "viewer" })
         .pipe(Effect.flip),
     );
     expect(err._tag).toBe("HostNotFound");
@@ -400,16 +498,14 @@ describe("hostsService.setRole", () => {
   it("does not retarget another wedding's seat (cross-tenant guard)", async () => {
     const db = buildDb();
     const now = new Date();
-    db.insert(weddings)
-      .values({
-        id: "wed_b",
-        slug: "b2",
-        displayName: "B",
-        ownerOsnProfileId: "usr_b",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, {
+      id: "wed_b",
+      slug: "b2",
+      displayName: "B",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_b"],
+    });
     db.insert(weddingHosts)
       .values({
         id: "whost_b2",
@@ -427,21 +523,24 @@ describe("hostsService.setRole", () => {
         .pipe(Effect.flip),
     );
     expect(err._tag).toBe("HostNotFound");
-    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.weddingId, "wed_b")).all();
+    const [row] = db
+      .select()
+      .from(weddingHosts)
+      .where(and(eq(weddingHosts.weddingId, "wed_b"), eq(weddingHosts.osnProfileId, ALICE)))
+      .all();
     expect(row!.role).toBe("editor");
   });
 });
 
 describe("hostsService.authorize", () => {
-  it("returns isOwner:true with role owner for the owner", async () => {
+  it("returns isOwner:true with role owner, and the owner's own seat id", async () => {
     const db = buildDb();
     const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER));
     expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
       isOwner: true,
       isHost: false,
       role: "owner",
-      hostId: null,
+      hostId: expect.stringMatching(/^whost_/),
       runSheetScope: "own",
       weddingSlug: "test-wedding",
       weddingTier: "ivory",
@@ -456,13 +555,11 @@ describe("hostsService.authorize", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "editor",
       }),
     );
     const result = await run(db, hostsService.authorize(WEDDING_ID, ALICE));
     expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
       isOwner: false,
       isHost: true,
       role: "editor",
@@ -481,7 +578,6 @@ describe("hostsService.authorize", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "viewer",
       }),
     );
@@ -509,7 +605,6 @@ describe("hostsService.authorize", () => {
     const db = buildDb();
     const result = await run(db, hostsService.authorize(WEDDING_ID, "usr_stranger"));
     expect(result).toEqual({
-      ownerOsnProfileId: OWNER,
       isOwner: false,
       isHost: false,
       role: null,
@@ -534,7 +629,6 @@ describe("hostsService.authorize", () => {
         weddingId: WEDDING_ID,
         osnProfileId: ALICE,
         addedByOsnProfileId: OWNER,
-        ownerOsnProfileId: OWNER,
         role: "viewer",
       }),
     );
@@ -546,5 +640,192 @@ describe("hostsService.authorize", () => {
     const db = buildDb();
     db.$client.exec(`UPDATE weddings SET tier = 'platinum' WHERE id = '${WEDDING_ID}'`);
     expect((await run(db, hostsService.authorize(WEDDING_ID, OWNER)))?.weddingTier).toBe("ivory");
+  });
+});
+
+describe("equal owners", () => {
+  const BEN = "usr_ben";
+
+  it("authorizes a second owner exactly as the first", async () => {
+    const db = buildDb();
+    seat(db, BEN, "owner");
+    const first = await run(db, hostsService.authorize(WEDDING_ID, OWNER));
+    const second = await run(db, hostsService.authorize(WEDDING_ID, BEN));
+    expect(first).toMatchObject({ isOwner: true, isHost: false, role: "owner" });
+    expect(second).toMatchObject({ isOwner: true, isHost: false, role: "owner" });
+  });
+
+  describe("setRole", () => {
+    it("promotes a co-host to owner", async () => {
+      const db = buildDb();
+      seat(db, ALICE, "editor");
+      const host = await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: ALICE, role: "owner" }),
+      );
+      expect(host.role).toBe("owner");
+      expect(roleOf(db, ALICE)).toBe("owner");
+    });
+
+    it("promotes on a full wedding: a role change adds no seat", async () => {
+      const db = buildDb();
+      for (let i = 1; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+      await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: "usr_seat_1", role: "owner" }),
+      );
+      expect(roleOf(db, "usr_seat_1")).toBe("owner");
+    });
+
+    it("lets an owner who is already an owner stay one (idempotent)", async () => {
+      const db = buildDb();
+      const host = await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: OWNER, role: "owner" }),
+      );
+      expect(host.role).toBe("owner");
+    });
+
+    it("lets one of two owners step down", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: OWNER, role: "editor" }),
+      );
+      expect(roleOf(db, OWNER)).toBe("editor");
+      expect(roleOf(db, BEN)).toBe("owner");
+    });
+
+    it("refuses to demote the last owner (LastOwner) and changes nothing", async () => {
+      const db = buildDb();
+      for (const role of ["editor", "viewer", "helper"] as const) {
+        const err = await run(
+          db,
+          hostsService
+            .setRole({ weddingId: WEDDING_ID, osnProfileId: OWNER, role })
+            .pipe(Effect.flip),
+        );
+        expect(err._tag).toBe("LastOwner");
+      }
+      expect(roleOf(db, OWNER)).toBe("owner");
+    });
+
+    it("refuses the second of two owners demoting each other in turn", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: BEN, role: "viewer" }),
+      );
+      const err = await run(
+        db,
+        hostsService
+          .setRole({ weddingId: WEDDING_ID, osnProfileId: OWNER, role: "viewer" })
+          .pipe(Effect.flip),
+      );
+      expect(err._tag).toBe("LastOwner");
+      expect(roleOf(db, OWNER)).toBe("owner");
+    });
+
+    it("demotes one of two owners on a full wedding: a role change adds no seat", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      for (let i = 2; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+      await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: BEN, role: "editor" }),
+      );
+      expect(roleOf(db, BEN)).toBe("editor");
+    });
+
+    it("still moves a co-host between roles below owner on a full wedding", async () => {
+      const db = buildDb();
+      for (let i = 1; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+      await run(
+        db,
+        hostsService.setRole({ weddingId: WEDDING_ID, osnProfileId: "usr_seat_1", role: "viewer" }),
+      );
+      expect(roleOf(db, "usr_seat_1")).toBe("viewer");
+    });
+  });
+
+  describe("remove", () => {
+    const noticeOf = (db: TestDb, osnProfileId: string) =>
+      db
+        .select()
+        .from(hostRsvpNotices)
+        .where(
+          and(
+            eq(hostRsvpNotices.weddingId, WEDDING_ID),
+            eq(hostRsvpNotices.osnProfileId, osnProfileId),
+          ),
+        )
+        .all();
+
+    function addNotice(db: TestDb, osnProfileId: string) {
+      db.insert(hostRsvpNotices)
+        .values({
+          weddingId: WEDDING_ID,
+          osnProfileId,
+          seenSeq: 4,
+          digestSeq: 4,
+          digestEnabled: false,
+          updatedAt: new Date(),
+        })
+        .run();
+    }
+
+    it("removes another owner, and their RSVP marker with them", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      addNotice(db, BEN);
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: BEN }));
+      expect(roleOf(db, BEN)).toBeUndefined();
+      expect(noticeOf(db, BEN)).toHaveLength(0);
+      expect(roleOf(db, OWNER)).toBe("owner");
+    });
+
+    it("lets one of two owners leave", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: OWNER }));
+      expect(roleOf(db, OWNER)).toBeUndefined();
+      expect(roleOf(db, BEN)).toBe("owner");
+    });
+
+    it("refuses to remove the last owner (LastOwner) and keeps their seat and RSVP marker", async () => {
+      const db = buildDb();
+      addNotice(db, OWNER);
+      const err = await run(
+        db,
+        hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: OWNER }).pipe(Effect.flip),
+      );
+      expect(err._tag).toBe("LastOwner");
+      expect(roleOf(db, OWNER)).toBe("owner");
+      // The marker belongs to the seat; a refused removal must not take it.
+      expect(noticeOf(db, OWNER)).toHaveLength(1);
+      expect(noticeOf(db, OWNER)[0]).toMatchObject({ seenSeq: 4, digestEnabled: false });
+    });
+
+    it("refuses the second of two owners removing each other in turn", async () => {
+      const db = buildDb();
+      seat(db, BEN, "owner");
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: BEN }));
+      const err = await run(
+        db,
+        hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: OWNER }).pipe(Effect.flip),
+      );
+      expect(err._tag).toBe("LastOwner");
+      expect(roleOf(db, OWNER)).toBe("owner");
+    });
+
+    it("removes a co-host's RSVP marker with their seat", async () => {
+      const db = buildDb();
+      seat(db, ALICE, "viewer");
+      addNotice(db, ALICE);
+      await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+      expect(noticeOf(db, ALICE)).toHaveLength(0);
+    });
   });
 });

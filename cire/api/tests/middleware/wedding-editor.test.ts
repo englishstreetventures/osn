@@ -1,12 +1,13 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingHosts } from "@cire/db";
 import { Elysia } from "elysia";
 
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { weddingEditor } from "../../src/middleware/wedding-editor";
 import { appRequest, jsonBody } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_alice";
 const OWNER = "usr_alice";
@@ -18,16 +19,14 @@ const HELPER = "usr_erin";
 function buildDb(): Db {
   const db = createDb(":memory:");
   const now = new Date();
-  db.insert(weddings)
-    .values({
-      id: WEDDING_ID,
-      slug: "alice-wedding",
-      displayName: "Alice's Wedding",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: WEDDING_ID,
+    slug: "alice-wedding",
+    displayName: "Alice's Wedding",
+    createdAt: now,
+    updatedAt: now,
+    owners: [OWNER],
+  });
   db.insert(weddingHosts)
     .values({
       id: "whost_bob",

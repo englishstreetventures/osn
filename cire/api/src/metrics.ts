@@ -30,6 +30,7 @@ import {
 import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
+import type { WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 import type { PaidTier, Tier } from "./services/tiers";
 
@@ -123,6 +124,17 @@ export const CIRE_METRICS = {
   inviteOpened: "cire.invite.opened",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
+  // An owner's soft delete of a wedding, their restore of it, and the daily
+  // purge that hard-deletes it once the restore window has passed.
+  weddingDeleted: "cire.wedding.deleted",
+  weddingRestored: "cire.wedding.restored",
+  weddingPurged: "cire.wedding.purged",
+  // Deleted weddings past their window that a purge run left for a later one
+  // because of its per-run cap — the backlog, recorded once per run.
+  weddingPurgeBacklog: "cire.wedding.purge.backlog",
+  // A Stripe Connect refund or dispute whose gift cire cannot find — the gift
+  // was never recorded here, or its wedding was purged.
+  registryStripeUnmatched: "cire.registry.stripe.unmatched",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
   // Settings writes refused because a non-owner reached past the RSVP-by date.
@@ -236,6 +248,24 @@ export type InviteOpenedResult = "ok" | "error";
 
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
+export type WeddingDeletedResult =
+  | "ok"
+  | "confirmation_mismatch"
+  | "purchase_in_flight"
+  | "gift_in_flight"
+  | "change_in_progress"
+  | "forbidden"
+  | "not_found"
+  | "error";
+export type WeddingRestoredResult =
+  | "ok"
+  | "not_deleted"
+  | "restore_window_passed"
+  | "forbidden"
+  | "not_found"
+  | "error";
+export type WeddingPurgedResult = "ok" | "held" | "error";
+export type StripeUnmatchedEvent = "refund" | "dispute";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */
@@ -247,28 +277,33 @@ export type HostAddResult =
   | "handle_not_found"
   | "osn_unavailable"
   | "already_host"
-  | "owner_is_host"
-  // The wedding is at MAX_HOSTS_PER_WEDDING. Worth its own label rather than
-  // folding into `error`: a rise here is the signal that someone is trying to
-  // create seats in bulk, which is the abuse the cap exists to bound.
+  // The wedding is at MAX_HOSTS_PER_WEDDING, owners counted. Worth its own
+  // label rather than folding into `error`: a rise here is the signal that
+  // someone is trying to create seats in bulk, which is the abuse the cap
+  // exists to bound.
   | "host_cap_reached"
   | "disabled"
   | "error";
 
-/** Outcome of removing a co-host. `owner_refused` is the owner calling the
- *  self-leave route: an owner is never rowed in as a co-host, so has no seat
- *  to leave. */
-export type HostRemoveResult = "ok" | "owner_refused" | "error";
+/** Outcome of removing a seat. `last_owner` — refused, it was the wedding's
+ *  only owner (an owner leaving included). */
+export type HostRemoveResult = "ok" | "last_owner" | "error";
 
 /**
- * Which route removed the seat — not the caller's role. `owner` is the owner
+ * Which route removed the seat — not the caller's role. `owner` is an owner
  * removing someone (`DELETE /hosts/:osnProfileId`); `self` is the self-leave
- * route (`DELETE /hosts/me`), including the owner's refused attempt at it.
+ * route (`DELETE /hosts/me`), an owner leaving included.
  */
 export type HostRemoveActor = "owner" | "self";
 
-/** Outcome of changing a co-host's role (editor ↔ viewer). */
-export type HostRoleChangeResult = "ok" | "not_found" | "error";
+/** Outcome of changing a seat's role. `last_owner` — refused, it would have
+ *  left the wedding without an owner. */
+export type HostRoleChangeResult = "ok" | "not_found" | "last_owner" | "error";
+
+/** The role a seat change asked for, as a metric attribute: one of the
+ *  wedding roles, or `none` before a request body named one. Bounded by the
+ *  column's enum. */
+export type HostMetricRole = WeddingRole | "none";
 
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
@@ -547,10 +582,14 @@ type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
 type FamilyDeactivatedAttrs = { action: FamilyDeactivateAction; result: FamilyDeactivatedResult };
 type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
+type WeddingDeletedAttrs = { result: WeddingDeletedResult };
+type WeddingRestoredAttrs = { result: WeddingRestoredResult };
+type WeddingPurgedAttrs = { result: WeddingPurgedResult };
+type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
-type HostAddedAttrs = { result: HostAddResult };
+type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
-type HostRoleChangedAttrs = { result: HostRoleChangeResult };
+type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
 
@@ -912,6 +951,39 @@ const weddingCreated = createCounter<WeddingCreatedAttrs>({
   unit: "{wedding}",
 });
 
+const weddingDeleted = createCounter<WeddingDeletedAttrs>({
+  name: CIRE_METRICS.weddingDeleted,
+  description: "Owner soft deletes of a wedding, by outcome",
+  unit: "{wedding}",
+});
+
+const weddingRestored = createCounter<WeddingRestoredAttrs>({
+  name: CIRE_METRICS.weddingRestored,
+  description: "Owner restores of a soft-deleted wedding, by outcome",
+  unit: "{wedding}",
+});
+
+const weddingPurged = createCounter<WeddingPurgedAttrs>({
+  name: CIRE_METRICS.weddingPurged,
+  description:
+    "Soft-deleted weddings past their restore window, per daily purge: hard-deleted, held for money or a change still in flight, or failed",
+  unit: "{wedding}",
+});
+
+const weddingPurgeBacklog = createHistogram<Record<never, never>>({
+  name: CIRE_METRICS.weddingPurgeBacklog,
+  description:
+    "Deleted weddings due for purge that a run left for a later one because of its per-run cap",
+  unit: "{wedding}",
+  boundaries: [0, 1, 3, 10, 30, 100],
+});
+
+const registryStripeUnmatched = createCounter<StripeUnmatchedAttrs>({
+  name: CIRE_METRICS.registryStripeUnmatched,
+  description: "Stripe Connect refund and dispute events whose gift cire has no row for, by event",
+  unit: "{event}",
+});
+
 const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
   name: CIRE_METRICS.weddingSettingsSaved,
   description: "Wedding-profile (Settings) saves, by outcome",
@@ -926,19 +998,19 @@ const settingsOwnerOnlyRefused = createCounter<Record<string, never>>({
 
 const hostAdded = createCounter<HostAddedAttrs>({
   name: CIRE_METRICS.hostAdded,
-  description: "Co-host add-by-handle attempts, by outcome",
+  description: "Co-host add-by-handle attempts, by outcome and the role asked for",
   unit: "{host}",
 });
 
 const hostRemoved = createCounter<HostRemovedAttrs>({
   name: CIRE_METRICS.hostRemoved,
-  description: "Co-host removals, by outcome and by route (owner removal or self-leave)",
+  description: "Seat removals, owners' included, by outcome and by route (removal or self-leave)",
   unit: "{host}",
 });
 
 const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
   name: CIRE_METRICS.hostRoleChanged,
-  description: "Co-host role changes (editor ↔ viewer), by outcome",
+  description: "Seat role changes, by outcome and the role asked for",
   unit: "{host}",
 });
 
@@ -1197,6 +1269,23 @@ export const metricInviteOpened = (result: InviteOpenedResult): void =>
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });
 
+export const metricWeddingDeleted = (result: WeddingDeletedResult): void =>
+  weddingDeleted.inc({ result });
+
+export const metricWeddingRestored = (result: WeddingRestoredResult): void =>
+  weddingRestored.inc({ result });
+
+/** Weddings one purge run hard-deleted, held or failed on. Zero adds nothing. */
+export const metricWeddingPurged = (result: WeddingPurgedResult, count: number): void => {
+  if (count > 0) weddingPurged.add(count, { result });
+};
+
+/** The purge backlog one run left behind, recorded every run (zero included). */
+export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});
+
+export const metricRegistryStripeUnmatched = (event: StripeUnmatchedEvent): void =>
+  registryStripeUnmatched.inc({ event });
+
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });
 
@@ -1209,13 +1298,16 @@ export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): 
  *  stale tab or a hand-crafted call. */
 export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefused.inc({});
 
-export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
+export const metricHostAdded = (result: HostAddResult, role: HostMetricRole = "none"): void =>
+  hostAdded.inc({ result, role });
 
 export const metricHostRemoved = (result: HostRemoveResult, actor: HostRemoveActor): void =>
   hostRemoved.inc({ result, actor });
 
-export const metricHostRoleChanged = (result: HostRoleChangeResult): void =>
-  hostRoleChanged.inc({ result });
+export const metricHostRoleChanged = (
+  result: HostRoleChangeResult,
+  role: HostMetricRole = "none",
+): void => hostRoleChanged.inc({ result, role });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

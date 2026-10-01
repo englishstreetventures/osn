@@ -3,9 +3,10 @@
  * role.
  *
  * It mirrors `WeddingRole` in `cire/api/src/middleware/wedding-role.ts`: the
- * wedding's owner, plus the roles a `wedding_hosts` seat may hold. The API is
- * the enforcement — every gate re-checks — so what is decided here is only what
- * the portal OFFERS. An affordance offered to someone the API refuses is a
+ * roles a `wedding_hosts` seat may hold, `owner` among them — a wedding's owners
+ * are seats like everyone else, and every owner is equal. The API is the
+ * enforcement — every gate re-checks — so what is decided here is only what the
+ * portal OFFERS. An affordance offered to someone the API refuses is a
  * control that 403s, which is the defect this module exists to remove.
  *
  * Two rules hold it together.
@@ -40,23 +41,25 @@ const ROLE_RANK = {
 /** The role the signed-in organiser holds on one wedding. */
 export type WeddingRole = keyof typeof ROLE_RANK;
 
-/** A role a co-host seat can hold. The owner created the wedding and is never
- *  rowed into `wedding_hosts`, so no control can assign it. */
-export type AssignableRole = Exclude<WeddingRole, "owner">;
+/** A role a seat can be given. Every role is one — `owner` included, which is
+ *  how a second owner joins a wedding — but who may give which is
+ *  {@link assignableRolesFor}'s to say. */
+export type AssignableRole = WeddingRole;
 
 /**
- * The roles the seat dropdown offers. Exhaustive over {@link AssignableRole} by
+ * The roles a seat can be given. Exhaustive over {@link AssignableRole} by
  * type: a role added to the vocabulary widens that union, and this map stops
- * compiling until the dropdown has been told whether to offer it.
+ * compiling until the portal has been told whether a seat can hold it.
  */
 const ASSIGNABLE = {
+  owner: true,
   editor: true,
   viewer: true,
   helper: true,
 } satisfies Record<AssignableRole, true>;
 
-/** Dropdown order, most privilege first — the order the explainers above the
- *  handle input read in. */
+/** Every role a seat can be given, most privilege first — the order the
+ *  dropdown and the explainers above the handle input read in. */
 export const ASSIGNABLE_ROLES: readonly AssignableRole[] = (
   Object.keys(ASSIGNABLE) as AssignableRole[]
 ).toSorted((a, b) => ROLE_RANK[b] - ROLE_RANK[a]);
@@ -67,12 +70,25 @@ export const LEAST_PRIVILEGE_ROLE: WeddingRole = (Object.keys(ROLE_RANK) as Wedd
   (lowest, role) => (ROLE_RANK[role] < ROLE_RANK[lowest] ? role : lowest),
 );
 
-/** The same floor, among the roles a seat can hold. Separate from
- *  {@link LEAST_PRIVILEGE_ROLE} only because that one is typed to include the
- *  owner, who is not a seat. */
-export const LEAST_PRIVILEGE_SEAT_ROLE: AssignableRole = ASSIGNABLE_ROLES.reduce((lowest, role) =>
-  ROLE_RANK[role] < ROLE_RANK[lowest] ? role : lowest,
-);
+/**
+ * The roles someone holding `role` may give a seat — on someone they add, and
+ * through a role change. Mirrors the API, where every route that writes a role
+ * is `weddingOwner()`: an owner grants every role, `owner` included, and no
+ * one else grants anything. Exhaustive over {@link WeddingRole} with no
+ * `default`; the tail grants nothing.
+ */
+export function assignableRolesFor(role: WeddingRole): readonly AssignableRole[] {
+  switch (role) {
+    case "owner":
+      return ASSIGNABLE_ROLES;
+    case "editor":
+    case "viewer":
+    case "helper":
+      return [];
+  }
+  const _exhaustive: never = role;
+  return [];
+}
 
 /**
  * The role a co-host seat is created at.
@@ -106,40 +122,15 @@ export function normaliseWeddingRole(role: string): WeddingRole {
   return LEAST_PRIVILEGE_ROLE;
 }
 
-/**
- * A role read off a co-host seat, narrowed to what a seat can actually hold.
- *
- * The co-host list is seats only — the API rows the wedding's owner separately
- * — so `owner` is not a value this can honestly return. Exhaustive over
- * {@link WeddingRole}, so a role added later has to be put on one side of that
- * line rather than falling through as a seat by default.
- */
-export function asSeatRole(role: string): AssignableRole {
-  const known = normaliseWeddingRole(role);
-  switch (known) {
-    case "editor":
-      return "editor";
-    case "viewer":
-      return "viewer";
-    case "helper":
-      return "helper";
-    case "owner":
-      // Never a seat. A row claiming to be one is shown as the narrowest seat
-      // rather than as an owner the panel would then offer to demote.
-      return LEAST_PRIVILEGE_SEAT_ROLE;
-  }
-  const _exhaustive: never = known;
-  return LEAST_PRIVILEGE_SEAT_ROLE;
-}
-
 /** The surfaces the portal offers a role — one field per API gate. */
 export interface RoleSurfaces {
   /** The wedding dashboard and everything it reads — `weddingMember()`. */
   canOpenDashboard: boolean;
-  /** The module write surfaces, and seating another co-host — `weddingEditor()`. */
+  /** The module write surfaces — `weddingEditor()`. */
   canEdit: boolean;
-  /** Claim codes, the wedding's own settings, and changing or removing a seat —
-   *  `weddingOwner()`. */
+  /** Claim codes, the wedding's own settings, billing, the CSV downloads, and
+   *  adding, changing or removing a seat, an owner's included —
+   *  `weddingOwner()`. Every owner has it. */
   canManage: boolean;
 }
 
@@ -198,18 +189,18 @@ export const ROLE_COPY = {
   owner: {
     label: "Owner",
     summary:
-      "Created this wedding. The only one who can change who helps, rotate claim codes, or delete it.",
-    badgeTitle: "You created this wedding and manage who helps with it",
+      "Runs the wedding, as an equal of any other owner: who helps, claim codes, settings, billing, downloads, and deleting it.",
+    badgeTitle: "You own this wedding and manage who helps with it",
   },
   editor: {
     label: "Editor",
-    summary: "Can change guests, events and the invite, and bring in more co-hosts.",
+    summary: "Can change guests, events and the invite.",
     badgeTitle: "You can view and edit this wedding",
   },
   viewer: {
     label: "Viewer",
     summary: "Can see the whole dashboard and change nothing.",
-    badgeTitle: "You can view this wedding — ask the owner for editor access to make changes",
+    badgeTitle: "You can view this wedding — ask an owner for editor access to make changes",
   },
   helper: {
     label: "Helper",
@@ -223,17 +214,34 @@ export const ROLE_COPY = {
  * {@link AssignableRole}, so a role added later has to be answered for here
  * before this compiles.
  *
- * `editor` is the highest a seat can hold — every module write, plus the right
- * to seat more co-hosts — and it is the one grant worth a second look.
+ * `owner` hands over the wedding itself — billing, the payout account, and the
+ * power to remove every other seat, the granter's own included — and `editor`
+ * every module write. Both are worth a second look.
  */
 const CONFIRM_ON_GRANT = {
+  owner: true,
   editor: true,
   viewer: false,
   helper: false,
 } satisfies Record<AssignableRole, boolean>;
 
 /** Does moving a seat from `from` to `to` need confirming? Only a promotion
- *  does: a demotion takes away nothing the owner cannot hand straight back. */
+ *  does: a demotion takes away nothing an owner cannot hand straight back. */
 export function needsPromotionConfirmation(from: WeddingRole, to: AssignableRole): boolean {
   return CONFIRM_ON_GRANT[to] && ROLE_RANK[to] > ROLE_RANK[from];
+}
+
+/**
+ * Does a role change need confirming, given whose seat it is? An owner moving
+ * their OWN seat is stepping down: they give up the owner surface and need
+ * another owner to hand it back, so any change to their own seat is asked
+ * about. Anyone else's seat confirms on a promotion only.
+ */
+export function needsRoleChangeConfirmation(
+  from: WeddingRole,
+  to: AssignableRole,
+  ownSeat: boolean,
+): boolean {
+  if (from === to) return false;
+  return ownSeat || needsPromotionConfirmation(from, to);
 }

@@ -6,7 +6,6 @@ import {
   registryClaims,
   registryItems,
   registrySettings,
-  weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
@@ -25,6 +24,7 @@ import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { insertWedding } from "../test-helpers/wedding";
 
 const SLUG = "cire-wedding";
 const OTHER_WEDDING_ID = "wed_other";
@@ -144,16 +144,14 @@ function buildApp(
   const assets = createAssetsStub();
   const now = new Date();
 
-  db.insert(weddings)
-    .values({
-      id: OTHER_WEDDING_ID,
-      slug: OTHER_SLUG,
-      displayName: "Other",
-      ownerOsnProfileId: "usr_bob",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, {
+    id: OTHER_WEDDING_ID,
+    slug: OTHER_SLUG,
+    displayName: "Other",
+    createdAt: now,
+    updatedAt: now,
+    owners: ["usr_bob"],
+  });
   db.insert(families)
     .values({
       id: "fam_other",
@@ -364,7 +362,11 @@ describe("the guest registry is one 404, whatever the reason", () => {
     const cookie = await guestCookie(app);
     const statements = recordStatements(db);
     await listView(app, cookie);
-    const registryReads = statements.filter((s) => /"registry_|"weddings"/.test(s.sql));
+    // The session read joins `weddings` for its live-wedding check; it is
+    // sessionAuth's, not the registry gate's, so it is left out of the count.
+    const registryReads = statements.filter(
+      (s) => /"registry_|"weddings"/.test(s.sql) && !/from "sessions"/.test(s.sql),
+    );
     expect(registryReads).toHaveLength(3);
     expect(registryReads[0]!.sql).toContain('"families"');
     const householdOnly = statements.filter(

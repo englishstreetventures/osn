@@ -26,6 +26,7 @@ import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { weddingIdIsLive } from "../db/live-wedding";
 import { metricVendorClaimReview } from "../metrics";
 import { flushBufferedEnquiry } from "./enquiries";
 import type { ZapChatClient } from "./zap-bridge";
@@ -78,6 +79,10 @@ export const claimReviewService = {
                   isNull(vendorEnquiries.zapChatId),
                   isNotNull(vendorEnquiries.pendingBody),
                   isNotNull(directoryVendors.claimedByProfileId),
+                  // A soft-deleted wedding's enquiry stays buffered: no chat is
+                  // opened with the couple and their message is not sent. A
+                  // restore puts it back in the queue.
+                  weddingIdIsLive(vendorEnquiries.weddingId),
                 ),
               )
               // Least recently tried first: a failed hand-off bumps

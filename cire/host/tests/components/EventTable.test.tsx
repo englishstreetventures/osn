@@ -272,7 +272,7 @@ describe("EventTable events CSV export", () => {
       }),
     ); // export
 
-    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" canManage />);
     await waitFor(() => screen.getByText("Reception"));
 
     fireEvent.click(screen.getByRole("button", { name: /Download events/i }));
@@ -296,13 +296,20 @@ describe("EventTable events CSV export", () => {
     authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
     authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 })); // export fails
 
-    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" canManage />);
     await waitFor(() => screen.getByText("Reception"));
 
     fireEvent.click(screen.getByRole("button", { name: /Download events/i }));
 
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(downloadBlobMock).not.toHaveBeenCalled();
+  });
+
+  it("offers the download to an owner only: the events CSV is owner-only", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("Reception"));
+    expect(screen.queryByRole("button", { name: /Download events/i })).toBeNull();
   });
 });
 

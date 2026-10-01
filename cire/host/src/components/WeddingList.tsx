@@ -1,7 +1,14 @@
 import Button from "@cire/ui/button";
+import { useAuth } from "@shared/rp-auth/solid";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
-import CreateWeddingForm, { type WeddingSummary } from "./CreateWeddingForm";
+import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { restoreUntilLabel, restoreWedding } from "../lib/wedding-lifecycle";
+import CreateWeddingForm, {
+  type DeletedWeddingSummary,
+  type WeddingSummary,
+} from "./CreateWeddingForm";
 
 /**
  * Landing view for the organiser portal: lists every wedding the signed-in
@@ -11,8 +18,14 @@ import CreateWeddingForm, { type WeddingSummary } from "./CreateWeddingForm";
  */
 export default function WeddingList(props: {
   weddings: WeddingSummary[];
+  /** The organiser's own deleted weddings that can still be restored. */
+  deleted?: DeletedWeddingSummary[];
   onSelect: (wedding: WeddingSummary) => void;
   onCreated: (wedding: WeddingSummary) => void;
+  /** A restore went through. */
+  onRestored?: (weddingId: string) => void;
+  /** The wedding can no longer be restored; drop it from the list. */
+  onRestoreExpired?: (weddingId: string) => void;
 }) {
   const [creating, setCreating] = createSignal(false);
 
@@ -77,6 +90,14 @@ export default function WeddingList(props: {
         </ul>
       </Show>
 
+      <Show when={(props.deleted ?? []).length > 0}>
+        <RecentlyDeleted
+          deleted={props.deleted ?? []}
+          onRestored={(id) => props.onRestored?.(id)}
+          onRestoreExpired={(id) => props.onRestoreExpired?.(id)}
+        />
+      </Show>
+
       <Show
         when={creating() || isEmpty()}
         fallback={<CreateAffordance onClick={() => setCreating(true)} />}
@@ -87,6 +108,85 @@ export default function WeddingList(props: {
         />
       </Show>
     </div>
+  );
+}
+
+/**
+ * Weddings this organiser deleted as an owner, each restorable until its date.
+ * Restoring puts everything back as it was, guests' links and codes included.
+ */
+function RecentlyDeleted(props: {
+  deleted: DeletedWeddingSummary[];
+  onRestored: (weddingId: string) => void;
+  onRestoreExpired: (weddingId: string) => void;
+}) {
+  const { authFetch } = useAuth();
+  const [busyId, setBusyId] = createSignal<string | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
+
+  async function restore(wedding: DeletedWeddingSummary) {
+    if (busyId()) return;
+    setBusyId(wedding.id);
+    setError(null);
+    try {
+      const outcome = await restoreWedding(authFetch, wedding.id);
+      if (outcome.ok) {
+        props.onRestored(wedding.id);
+        return;
+      }
+      setError(outcome.message);
+      if (outcome.gone) props.onRestoreExpired(wedding.id);
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return;
+      }
+      setError("Could not restore the wedding. Check your connection and try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <section aria-labelledby="recently-deleted-title" class="flex flex-col gap-3">
+      <h2
+        id="recently-deleted-title"
+        class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase"
+      >
+        Recently deleted
+      </h2>
+      <Show when={error()}>
+        {(message) => (
+          <Notice tone="danger" alert>
+            {message()}
+          </Notice>
+        )}
+      </Show>
+      <ul class="flex flex-col gap-2">
+        <For each={props.deleted}>
+          {(wedding) => (
+            <li class="border-border flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3">
+              <span class="flex flex-col">
+                <span class="font-display text-text text-ui-md font-light">
+                  {wedding.displayName}
+                </span>
+                <span class="font-body text-text-muted text-ui-sm">
+                  Deleted — you can restore it until {restoreUntilLabel(wedding.restoreUntil)}.
+                </span>
+              </span>
+              <Button
+                variant="outline"
+                type="button"
+                disabled={busyId() !== null}
+                onClick={() => void restore(wedding)}
+              >
+                {busyId() === wedding.id ? "Restoring…" : "Restore"}
+              </Button>
+            </li>
+          )}
+        </For>
+      </ul>
+    </section>
   );
 }
 

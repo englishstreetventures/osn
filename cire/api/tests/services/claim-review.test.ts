@@ -10,6 +10,7 @@ import type { TestDb } from "../../src/db/setup";
 import { claimReviewService } from "../../src/services/claim-review";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { captureLogs } from "../test-helpers/capture-logs";
+import { insertWedding } from "../test-helpers/wedding";
 
 const COUPLE = "usr_couple";
 const VENDOR = "usr_vendor";
@@ -59,16 +60,7 @@ function buffer(db: TestDb, dvId: string, n: number) {
     // Seconds apart: timestamps are stored at second precision.
     const now = new Date(Date.now() + i * 1000);
     const wid = `wed_${dvId}_${i}`;
-    db.insert(weddings)
-      .values({
-        id: wid,
-        slug: wid,
-        displayName: wid,
-        ownerOsnProfileId: COUPLE,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    insertWedding(db, { id: wid, slug: wid, displayName: wid, owners: [COUPLE], createdAt: now });
     db.insert(vendors)
       .values({
         id: `ven_${wid}`,
@@ -130,6 +122,29 @@ describe("claimReviewService.sweep", () => {
     expect(zap.sent).toEqual(["body dv_confirmed 0"]);
     expect(enquiry(db, id!).zapChatId).toBe("chat_1");
     expect(enquiry(db, id!).pendingBody).toBeNull();
+  });
+
+  it("leaves a soft-deleted wedding's enquiry buffered, and hands it off once restored", async () => {
+    const db = db0();
+    listing(db, "dv_confirmed", VENDOR, null);
+    const [id] = buffer(db, "dv_confirmed", 1);
+    const weddingId = enquiry(db, id!).weddingId;
+    db.update(weddings)
+      .set({ deletedAt: new Date(), deletedByOsnProfileId: COUPLE })
+      .where(eq(weddings.id, weddingId))
+      .run();
+    const zap = fakeZap();
+
+    expect((await sweep(db, zap.client)).handedOff).toBe(0);
+    expect(zap.provisions).toHaveLength(0);
+    expect(enquiry(db, id!).pendingBody).toBe("body dv_confirmed 0");
+
+    db.update(weddings)
+      .set({ deletedAt: null, deletedByOsnProfileId: null })
+      .where(eq(weddings.id, weddingId))
+      .run();
+    expect((await sweep(db, zap.client)).handedOff).toBe(1);
+    expect(zap.sent).toEqual(["body dv_confirmed 0"]);
   });
 
   it("leaves enquiries to unclaimed and pending listings buffered", async () => {

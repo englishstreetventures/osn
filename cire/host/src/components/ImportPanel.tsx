@@ -168,7 +168,14 @@ function readFile(file: File): Promise<string> {
  * plus ownership of the wedding named in the path — the organiser picks the
  * target wedding upstream and every import call is scoped to it.
  */
-export default function ImportPanel(props: { weddingId: string; kind: ImportKind }) {
+export default function ImportPanel(props: {
+  weddingId: string;
+  kind: ImportKind;
+  /** True for an owner. Downloading the current rows is an export, and every
+   *  export is owner-only (`weddingOwner()`), so an editor imports without
+   *  that button. Absent reads as not an owner. */
+  canManage?: boolean;
+}) {
   const { authFetch } = useAuth();
   const copy = () => KIND[props.kind];
   // The spreadsheet upload posts through the canonical `changes/*` front door
@@ -369,11 +376,15 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
         </Button>
         {/* Round-trip export: the current data in the same format the import
             reads, so it can be tweaked in a spreadsheet tool and re-uploaded. */}
-        <Button variant="quiet" onClick={() => void downloadCurrent()} disabled={exporting()}>
-          {copy().exportLabel}
-        </Button>
+        <Show when={props.canManage}>
+          <Button variant="quiet" onClick={() => void downloadCurrent()} disabled={exporting()}>
+            {copy().exportLabel}
+          </Button>
+        </Show>
       </div>
-      <p class="font-body text-text-muted text-ui-sm max-w-prose">{copy().exportHint}</p>
+      <Show when={props.canManage}>
+        <p class="font-body text-text-muted text-ui-sm max-w-prose">{copy().exportHint}</p>
+      </Show>
 
       <CsvFormatHelp kind={props.kind} />
 

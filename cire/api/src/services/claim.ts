@@ -588,10 +588,21 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const [family] = yield* dbQuery(() =>
-        db.select().from(families).where(eq(families.publicId, publicId)).all(),
+      const [found] = yield* dbQuery(() =>
+        db
+          .select({ family: families, weddingDeletedAt: weddings.deletedAt })
+          .from(families)
+          .innerJoin(weddings, eq(weddings.id, families.weddingId))
+          .where(eq(families.publicId, publicId))
+          .all(),
       );
-      if (!family) return yield* Effect.fail(new InvalidCredentials());
+      if (!found) return yield* Effect.fail(new InvalidCredentials());
+      const { family } = found;
+
+      // A soft-deleted wedding's codes fail exactly as an unknown code does,
+      // before the first-open write: the answer never says the wedding was
+      // deleted, and a restore brings every code back unchanged.
+      if (found.weddingDeletedAt !== null) return yield* Effect.fail(new InvalidCredentials());
 
       // A deactivated family (organiser cut off a withdrawn invite) is rejected
       // with the SAME generic invalid-credentials failure the unknown-code path

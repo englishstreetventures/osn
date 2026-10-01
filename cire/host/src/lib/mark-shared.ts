@@ -12,8 +12,8 @@ type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
  * Tell the API a household's invite message was just copied, so Guests →
  * Households shows it as sent. Both copy actions — the per-household one in
  * `GuestTable` and the one beside the message in the invite builder — come
- * through here. The route is owner-only; callers skip it for a co-host rather
- * than send a request that can only be refused.
+ * through here. The route admits an owner or an editor; callers skip it for
+ * anyone else rather than send a request that can only be refused.
  *
  * Best-effort: resolves `true` when the server recorded it and `false`
  * otherwise, and never throws — the copy has already happened.

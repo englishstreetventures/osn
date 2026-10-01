@@ -8,14 +8,16 @@ import {
   registryContributions,
   registrySettings,
   rsvps,
+  weddingHosts,
   weddings,
 } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
 import { commitBatchResults, commitGroupedBatches, DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
 import { metricGuestDataSwept } from "../metrics";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
@@ -28,17 +30,17 @@ import { reapR2Objects } from "./r2-cleanup";
  *  - `sheets` — the `cire-sheets` bucket (binding `SHEETS`): the uploaded
  *    guest/event spreadsheets referenced by `imports.events_r2_key` /
  *    `guests_r2_key`. The sweep deletes the `imports` rows, so these objects
- *    ARE orphaned by it and must be reaped here (IB-S-L2 / C-H1).
+ *    ARE orphaned by it and must be reaped here.
  *
  * NOTE — the `cire-assets` invite images (`wedding_invite_customisations`'
  * per-slot image keys + `events.event_image_key`) are deliberately NOT reaped here:
  * the retention sweep KEEPS the wedding + events shell + the published invite,
  * so those rows survive and keep pointing at their objects (the invite stays
- * live). Deleting them would 404 the live invite and dangle the DB keys. The
- * `cire-assets` orphan path (failed best-effort cleanup on re-upload/remove, and
- * a future wedding-DELETE fan-out) is a separate IB-S-L2 follow-up — there is no
- * wedding-delete flow today to hook. {@link reapR2Objects} stays bucket-agnostic
- * so that flow, when it lands, can reuse it for BOTH buckets.
+ * live). Deleting them would 404 the live invite and dangle the DB keys. A whole
+ * wedding's images go when its owners delete it: the daily purge
+ * (`maintenanceSweeps.purgeDeletedWeddings`) reaps both buckets with
+ * {@link reapR2Objects}, and `asset-reconcile.ts` reaps whatever a failed
+ * best-effort delete leaves behind.
  */
 export interface RetentionBuckets {
   sheets?: DeletableBucket;
@@ -407,13 +409,15 @@ const isoDay = (seconds: number): string => new Date(seconds * 1000).toISOString
 /**
  * What the sweep hands its notifier: one wedding's parting summary, plus the
  * facts the email needs that the summary itself does not carry — who owns the
- * wedding (an OSN profile id, because cire holds no address), what the couple
+ * wedding (OSN profile ids, because cire holds no address), what the couple
  * named it, which currency they think in, and when the retained year started.
  */
 export interface GiftSummaryNotice {
   readonly weddingId: string;
   readonly weddingName: string;
-  readonly ownerOsnProfileId: string;
+  /** Every owner of the wedding, in seat order. Never empty: a wedding with no
+   *  owner to mail drops out before a notice is built. */
+  readonly ownerOsnProfileIds: readonly string[];
   readonly currency: string;
   /** `YYYY-MM-DD` of the last event — the far end of the retained year. */
   readonly finalEventOn: string;
@@ -615,32 +619,55 @@ function writeGiftSummaries(
     // the total in. Read after the summaries are written so a cohort with no
     // gifts pays for none of it. The date the retained year is counted from
     // came in with the cohort and costs no read here.
+    // One query for the lot: each wedding row joined to its owner seats, one
+    // row per owner, oldest seat first.
     const summarised = [...rendered.keys()];
-    const weddingRows = yield* dbQuery(() =>
+    const ownerRows = yield* dbQuery(() =>
       db
         .select({
           id: weddings.id,
           displayName: weddings.displayName,
-          ownerOsnProfileId: weddings.ownerOsnProfileId,
           currency: weddings.currency,
+          ownerOsnProfileId: weddingHosts.osnProfileId,
         })
         .from(weddings)
-        .where(inArray(weddings.id, summarised))
+        .innerJoin(
+          weddingHosts,
+          and(eq(weddingHosts.weddingId, weddings.id), eq(weddingHosts.role, "owner")),
+        )
+        // A soft-deleted wedding's owners are not mailed; its summary row is
+        // still written above, so a restore finds it.
+        .where(and(inArray(weddings.id, summarised), weddingIsLive))
+        .orderBy(asc(weddingHosts.createdAt))
         .all(),
     );
+    const byWedding = new Map<
+      string,
+      { displayName: string; currency: string; owners: string[] }
+    >();
+    for (const row of ownerRows) {
+      const entry = byWedding.get(row.id) ?? {
+        displayName: row.displayName,
+        currency: row.currency,
+        owners: [],
+      };
+      entry.owners.push(row.ownerOsnProfileId);
+      byWedding.set(row.id, entry);
+    }
 
-    // `flatMap` over the wedding rows, not the summaries: a wedding whose row
-    // has somehow gone has no owner to mail, and drops out silently.
-    return weddingRows.flatMap((w) => {
-      const summary = rendered.get(w.id);
-      if (!summary || !w.ownerOsnProfileId) return [];
+    // Over the weddings that came back with an owner, not the summaries: a
+    // wedding whose row has gone, or that is soft-deleted, has no owner to
+    // mail, and drops out silently.
+    return [...byWedding].flatMap(([weddingId, w]) => {
+      const summary = rendered.get(weddingId);
+      if (!summary) return [];
       return [
         {
-          weddingId: w.id,
+          weddingId,
           weddingName: w.displayName,
-          ownerOsnProfileId: w.ownerOsnProfileId,
+          ownerOsnProfileIds: w.owners,
           currency: w.currency,
-          finalEventOn: (finalEventAtById.get(w.id) ?? "").slice(0, 10),
+          finalEventOn: (finalEventAtById.get(weddingId) ?? "").slice(0, 10),
           summary,
         },
       ];

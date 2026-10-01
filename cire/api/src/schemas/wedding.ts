@@ -33,3 +33,17 @@ export const RemintBody = Schema.Struct({
   codeStyle: CodeStyle,
 });
 export type RemintBody = Schema.Schema.Type<typeof RemintBody>;
+
+/** Longest slug a confirmation may carry: the base is capped at 60 characters
+ *  and the suffix adds seven, so this leaves room without accepting essays. */
+const MAX_CONFIRM_SLUG = 200;
+
+/**
+ * Body for `DELETE /api/organiser/weddings/:weddingId`. The owner types the
+ * wedding's slug to confirm. Not trimmed or case-folded: only the exact slug
+ * deletes, and anything else is a `confirmation_mismatch`.
+ */
+export const DeleteWeddingBody = Schema.Struct({
+  confirmSlug: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_CONFIRM_SLUG)),
+});
+export type DeleteWeddingBody = Schema.Schema.Type<typeof DeleteWeddingBody>;
