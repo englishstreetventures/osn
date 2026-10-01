@@ -25,8 +25,6 @@ import { type Mock, vi } from "vitest";
 export const authFetchMock: Mock = vi.fn();
 /** Called when the mocked `redirectToLogin()` fires. */
 export const redirectSpy: Mock = vi.fn();
-/** Called when the mocked `reloadPortal()` fires. */
-export const reloadSpy: Mock = vi.fn();
 /** The signed-in profile id the mocked `useAuth()` reports; `null` (signed
  *  out of every seat on screen) unless a test sets it. */
 export const activeProfileIdMock: Mock<() => string | null> = vi.fn(() => null);
@@ -71,7 +69,6 @@ export async function organiserApiMock() {
     apiUrl: (path: string) => `https://api.test${path}`,
     isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
     redirectToLogin: () => redirectSpy(),
-    reloadPortal: () => reloadSpy(),
   };
 }
 
@@ -79,7 +76,6 @@ export async function organiserApiMock() {
 export function resetOrganiserMocks(): void {
   authFetchMock.mockReset();
   redirectSpy.mockReset();
-  reloadSpy.mockReset();
   activeProfileIdMock.mockReset();
   activeProfileIdMock.mockImplementation(() => null);
   toastSuccess.mockReset();

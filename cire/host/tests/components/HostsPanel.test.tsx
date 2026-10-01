@@ -29,7 +29,6 @@ import {
   activeProfileIdMock,
   authFetchMock,
   redirectSpy,
-  reloadSpy,
   resetOrganiserMocks,
   toastError,
   toastSuccess,
@@ -152,7 +151,7 @@ describe("HostsPanel", () => {
     expect(screen.queryByRole("button", { name: "Remove @alice" })).toBeNull();
   });
 
-  it("asks before an owner steps down, then starts the portal again on yes", async () => {
+  it("asks before an owner steps down, then hands the new role up on yes, with no reload", async () => {
     activeProfileIdMock.mockImplementation(() => "usr_alice");
     authFetchMock.mockResolvedValueOnce(
       json({
@@ -165,7 +164,10 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_alice", role: "editor", createdAt: 1 } }),
     );
-    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    const onOwnRoleChanged = vi.fn();
+    render(() => (
+      <HostsPanel weddingId="wed_a" callerRole="owner" onOwnRoleChanged={onOwnRoleChanged} />
+    ));
     await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
 
     const own = screen.getByRole("combobox", { name: /Your role on this wedding/i });
@@ -176,7 +178,10 @@ describe("HostsPanel", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: /Yes, step down/i }));
-    await waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onOwnRoleChanged).toHaveBeenCalledWith("editor"));
+    expect(onOwnRoleChanged).toHaveBeenCalledTimes(1);
+    // Two requests in all: the list and the role change. Nothing reloads.
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = authFetchMock.mock.calls[1]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_alice/role");
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "editor" });
@@ -190,7 +195,10 @@ describe("HostsPanel", () => {
       }),
     );
     authFetchMock.mockResolvedValueOnce(json({ error: "last_owner" }, 409));
-    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    const onOwnRoleChanged = vi.fn();
+    render(() => (
+      <HostsPanel weddingId="wed_a" callerRole="owner" onOwnRoleChanged={onOwnRoleChanged} />
+    ));
     await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
 
     fireEvent.change(screen.getByRole("combobox", { name: /Your role on this wedding/i }), {
@@ -200,7 +208,7 @@ describe("HostsPanel", () => {
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/at least one owner/i)),
     );
-    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(onOwnRoleChanged).not.toHaveBeenCalled();
     expect(
       (screen.getByRole("combobox", { name: /Your role on this wedding/i }) as HTMLSelectElement)
         .value,

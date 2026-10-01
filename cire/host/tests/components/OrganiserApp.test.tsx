@@ -120,6 +120,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
       onWeddingDeleted?: (restoreUntil: string) => void;
       onLeftWedding?: () => void;
+      onOwnRoleChanged?: (role: "owner" | "editor" | "viewer" | "helper") => void;
     }) => {
       const { authFetch } = useAuth();
       shellMounts += 1;
@@ -155,6 +156,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
             delete-wedding
           </button>
           <button onClick={() => props.onLeftWedding?.()}>leave</button>
+          <button onClick={() => props.onOwnRoleChanged?.("editor")}>step-down</button>
         </div>
       );
     },
@@ -785,6 +787,25 @@ describe("OrganiserApp Dashboard", () => {
     expect(peekCachedVendors("wed_a")).toBeNull();
     // Leaving is local: the list is not asked again.
     expect(listCalls()).toBe(1);
+  });
+
+  it("narrows the open dashboard when its owner steps down, without a refetch or a remount", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(shell().getAttribute("data-can-manage")).toBe("true");
+    const mount = shell().getAttribute("data-mount");
+    const reads = authFetchMock.mock.calls.length;
+
+    fireEvent.click(screen.getByText("step-down"));
+
+    expect(shell().getAttribute("data-can-manage")).toBe("false");
+    expect(shell().getAttribute("data-can-edit")).toBe("true");
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(authFetchMock.mock.calls.length).toBe(reads);
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

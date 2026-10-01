@@ -9,7 +9,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin, reloadPortal, weddingPath } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
   type AssignableRole,
@@ -122,6 +122,10 @@ interface HostsPanelProps {
    *  toast. The parent drops the wedding from the organiser's list, which
    *  unmounts this panel and releases the wedding's cached rows. */
   onLeft?: () => void;
+  /** Called with the caller's new role once the API has changed their OWN
+   *  seat — an owner stepping down. The parent patches the wedding's role, and
+   *  every view re-derives what it offers from it, this panel included. */
+  onOwnRoleChanged?: (role: WeddingRole) => void;
 }
 
 /**
@@ -496,20 +500,21 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       haptic("commit");
-      if (isMe(host)) {
-        // Stepping down changes what the whole portal offers this person, not
-        // just this row, so the portal starts again from the API's answer.
-        toast.success(
-          `You are now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
-        );
-        reloadPortal();
-        return;
-      }
       setHosts((prev) =>
         ownersFirst(
           prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
         ),
       );
+      if (isMe(host)) {
+        toast.success(
+          `You are now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
+        );
+        // Stepping down changes what the whole portal offers this person, not
+        // only this row: the parent patches the wedding's role from the API's
+        // answer, and every view re-derives its surfaces from that.
+        props.onOwnRoleChanged?.(nextRole);
+        return;
+      }
       toast.success(
         `${label} is now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
       );

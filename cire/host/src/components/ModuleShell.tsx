@@ -179,6 +179,8 @@ interface ModuleShellProps {
   onWeddingDeleted?: (restoreUntil: string) => void;
   /** The organiser left this wedding from the co-host panel. */
   onLeftWedding?: () => void;
+  /** The organiser changed their own role from the co-host panel. */
+  onOwnRoleChanged?: (role: WeddingRole) => void;
   /** The wedding's plan tier (from the API list response). A module the tier
    *  does not include is locked: its nav row fades and offers the upgrade, and
    *  the module itself never renders — the shell coerces it to Overview. */
@@ -713,6 +715,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     callerRole={props.callerRole}
                     canLeave
                     onLeft={props.onLeftWedding}
+                    onOwnRoleChanged={props.onOwnRoleChanged}
                   />
                 </Show>
               </Show>

@@ -45,6 +45,7 @@ import { invalidateCatalogue } from "../lib/upgrade-store";
 import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
+import type { WeddingRole } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
@@ -162,6 +163,9 @@ function WeddingDashboard(props: {
   onWeddingDeleted: (restoreUntil: string) => void;
   /** The organiser gave up their seat on this wedding. */
   onLeft: () => void;
+  /** The organiser changed their own role on this wedding (an owner stepping
+   *  down); the list's copy of it is patched, and every surface follows. */
+  onOwnRoleChanged: (role: WeddingRole) => void;
 }) {
   // One decision, taken once, for every surface below. The API enforces all of
   // it — weddingMember()/weddingEditor()/weddingOwner() — and these flags only
@@ -188,6 +192,7 @@ function WeddingDashboard(props: {
           onWeddingUpdated={props.onWeddingUpdated}
           onWeddingDeleted={props.onWeddingDeleted}
           onLeftWedding={props.onLeft}
+          onOwnRoleChanged={props.onOwnRoleChanged}
           tier={tierOf(props.wedding)}
           entitlements={props.wedding.entitlements ?? []}
           guestCap={props.wedding.guestCap ?? 100}
@@ -610,6 +615,18 @@ function Dashboard() {
     setDeletedWeddings((prev) => prev.filter((w) => w.id !== weddingId));
   }
 
+  /** The organiser's own role on a wedding changed (an owner stepped down):
+   *  patch it in the list, and every surface re-derives what it offers. */
+  function handleOwnRoleChanged(weddingId: string, role: WeddingRole) {
+    setWeddings((prev) => {
+      const list = prev ?? [];
+      const at = list.findIndex((w) => w.id === weddingId);
+      // A new object for the one wedding that changed, so every reader of it
+      // re-runs; the others keep their identity.
+      return at === -1 ? list : list.with(at, { ...list[at]!, role });
+    });
+  }
+
   /** The organiser left a wedding. Dropping it from the list is all it takes:
    *  the route falls back to the list (the effect above), the dashboard
    *  unmounts, and its cache scope releases the wedding's rows. */
@@ -814,6 +831,7 @@ function Dashboard() {
                               handleWeddingDeleted(weddingId, restoreUntil)
                             }
                             onLeft={() => handleLeftWedding(weddingId)}
+                            onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
                           />
                         );
                       }}
