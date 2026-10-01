@@ -12,6 +12,7 @@ import type { AssignableHostRole } from "../../src/services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -623,6 +624,56 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     seedHostSeat(db, COHOST, "editor");
     expect((await req(app, "DELETE", leavePath, COHOST)).status).toBe(200);
     expect((await req(app, "DELETE", leavePath, COHOST)).status).toBe(403);
+  });
+
+  // The portal reaches this route with the organiser session cookie, so the
+  // cookie path has to delete the seat it names, not only the bearer's.
+  it("leaves on a session cookie and refuses a dead one", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    seedHostSeat(db, "usr_carol", "viewer");
+
+    const dead = await appRequest(app, leavePath, {
+      method: "DELETE",
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+    expect(await seatIds(db)).toEqual([COHOST, "usr_carol"].toSorted());
+
+    const token = await seedOrganiserSession(db, COHOST);
+    const ok = await appRequest(app, leavePath, {
+      method: "DELETE",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(ok.status).toBe(200);
+    expect(await seatIds(db)).toEqual(["usr_carol"]);
+  });
+
+  it("answers a failed delete with 500 and counts it", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "editor");
+    // The member gate reads only `wedding_hosts`, so dropping the notice table
+    // lets the request through the gate and fails the batch inside `remove`.
+    db.$client.exec("DROP TABLE host_rsvp_notices");
+    const before = await counterValue("cire.host.removed", { result: "error", actor: "self" });
+
+    const res = await req(app, "DELETE", leavePath, COHOST);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not leave this wedding" });
+    expect(await seatIds(db)).toEqual([COHOST]);
+    expect(await counterValue("cire.host.removed", { result: "error", actor: "self" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("counts the owner's removal of someone else as actor owner", async () => {
+    const { db, app } = build();
+    seedHostSeat(db, COHOST, "viewer");
+    const before = await counterValue("cire.host.removed", { result: "ok", actor: "owner" });
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER)).status).toBe(200);
+    expect(await counterValue("cire.host.removed", { result: "ok", actor: "owner" })).toBe(
+      before + 1,
+    );
   });
 
   it("is rate limited per user with the other host-management writes", async () => {
