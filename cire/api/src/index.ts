@@ -17,7 +17,6 @@ import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { claimReviewService } from "./services/claim-review";
-import { flushBufferedEnquiries } from "./services/enquiries";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
@@ -705,8 +704,8 @@ const handler: ExportedHandler<Env> = {
 
     // Vendor claims held for an operator: hand confirmed listings their
     // buffered enquiries, and log how many claims are still waiting. The zap
-    // client is built the same way `fetch` builds it; null leaves the hand-offs
-    // due for a later run.
+    // client is built the same way `fetch` builds it; null leaves the
+    // enquiries buffered for a later run.
     const handoffZap = await createZapChatClientFromEnv({
       zapApiUrl: env.ZAP_API_URL,
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
@@ -714,16 +713,14 @@ const handler: ExportedHandler<Env> = {
     });
     runSweep(() =>
       Effect.runPromise(
-        claimReviewService
-          .sweep(handoffZap ? (input) => flushBufferedEnquiries(handoffZap, input) : null)
-          .pipe(
-            Effect.catch((err) =>
-              Effect.logError("scheduled vendor claim review sweep failed", {
-                reason: err.reason,
-              }),
-            ),
-            Effect.provide(dbLayer),
+        claimReviewService.sweep(handoffZap).pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled vendor claim review sweep failed", {
+              reason: err.reason,
+            }),
           ),
+          Effect.provide(dbLayer),
+        ),
       ),
     );
 

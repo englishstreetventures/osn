@@ -645,14 +645,11 @@ describe("claim hold and hand-off (POST /api/vendor/claims/:token/consume)", () 
     // The operator confirms (the same UPDATE the review script sends), and the
     // daily sweep hands the buffered enquiry over.
     db.$client.exec(
-      `UPDATE directory_vendors SET owner_org_id = review_org_id, claimed_by_profile_id = review_profile_id, listed = 'live', review_org_id = NULL, review_profile_id = NULL, review_requested_at = NULL, handoff_due_at = unixepoch(), updated_at = unixepoch() WHERE id = '${dvId}'`,
+      `UPDATE directory_vendors SET owner_org_id = review_org_id, claimed_by_profile_id = review_profile_id, listed = 'live', review_org_id = NULL, review_profile_id = NULL, review_requested_at = NULL, updated_at = unixepoch() WHERE id = '${dvId}'`,
     );
     const { claimReviewService } = await import("../../src/services/claim-review");
-    const { flushBufferedEnquiries } = await import("../../src/services/enquiries");
     const swept = await Effect.runPromise(
-      claimReviewService
-        .sweep((input) => flushBufferedEnquiries(fakeZap.client, input))
-        .pipe(Effect.provideService(DbService, db)),
+      claimReviewService.sweep(fakeZap.client).pipe(Effect.provideService(DbService, db)),
     );
     expect(swept.handedOff).toBe(1);
 

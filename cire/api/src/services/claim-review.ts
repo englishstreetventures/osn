@@ -4,43 +4,37 @@
  * it with `scripts/cire-vendor-claim-review.ts`, which runs SQL against D1 and
  * so cannot run app code. Two things therefore happen here, on the daily cron:
  *
- *  - Hand-off. A confirm stamps `handoff_due_at`. The sweep picks those
- *    listings, clears the stamp with a compare-and-swap so only one runner
- *    takes each, then flushes the enquiries couples sent while the listing was
- *    unclaimed (`flushBufferedEnquiries`). Enquiries sent after the confirm go
- *    straight to the vendor, so only the buffered ones wait for the cron.
+ *  - Hand-off. Couples' enquiries to an unclaimed listing wait as
+ *    `pending_body` with no chat. Once a listing has a claimant
+ *    (`claimed_by_profile_id`, written only by the operator's confirm), the
+ *    sweep hands each such enquiry to the vendor (`flushBufferedEnquiry`). The
+ *    work is read from that state, not from a flag, so an enquiry whose
+ *    hand-off failed stays buffered and is retried the next day. Enquiries
+ *    sent after the confirm go straight to the vendor.
  *  - Reminder. It counts the claims still waiting and logs a warning when any
  *    are, so an operator reading Workers Logs sees them daily.
  *
- * Each flush costs two zap-api calls per buffered enquiry, and the cron's one
- * invocation shares a 50-external-subrequest ceiling on the Free plan with the
- * other jobs (`wiki/shared/free-tier-limits.md`). `HANDOFFS_PER_RUN` bounds the
- * listings taken per run; the rest wait for the next day.
+ * Each hand-off costs two zap-api calls and one D1 write, and the cron's one
+ * invocation shares the Free plan's per-invocation ceilings (50 external
+ * subrequests, 50 D1 queries) with the other jobs
+ * (`wiki/shared/free-tier-limits.md`). `HANDOFFS_PER_RUN` bounds the enquiries
+ * taken per run; the rest wait for the next day.
  */
-import { directoryVendors } from "@cire/db";
-import { rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
-import { Data, Effect, Exit } from "effect";
+import { directoryVendors, vendorEnquiries } from "@cire/db";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricVendorClaimReview } from "../metrics";
-import type { FlushBufferedInput } from "./enquiries";
+import { flushBufferedEnquiry } from "./enquiries";
+import type { ZapChatClient } from "./zap-bridge";
 
 export class ClaimReviewSweepError extends Data.TaggedError("ClaimReviewSweepError")<{
   reason: string;
 }> {}
 
-/** Listings handed off per cron run. */
-export const HANDOFFS_PER_RUN = 5;
-
-/**
- * Flushes one confirmed listing's buffered enquiries. Null when the vendor-chat
- * feature is off: the sweep then leaves `handoff_due_at` set, so the hand-off
- * runs on the first day zap is configured instead of being lost.
- */
-export type HandoffFlush =
-  | ((input: FlushBufferedInput) => Effect.Effect<void, never, DbService>)
-  | null;
+/** Buffered enquiries handed off per cron run: 20 zap calls, 10 D1 writes. */
+export const HANDOFFS_PER_RUN = 10;
 
 export interface ClaimReviewSweepResult {
   handedOff: number;
@@ -48,8 +42,12 @@ export interface ClaimReviewSweepResult {
 }
 
 export const claimReviewService = {
+  /**
+   * `zap` null (vendor chat not configured) skips the hand-off and leaves
+   * every enquiry buffered for a run that has it.
+   */
   sweep(
-    flush: HandoffFlush,
+    zap: ZapChatClient | null,
     limit: number = HANDOFFS_PER_RUN,
   ): Effect.Effect<ClaimReviewSweepResult, ClaimReviewSweepError, DbService> {
     return Effect.gen(function* () {
@@ -60,17 +58,25 @@ export const claimReviewService = {
           dbQuery(() =>
             db
               .select({
-                id: directoryVendors.id,
-                claimedByProfileId: directoryVendors.claimedByProfileId,
+                id: vendorEnquiries.id,
+                createdBy: vendorEnquiries.createdBy,
+                pendingBody: vendorEnquiries.pendingBody,
+                vendorProfileId: directoryVendors.claimedByProfileId,
               })
-              .from(directoryVendors)
+              .from(vendorEnquiries)
+              .innerJoin(
+                directoryVendors,
+                eq(directoryVendors.id, vendorEnquiries.directoryVendorId),
+              )
               .where(
                 and(
-                  isNotNull(directoryVendors.handoffDueAt),
+                  eq(vendorEnquiries.status, "open"),
+                  isNull(vendorEnquiries.zapChatId),
+                  isNotNull(vendorEnquiries.pendingBody),
                   isNotNull(directoryVendors.claimedByProfileId),
                 ),
               )
-              .orderBy(asc(directoryVendors.handoffDueAt), asc(directoryVendors.id))
+              .orderBy(asc(vendorEnquiries.createdAt), asc(vendorEnquiries.id))
               .limit(limit)
               .all(),
           ),
@@ -92,38 +98,27 @@ export const claimReviewService = {
         yield* Effect.logWarning("vendor claims awaiting operator review", { pending });
       }
 
-      let handedOff = 0;
-      if (flush) {
-        for (const row of due) {
-          const vendorProfileId = row.claimedByProfileId!;
-          // Take the listing: only the runner whose UPDATE changes the row
-          // flushes it, so two overlapping runs never flush one listing twice.
-          const taken = yield* dbQuery(() =>
-            db
-              .update(directoryVendors)
-              .set({ handoffDueAt: null })
-              .where(and(eq(directoryVendors.id, row.id), isNotNull(directoryVendors.handoffDueAt)))
-              .run(),
-          ).pipe(Effect.exit);
-          if (Exit.isFailure(taken)) {
-            yield* Effect.sync(() => metricVendorClaimReview("handoff_error"));
-            yield* Effect.logError("vendor claim hand-off: take failed", {
-              directoryVendorId: row.id,
-            });
-            continue;
-          }
-          if (rowsChanged(taken.value) === 0) continue;
-          yield* flush({ directoryVendorId: row.id, vendorProfileId });
-          handedOff += 1;
-          yield* Effect.sync(() => metricVendorClaimReview("handed_off"));
+      if (!zap) {
+        if (due.length > 0) {
+          yield* Effect.logWarning("vendor claim hand-off waiting: vendor chat is not configured", {
+            due: due.length,
+          });
         }
-      } else if (due.length > 0) {
-        yield* Effect.logWarning("vendor claim hand-off waiting: vendor chat is not configured", {
-          due: due.length,
-        });
+        return { handedOff: 0, pending };
       }
 
-      yield* Effect.logInfo("vendor claim review sweep complete", { handedOff, pending });
+      const outcomes = yield* Effect.all(
+        due.map((row) => flushBufferedEnquiry(zap, row, row.vendorProfileId!)),
+        { concurrency: 5 },
+      );
+      const handedOff = outcomes.filter(Boolean).length;
+      const failed = outcomes.length - handedOff;
+      yield* Effect.sync(() => {
+        if (handedOff > 0) metricVendorClaimReview("handed_off", handedOff);
+        if (failed > 0) metricVendorClaimReview("handoff_error", failed);
+      });
+
+      yield* Effect.logInfo("vendor claim review sweep complete", { handedOff, failed, pending });
       return { handedOff, pending };
     }).pipe(Effect.withSpan("cire.claimReview.sweep"));
   },

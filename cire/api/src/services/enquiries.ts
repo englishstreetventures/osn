@@ -16,8 +16,8 @@
  * TWO LOCKED DECISIONS this file implements:
  *   1. Claimed → provision + send now; unclaimed → buffer `pendingBody`, null
  *      `zapChatId`.
- *   2. An operator-confirmed claim → best-effort flush each buffered enquiry
- *      into Zap (`flushBufferedEnquiries`, run by the daily cron).
+ *   2. An operator-confirmed claim → each buffered enquiry is handed into Zap
+ *      (`flushBufferedEnquiry`, run by the daily cron).
  *
  * open() is idempotent on `(weddingId, directoryVendorId)` via the
  * `vendor_enquiries_wedding_directory_uniq` index: a repeat returns the existing
@@ -25,6 +25,7 @@
  */
 
 import { vendorEnquiries, vendors } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Data, Effect, type Types } from "effect";
@@ -162,11 +163,6 @@ export interface AddToBudgetInput {
   category: ServiceCategory;
 }
 
-export interface FlushBufferedInput {
-  directoryVendorId: string;
-  vendorProfileId: string;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -180,88 +176,55 @@ const threadUrl = (base: string, enquiryId: string): string =>
   `${base.replace(/\/+$/, "")}/${enquiryId}`;
 
 /**
- * An operator confirmed a vendor's claim on a listing — flush every buffered
- * enquiry (open, zapChatId null, pendingBody set) for it: provision the chat,
- * send the buffered body, null pendingBody, bump lastMessageAt. Best-effort per
- * enquiry: one failure is logged and skipped, never aborts the loop. A null
- * `zapClient` makes the whole call an inert no-op (logged). The daily cron
- * calls it (`claimReviewService.sweep`); nothing in the request path does.
+ * Hand one buffered enquiry (open, no chat, `pendingBody` set) to the vendor
+ * who now owns its listing: provision the chat, send the buffered body, then
+ * record the chat and clear `pendingBody`. Answers whether the enquiry was
+ * handed over; any failure is logged and answers false, never fails, so one bad
+ * enquiry cannot stop the others.
+ *
+ * Nothing is cleared before the send succeeds, so a failure leaves the
+ * enquiry buffered and the next run retries it. The final UPDATE matches only
+ * while `zap_chat_id IS NULL`, so a second runner cannot overwrite the first's
+ * chat. The daily cron calls this (`claimReviewService.sweep`) for listings an
+ * operator has confirmed; nothing in the request path does.
  */
-export function flushBufferedEnquiries(
-  zapClient: ZapChatClient | null,
-  input: FlushBufferedInput,
-): Effect.Effect<void, never, DbService> {
+export function flushBufferedEnquiry(
+  zap: ZapChatClient,
+  enq: Pick<EnquiryRow, "id" | "createdBy" | "pendingBody">,
+  vendorProfileId: string,
+): Effect.Effect<boolean, never, DbService> {
   return Effect.gen(function* () {
-    if (!zapClient) {
-      yield* Effect.logWarning(
-        "[enquiries] flush with zap disabled — buffered enquiries left pending",
-      ).pipe(Effect.annotateLogs({ directoryVendorId: input.directoryVendorId }));
-      return;
-    }
-    const zap = zapClient;
+    if (enq.pendingBody === null) return false;
+    const body = enq.pendingBody;
     const db = yield* DbService;
-
-    const buffered = yield* dbQuery(() =>
-      db
-        .select()
-        .from(vendorEnquiries)
-        .where(
-          and(
-            eq(vendorEnquiries.directoryVendorId, input.directoryVendorId),
-            eq(vendorEnquiries.status, "open"),
-            isNull(vendorEnquiries.zapChatId),
-          ),
-        )
-        .all(),
+    const { chatId } = yield* Effect.promise(() =>
+      zap.provisionC2bChat({
+        memberProfileIds: [enq.createdBy, vendorProfileId],
+        createdByProfileId: enq.createdBy,
+        title: undefined,
+      }),
     );
-
-    // Flush one buffered enquiry. Per-enquiry isolation: catchAll +
-    // catchAllDefect collapse any failure to a logged no-op so one bad
-    // enquiry never aborts the others — the effect's error channel is
-    // `never`, which lets the bounded `Effect.all` below keep going.
-    const flushOne = (enq: EnquiryRow): Effect.Effect<void, never, never> => {
-      if (enq.pendingBody === null) return Effect.void;
-      const body = enq.pendingBody;
-      return Effect.gen(function* () {
-        const { chatId } = yield* Effect.promise(() =>
-          zap.provisionC2bChat({
-            memberProfileIds: [enq.createdBy, input.vendorProfileId],
-            createdByProfileId: enq.createdBy,
-            title: undefined,
-          }),
-        );
-        yield* Effect.promise(() =>
-          zap.sendC2bMessage(chatId, { senderProfileId: enq.createdBy, body }),
-        );
-        const now = new Date();
-        yield* dbQuery(() =>
-          db
-            .update(vendorEnquiries)
-            .set({ zapChatId: chatId, pendingBody: null, lastMessageAt: now, updatedAt: now })
-            .where(eq(vendorEnquiries.id, enq.id))
-            .run(),
-        );
-      }).pipe(
-        Effect.provideService(DbService, db),
-        // Best-effort: a single enquiry's failure must not abort the claim.
-        Effect.catch((cause) =>
-          Effect.logError("[enquiries] flush-on-claim failed for one enquiry").pipe(
-            Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
-          ),
-        ),
-        Effect.catchDefect((cause) =>
-          Effect.logError("[enquiries] flush-on-claim defected for one enquiry").pipe(
-            Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
-          ),
-        ),
-      );
-    };
-
-    // Bounded-concurrency flush: don't block the claim response
-    // linearly in N. Each flush is self-isolating (never-fails), so the pool
-    // drains every buffered enquiry regardless of individual outcomes.
-    yield* Effect.all((buffered as EnquiryRow[]).map(flushOne), { concurrency: 5 });
-  }).pipe(Effect.withSpan("cire.enquiries.flushBuffered"));
+    yield* Effect.promise(() =>
+      zap.sendC2bMessage(chatId, { senderProfileId: enq.createdBy, body }),
+    );
+    const now = new Date();
+    const result = yield* dbQuery(() =>
+      db
+        .update(vendorEnquiries)
+        .set({ zapChatId: chatId, pendingBody: null, lastMessageAt: now, updatedAt: now })
+        .where(and(eq(vendorEnquiries.id, enq.id), isNull(vendorEnquiries.zapChatId)))
+        .run(),
+    );
+    return rowsChanged(result) === 1;
+  }).pipe(
+    Effect.catchDefect((cause) =>
+      Effect.logError("[enquiries] buffered enquiry hand-off failed").pipe(
+        Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
+        Effect.as(false),
+      ),
+    ),
+    Effect.withSpan("cire.enquiries.flushBuffered"),
+  );
 }
 
 // ---------------------------------------------------------------------------
