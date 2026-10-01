@@ -36,15 +36,17 @@ import {
 import { jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
 import type { RsvpDigestChangeKind } from "@shared/email/templates";
-import { and, getTableColumns, gt, gte, inArray, max, sql, type SQL } from "drizzle-orm";
+import { and, eq, getTableColumns, gt, gte, inArray, max, sql, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { digestStopUrl, type DigestStopTarget } from "../lib/digest-stop";
 import { metricRsvpDigestEmails, type RsvpDigestOutcome } from "../metrics";
 import { decideCapability, type WeddingRole } from "../middleware/wedding-role";
 import { normaliseHostRole } from "./hosts";
 import type { OrganiserEmailAnswer, OsnOrganiserEmailLookup } from "./osn-bridge";
+import { rsvpChangeService, type RsvpChangeError } from "./rsvp-changes";
 
 /**
  * Recipients per run. One osn-api lookup call takes 100 ids and one Resend
@@ -74,7 +76,17 @@ export interface RsvpDigestOptions {
   lookup: OsnOrganiserEmailLookup;
   now?: Date;
   maxEmails?: number;
+  /**
+   * Where each email's one-click stop link points, and the key that signs it
+   * (`lib/digest-stop.ts`). Absent ⇒ the emails carry no stop link and no
+   * `List-Unsubscribe` header; the Overview switch is then the only way out.
+   */
+  stopLinks?: { apiOrigin: string; key: CryptoKey };
 }
+
+/** What a stop link did. `no_seat` — the person no longer holds a seat that
+ *  receives the digest, so there was nothing to turn off. */
+export type DigestStopOutcome = "stopped" | "no_seat";
 
 interface Recipient {
   weddingId: string;
@@ -418,7 +430,13 @@ export const rsvpDigestService = {
         return result;
       }
 
-      // 5. Build each recipient's email and its marker.
+      // 5. Build each recipient's email and its marker. Stop links are signed
+      // for the recipients with an address, before the plans: a signing
+      // failure sends the email without one rather than not at all.
+      const stopUrls = yield* signStopLinks(
+        options.stopLinks,
+        chosen.filter((r) => answer.emails.has(r.osnProfileId)),
+      );
       const origin = options.organiserOrigin.replace(/\/+$/, "");
       const plans = chosen.map((recipient) => {
         const mine = groups.filter(
@@ -448,6 +466,7 @@ export const rsvpDigestService = {
             households,
             counts,
             rsvpUrl: `${origin}/#/w/${encodeURIComponent(recipient.weddingId)}/guests/rsvps`,
+            stopUrl: stopUrls.get(key),
           },
         };
         return { key, mark, outcome: null, input };
@@ -473,7 +492,77 @@ export const rsvpDigestService = {
       return result;
     }).pipe(Effect.withSpan("cire.rsvp_digest.send"));
   },
+
+  /**
+   * Turn one person's digest off for one wedding, from a verified stop link.
+   * Acts only while they hold a seat that receives the digest — the same
+   * `editor` capability the run mails — so a link from before a seat was
+   * removed leaves no row behind for someone who is no longer a host.
+   */
+  stop(
+    target: DigestStopTarget,
+  ): Effect.Effect<DigestStopOutcome, RsvpDigestError | RsvpChangeError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { weddingId, osnProfileId } = target;
+      const [[wedding], [seat]] = yield* Effect.all(
+        [
+          read(() =>
+            db
+              .select({ owner: weddings.ownerOsnProfileId })
+              .from(weddings)
+              .where(eq(weddings.id, weddingId))
+              .all(),
+          ),
+          read(() =>
+            db
+              .select({ role: weddingHosts.role })
+              .from(weddingHosts)
+              .where(
+                and(
+                  eq(weddingHosts.weddingId, weddingId),
+                  eq(weddingHosts.osnProfileId, osnProfileId),
+                ),
+              )
+              .all(),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
+      const role: WeddingRole | null =
+        wedding?.owner === osnProfileId ? "owner" : seat ? normaliseHostRole(seat.role) : null;
+      if (role === null || !receivesDigest(role)) return "no_seat";
+      yield* rsvpChangeService.setDigest(weddingId, osnProfileId, false);
+      return "stopped";
+    }).pipe(Effect.withSpan("cire.rsvp_digest.stop"));
+  },
 };
+
+/** One stop link per recipient, keyed like the plans. Empty without a key. */
+function signStopLinks(
+  stopLinks: RsvpDigestOptions["stopLinks"],
+  recipients: readonly Recipient[],
+): Effect.Effect<Map<string, string>> {
+  if (!stopLinks || recipients.length === 0) return Effect.succeed(new Map());
+  return Effect.tryPromise(() =>
+    Promise.all(
+      recipients.map(
+        async (r) =>
+          [
+            noticeKey(r.weddingId, r.osnProfileId),
+            await digestStopUrl(stopLinks.apiOrigin, stopLinks.key, r),
+          ] as const,
+      ),
+    ),
+  ).pipe(
+    Effect.map((pairs) => new Map(pairs)),
+    Effect.catch(() =>
+      Effect.logWarning("rsvp digest: stop links not signed — sending without them").pipe(
+        Effect.as(new Map<string, string>()),
+      ),
+    ),
+  );
+}
 
 function record(result: RsvpDigestResult) {
   const pairs: [RsvpDigestOutcome, number][] = [
