@@ -314,7 +314,7 @@ describe("weddingEntitlement mounts in cire/api/src", () => {
     expect(inventory).toEqual({
       "routes/organiser-enquiries.ts": 2,
       "routes/registry-stripe.ts": 1,
-      "routes/registry.ts": 5,
+      "routes/registry.ts": 6,
       "routes/vendor-directory.ts": 2,
       "routes/vendors.ts": 2,
     });

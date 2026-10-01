@@ -519,6 +519,10 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS link_thumb_transforms (
+  period TEXT PRIMARY KEY NOT NULL,
+  used INTEGER DEFAULT 0 NOT NULL
+);
 `;
 
 export function createDb(path: string = ":memory:") {

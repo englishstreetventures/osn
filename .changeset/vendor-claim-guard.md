@@ -5,7 +5,7 @@
 "@cire/vendor": patch
 ---
 
-An organisation owns at most one directory listing: migration 0071 makes
+An organisation owns at most one directory listing: migration 0072 makes
 `directory_vendors.owner_org_id` unique, and a claim into an org that already
 owns a listing fails with 409 `org_has_listing` without spending the token.
 A claim binds only a listing nobody owns and spends the listing's other live

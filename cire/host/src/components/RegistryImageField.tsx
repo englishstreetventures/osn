@@ -6,17 +6,21 @@
  * `invite/ImageField.tsx`, which is the portal's other image control. Two things
  * differ, and both come from the backend:
  *
- *  - **The thumbnail is fetched, not linked.** Invite images are served by a
+ *  - **Every picture is fetched, not linked.** Invite images are served by a
  *    PUBLIC route (`/api/invite/:slug/image/:slot`), so `ImageField` can put the
- *    URL straight in an `<img src>`. A registry image is served behind
- *    `osnAuth` + the role gate + the entitlement and answered `private`, so the
- *    browser's own image load — which carries no Authorization header — would
- *    get a 401. It is read with `authFetch` into an object URL instead, revoked
- *    when it is replaced or the field goes away.
+ *    URL straight in an `<img src>`. A registry image is served behind the
+ *    organiser session, the role gate and the entitlement, and answered
+ *    `private`; it is read with `authFetch` (which sends the session cookie)
+ *    into an object URL, revoked when it is replaced or the field goes away.
  *  - **The link path offers a choice.** A shop page has a dozen images and only
  *    the organiser knows which one is the gift, so `POST /registry/link-preview`
  *    returns the candidates and this field renders them as a radio group. Taking
- *    the first one silently would be wrong more often than right.
+ *    the first one silently would be wrong more often than right. Each
+ *    candidate's picture comes from `POST /registry/link-preview/image`, which
+ *    fetches and re-encodes it on cire-api, read into an object URL the same
+ *    way. The browser never loads a shop's host, which is what lets the
+ *    portal's CSP `img-src` (`public/_headers`) admit no https origin but
+ *    cire-api's.
  *
  * `ImageCropModal` is deliberately NOT reused. It is slot-typed to the invite's
  * `CropSlot`s and reads `CROP_ASPECT[slot]` for its frame; a registry thumbnail
@@ -110,6 +114,17 @@ export default function RegistryImageField(props: {
   const [preview, setPreview] = createSignal<Preview | null>(null);
   const [chosen, setChosen] = createSignal<string | null>(null);
   const [thumb, setThumb] = createSignal<string | null>(null);
+  /** Candidate URL → its thumbnail's object URL, or `null` once it failed.
+   *  Absent means still loading. */
+  const [candidateThumbs, setCandidateThumbs] = createSignal<ReadonlyMap<string, string | null>>(
+    new Map(),
+  );
+  /** Bumped on every reset, so a thumbnail that lands after its preview was
+   *  replaced is revoked rather than shown. */
+  let thumbGeneration = 0;
+  /** Cancels the current set's requests on reset, so a replaced preview's
+   *  thumbnails stop costing a fetch and a transform on cire-api. */
+  let thumbAbort: AbortController | null = null;
 
   const base = () => weddingPath(props.weddingId, "/registry");
 
@@ -160,6 +175,56 @@ export default function RegistryImageField(props: {
   }
   onCleanup(() => swapThumb(null));
 
+  // ── The candidates' thumbnails ────────────────────────────────────────────
+  /** Revoke every candidate thumbnail and forget the set. */
+  function clearCandidateThumbs() {
+    thumbGeneration += 1;
+    thumbAbort?.abort();
+    thumbAbort = null;
+    for (const objectUrl of candidateThumbs().values())
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    setCandidateThumbs(new Map());
+  }
+  onCleanup(clearCandidateThumbs);
+
+  /**
+   * Ask cire-api for each candidate's thumbnail, all at once. A failure is not
+   * worth an alert — the radio still works and its name says which picture it
+   * is — so that candidate shows a plain label instead. `Accept` names the
+   * formats this browser decodes, which is what the API re-encodes to.
+   */
+  function loadCandidateThumbs(list: readonly string[]) {
+    if (typeof URL.createObjectURL !== "function") return;
+    const generation = thumbGeneration;
+    thumbAbort = new AbortController();
+    const { signal } = thumbAbort;
+    for (const candidate of list) {
+      void (async () => {
+        let objectUrl: string | null = null;
+        try {
+          const res = await authFetch(apiUrl(`${base()}/link-preview/image`), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "image/avif,image/webp,image/*",
+            },
+            body: JSON.stringify({ url: candidate }),
+            signal,
+          });
+          if (res.ok) objectUrl = URL.createObjectURL(await res.blob());
+        } catch {
+          // An expired session, a network drop, a reset that aborted it: the
+          // label stands in, or the generation check below drops it.
+        }
+        if (generation !== thumbGeneration) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setCandidateThumbs((prev) => new Map(prev).set(candidate, objectUrl));
+      })();
+    }
+  }
+
   // ── Shared response handling ──────────────────────────────────────────────
   /** Turn a failed save/preview into a message the organiser can act on. */
   const explain = async (res: Response, leg: "preview" | "upload" | "from-url") => {
@@ -202,6 +267,7 @@ export default function RegistryImageField(props: {
     haptic("commit");
     setMode(null);
     setPreview(null);
+    clearCandidateThumbs();
     setChosen(null);
     setUrl("");
     setNoImages(false);
@@ -245,6 +311,7 @@ export default function RegistryImageField(props: {
     setError(null);
     setNoImages(false);
     setPreview(null);
+    clearCandidateThumbs();
     setChosen(null);
     setBusy("preview");
     try {
@@ -262,7 +329,9 @@ export default function RegistryImageField(props: {
       setPreview(body);
       // A page whose every candidate failed the scheme check is, to this field,
       // a page with no pictures — same message, same way out.
-      if ((body.images ?? []).filter(isHttpsUrl).length === 0) setNoImages(true);
+      const usable = (body.images ?? []).filter(isHttpsUrl);
+      if (usable.length === 0) setNoImages(true);
+      else loadCandidateThumbs(usable);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       failed("Couldn't read that page.");
@@ -473,26 +542,32 @@ export default function RegistryImageField(props: {
                       onClick={() => setChosen(candidate)}
                       onKeyDown={(e) => onKey(e, i())}
                     >
-                      {/* Decorative: the button carries the name. */}
-                      {/* `no-referrer`: the shop is a third party we do not trust with
-                          the portal's origin, the path an organiser is editing, or a
-                          referrer that pairs their IP with a wedding. */}
-                      {/* These are the shop's own full-size product images — six of
-                          them, at whatever pixel dimensions the shop happens to
-                          publish, all decoding into an 80px box. The width and
-                          height let the browser reserve the box before any of them
-                          arrive, so the row does not reflow as they land; `lazy` and
-                          `async` keep the ones below the fold off the main thread. */}
-                      <img
-                        src={candidate}
-                        alt=""
-                        referrerpolicy="no-referrer"
-                        loading="lazy"
-                        decoding="async"
-                        width={80}
-                        height={80}
-                        class="h-20 w-20 object-cover"
-                      />
+                      {/* Decorative: the button carries the name. The picture
+                          is cire-api's re-encoded 320px copy, never the shop's
+                          own URL. Until it lands the box stays empty; if it
+                          fails, the number stands in. */}
+                      <Show
+                        when={candidateThumbs().get(candidate)}
+                        fallback={
+                          <span
+                            aria-hidden="true"
+                            class="text-text-muted text-ui-xs flex h-20 w-20 items-center justify-center"
+                          >
+                            {candidateThumbs().has(candidate) ? `Picture ${i() + 1}` : ""}
+                          </span>
+                        }
+                      >
+                        {(src) => (
+                          <img
+                            src={src()}
+                            alt=""
+                            decoding="async"
+                            width={80}
+                            height={80}
+                            class="h-20 w-20 object-cover"
+                          />
+                        )}
+                      </Show>
                     </Button>
                   )}
                 </For>
