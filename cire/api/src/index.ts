@@ -36,6 +36,7 @@ import { retentionService, type GiftSummaryNotice } from "./services/retention";
 import { rsvpChangeService } from "./services/rsvp-changes";
 import { rsvpDigestService } from "./services/rsvp-digest";
 import { sessionService } from "./services/session";
+import { sheetReconcileService } from "./services/sheet-reconcile";
 import { createStripeClientFromEnv } from "./services/stripe";
 import { createZapChatClientFromEnv } from "./services/zap-bridge";
 
@@ -192,7 +193,7 @@ export interface Env {
   KV_GB_PAYLOAD?: KVNamespace;
 }
 
-// P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
+// The Elysia app graph (root + cors + route factories + auth plugins) is
 // much heavier to compose than the old Hono app, and `aot: false` means none of
 // it is amortised by compilation — so build once per isolate instead of per
 // request. `env` bindings are stable within an isolate; the guard on the D1
@@ -220,7 +221,7 @@ const misconfigured = (detail: string) =>
 // evaluation — so reading it here would be one flag away from silently
 // resolving `local` on a live Worker and disabling the fail-closed
 // CLAIM_RATE_LIMITER guard below. The binding has no such timing hazard.
-// `loadConfig` still runs so its S-L3 production-mismatch check applies.
+// `loadConfig` still runs so its production-mismatch check applies.
 const isDeployedTier = (env: Env): boolean =>
   loadConfig({ serviceName: "cire-api", env: parseDeploymentEnvironment(env.OSN_ENV) }).env !==
   "local";
@@ -234,7 +235,7 @@ const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     // Fail closed at the edge if any required binding/var is missing, rather
     // than letting createApp fall back to its localhost dev defaults for the
-    // OSN issuer/audience in a misconfigured production deployment (S-M1).
+    // OSN issuer/audience in a misconfigured production deployment.
     const missing = [
       !env.DB && "DB",
       !env.WEB_ORIGIN && "WEB_ORIGIN",
@@ -380,7 +381,7 @@ const handler: ExportedHandler<Env> = {
         arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
         arcKeyId: env.CIRE_API_ARC_KEY_ID,
       });
-      // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
+      // Prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
       // (R2 write amplifier). One binding ⇒ one shared global budget, which is
@@ -561,8 +562,8 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Ten
-  // independent jobs share the cron (nine when the digest has no transport):
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Eleven
+  // independent jobs share the cron (ten when the digest has no transport):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -575,11 +576,11 @@ const handler: ExportedHandler<Env> = {
   //     (cire/invites privacy.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
   //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
-  //  4. `cire-assets` orphan reconciliation (IB-S-L2) — best-effort deletes
-  //     invite-image objects under `assets/` referenced by NO live DB row and
-  //     older than a 7-day grace window. Heavily guarded: aborts and deletes
-  //     NOTHING if the referenced-key read fails or comes back empty against a
-  //     non-empty bucket, and caps deletions per run. See asset-reconcile.ts.
+  //  4. `cire-assets` orphan reconciliation — best-effort deletes invite-image
+  //     objects under `assets/` referenced by NO live DB row and older than a
+  //     7-day grace window. Heavily guarded: aborts and deletes NOTHING if the
+  //     referenced-key read fails or comes back empty against a non-empty
+  //     bucket, and caps deletions per run. See services/r2-reconcile.ts.
   //  5. Expired vendor-claim tokens + 6. abandoned `preview` change rows (with
   //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
   //  7. Vendor claims held for an operator: hand-off of confirmed listings'
@@ -592,9 +593,12 @@ const handler: ExportedHandler<Env> = {
   //     — services/rsvp-digest.ts.
   // 10. The purge of soft-deleted weddings past their restore window, a few a
   //     run, with the R2 objects their rows name — services/maintenance-sweeps.ts.
+  // 11. `cire-sheets` orphan reconciliation — the same guarded walk as 4 over
+  //     `imports/`, against the four key columns of `imports`, with a listing
+  //     budget per run. See services/sheet-reconcile.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles. All ten
+  // the other and the isolate stays alive until each delete settles. All eleven
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
@@ -612,11 +616,11 @@ const handler: ExportedHandler<Env> = {
     // unrelated, delete-heavy sweeps to a single bookmark that each of them
     // keeps advancing, so every read would be forwarded to the primary anyway.
     //
-    // The sweep to keep in mind here is the `cire-assets` reconciliation at the
-    // bottom: it deletes R2 objects no DB row references, so unlike the others
+    // The sweeps to keep in mind here are the two R2 reconciliations at the
+    // bottom: they delete R2 objects no DB row references, so unlike the others
     // a stale read there would destroy live data rather than merely skip a row.
-    // What bounds that is RECONCILE_GRACE_MS (7 days, services/asset-reconcile.ts)
-    // plus its two abort guards — orders of magnitude more than any replica lag.
+    // What bounds that is RECONCILE_GRACE_MS (7 days, services/r2-reconcile.ts)
+    // plus the two abort guards — orders of magnitude more than any replica lag.
     // Shortening that window is the change that would make this paragraph matter.
     const d1 = env.DB;
     const runSweep = <Result>(body: () => Promise<Result>) =>
@@ -650,8 +654,8 @@ const handler: ExportedHandler<Env> = {
     );
 
     // Pass the SHEETS binding so the retention sweep also reclaims the
-    // personal-data objects it orphans (IB-S-L2 / C-H1): the uploaded guest/event
-    // spreadsheets in `cire-sheets` referenced by the `imports` rows it deletes.
+    // personal-data objects it orphans: the uploaded guest/event spreadsheets and
+    // before-images in `cire-sheets` referenced by the `imports` rows it deletes.
     // D1's ON DELETE cascade never reaches R2, so without this the CSVs (which
     // carry guest PII) would outlive the deleted DB rows forever. The `cire-assets`
     // invite images are NOT reaped here — those rows survive (the invite stays
@@ -849,7 +853,7 @@ const handler: ExportedHandler<Env> = {
       );
     }
 
-    // IB-S-L2: reconcile orphaned `cire-assets` invite images (re-upload/remove
+    // Reconcile orphaned `cire-assets` invite images (re-upload/remove
     // best-effort-delete failures leave objects no DB row references). Pass the
     // ASSETS binding; absent ⇒ the reconcile is a no-op. The service refuses to
     // delete anything unless it can positively confirm the live set (abort on a
@@ -860,6 +864,23 @@ const handler: ExportedHandler<Env> = {
         assetReconcileService.reconcileOrphans(env.ASSETS).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled cire-assets reconciliation failed", {
+              reason: err.reason,
+            }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Reconcile orphaned `cire-sheets` objects: every flow that deletes or
+    // rewrites an `imports` row deletes its objects best-effort afterwards, and
+    // a failed delete leaves guest PII that nothing else retries. Same guards as
+    // the assets walk, plus a listing budget. Absent SHEETS ⇒ no-op.
+    runSweep(() =>
+      Effect.runPromise(
+        sheetReconcileService.reconcileOrphans(env.SHEETS).pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled cire-sheets reconciliation failed", {
               reason: err.reason,
             }),
           ),

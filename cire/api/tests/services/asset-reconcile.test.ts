@@ -4,13 +4,12 @@ import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import { assetReconcileService, ASSETS_PREFIX } from "../../src/services/asset-reconcile";
 import {
-  assetReconcileService,
-  ASSETS_PREFIX,
   RECONCILE_GRACE_MS,
   RECONCILE_DELETE_CAP,
   type ReconcilableBucket,
-} from "../../src/services/asset-reconcile";
+} from "../../src/services/r2-reconcile";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";

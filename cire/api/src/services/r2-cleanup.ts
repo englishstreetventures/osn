@@ -39,12 +39,14 @@ function chunk<T>(items: T[], size: number): T[][] {
 /**
  * Best-effort bulk R2 object reaper, shared by every flow that orphans R2
  * objects when it deletes the D1 rows that referenced them: the guest-data
- * retention sweep, the stale-preview sweep, and the purge of soft-deleted
- * weddings, which reaps both buckets.
+ * retention sweep, the stale-preview sweep, the before-image prune, registry
+ * picture removal, the purge of soft-deleted weddings (which reaps both
+ * buckets), and the two orphan reconcilers (`r2-reconcile.ts`), which catch
+ * what a failed delete here leaves.
  *
- * Why a separate helper: cire stores R2 **keys** in D1 (`imports.events_r2_key`
- * / `guests_r2_key` in the `cire-sheets` bucket; `wedding_invite_customisations`
- * hero/story keys + `events.event_image_key` in `cire-assets`). D1's
+ * Why a separate helper: cire stores R2 **keys** in D1 (the four key columns of
+ * `imports` in the `cire-sheets` bucket; `wedding_invite_customisations`
+ * image keys + `events.event_image_key` in `cire-assets`). D1's
  * `ON DELETE cascade` fans out *within* D1 but NEVER reaches R2, so deleting a
  * wedding/import row silently orphans its objects (uploaded guest sheets +
  * wedding photos — personal data) forever. The caller collects the keys BEFORE

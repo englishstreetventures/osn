@@ -542,7 +542,7 @@ describe("D1 session routing at the entry points", () => {
     });
   });
 
-  const runCron = async (extraEnv: Record<string, string> = {}) => {
+  const runCron = async (extraEnv: Record<string, unknown> = {}) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
       NonNullable<typeof handler.scheduled>
@@ -572,10 +572,10 @@ describe("D1 session routing at the entry points", () => {
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
     // each of them keeps advancing, so every read would be forwarded to the
     // primary regardless. With no mail transport the digest does not run, so
-    // nine sweeps.
+    // ten sweeps.
     const { pending, probe } = await runCron();
-    expect(pending).toHaveLength(9);
-    expect(probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
+    expect(pending).toHaveLength(10);
+    expect(probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
   });
 
@@ -594,19 +594,44 @@ describe("D1 session routing at the entry points", () => {
     expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
   });
 
+  it("gives the cire-sheets reconciliation a session of its own, with one read of imports", async () => {
+    // With a SHEETS binding the reconciler reads the four key columns of every
+    // `imports` row before it lists anything. That read must be the first query
+    // of a session of its own, so it reaches the primary: a stale replica could
+    // make a live sheet look like an orphan.
+    const sheets = {
+      list: () => Promise.resolve({ objects: [], truncated: false }),
+      delete: () => Promise.resolve(),
+    };
+    const { pending, probe } = await runCron({ SHEETS: sheets });
+    expect(pending).toHaveLength(10);
+    const reconcile = probe.sessionQueries.filter((queries) =>
+      queries.some((q) =>
+        /^select "events_r2_key", "guests_r2_key", "before_events_r2_key", "before_guests_r2_key" from "imports"$/.test(
+          q,
+        ),
+      ),
+    );
+    expect(reconcile).toHaveLength(1);
+    const statements = reconcile[0]!.filter(
+      (q) => !q.startsWith("bind:") && !q.startsWith("batch:"),
+    );
+    expect(statements).toHaveLength(1);
+  });
+
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
     const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };
     const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
 
     const full = await runCron({ ...mail, ...arc });
-    expect(full.pending).toHaveLength(10);
-    expect(full.probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.pending).toHaveLength(11);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 11 }, () => D1_SESSION_CONSTRAINT));
     expect(full.probe.bindingQueries).toEqual([]);
 
     // Either half missing: no digest.
-    expect((await runCron(mail)).pending).toHaveLength(9);
-    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(9);
+    expect((await runCron(mail)).pending).toHaveLength(10);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(10);
   });
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
@@ -623,7 +648,7 @@ describe("D1 session routing at the entry points", () => {
         WEB_ORIGIN: "http://localhost:4321",
       });
     });
-    expect(result?.pending).toHaveLength(9);
+    expect(result?.pending).toHaveLength(10);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });
