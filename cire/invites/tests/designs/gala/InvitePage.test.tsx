@@ -49,6 +49,8 @@ vi.mock("@shared/toast", () => ({
 }));
 
 const claim: ClaimResult = {
+  // The household sent the reply below itself, so it is greeted as returning.
+  householdReplied: true,
   publicId: "SHARMA-JOY-RK97",
   familyName: "Sharma",
   // Linking offered, so the account-link box has something to mount for.
@@ -315,7 +317,7 @@ describe("gala InvitePage", () => {
       noSession(
         vi.fn().mockResolvedValue(
           // A guest who has not replied yet: a first visit, greeted by name.
-          new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+          new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
@@ -339,7 +341,7 @@ describe("gala InvitePage", () => {
       "fetch",
       noSession(
         vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+          new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
@@ -366,7 +368,7 @@ describe("gala InvitePage", () => {
     // Still a first visit: the greeting is about how the invite opened.
     await waitFor(() => expect(capturedProps.value!.existingRsvps).toEqual(claim.rsvps));
     expect(getByText("Dear Priya")).toBeTruthy();
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText(/Welcome back/)).toBeNull();
   });
 
   it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {
@@ -440,7 +442,7 @@ describe("gala InvitePage", () => {
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
     // The claim left the restore hint behind.
@@ -477,7 +479,7 @@ describe("gala InvitePage", () => {
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
 
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
 
@@ -486,7 +488,7 @@ describe("gala InvitePage", () => {
     // The claim panel is back, the previously claimed household's events are
     // gone, and the field the household typed into is blank again.
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText(/Welcome back/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
     // The same contract classic pins: the returned form must be
@@ -1391,7 +1393,7 @@ describe("gala InvitePage", () => {
 
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
       // The fixture household has already replied, so it is welcomed back.
-      expect(getByText("Welcome back to your invite")).toBeTruthy();
+      expect(getByText("Welcome back to your invite, Priya")).toBeTruthy();
       // The code form is actually GONE too, not merely behind the events.
       // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
       // is the only thing that flips it — drop that line and every returning
@@ -1593,7 +1595,7 @@ describe("gala InvitePage", () => {
         throw new Error("chunk failed");
       });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
-      expect(queryByText("Welcome back to your invite")).toBeTruthy();
+      expect(queryByText("Welcome back to your invite, Priya")).toBeTruthy();
     });
 
     it("still completes the swap when the sequence never reports", async () => {
@@ -1777,7 +1779,7 @@ describe("gala InvitePage", () => {
       // driven by the recorded rows alone would appear behind the sheet where no
       // guest can see it.
       const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+        new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),

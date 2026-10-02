@@ -54,6 +54,8 @@ vi.mock("@shared/toast", () => ({
 }));
 
 const claim: ClaimResult = {
+  // The household sent the reply below itself, so it is greeted as returning.
+  householdReplied: true,
   publicId: "SHARMA-JOY-RK97",
   familyName: "Sharma",
   // Linking offered, so the account-link box has something to mount for.
@@ -671,7 +673,7 @@ describe("InvitePage", () => {
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
 
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
 
@@ -680,7 +682,7 @@ describe("InvitePage", () => {
     // The code form is back, the previously claimed household's events are
     // gone, and the field the household typed into is blank again.
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText(/Welcome back/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
     // The returned form must be usable, not merely present. `submitCode`
@@ -728,7 +730,7 @@ describe("InvitePage", () => {
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
 
@@ -770,6 +772,7 @@ describe("InvitePage", () => {
       // A household that has not replied yet, so its greeting is its own name
       // rather than the welcome back the first household (which had) got.
       rsvps: [],
+      householdReplied: false,
     };
     const fetchMock = vi
       .fn()
@@ -793,7 +796,7 @@ describe("InvitePage", () => {
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
 
@@ -854,14 +857,14 @@ describe("InvitePage", () => {
     // matches `display: none` nodes, so that resolves instantly, before the
     // claim has even landed, and the click would test nothing.
     await waitFor(() => expect(releaseSequence).toBeDefined(), { timeout: 2000 });
-    expect(getByText("Welcome back to your invite")).toBeTruthy();
+    expect(getByText("Welcome back to your invite, Priya")).toBeTruthy();
     fireEvent.click(getByText(/Sign out/));
 
     // Now let the choreography finish — its trailing write must not resurrect
     // the welcome half over a null claim.
     releaseSequence?.();
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText(/Welcome back/)).toBeNull();
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).disabled).toBe(false);
   });
 
@@ -892,7 +895,7 @@ describe("InvitePage", () => {
       noSession(
         vi.fn().mockResolvedValue(
           // A guest who has not replied yet: a first visit, greeted by name.
-          new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+          new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
@@ -917,7 +920,7 @@ describe("InvitePage", () => {
     // Still a first visit: the greeting is about how the invite opened.
     await waitFor(() => expect(capturedProps.value!.existingRsvps).toEqual(claim.rsvps));
     expect(getByText("Dear Priya")).toBeTruthy();
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText(/Welcome back/)).toBeNull();
   });
 
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
@@ -1635,7 +1638,7 @@ describe("InvitePage", () => {
 
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
       // The fixture household has already replied, so it is welcomed back.
-      expect(getByText("Welcome back to your invite")).toBeTruthy();
+      expect(getByText("Welcome back to your invite, Priya")).toBeTruthy();
       // And the code form is actually GONE, not merely behind the events.
       // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
       // is the only thing that flips it — drop that line and every returning
@@ -1847,7 +1850,7 @@ describe("InvitePage", () => {
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
       // …and the welcome banner is the thing standing in its place. The fixture
       // household has already replied, so that is the welcome back.
-      expect(queryByText("Welcome back to your invite")).toBeTruthy();
+      expect(queryByText("Welcome back to your invite, Priya")).toBeTruthy();
     });
 
     it("still completes the swap when the sequence never reports", async () => {
@@ -2030,7 +2033,7 @@ describe("InvitePage", () => {
       // driven by the recorded rows alone would appear behind the sheet where no
       // guest can see it.
       const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+        new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),

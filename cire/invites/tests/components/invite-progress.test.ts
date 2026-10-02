@@ -62,15 +62,15 @@ describe("inviteProgress", () => {
 
   it("treats a household that saved only its plus-one's reply as started, with replies owed", () => {
     // A save may cover any subset of the household. The plus-one's row is a
-    // reply this household gave, so it is not a first visit; nobody the couple
-    // invited has answered yet, so it is not complete either.
+    // reply on file, so it has started; nobody the couple invited has answered
+    // yet, so it is not complete either.
     expect(inviteProgress([ana, guest, ben], [row("g-guest", "ceremony")])).toBe("partial");
   });
 
   it("treats a reply to an event the household is no longer invited to as started", () => {
     // The API sends every row the household has on file, whatever its current
-    // invitations. The household replied before, so this is not a first visit,
-    // and the current invitations are still unanswered.
+    // invitations. That row is a reply on file, so it has started, and the
+    // current invitations are still unanswered.
     expect(inviteProgress([ana, ben], [row("g-ana", "brunch")])).toBe("partial");
   });
 

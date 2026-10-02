@@ -155,6 +155,10 @@ export const ClaimResponse = Schema.Struct({
   members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
   rsvps: Schema.Array(RsvpSummary),
+  // Whether the household has sent a reply itself, rather than only having
+  // replies an organiser recorded for it. The invite greets a household that
+  // has as returning. One flag for the household, never per row.
+  householdReplied: Schema.Boolean,
   // The wedding's RSVP-by date, or null when the organiser hasn't set one.
   // Rides the claim payload rather than the public `GET /api/invite/:slug`
   // because it only means anything once a household is looking at its own

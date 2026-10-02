@@ -26,6 +26,7 @@ import {
   withPlusOnesAfterInviters,
 } from "../../src/services/claim";
 import { hostCodeService } from "../../src/services/host-code";
+import { type RsvpInput, rsvpService } from "../../src/services/rsvp";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -913,6 +914,131 @@ describe("plus-ones in the claim payload and the organiser guest read", () => {
     });
     const ada = rows.find((r) => r.firstName === "Ada")!;
     expect(ada).toMatchObject({ plusOneOf: null, plusOneAllowed: false });
+  });
+});
+
+/**
+ * Whether the household has replied itself — what the invite needs to greet it
+ * as returning. A reply an organiser recorded for it by phone or on paper does
+ * not count, and the payload says only yes or no for the whole household,
+ * never which rows a host wrote.
+ */
+describe("householdReplied in the claim payload", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const bo = guestNamed(db, "Bo");
+    const [first, second] = eventIdsOf(db, bo.id) as [string, string];
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const lookup = () => run(claimService.lookup("TESTTWO-OAK-BB22"));
+    const reply = (guestId: string, eventId: string, extra: Partial<RsvpInput> = {}) =>
+      run(
+        rsvpService.submitRsvp({
+          guestId,
+          eventId,
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsent: false,
+          ...extra,
+        }),
+      );
+    const organiserReply = (guestId: string, eventId: string) =>
+      reply(guestId, eventId, {
+        consentSource: "organiser_attested",
+        recordedByOsnProfileId: "osn-profile-host",
+      });
+    const statusOnly = (guestId: string, eventId: string) =>
+      run(
+        rsvpService.recordStatus({
+          guestId,
+          eventId,
+          status: "declined",
+          recordedByOsnProfileId: "osn-profile-host",
+        }),
+      );
+    return { db, bo, first, second, run, lookup, reply, organiserReply, statusOnly };
+  };
+
+  it("is false for a household with no replies", async () => {
+    const { lookup } = setUp();
+    expect((await lookup()).householdReplied).toBe(false);
+  });
+
+  it("is true once the household has sent a reply itself", async () => {
+    const { bo, first, lookup, reply } = setUp();
+    await reply(bo.id, first);
+    expect((await lookup()).householdReplied).toBe(true);
+  });
+
+  it("is false when every reply on file is one an organiser recorded", async () => {
+    const { bo, first, second, lookup, organiserReply, statusOnly } = setUp();
+    await organiserReply(bo.id, first);
+    // A status-only save on a row nobody has answered is the organiser's too.
+    await statusOnly(bo.id, second);
+    expect((await lookup()).householdReplied).toBe(false);
+  });
+
+  it("counts a household reply beside an organiser's", async () => {
+    const { bo, first, second, lookup, reply, organiserReply } = setUp();
+    await organiserReply(bo.id, first);
+    await reply(bo.id, second);
+    expect((await lookup()).householdReplied).toBe(true);
+  });
+
+  it("keeps counting a household reply whose status a host changed, while it holds the household's dietary answer", async () => {
+    // The status-only save keeps the stored dietary answer and the consent
+    // basis that names the household, so the household's reply is still there.
+    const { bo, first, lookup, reply, statusOnly } = setUp();
+    await reply(bo.id, first, { dietaryPresets: ["nuts"], dietaryConsent: true });
+    await statusOnly(bo.id, first);
+    expect((await lookup()).householdReplied).toBe(true);
+  });
+
+  it("loses a household reply that a host saved over with nothing of the household's left", async () => {
+    // The row records its latest writer only. A status-only save on a reply
+    // with no dietary answer makes the row the organiser's, and nothing
+    // stored says the household answered it first.
+    const { bo, first, lookup, reply, statusOnly } = setUp();
+    await reply(bo.id, first);
+    await statusOnly(bo.id, first);
+    expect((await lookup()).householdReplied).toBe(false);
+  });
+
+  it("counts a reply the household recorded for its plus-one", async () => {
+    const { db, bo, first, lookup, reply } = setUp();
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Guest" });
+    await reply(samId, first, { consentSource: "inviter_attested", plusOne: true });
+    expect((await lookup()).householdReplied).toBe(true);
+  });
+
+  it("names no writer on any reply row", async () => {
+    const { bo, first, second, lookup, reply, organiserReply } = setUp();
+    await reply(bo.id, first);
+    await organiserReply(bo.id, second);
+    const claim = await lookup();
+    expect(claim.rsvps).toHaveLength(2);
+    for (const row of claim.rsvps) {
+      expect(Object.keys(row).toSorted()).toEqual(
+        [
+          "dietary",
+          "dietaryConsentCurrent",
+          "dietaryPresets",
+          "eventId",
+          "guestId",
+          "status",
+        ].toSorted(),
+      );
+    }
+    expect(JSON.stringify(claim)).not.toContain("osn-profile-host");
+  });
+
+  it("is carried by the session restore as well as the code entry", async () => {
+    const { bo, first, run, reply } = setUp();
+    await reply(bo.id, first);
+    const restored = await run(claimService.restore(bo.familyId));
+    expect(restored.householdReplied).toBe(true);
   });
 });
 

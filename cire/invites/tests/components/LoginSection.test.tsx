@@ -267,8 +267,13 @@ describe("LoginSection returning household", () => {
   const someReplies = [reply("g-Chidi", "ceremony")];
   const allReplies = [...someReplies, reply("g-Chidi", "party"), reply("g-Ada", "ceremony")];
 
-  function household(members: FamilyMember[], rsvps: RsvpSummary[]): ClaimResult {
-    return { ...result(members), rsvps };
+  /** The household's claim; by default every reply on file is one it sent itself. */
+  function household(
+    members: FamilyMember[],
+    rsvps: RsvpSummary[],
+    householdReplied: unknown = rsvps.length > 0,
+  ): ClaimResult {
+    return { ...result(members), rsvps, householdReplied };
   }
 
   /** The welcome half's greeting — every `h2` but the code form's. */
@@ -289,6 +294,55 @@ describe("LoginSection returning household", () => {
     expect(returningHousehold()).toBe(false);
   });
 
+  it("greets a household whose only replies an organiser recorded as a first visit", () => {
+    // A phone or paper reply the couple entered is not the household coming back.
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={household([chidi, ada], someReplies, false)}
+        onClaimed={noop}
+        rsvpDeadlineState="open"
+      />
+    ));
+    expect(greeting(container)?.textContent).toBe("Welcome, the Okafor Family");
+    expect(container.textContent).not.toContain("You still have replies to give");
+    expect(returningHousehold()).toBe(false);
+  });
+
+  it.each([
+    ["absent, from an API that does not send it", { ...result([chidi, ada]), rsvps: someReplies }],
+    ["a value this build does not know", household([chidi, ada], someReplies, "yes")],
+  ])("greets as a first visit when the household flag is %s", (_, claim) => {
+    expect(claim.rsvps).toHaveLength(1);
+    const { container } = render(() => (
+      <LoginSection apiUrl="http://x" result={claim} onClaimed={noop} />
+    ));
+    expect(greeting(container)?.textContent).toBe("Welcome, the Okafor Family");
+    expect(returningHousehold()).toBe(false);
+  });
+
+  it("leaves no dangling comma when there is no name to add", () => {
+    const nameless: FamilyMember = { ...member(""), eventIds: ["ceremony"] };
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={household([nameless], [reply("g-", "ceremony")])}
+        onClaimed={noop}
+      />
+    ));
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    cleanup();
+
+    const { container: family } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...household([chidi, ada], someReplies), familyName: "  " }}
+        onClaimed={noop}
+      />
+    ));
+    expect(greeting(family)?.textContent).toBe("Welcome back to your invite");
+  });
+
   it("welcomes back a household that has answered in part, and says replies are still owed", () => {
     const { container, getByText } = render(() => (
       <LoginSection
@@ -299,7 +353,7 @@ describe("LoginSection returning household", () => {
         rsvpDeadlineState="open"
       />
     ));
-    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, the Okafor Family");
     // The line sits directly under the greeting.
     expect(greeting(container)?.nextElementSibling?.textContent).toBe(
       "You still have replies to give",
@@ -321,13 +375,25 @@ describe("LoginSection returning household", () => {
         onSignOut={noop}
       />
     ));
-    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, Chidi");
     expect(container.textContent).not.toContain("Dear");
     expect(container.textContent).not.toContain("You still have replies to give");
     // The organiser's greeting line still follows.
     expect(container.textContent).toContain("We are delighted to invite you to celebrate with us.");
     expect(getByText("Not Chidi? Sign out")).toBeTruthy();
     expect(returningHousehold()).toBe(true);
+  });
+
+  it("welcomes back a lone guest by the nickname the first-visit greeting uses", () => {
+    const chi: FamilyMember = { ...member("Chidi", "Chi"), eventIds: ["ceremony"] };
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={household([chi], [reply("g-Chidi", "ceremony")])}
+        onClaimed={noop}
+      />
+    ));
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, Chi");
   });
 
   it("says no replies are owed once RSVPs have closed, since none can be given", () => {
@@ -339,7 +405,7 @@ describe("LoginSection returning household", () => {
         rsvpDeadlineState="closed"
       />
     ));
-    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, the Okafor Family");
     expect(container.textContent).not.toContain("You still have replies to give");
   });
 
@@ -381,7 +447,7 @@ describe("LoginSection returning household", () => {
 
     setClaim(household([chidi, ada], allReplies));
 
-    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, the Okafor Family");
     expect(container.textContent).not.toContain("You still have replies to give");
   });
 
@@ -404,7 +470,7 @@ describe("LoginSection returning household", () => {
     // Signed out again, then back with the reply from that visit.
     setClaim(null);
     setClaim(household([chidi, ada], someReplies));
-    expect(greeting(container)?.textContent).toBe("Welcome back to your invite");
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, the Okafor Family");
     expect(returningHousehold()).toBe(true);
   });
 

@@ -13,12 +13,16 @@ import type { FamilyMember, RsvpSummary } from "./types";
 export type InviteProgress = "not-started" | "partial" | "complete";
 
 /**
- * Where this household stands with its replies, from the claim payload alone.
+ * Where this household stands with its replies, from the reply rows alone.
+ * Every row counts, whoever wrote it: a reply an organiser recorded by phone
+ * answers the event as surely as the household's own, as the tick on each
+ * event card says. Whether the household is greeted as returning is a
+ * different question, which only the server can answer (`householdReplied`
+ * on the claim payload); this one decides whether replies are still owed.
  *
- * `not-started` means the household has no row on file, whoever it belongs to
- * and whichever event it names: a save that covered only a plus-one, or a
- * reply to an event the household has since been taken off, is still a reply
- * this household gave, so it is not a first visit.
+ * `not-started` means no row on file at all, whichever member and event it
+ * names: a save that covered only a plus-one, or a reply to an event the
+ * household has since been taken off, is still a reply on file.
  *
  * Between `partial` and `complete`, only the people the couple invited count,
  * and only for the events they are invited to now. A plus-one's reply is not

@@ -223,8 +223,12 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     person. The writer column holds the latest organiser writer only, not a
     history: once anyone saves over a row, the earlier writer is gone. The
     dashboard badges a host's status change on a guest's or household's reply
-    as "Host-updated"; no read endpoint returns either profile id. A household
-    rename of a plus-one clears the attester with the consent record it named.
+    as "Host-updated"; no read endpoint returns either profile id. The
+    household's claim payload carries one yes or no derived from
+    `consent_source` (`householdReplied`: whether any of its replies is its
+    own), so the invite can greet a returning household; it never says which
+    rows a host wrote. A household rename of a plus-one clears the attester
+    with the consent record it named.
     One trade-off stands, accepted by the owner: a guest an organiser marks as
     declined keeps their stored dietary answer until the guest or an
     organiser clears it (the guest's own invite clears it when they decline).
