@@ -67,8 +67,9 @@ export const CIRE_METRICS = {
   // Scheduled abandoned-preview sweep (cron) — imports rows stuck in `preview`
   // past the staleness window, plus their uploaded-sheet R2 objects.
   stalePreviewsSwept: "cire.imports.previews_swept",
-  // R2 objects reclaimed by a sweep/delete flow that orphaned them (today: the
-  // retention sweep deleting expired weddings' uploaded sheets + invite images).
+  // R2 objects deleted after the D1 rows naming them went: the retention and
+  // stale-preview sweeps, the wedding purge, the before-image prune, registry
+  // picture removal, and the two orphan reconcilers (`r2-reconcile.ts`).
   r2ObjectsSwept: "cire.r2.objects.swept",
   // Organiser host-code (invite preview) provisioning.
   hostCodeEnsured: "cire.host_code.ensured",
@@ -700,7 +701,7 @@ const stalePreviewsSwept = createCounter<StalePreviewsSweptAttrs>({
 const r2ObjectsSwept = createCounter<R2ObjectsSweptAttrs>({
   name: CIRE_METRICS.r2ObjectsSwept,
   description:
-    "R2 objects reclaimed when a sweep/delete flow removed the D1 rows referencing them (retention sweep: uploaded guest sheets in cire-sheets + invite images in cire-assets) — increment is the object count, so the sum tracks reclaimed objects per bucket",
+    "R2 objects deleted once no D1 row names them — by the retention and stale-preview sweeps, the wedding purge and the before-image prune (cire-sheets), registry picture removal and the wedding purge (cire-assets), and the orphan reconcilers of both buckets. Increment is the object count, so the sum tracks reclaimed objects per bucket",
   unit: "{object}",
 });
 

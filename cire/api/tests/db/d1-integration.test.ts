@@ -11,6 +11,7 @@ import {
   guestEvents,
   guests,
   hostRsvpNotices,
+  imports,
   registryClaims,
   registryContributions,
   registryItems,
@@ -29,8 +30,9 @@ import {
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
+import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -66,6 +68,7 @@ import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
+import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import {
   registryGuestService,
   registryService,
@@ -75,6 +78,11 @@ import { type GiftSummaryNotice, retentionService } from "../../src/services/ret
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import {
+  SHEET_LIST_LIMITS,
+  sheetReconcileService,
+  type SheetsBucket,
+} from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
@@ -1388,6 +1396,68 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
         [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
       ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep takes a cohort past D1's 100 bound parameters, weddings and households alike",
+    async () => {
+      // 101 expired weddings with a household each: both id lists the sweep
+      // sends to D1 hold more ids than one statement may bind.
+      const n = 101;
+      const stamp = new Date("2025-01-01T00:00:00.000Z");
+      const ids = Array.from(
+        { length: n },
+        (_, i) => `wed_d1_cohort_${String(i).padStart(3, "0")}`,
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          weddings,
+          ids.map((id) => ({
+            id,
+            slug: `slug-${id}`,
+            displayName: `Wedding ${id}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          events,
+          ids.map((id) => ({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt: "2025-01-01T10:00:00+00:00",
+            endAt: "2025-01-01T11:00:00+00:00",
+            timezone: "UTC",
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          families,
+          ids.map((id, i) => ({
+            id: `fam_${id}`,
+            weddingId: id,
+            publicId: `COHORT${String(i).padStart(3, "0")}`,
+            familyName: "Family",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+
+      await run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z")));
+
+      const left = await db
+        .select({ id: families.id })
+        .from(families)
+        .where(inArray(families.weddingId, jsonEachIn(ids)));
+      expect(left).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
@@ -2812,6 +2882,65 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ]),
       ).rejects.toThrow();
       expect(await db.select().from(weddings).where(eq(weddings.id, "wed_d1_orphan"))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reconciles cire-sheets on D1: a full page of keys in one bound parameter, exact matches only",
+    async () => {
+      // A full run's worth of keys, mostly the longest shape: 333 changes whose
+      // events sheet and before-image are in the bucket, and one orphan. The
+      // lookup sends all of them as one JSON parameter of about 60 KB.
+      const ids = Array.from({ length: 333 }, () => crypto.randomUUID());
+      const now = Date.now();
+      await db.run(
+        insertManyViaJsonEach(
+          imports,
+          ids.map((id) => ({
+            id,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            uploadedAt: now,
+            format: "csv" as const,
+            eventsR2Key: `imports/${id}/events.csv`,
+            guestsR2Key: `imports/${id}/guests.csv`,
+            summary: "{}",
+            status: "applied" as const,
+            kind: "import" as const,
+            appliedAt: now,
+            revertedAt: null,
+            beforeEventsR2Key: `imports/${id}/before/events.csv`,
+            beforeGuestsR2Key: `imports/${id}/before/guests.csv`,
+          })),
+        ),
+      );
+      const live = ids.flatMap((id) => [
+        `imports/${id}/events.csv`,
+        `imports/${id}/before/events.csv`,
+        `imports/${id}/before/guests.csv`,
+      ]);
+      const orphans = [`imports/${crypto.randomUUID()}/before/events.csv`];
+      expect(live.length + orphans.length).toBe(SHEET_LIST_LIMITS.maxObjects);
+
+      const uploaded = new Date(now - RECONCILE_GRACE_MS - 60_000);
+      const stored = new Set([...live, ...orphans]);
+      const bucket: SheetsBucket = {
+        list: () =>
+          Promise.resolve({
+            objects: [...stored].toSorted().map((key) => ({ key, uploaded })),
+            truncated: false,
+          }),
+        delete: (keys) => {
+          for (const key of [keys].flat()) stored.delete(key);
+          return Promise.resolve();
+        },
+        head: (key) => Promise.resolve(stored.has(key) ? { key } : null),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      };
+
+      expect(await run(sheetReconcileService.reconcileOrphans(bucket, new Date(now)))).toBe(1);
+      expect([...stored].toSorted()).toEqual(live.toSorted());
     },
     MF_TIMEOUT_MS,
   );

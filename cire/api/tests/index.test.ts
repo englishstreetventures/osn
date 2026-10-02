@@ -542,7 +542,7 @@ describe("D1 session routing at the entry points", () => {
     });
   });
 
-  const runCron = async (extraEnv: Record<string, string> = {}) => {
+  const runCron = async (extraEnv: Record<string, unknown> = {}) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
       NonNullable<typeof handler.scheduled>
@@ -572,10 +572,10 @@ describe("D1 session routing at the entry points", () => {
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
     // each of them keeps advancing, so every read would be forwarded to the
     // primary regardless. With no mail transport the digest does not run, so
-    // nine sweeps.
+    // ten sweeps.
     const { pending, probe } = await runCron();
-    expect(pending).toHaveLength(9);
-    expect(probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
+    expect(pending).toHaveLength(10);
+    expect(probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
   });
 
@@ -594,19 +594,96 @@ describe("D1 session routing at the entry points", () => {
     expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
   });
 
+  it("gives the cire-sheets reconciliation a session of its own: a live sample read first, then one lookup", async () => {
+    // The reconciler's reads must open a session of their own, so the first of
+    // them reaches the primary: a stale replica could make a live sheet look
+    // like an orphan. One live row and one old object in the bucket give it
+    // something to judge, so both of its reads run.
+    await DB.batch([
+      DB.prepare(
+        "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES (?, ?, ?, 0, 0)",
+      ).bind("wed_sheets_cron", "sheets-cron", "Sheets Cron"),
+      DB.prepare(
+        "INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, summary, status) VALUES (?, ?, 0, 'csv', ?, ?, '{}', 'applied')",
+      ).bind(
+        "imp_cron",
+        "wed_sheets_cron",
+        "imports/imp_cron/events.csv",
+        "imports/imp_cron/guests.csv",
+      ),
+    ]);
+    try {
+      const uploaded = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const sheets = {
+        list: () =>
+          Promise.resolve({
+            objects: [{ key: "imports/imp_cron/events.csv", uploaded }],
+            truncated: false,
+          }),
+        delete: () => Promise.resolve(),
+        head: (key: string) => Promise.resolve({ key }),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      };
+      const { pending, probe } = await runCron({ SHEETS: sheets });
+      expect(pending).toHaveLength(10);
+      const reconcile = probe.sessionQueries.filter((queries) =>
+        queries.some((q) => q.startsWith("WITH listed(r2_key)")),
+      );
+      expect(reconcile).toHaveLength(1);
+      const statements = reconcile[0]!.filter(
+        (q) => !q.startsWith("bind:") && !q.startsWith("batch:"),
+      );
+      expect(statements).toHaveLength(2);
+      expect(statements[0]).toMatch(/^select "events_r2_key" from "imports" limit \?$/);
+      expect(statements[1]).toStartWith("WITH listed(r2_key)");
+    } finally {
+      await DB.prepare("DELETE FROM weddings WHERE id = ?").bind("wed_sheets_cron").run();
+    }
+  });
+
+  it.each([
+    ["a list call fails", { list: () => Promise.reject(new Error("r2 down")) }, "list failed"],
+    [
+      "its position cannot be read",
+      { get: () => Promise.reject(new Error("r2 down")) },
+      "position read failed",
+    ],
+  ])(
+    "logs a failed cire-sheets reconciliation and settles the job when %s",
+    async (_, broken, reason) => {
+      const sheets = {
+        list: () => Promise.resolve({ objects: [], truncated: false }),
+        delete: () => Promise.resolve(),
+        head: () => Promise.resolve(null),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+        ...broken,
+      };
+      let settled: PromiseSettledResult<unknown>[] = [];
+      const logs = await captureLogs(async () => {
+        const { pending } = await runCron({ SHEETS: sheets });
+        settled = await Promise.allSettled(pending);
+      });
+      expect(settled.every((r) => r.status === "fulfilled")).toBe(true);
+      expect(logs).toContain("scheduled cire-sheets reconciliation failed");
+      expect(logs).toContain(reason);
+    },
+  );
+
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
     const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };
     const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
 
     const full = await runCron({ ...mail, ...arc });
-    expect(full.pending).toHaveLength(10);
-    expect(full.probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.pending).toHaveLength(11);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 11 }, () => D1_SESSION_CONSTRAINT));
     expect(full.probe.bindingQueries).toEqual([]);
 
     // Either half missing: no digest.
-    expect((await runCron(mail)).pending).toHaveLength(9);
-    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(9);
+    expect((await runCron(mail)).pending).toHaveLength(10);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(10);
   });
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
@@ -623,7 +700,7 @@ describe("D1 session routing at the entry points", () => {
         WEB_ORIGIN: "http://localhost:4321",
       });
     });
-    expect(result?.pending).toHaveLength(9);
+    expect(result?.pending).toHaveLength(10);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   });
 });
