@@ -21,7 +21,8 @@ export const CONSENT_BANNER_HEIGHT_VAR = "--consent-banner-height";
 export function publishBannerHeight(el: HTMLElement): void {
   const root = document.documentElement;
   const observer = new ResizeObserver(([entry]) => {
-    const height = entry?.borderBoxSize[0]?.blockSize ?? el.getBoundingClientRect().height;
+    // `borderBoxSize` is absent before Safari 15.4; measure directly there.
+    const height = entry?.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height;
     root.style.setProperty(CONSENT_BANNER_HEIGHT_VAR, `${height}px`);
   });
   observer.observe(el);

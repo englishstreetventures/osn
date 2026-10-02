@@ -140,8 +140,8 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
       expect(cue.dataset.scrollCue).toBe("shown");
 
       // The entry waits a beat after the title, then fades the glyph in. Its
-      // `both` fill holds the glyph hidden until then, so play it to its end
-      // rather than sleeping through 1.6s.
+      // `backwards` fill holds the glyph hidden until then, so play it to its
+      // end rather than sleeping through 1.6s.
       const { entry, drift } = animationsOf(glyph);
       expect(entry?.effect?.getTiming()).toMatchObject({ delay: 1000, duration: 600 });
       // Inside the delay the glyph is held at its first frame, not shown and
@@ -232,6 +232,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
       );
       await nextFrame();
       await nextFrame();
+      shifts.push(...(shiftObserver.takeRecords() as LayoutShift[]));
       shiftObserver.disconnect();
       expect(shifts.map((s) => s.value)).toEqual([]);
 
@@ -317,6 +318,8 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
     drift!.finish();
     expect(drift!.playState).toBe("finished");
     expect(getComputedStyle(glyph).transform).toBe("none");
+    // Nothing is left in effect to hold the glyph on its own compositor layer.
+    expect(glyph.getAnimations()).toEqual([]);
     expect(glyph.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })).toBe(true);
   });
 

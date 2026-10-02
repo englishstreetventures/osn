@@ -40,6 +40,12 @@ export class FakeResizeObserver {
     } as unknown as ResizeObserverEntry;
     this.callback([entry], this as unknown as ResizeObserver);
   }
+
+  /** Report `el` the way an engine without `borderBoxSize` does. */
+  resizeWithoutBoxSize(el: Element): void {
+    const entry = { target: el } as unknown as ResizeObserverEntry;
+    this.callback([entry], this as unknown as ResizeObserver);
+  }
 }
 
 /**

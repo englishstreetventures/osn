@@ -505,18 +505,20 @@
 
   /* The hero's scroll cue (`components/HeroScrollCue`): it fades in a beat
      after the title has landed, drifts down and back twice, then rests. The
-     drift starts as the fade ends, so the two never overlap. `both` holds the
-     glyph hidden through the entry's delay.
+     drift starts as the fade ends, so the two never overlap. `backwards` holds
+     the glyph hidden through the entry's delay. Not `both`: once the fade has
+     played, the glyph's own opacity is already 1, and a forwards fill would
+     only keep the finished animation, and its compositor layer, alive.
 
      Fade plus drift last 4.6s. Motion that starts by itself and runs past five
      seconds needs a control to stop it (WCAG 2.2.2), so a longer or endless
      drift is not an option.
 
-     Reduced motion needs no special case: the global clamp lands the entry on
-     its end state and runs the drift out in 0.01ms, back to rest — so the cue
-     is there and still. */
+     Reduced motion needs no special case: the global clamp plays the entry out
+     at once, leaving the glyph at its own full opacity, and runs the drift out
+     in 0.01ms, back to rest — so the cue is there and still. */
   --animate-scroll-cue:
-    scroll-cue-in 600ms ease-out 1s both, scroll-cue-drift 2s ease-in-out 1.6s 2;
+    scroll-cue-in 600ms ease-out 1s backwards, scroll-cue-drift 2s ease-in-out 1.6s 2;
 
   /* Content caps, in real pixels rather than on the spacing scale.
      This app steps its root font-size 16px → 17px at 1024px (the `@media`

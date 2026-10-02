@@ -13,6 +13,7 @@ beforeEach(installFakeResizeObserver);
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   document.documentElement.style.removeProperty(CONSENT_BANNER_HEIGHT_VAR);
 });
 
@@ -44,6 +45,17 @@ describe("publishBannerHeight", () => {
 
       expect(published()).toBe("");
       expect(observer!.disconnected).toBe(true);
+    });
+  });
+
+  it("measures the banner itself when the entry carries no border-box size", () => {
+    const banner = document.createElement("section");
+    vi.spyOn(banner, "getBoundingClientRect").mockReturnValue({ height: 77 } as DOMRect);
+    createRoot((dispose) => {
+      publishBannerHeight(banner);
+      FakeResizeObserver.instances[0]!.resizeWithoutBoxSize(banner);
+      expect(published()).toBe("77px");
+      dispose();
     });
   });
 

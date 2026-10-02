@@ -45,7 +45,7 @@ describe("HeroScrollCue", () => {
     expect(cueOf(container).dataset.scrollCue).toBe("shown");
     expect(cueOf(container).classList.contains("opacity-0")).toBe(false);
     // The animation sits on the glyph and the hide on the wrapper: an entry
-    // animation's `both` fill on the wrapper would outrank the hide class.
+    // animation on the wrapper would outrank the hide class while it applies.
     expect(glyphOf(container).classList.contains("animate-scroll-cue")).toBe(true);
     expect(glyphOf(container).style.animationPlayState).toBe("");
   });

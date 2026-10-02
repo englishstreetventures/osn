@@ -47,9 +47,9 @@ export function HeroScrollCue(props: HeroScrollCueProps) {
     <div
       aria-hidden="true"
       data-scroll-cue={scrolled() ? "hidden" : "shown"}
-      // The hide lives here and the entry animation on the glyph: an
-      // animation's `both` fill outranks a class, so on one element the fade
-      // could never win.
+      // The hide lives here and the entry animation on the glyph: while the
+      // entry applies (its delay included) it outranks a class, so on one
+      // element a scroll in its first 1.6s could not fade it.
       class={`pointer-events-none absolute bottom-4 flex -translate-y-[var(--consent-banner-height,0px)] transition-[opacity,translate] duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
     >
       <svg
