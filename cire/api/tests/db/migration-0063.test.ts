@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data proof for migration 0063 (the per-section visibility switches).
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is what
@@ -22,13 +24,8 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
-/** The chain as it stood before 0063. */
-function applyBaseline(db: Database): void {
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted();
-  for (const file of files.slice(0, files.indexOf(MIG_0063))) apply(db, file);
-}
+/** A copy of the archived chain as it stood before 0063. */
+const beforeMigration = (): Database => databaseBefore(MIG_0063, { foreignKeys: false });
 
 type Row = {
   wedding_id: string;
@@ -80,8 +77,7 @@ function switchesOf(db: Database, weddingId: string): Switches {
 }
 
 function migrated(rows: Row[]): Database {
-  const db = new Database(":memory:");
-  applyBaseline(db);
+  const db = beforeMigration();
   seed(db, rows);
   apply(db, MIG_0063);
   return db;
@@ -195,8 +191,7 @@ describe("migration 0063", () => {
       story_eyebrow: "Our Story",
       footer_image_key: "assets/w/footer-1",
     };
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seed(db, [fixture]);
     const select = `SELECT ${COLUMNS.join(", ")} FROM wedding_invite_customisations`;
     const before = db.query(select).all();
