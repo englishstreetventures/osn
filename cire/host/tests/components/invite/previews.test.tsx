@@ -97,13 +97,16 @@ describe("SectionSample", () => {
 
   it("renders the closing image edge to edge, as the guest band does", () => {
     const { container } = render(() => (
-      <SectionSample {...props} imageUrl="/api/invite/anita-ben/image/footer?v=7" />
+      <SectionSample {...props} imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7" />
     ));
     const img = container.querySelector("img") as HTMLImageElement;
 
     expect(img.getAttribute("src")).toBe(
-      "https://api.test/api/invite/anita-ben/image/footer?v=7&variant=card",
+      "https://api.test/api/organiser/weddings/wed_1/invite/image/footer?v=7&variant=card",
     );
+    // The organiser image route reads the session cookie, which a CORS-mode
+    // load does not send: the image must load as a plain, credentialed one.
+    expect(img.hasAttribute("crossorigin")).toBe(false);
     // Full width, cover-fitted — the miniature of the guest's full-bleed band.
     // It must sit OUTSIDE the padded content block, or the preview would show a
     // framed thumbnail for an image that publishes edge to edge.
@@ -121,7 +124,7 @@ describe("SectionSample", () => {
     const { container } = render(() => (
       <SectionSample
         {...props}
-        imageUrl="/api/invite/anita-ben/image/footer?v=7"
+        imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7"
         // 2:1 pixel aspect — (0.5·1000) / (0.5·500) = 2.
         imageCrop={{ x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 }}
       />
@@ -131,7 +134,7 @@ describe("SectionSample", () => {
     // The crop replaces the plain <img>, exactly as it does on the guest page.
     expect(container.querySelector("img")).toBeNull();
     expect(band.style.getPropertyValue("background-image")).toContain(
-      "https://api.test/api/invite/anita-ben/image/footer?v=7&variant=card",
+      "https://api.test/api/organiser/weddings/wed_1/invite/image/footer?v=7&variant=card",
     );
     // The same exact-region render and the same crop-driven shape the invite
     // uses — this sample is the organiser's answer to "what will my closing
@@ -147,7 +150,7 @@ describe("SectionSample", () => {
     const { container } = render(() => (
       <SectionSample
         {...props}
-        imageUrl="/api/invite/anita-ben/image/footer?v=7"
+        imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7"
         // 0.8 — portrait, the case the bound exists for. This frame is short, so
         // the cap fires far more often here than on the guest page.
         imageCrop={{ x: 0, y: 0, w: 0.4, h: 0.5, natW: 1000, natH: 1000 }}
@@ -167,7 +170,7 @@ describe("SectionSample", () => {
     const { container } = render(() => (
       <SectionSample
         {...props}
-        imageUrl="/api/invite/anita-ben/image/footer?v=7"
+        imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7"
         imageCrop={{ x: 0, y: 0, w: 0.5, h: 0.5 }}
       />
     ));
@@ -192,7 +195,7 @@ describe("SectionSample", () => {
     const cropped = render(() => (
       <SectionSample
         {...props}
-        imageUrl="/api/invite/anita-ben/image/footer?v=7"
+        imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7"
         imageCrop={{ x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 }}
       />
     ));
@@ -202,7 +205,7 @@ describe("SectionSample", () => {
     cleanup();
 
     const plain = render(() => (
-      <SectionSample {...props} imageUrl="/api/invite/anita-ben/image/footer?v=7" />
+      <SectionSample {...props} imageUrl="/api/organiser/weddings/wed_1/invite/image/footer?v=7" />
     ));
     expect((plain.container.querySelector("img") as HTMLElement).getAttribute("alt")).toBe(
       "Closing section artwork",
