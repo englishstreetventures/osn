@@ -1,5 +1,11 @@
 # @shared/openapi-tools
 
+## 0.1.4
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+
 ## 0.1.3
 
 ### Patch Changes

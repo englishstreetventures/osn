@@ -1,5 +1,13 @@
 # @tools/metrics
 
+## 0.2.20
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/ui@0.3.1
+
 ## 0.2.19
 
 ### Patch Changes

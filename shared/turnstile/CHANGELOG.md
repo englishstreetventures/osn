@@ -1,5 +1,13 @@
 # @shared/turnstile
 
+## 0.2.27
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/observability@0.18.4
+
 ## 0.2.26
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shared/osn-auth-client
 
+## 0.4.37
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/crypto@0.13.11
+
 ## 0.4.36
 
 ### Patch Changes

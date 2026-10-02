@@ -1,5 +1,14 @@
 # @osn/crypto
 
+## 0.13.11
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @osn/db@0.24.4
+  - @shared/observability@0.18.4
+
 ## 0.13.10
 
 ### Patch Changes

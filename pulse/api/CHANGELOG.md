@@ -1,5 +1,21 @@
 # @osn/api
 
+## 0.27.18
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @pulse/db@0.20.4
+  - @shared/crypto@0.13.11
+  - @shared/db-utils@0.7.3
+  - @shared/observability@0.18.4
+  - @shared/openapi-tools@0.1.4
+  - @shared/osn-auth-client@0.4.37
+  - @shared/rate-limit@0.3.4
+  - @shared/redis@0.8.2
+  - @zap/db@0.6.3
+
 ## 0.27.17
 
 ### Patch Changes

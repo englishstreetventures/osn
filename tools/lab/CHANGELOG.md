@@ -1,5 +1,15 @@
 # @tools/lab
 
+## 0.3.7
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/color@0.3.1
+  - @shared/design-tokens@0.3.3
+  - @shared/ui@0.3.1
+
 ## 0.3.6
 
 ### Patch Changes

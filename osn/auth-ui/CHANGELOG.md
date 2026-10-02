@@ -1,5 +1,15 @@
 # @osn/ui
 
+## 3.0.6
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @osn/client@2.18.3
+  - @shared/toast@0.3.2
+  - @shared/ui@0.3.1
+
 ## 3.0.5
 
 ### Patch Changes

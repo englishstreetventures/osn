@@ -1,5 +1,13 @@
 # @pulse/landing
 
+## 0.1.22
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/legal@0.0.3
+
 ## 0.1.21
 
 ### Patch Changes

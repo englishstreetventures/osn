@@ -1,5 +1,11 @@
 # @shared/dev-urls
 
+## 0.1.7
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+
 ## 0.1.6
 
 ### Patch Changes

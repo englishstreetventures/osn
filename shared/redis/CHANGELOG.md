@@ -1,5 +1,11 @@
 # @shared/redis
 
+## 0.8.2
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+
 ## 0.8.1
 
 ### Patch Changes
