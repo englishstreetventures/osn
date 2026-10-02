@@ -893,7 +893,10 @@ describe("InviteBuilder shown/hidden badges", () => {
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
-        footer: { message: null, imageUrl: "/api/invite/anita-ben/image/footer?v=1" },
+        footer: {
+          message: null,
+          imageUrl: "/api/organiser/weddings/wed_1/invite/image/footer?v=1",
+        },
       }),
     );
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
@@ -904,6 +907,31 @@ describe("InviteBuilder shown/hidden badges", () => {
     expect((screen.getByLabelText("Closing note (optional)") as HTMLTextAreaElement).value).toBe(
       "",
     );
+  });
+
+  // The thumbnail asks for the same URL the closing preview does, so the
+  // browser fetches the image once, and loads it without CORS so the organiser
+  // session cookie goes with it.
+  it("loads the closing image thumbnail at the previews' URL, credentialed", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        footer: {
+          message: null,
+          imageUrl: "/api/organiser/weddings/wed_1/invite/image/footer?v=1",
+        },
+      }),
+    );
+    const { container } = render(() => <InviteBuilder {...WEDDING} />);
+    const src =
+      "https://api.test/api/organiser/weddings/wed_1/invite/image/footer?v=1&variant=card";
+
+    await waitFor(() => expect(container.querySelector(`img[src="${src}"]`)).not.toBeNull());
+    const loads = container.querySelectorAll<HTMLImageElement>('img[src*="/image/footer"]');
+    for (const img of loads) {
+      expect(img.getAttribute("src")).toBe(src);
+      expect(img.hasAttribute("crossorigin")).toBe(false);
+    }
   });
 
   it("flips the footer badge live, and whitespace-only stays hidden", async () => {

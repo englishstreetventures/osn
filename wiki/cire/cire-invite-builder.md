@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Invite Builder
 
@@ -139,10 +139,35 @@ away (S-H1). The gate is now real:
 - `GET /api/invite/:slug/image/footer` requires a valid `cire_session` **whose
   family belongs to this wedding** (`inviteService.sessionOwnsWedding` — a bare
   session only proves the holder claimed *some* household's code), and responds
-  `Cache-Control: private`. It 404s rather than 401/403, so an unclaimed visitor
-  cannot learn whether a closing image exists.
+  `Cache-Control: private, max-age=3600` with a weak `ETag`: the browser asks
+  again after an hour, and the gate runs before the 304, so a deactivated code
+  stops showing the image. It 404s rather than 401/403, so an unclaimed visitor
+  cannot learn whether a closing image exists. Which slots it gates is
+  `slotRequiresSession` in `cire/api/src/schemas/invite.ts`.
+- The **organiser portal** cannot use that route: it holds a `cire_org_session`,
+  not a household session. So every organiser-facing customisation (the
+  `GET /invite` read, the write answers, the upload answer) links the closing
+  image at `GET /api/organiser/weddings/:weddingId/invite/image/footer` instead
+  (`organiserImagePath` in `cire/api/src/services/invite.ts`). That route sits
+  behind `osnAuth()` and `weddingMember()`, the gate of the organiser read that
+  already returns the closing note, so the people who can read the note are
+  exactly the people who can load the image: owners, editors and viewers. No
+  organiser credential is a 401; another wedding's organiser or a `helper` is a
+  403. It answers `private, max-age=3600` too, so a removed seat or a sign-out
+  reaches the browser's copy within the hour. The public read never carries
+  this link, because `publicView` drops the whole closing section.
 
-`hero` and `story` stay public and publicly cacheable; only `footer` is gated. It is deliberately NOT given the events section's
+Who can load the closing image:
+
+| Caller | `GET /api/invite/:slug/image/footer` | `GET /api/organiser/weddings/:weddingId/invite/image/footer` |
+|---|---|---|
+| Household that claimed a code at this wedding | 200 | 401 |
+| Owner, editor or viewer of this wedding | 404, unless the browser also holds the preview household's session from **Preview invite** | 200 |
+| `helper`, or an organiser of another wedding | 404 | 403 |
+| Nobody signed in | 404 | 401 |
+
+`hero` and `story` stay public and publicly cacheable, and the builder links
+them at the public route; only `footer` is gated. It is deliberately NOT given the events section's
 `opacity-0` class: the unlock choreography animates the events, and a section
 that needs a motion chunk to become visible is a section that can stay invisible
 when that chunk fails to load (the exact failure `UnlockReveal.motion.ts` warns
@@ -760,7 +785,7 @@ not).
 Service: `cire/api/src/services/invite.ts` (`inviteService`, Effect). Binary R2
 access: `cire/api/src/services/invite-assets.ts` (`AssetsR2Service` Tag — the
 CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
-`cire/api/src/routes/invite.ts`, two sibling Elysia instances:
+`cire/api/src/routes/invite.ts`, three sibling Elysia instances:
 
 - **Public (no auth)** — under `/api/invite`:
   - `GET /api/invite/:slug` → text + image URL paths for the guest site, plus the
@@ -768,8 +793,9 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     and so is the organiser-only `inviteMessage` (`publicView` in
     `cire/api/src/services/invite.ts`).
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
-    immutable`; the URL is cache-busted by `?v=`, a digest of the slot's R2 key
-    — `versionFromKey` in `cire/api/src/services/event-image.ts`; the hero's
+    immutable` for the hero and story, an hour for the gated closing image; the
+    URL is cache-busted by `?v=`, a digest of the slot's R2 key —
+    `versionFromKey` in `cire/api/src/services/event-image.ts`; the hero's
     also folds in its blur).
   - Kept off the `osnAuth` gate (same sibling-instance split as `/api/rsvp`) so
     a guest with no OSN token can render the invite.
@@ -817,14 +843,31 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   - The text, theme, design, visibility, crop and image-delete writes answer
     with the whole customisation, built from the row the write's `RETURNING`
     clause hands back — they never read the row again. The image URLs in it
-    and in the upload answers take the slug from `weddingEditor()`, which read
-    it with the caller's role.
+    and in the upload answers take the wedding id and slug from
+    `weddingEditor()`, which read them with the caller's role.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
     `authFetch` discard a valid session). See `[[cire-auth]]`.
+- **Organiser image read** — `GET /api/organiser/weddings/:weddingId/invite/image/:slot`
+  (`createInviteImageServeRoutes`), behind `osnAuth()` and
+  `weddingMember(db, { inviteImages: true })`. That option joins the wedding's
+  image keys into the gate's own query (`hostsService.authorizeWithInviteImages`),
+  so a load costs the one statement that finds the caller's seat, plus the
+  organiser-session lookup on the cookie path. The same serve tail as the public
+  image route (`serveSlotImage`: variant, hero blur, cache key, and how long a
+  gated response is kept), always `Cache-Control: private, max-age=3600`. Its own
+  instance so the per-IP write limiter does not count the builder's image loads,
+  and mounted in `cire/api/src/app.ts` past the `AnyElysia` widening. The builder
+  links only the closing image here; see the claim gate above.
 
 Image URL paths are returned relative to the API origin (`/api/invite/<slug>/
-image/<slot>?v=…`); clients (guest island + organiser preview) prepend their API
-base.
+image/<slot>?v=…`, or `/api/organiser/weddings/<id>/invite/image/footer?v=…`
+for the closing image in an organiser-facing customisation); clients (guest
+island + organiser preview) prepend their API base. The portal loads both as
+plain no-cors images: the organiser route needs the `cire_org_session` cookie,
+and a same-site image load carries it, as a guest's load of the gated public
+route carries `cire_session`. The builder's thumbnail, crop editor and previews
+all load one URL per image, the `card` variant (`inviteImageSrc` in
+`cire/host/src/lib/invite-image.ts`), so the browser fetches each image once.
 
 ### Responsive image variants + the blurred hero backdrop
 
@@ -1055,8 +1098,9 @@ request it with `{ cache: "no-store" }`. The JSON hands out the version-busted
 hero/story image URLs, so if it were itself cached (heuristically by the browser,
 or at an edge) a guest's next load would read a stale body and the new hero/theme
 would never appear — the exact "saved in settings but not on the invite" symptom. The image **bytes** at
-`/api/invite/:slug/image/:slot` stay `immutable, max-age=1y`; that's safe because
-every upload writes a fresh R2 key, and their URL's `?v=` is a digest of that key.
+`/api/invite/:slug/image/:slot` stay `immutable, max-age=1y` for the hero and
+story; that's safe because every upload writes a fresh R2 key, and their URL's
+`?v=` is a digest of that key. The gated closing image is kept for an hour.
 
 The **theme** drives CSS custom properties (`--invite-accent`, `--invite-surface`,
 `--invite-heading`, `--invite-body`) set on each section wrapper's inline `style`,
@@ -1643,16 +1687,17 @@ The modal's `<img>` **carries no `crossOrigin`**. The editor only reads element
 geometry and `naturalWidth`/`naturalHeight`, never canvas pixels, so a no-cors
 image is all it needs, and cropperjs copies `crossorigin` onto its own
 `<cropper-image>` only when the source `<img>` has it. The image URLs it loads
-are served `Cache-Control: public, max-age=31536000, immutable` (`private` for
-the closing image) with `Vary: Accept, Origin` — `imageResponseHeaders` in
+are served `Cache-Control: public, max-age=31536000, immutable` (`private,
+max-age=3600` for the closing image) with `Vary: Accept, Origin` — `imageResponseHeaders` in
 `cire/api/src/services/invite-image-transform.ts`, on the Cache API hit path as
 well. The dashboard thumbnail loads the same URL as a plain no-cors `<img>`
 first, and a no-cors request sends no `Origin`, so `Vary: Origin` stops the
 browser from answering a CORS-mode request with that cached copy: it goes back
 to the network instead of failing the CORS check. Adding `crossOrigin` would
 therefore work for the allowlisted portal origin, but it costs a second fetch on
-every switch of mode, and an anonymous CORS load sends no cookie — the closing
-image is served only to a claimed guest session, so it would 404. A future
+every switch of mode, and an anonymous CORS load sends no cookie — the portal
+links the closing image at the organiser image route, which answers 401 without
+the organiser session. A future
 feature that needs pixels (e.g. client-side export via `$toCanvas`) needs a
 CORS-mode load; the API echoes `Access-Control-Allow-Origin` only for origins on
 its allowlist.

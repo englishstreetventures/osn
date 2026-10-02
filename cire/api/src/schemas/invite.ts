@@ -21,8 +21,8 @@ import { Schema, SchemaTransformation } from "effect";
  * the bounded span/log attributes. Adding a slot is a conscious schema change,
  * never a free-form string.
  *
- * `footer` (migration 0050) is the small centred image above the footer's
- * closing note — a monogram, motif or signature. Like the note it is entirely
+ * `footer` (migration 0050) is the closing section's image: a band that spans
+ * the page edge to edge above the closing note. Like the note it is entirely
  * optional: no key ⇒ nothing renders.
  */
 export const INVITE_IMAGE_SLOTS = ["hero", "story", "footer"] as const;
@@ -30,6 +30,17 @@ export type InviteImageSlot = (typeof INVITE_IMAGE_SLOTS)[number];
 
 export function isInviteImageSlot(value: string): value is InviteImageSlot {
   return (INVITE_IMAGE_SLOTS as readonly string[]).includes(value);
+}
+
+/**
+ * Slots the public image route serves only to a claimed household session for
+ * the wedding. The closing section is addressed to invited households, so its
+ * image is held to the same line as its note. The organiser portal links these
+ * slots at the organiser image route instead, which admits the wedding's
+ * members.
+ */
+export function slotRequiresSession(slot: InviteImageSlot): boolean {
+  return slot === "footer";
 }
 
 // ── Image crop rectangle ──────────────────────────────────────────────────────

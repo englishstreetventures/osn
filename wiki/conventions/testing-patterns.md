@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-02
 ---
 
 # Testing Patterns
@@ -417,7 +417,10 @@ which is the one failure a metric test exists to catch.
 
 `@cire/api` solves that with a **preload**, not an import — its `test` script is
 `bun test --preload ./tests/test-helpers/metrics-harness.ts`, and a preload runs
-before any test file. The harness installs an in-memory `MeterProvider` backed by
+before any test file. To run a few files, pass them through the script —
+`bun run --cwd cire/api test tests/routes/invite.test.ts tests/services/invite-image-transform.test.ts`
+— never a bare `bun test` with more than one file: that skips the preload, and a
+metric test that runs after a route test reads zero and fails. The harness installs an in-memory `MeterProvider` backed by
 an on-demand `MetricReader`, and exports one function:
 
 ```typescript
