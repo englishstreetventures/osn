@@ -1007,6 +1007,32 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("deleted-count").textContent).toBe("0");
   });
 
+  it("shows the lists the API answers when they do not yet carry the restored wedding", async () => {
+    // The restore went through, but the read straight after it can be stale.
+    // Both lists follow that answer, nothing opens, and the restore is still
+    // reported, because it happened.
+    const deletedC = { id: "wed_c", slug: "c", displayName: "Cal & Dee" };
+    const liveB = { id: "wed_b", slug: "b", displayName: "Bea & Cal" };
+    let listReads = 0;
+    authFetchMock.mockImplementation(async () => {
+      listReads += 1;
+      return listReads === 1
+        ? listResponse([], [deletedA, deletedC])
+        : listResponse([liveB], [deletedA]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_a,wed_c"));
+    const hash = window.location.hash;
+
+    fireEvent.click(screen.getByText("restore-first-deleted"));
+
+    await waitFor(() => expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_a"));
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(window.location.hash).toBe(hash);
+    expect(toastSuccess).toHaveBeenCalledWith("Wedding restored.");
+  });
+
   it("sends the organiser to sign-in when the session lapses as the restored list loads", async () => {
     let listReads = 0;
     authFetchMock.mockImplementation(() => {

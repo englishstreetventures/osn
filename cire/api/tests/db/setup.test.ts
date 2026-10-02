@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import * as schema from "@cire/db";
 import { and, eq } from "drizzle-orm";
@@ -223,5 +225,85 @@ describe("repointDevOwnerSeat", () => {
     repointDevOwnerSeat(db, PROFILE);
 
     expect(seatsOf(db, PROFILE)).toEqual([ownerSeatHeldBy(PROFILE)]);
+  });
+
+  // `scripts/cire-db-seed.sh` repoints the D1 seed with its own copy of these
+  // two statements, as SQL in a shell string. Both copies run on the same seats
+  // here and must leave the same table, so the tests above hold for that copy
+  // too and a change to one that is not made to the other fails.
+  describe("agrees with the seed script's SQL", () => {
+    const script = readFileSync(
+      join(import.meta.dir, "..", "..", "..", "..", "scripts", "cire-db-seed.sh"),
+      "utf8",
+    );
+
+    /** Run the script's repoint SQL, its variables filled in as the script fills them. */
+    function scriptRepoint(db: TestDb, osnProfileId: string): void {
+      const seatId = script.match(/OWNER_SEAT_ID="([^"]+)"/)?.[1];
+      const command = script.match(/--command \\\n\s+"(DELETE FROM wedding_hosts[^"]+)"/)?.[1];
+      expect(seatId, "could not read OWNER_SEAT_ID from cire-db-seed.sh").toBe(DEV_OWNER_SEAT_ID);
+      expect(command, "could not read the repoint SQL from cire-db-seed.sh").toBeTruthy();
+      db.$client.exec(
+        command!
+          .replaceAll("${CIRE_DEV_OWNER_PROFILE_ID}", osnProfileId)
+          .replaceAll("${OWNER_SEAT_ID}", seatId!),
+      );
+    }
+
+    /** One table holding every case the tests above take one at a time. */
+    function crowded(): TestDb {
+      const db = seeded();
+      const now = new Date();
+      db.insert(schema.weddings)
+        .values({
+          id: "wed_other",
+          slug: "other",
+          displayName: "Other",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      addSeat(db, { id: "whost_profile_cohost", osnProfileId: PROFILE, role: "editor" });
+      addSeat(db, { id: "whost_other_cohost", osnProfileId: "usr_other", role: "editor" });
+      addSeat(db, {
+        id: "whost_profile_elsewhere",
+        osnProfileId: PROFILE,
+        weddingId: "wed_other",
+        role: "viewer",
+      });
+      db.update(weddingHosts)
+        .set({ role: "editor" })
+        .where(eq(weddingHosts.id, DEV_OWNER_SEAT_ID))
+        .run();
+      return db;
+    }
+
+    // `created_at` is left out: each database is seeded at its own moment.
+    const allSeats = (db: TestDb) =>
+      db
+        .select({
+          id: weddingHosts.id,
+          weddingId: weddingHosts.weddingId,
+          osnProfileId: weddingHosts.osnProfileId,
+          addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+          role: weddingHosts.role,
+          runSheetScope: weddingHosts.runSheetScope,
+        })
+        .from(weddingHosts)
+        .orderBy(weddingHosts.id)
+        .all();
+
+    it.each([
+      ["a profile with seats of its own", PROFILE],
+      ["the profile already holding the owner seat", DEV_OWNER_PROFILE_ID],
+    ])("for %s", (_label, osnProfileId) => {
+      const ours = crowded();
+      const theirs = crowded();
+
+      repointDevOwnerSeat(ours, osnProfileId);
+      scriptRepoint(theirs, osnProfileId);
+
+      expect(allSeats(theirs)).toEqual(allSeats(ours));
+    });
   });
 });
