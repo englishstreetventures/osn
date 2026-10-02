@@ -98,7 +98,7 @@ function internalSync(set: { status?: number | string }) {
 }
 
 /**
- * Log a defect before it becomes an anonymous 500 (S-L1). Annotated with the
+ * Log a defect before it becomes an anonymous 500. Annotated with the
  * wedding id and NOTHING else — a registry payload carries guest names, gift
  * notes and thank-you text, none of which belongs in a log line.
  */
@@ -106,16 +106,16 @@ const logDefect = (weddingId: string) => (cause: unknown) =>
   Effect.logError("registry handler defect", cause).pipe(Effect.annotateLogs({ weddingId }));
 
 /**
- * Reap an orphaned R2 object AFTER the response goes out (P-I1).
+ * Reap an orphaned R2 object AFTER the response goes out.
  *
  * The organiser deleted a row; the object behind it is bookkeeping they never
  * see. Awaiting the R2 round trip inline puts a network call on the critical
  * path of a request whose work is already done, so hand it to `waitUntil` and
  * answer now. The reaper is already best-effort and logs its own failures, so
- * nothing is lost by not observing the result.
+ * nothing is lost by not observing the result, and its counts are dropped.
  *
  * `getWaitUntil` returns nothing outside a Worker (unit tests, the local Bun
- * entry), and there the reap runs inline as before — which is also what keeps
+ * entry), and there the reap runs inline — which is also what keeps
  * the existing delete tests able to observe it.
  */
 function reapAfterResponse(
@@ -124,7 +124,7 @@ function reapAfterResponse(
   imageKey: string | null,
 ): Effect.Effect<void> {
   if (!imageKey) return Effect.void;
-  const reap = reapR2Objects(assets, "assets", [imageKey]);
+  const reap = Effect.asVoid(reapR2Objects(assets, "assets", [imageKey]));
   const waitUntil = getWaitUntil(request);
   if (!waitUntil) return reap;
   return Effect.sync(() => waitUntil(Effect.runPromise(reap)));

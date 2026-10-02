@@ -11,21 +11,43 @@
  * survive); this reconciliation closes the gap.
  *
  * The walk and its guards — abort on a failed or empty reference read, the
- * grace window, prefix scoping, the per-run delete cap — are
- * {@link reconcileOrphanObjects} in `r2-reconcile.ts`. This bucket is walked
- * whole every run, with no listing budget, and its live keys are read whole
- * once a run: the sample and the lookup both come from that one read.
+ * grace window, prefix scoping, the per-run delete cap, the listing budget and
+ * its position — are {@link reconcileOrphanObjects} in `r2-reconcile.ts`. The
+ * live keys are read whole, in one statement, once a run: the sample and the
+ * lookup both come from that one read.
  */
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
-import { isNotNull } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { reconcileOrphanObjects } from "./r2-reconcile";
-import type { R2ReconcileError, ReconcilableBucket } from "./r2-reconcile";
+import { r2PositionStore, reconcileOrphanObjects } from "./r2-reconcile";
+import type {
+  ListLimits,
+  PositionBucket,
+  R2ReconcileError,
+  ReconcilableBucket,
+} from "./r2-reconcile";
 
 /** R2 key prefix that holds invite images. ONLY keys under this are touched. */
 export const ASSETS_PREFIX = "assets/";
+
+/**
+ * What one run may list: one full page, plus two calls for pages R2 returns
+ * short. The walk resumes where the last run stopped, so a bucket past 1,000
+ * objects is covered over several daily runs.
+ */
+export const ASSET_LIST_LIMITS: ListLimits = { maxObjects: 1_000, maxListCalls: 3 };
+
+/**
+ * Where the walk keeps its place: one small JSON object in `cire-assets`,
+ * outside `assets/`, so the walk never lists or deletes it. The image routes
+ * serve only keys a row names, so it is never served.
+ */
+export const ASSET_POSITION_KEY = "reconcile/assets-position.json";
+
+/** The `ASSETS` binding as the reconciler uses it. `R2Bucket` satisfies it. */
+export type AssetsBucket = ReconcilableBucket & PositionBucket;
 
 /**
  * Build the set of R2 keys that ANY live DB row references — across ALL
@@ -33,61 +55,41 @@ export const ASSETS_PREFIX = "assets/";
  * read is the single source of truth for "what is live". It is also the
  * abort-on-uncertainty signal: a throw here aborts the run, and an empty set
  * leaves no live sample, which aborts it too.
+ *
+ * One statement of three arms:
+ *  - every wedding-level image slot's key (one customisation row per wedding).
+ *    It MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
+ *    not a no-op, it is data loss: this set is what marks an object LIVE, so an
+ *    unlisted slot's images look orphaned and get swept once past the grace
+ *    window. Adding an image slot means adding its key column to the first arm;
+ *  - event image keys (one optional per event);
+ *  - registry item images (one optional per gift item). These are copies of
+ *    shop-page pictures the organiser picked, stored here rather than
+ *    hotlinked, so they are live objects like any other, and omitting them
+ *    would make the sweep delete every registry image a week after it was saved.
  */
 function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-
-    // Every wedding-level image slot's key (one customisation row per wedding).
-    // MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
-    // not a no-op, it is data loss: this set is what marks an object LIVE, so an
-    // unlisted slot's images look orphaned and get swept once past the grace
-    // window. Adding an image slot means adding its key column here.
-    const custRows = yield* dbQuery(() =>
-      db
-        .select({
-          hero: weddingInviteCustomisations.heroImageKey,
-          story: weddingInviteCustomisations.storyImageKey,
-          footer: weddingInviteCustomisations.footerImageKey,
-        })
-        .from(weddingInviteCustomisations)
-        .all(),
-    );
-
-    // event image keys (one optional per event). Filter to non-null in SQL.
-    const eventRows = yield* dbQuery(() =>
-      db
-        .select({ key: events.eventImageKey })
-        .from(events)
-        .where(isNotNull(events.eventImageKey))
-        .all(),
-    );
-
-    // Registry item images (one optional per gift item). These are copies of
-    // shop-page pictures the organiser picked, stored here rather than hotlinked
-    // — so they are live objects like any other, and omitting them would make the
-    // sweep delete every registry image a week after it was saved.
-    const registryRows = yield* dbQuery(() =>
-      db
-        .select({ key: registryItems.imageKey })
-        .from(registryItems)
-        .where(isNotNull(registryItems.imageKey))
-        .all(),
+    const rows = yield* dbQuery(() =>
+      db.all<{ a: string | null; b: string | null; c: string | null }>(sql`
+        SELECT ${weddingInviteCustomisations.heroImageKey} AS a,
+          ${weddingInviteCustomisations.storyImageKey} AS b,
+          ${weddingInviteCustomisations.footerImageKey} AS c
+        FROM ${weddingInviteCustomisations}
+        UNION ALL
+        SELECT ${events.eventImageKey}, NULL, NULL FROM ${events}
+        WHERE ${events.eventImageKey} IS NOT NULL
+        UNION ALL
+        SELECT ${registryItems.imageKey}, NULL, NULL FROM ${registryItems}
+        WHERE ${registryItems.imageKey} IS NOT NULL`),
     );
 
     const referenced = new Set<string>();
-    for (const r of custRows) {
-      // Iterate the row's values rather than naming each slot again — one place
-      // to update (the select above) instead of two that can drift apart.
-      for (const key of Object.values(r)) {
+    for (const row of rows) {
+      for (const key of [row.a, row.b, row.c]) {
         if (key) referenced.add(key);
       }
-    }
-    for (const r of eventRows) {
-      if (r.key) referenced.add(r.key);
-    }
-    for (const r of registryRows) {
-      if (r.key) referenced.add(r.key);
     }
     return referenced;
   });
@@ -96,13 +98,14 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
 export const assetReconcileService = {
   /**
    * Delete `assets/` objects that no live row references and that are older
-   * than the grace window. Returns the number deleted; 0 on an abort.
+   * than the grace window, walking at most {@link ASSET_LIST_LIMITS} a run from
+   * where the last run stopped. Returns the number deleted; 0 on an abort.
    *
    * @param bucket the `ASSETS` binding. Absent: no-op.
    * @param now    the clock the grace window is measured against.
    */
   reconcileOrphans(
-    bucket: ReconcilableBucket | undefined,
+    bucket: AssetsBucket | undefined,
     now: Date = new Date(),
   ): Effect.Effect<number, R2ReconcileError, DbService> {
     return Effect.gen(function* () {
@@ -113,8 +116,12 @@ export const assetReconcileService = {
           label: "assets",
           prefix: ASSETS_PREFIX,
           liveSample: live.pipe(Effect.map((keys) => keys.values().next().value)),
-          named: (keys) =>
-            live.pipe(Effect.map((all) => new Set(keys.filter((key) => all.has(key))))),
+          // Every live key: it answers for each key the walk asks about.
+          named: () => live,
+          budget: bucket && {
+            ...ASSET_LIST_LIMITS,
+            position: r2PositionStore(bucket, ASSET_POSITION_KEY, "assets"),
+          },
         },
         now,
       );

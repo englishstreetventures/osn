@@ -1,11 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
 import { imports } from "@cire/db";
-import { SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { getTableConfig, SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { PREVIEW_STALE_AFTER_MS } from "../../src/services/maintenance-sweeps";
+import {
+  createR2Stub,
+  R2Service,
+  storeBeforeImage,
+  storeUpload,
+} from "../../src/services/r2-imports";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import {
   namedSheetKeys,
@@ -44,6 +52,9 @@ function createSheetsStub(initial: ReadonlyArray<{ key: string; uploaded: Date }
     deleted,
     remaining: () => [...store.keys()].toSorted(),
     stored: (key) => texts.get(key),
+    head(key) {
+      return Promise.resolve(store.has(key) ? { key } : null);
+    },
     list(options) {
       const prefix = options?.prefix ?? "";
       const bounds = [options?.cursor, options?.startAfter];
@@ -148,9 +159,26 @@ describe("sheet reconciliation settings", () => {
     expect(SHEET_POSITION_KEY.startsWith(SHEETS_PREFIX)).toBe(false);
   });
 
-  it("sends a full page of today's longest keys in under 100 KB", () => {
-    // The before-image key is the longest shape `r2-imports.ts` builds.
-    const longest = keysFor(crypto.randomUUID()).beforeEvents;
+  it("lets no preview outlive the grace window", () => {
+    // An apply retried on a preview puts its before-image again under the same
+    // key. Previews are swept once this old, so the earlier put of a key a
+    // retry can rewrite is never older than the grace window.
+    expect(PREVIEW_STALE_AFTER_MS).toBeLessThanOrEqual(RECONCILE_GRACE_MS);
+  });
+
+  it("sends a full page of the longest key the writers build in under 100 KB", async () => {
+    // Every key shape `r2-imports.ts` writes, for a change id of the length the
+    // route mints (`crypto.randomUUID()`).
+    const written = await Effect.runPromise(
+      Effect.gen(function* () {
+        const id = crypto.randomUUID();
+        const upload = yield* storeUpload("e", "g", id);
+        const before = yield* storeBeforeImage("e", "g", id);
+        return [...Object.values(upload), ...Object.values(before)];
+      }).pipe(Effect.provideService(R2Service, createR2Stub())),
+    );
+    expect(written.every((key) => key.startsWith(SHEETS_PREFIX))).toBe(true);
+    const longest = written.toSorted((a, b) => b.length - a.length)[0]!;
     const keys = Array.from({ length: SHEET_LIST_LIMITS.maxObjects + 1 }, () => longest);
     const { params } = new SQLiteSyncDialect().sqlToQuery(namedSheetKeysQuery(keys));
     expect(params).toHaveLength(1);
@@ -169,6 +197,21 @@ describe("sheet reconciliation settings", () => {
     expect(plan.filter((d) => /\bimports\b/.test(d))).toEqual(["SCAN imports"]);
     expect(plan.join("\n")).not.toMatch(/CORRELATED/);
   });
+
+  it("reads and matches every key column imports has, and no other", () => {
+    // A key column added to `imports` but not to the lookup would make its
+    // objects look orphaned. This fails until the lookup names it.
+    const keyColumns = getTableConfig(imports)
+      .columns.map((c) => c.name)
+      .filter((name) => name.endsWith("r2_key"))
+      .toSorted();
+    const { sql: text } = new SQLiteSyncDialect().sqlToQuery(namedSheetKeysQuery([]));
+    const matched = [...text.matchAll(/"imports"\."(\w+)" IN listed/g)].map((m) => m[1]).toSorted();
+    const selected = [...text.matchAll(/"imports"\."(\w+)" AS/g)].map((m) => m[1]).toSorted();
+    expect(keyColumns).toHaveLength(4);
+    expect(matched).toEqual(keyColumns);
+    expect(selected).toEqual(keyColumns);
+  });
 });
 
 describe("namedSheetKeys", () => {
@@ -186,6 +229,9 @@ describe("namedSheetKeys", () => {
           asked.guests,
           pruned.beforeEvents,
           "imports/nobody/events.csv",
+          other.events.toUpperCase(),
+          `${other.guests}.bak`,
+          ` ${other.beforeEvents}`,
         ]);
 
         expect([...named].toSorted()).toEqual(Object.values(asked).toSorted());
@@ -281,17 +327,57 @@ describe("sheetReconcileService.reconcileOrphans", () => {
   );
 
   it(
-    "reaps orphans when no row names any of them, as long as some row exists",
+    "reaps orphans when no row names any of them, as long as the live sample is in the bucket",
     withDb(
       Effect.gen(function* () {
-        // The live row's objects are not in the bucket at all, so the lookup
-        // matches nothing but the live sample, which passes the control.
-        yield* seedChange({});
+        // The live row's sheet is too new to judge, so the lookup matches
+        // nothing but the live sample, which passes the control.
+        const live = yield* seedChange({});
         const orphan = keysFor(crypto.randomUUID());
-        const bucket = createSheetsStub(old(orphan.events, orphan.guests));
+        const bucket = createSheetsStub([
+          { key: live.events, uploaded: FRESH },
+          ...old(orphan.events, orphan.guests),
+        ]);
 
         expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(2);
-        expect(bucket.remaining()).toEqual([]);
+        expect(bucket.remaining()).toEqual([live.events]);
+      }),
+    ),
+  );
+
+  it(
+    "fails and deletes nothing when the database's rows name no object in this bucket",
+    withDb(
+      Effect.gen(function* () {
+        // A database paired with another environment's bucket: it has rows,
+        // so the live sample exists, but the bucket holds none of their sheets.
+        yield* seedChange({});
+        const strangers = keysFor(crypto.randomUUID());
+        const bucket = createSheetsStub(old(strangers.events, strangers.guests));
+
+        const error = yield* Effect.flip(sheetReconcileService.reconcileOrphans(bucket, NOW));
+
+        expect(error.reason).toBe("the live sample is not an object in this bucket");
+        expect(bucket.deleted.size).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "fails and deletes nothing when the imports read itself fails",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const orphan = keysFor(crypto.randomUUID());
+        const bucket = createSheetsStub(old(orphan.events, orphan.guests));
+        yield* Effect.promise(async () => {
+          await db.run(sql`DROP TABLE imports`);
+        });
+
+        const error = yield* Effect.flip(sheetReconcileService.reconcileOrphans(bucket, NOW));
+
+        expect(error._tag).toBe("R2ReconcileError");
+        expect(bucket.deleted.size).toBe(0);
       }),
     ),
   );
@@ -369,11 +455,9 @@ describe("sheetReconcileService.reconcileOrphans", () => {
         const stored = JSON.parse(bucket.stored(SHEET_POSITION_KEY)!) as { after: string };
         expect(stored.after).toBe(live.toSorted()[999]);
 
+        // The second run reaches the orphan and the end of the bucket.
         expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
         expect(bucket.deleted).toEqual(new Set([orphan]));
-
-        // The stretch with a delete is walked once more, then the lap ends.
-        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(0);
         expect(bucket.stored(SHEET_POSITION_KEY)).toBeUndefined();
         expect(bucket.remaining()).toEqual(live.toSorted());
       }),
@@ -393,9 +477,12 @@ describe("sheetReconcileService.reconcileOrphans", () => {
     "counts what it reaps on cire.r2.objects.swept with bucket=sheets",
     withDb(
       Effect.gen(function* () {
-        yield* seedChange({});
+        const live = yield* seedChange({});
         const orphan = keysFor(crypto.randomUUID());
-        const bucket = createSheetsStub(old(orphan.events, orphan.guests, orphan.beforeEvents));
+        const bucket = createSheetsStub([
+          { key: live.events, uploaded: FRESH },
+          ...old(orphan.events, orphan.guests, orphan.beforeEvents),
+        ]);
         const attrs = { bucket: "sheets", result: "ok" };
         const before = yield* Effect.promise(() => counterValue("cire.r2.objects.swept", attrs));
 

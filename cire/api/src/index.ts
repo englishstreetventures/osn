@@ -580,7 +580,8 @@ const handler: ExportedHandler<Env> = {
   //     objects under `assets/` referenced by NO live DB row and older than a
   //     7-day grace window. Heavily guarded: aborts and deletes NOTHING if the
   //     referenced-key read fails or comes back empty against a non-empty
-  //     bucket, and caps deletions per run. See services/r2-reconcile.ts.
+  //     bucket, and caps deletions per run. Lists at most 1,000 objects a run,
+  //     resuming where the last run stopped. See services/r2-reconcile.ts.
   //  5. Expired vendor-claim tokens + 6. abandoned `preview` change rows (with
   //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
   //  7. Vendor claims held for an operator: hand-off of confirmed listings'

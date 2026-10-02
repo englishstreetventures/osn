@@ -242,6 +242,9 @@ bucket_name = "cire-sheets"
 
 # R2 bucket for invite-builder images (hero / story photos). Separate from
 # SHEETS: binary content, served publicly through the API, different retention.
+# Objects no row names are reaped by the daily cron
+# (src/services/asset-reconcile.ts), which keeps its place in
+# `reconcile/assets-position.json` — a key and a timestamp, never served.
 # Created 2026-06-15 — if you ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-assets
 [[r2_buckets]]

@@ -15,15 +15,21 @@
  *  1. ABORT ON UNCERTAINTY — before judging anything, the plan names one key
  *     that a live row holds ({@link ReconcilePlan.liveSample}). None while the
  *     prefix holds objects aborts the run: a successful read that is wrong
- *     (wrong binding, a table rebuilt empty) looks exactly like "nothing is
- *     live". The sample then rides LAST, and only there, in the list sent to
- *     {@link ReconcilePlan.named}, and the run fails unless it comes back named,
- *     so a lookup that drops, truncates or garbles its input, or matches
- *     nothing, deletes nothing.
+ *     (a table rebuilt empty) looks exactly like "nothing is live". The sample
+ *     must also be an object in the bucket being reconciled — every writer
+ *     stores the object before the row that names it — so a database paired
+ *     with another environment's bucket fails the run. The sample then rides
+ *     LAST, and only there, in the list sent to {@link ReconcilePlan.named}, and
+ *     the run fails unless it comes back named, so a lookup that drops,
+ *     truncates or garbles its input, or matches nothing, deletes nothing.
  *  2. GRACE PERIOD — only objects R2 says were uploaded more than
  *     {@link RECONCILE_GRACE_MS} ago are candidates, so an object whose row is
  *     written a moment after it (every writer puts first, then writes the row)
- *     is never reaped.
+ *     is never reaped. Age is read from the listing, so a writer that puts an
+ *     existing key again, after the listing and before the delete, could lose
+ *     that object. The one such writer, an apply retried on a `cire-sheets`
+ *     preview, rewrites that preview's before-image, and the stale-preview
+ *     sweep removes previews once they are as old as the grace window.
  *  3. PREFIX SCOPING — only keys under the plan's prefix are considered, even if
  *     a listing returns others.
  *  4. DELETE LAST, CAPPED — the reference check runs once, after the walk, and
@@ -69,6 +75,7 @@ const LIST_PAGE_SIZE = 1000;
  * bucket goes straight to {@link reapR2Objects}.
  */
 export interface ReconcilableBucket extends DeletableBucket {
+  head(key: string): Promise<{ key: string } | null>;
   list(options?: {
     prefix?: string;
     cursor?: string;
@@ -130,8 +137,9 @@ export interface ReconcilePlan<R> {
    */
   readonly liveSample: Effect.Effect<string | undefined, never, R>;
   /**
-   * Of `keys`, every one a live row names, compared as exact strings. Called
-   * once per run, after the walk. A defect aborts the run.
+   * A set holding every one of `keys` that a live row names, compared as exact
+   * strings, and none of them that no live row names; it may hold other keys
+   * too. Called once per run, after the walk. A defect aborts the run.
    */
   readonly named: (keys: ReadonlyArray<string>) => Effect.Effect<ReadonlySet<string>, never, R>;
   /** Absent: the whole prefix is walked every run. */
@@ -250,13 +258,15 @@ export function reconcileOrphanObjects<R>(
     }
 
     let state: WalkState | undefined;
+    let unreadable = false;
     if (budget) {
       const stored = yield* warnOnFailure(
         budget.position.read,
         "r2 reconcile aborted — position read failed",
       );
       state = stored === undefined ? undefined : parseWalkState(stored, prefix, nowMs);
-      if (stored !== undefined && state === undefined) {
+      unreadable = stored !== undefined && state === undefined;
+      if (unreadable) {
         yield* Effect.logWarning("r2 reconcile position unreadable — starting a new lap", {
           bucket: label,
         });
@@ -338,6 +348,20 @@ export function reconcileOrphanObjects<R>(
         );
         return 0;
       }
+      const present = yield* warnOnFailure(
+        Effect.tryPromise({
+          try: () => bucket.head(sample),
+          catch: (cause) =>
+            new R2ReconcileError({ bucket: label, reason: `head failed: ${String(cause)}` }),
+        }),
+        "r2 reconcile aborted — live sample lookup in the bucket failed",
+      );
+      if (present === null) {
+        return yield* fail(
+          "the live sample is not an object in this bucket",
+          "r2 reconcile aborted — the database's live sample is missing from the bucket (delete-nothing safeguard)",
+        );
+      }
       // The sample goes last and only there, so a lookup that loses the tail of
       // its input loses the sample too. Left in place as a candidate as well, a
       // copy earlier in the list would survive the loss and hide it.
@@ -363,12 +387,13 @@ export function reconcileOrphanObjects<R>(
 
     // Guard 4: the only delete. Best-effort; failures are logged and counted on
     // `cire.r2.objects.swept` and never fail the run.
-    if (orphans.length > 0) yield* reapR2Objects(bucket, label, orphans);
+    const reap =
+      orphans.length > 0 ? yield* reapR2Objects(bucket, label, orphans) : { reaped: 0, failed: 0 };
 
     if (budget) {
       const lapStartedAt = state?.lapStartedAt ?? nowMs;
       let next: WalkState | undefined;
-      if (orphans.length > 0) {
+      if (capped || reap.failed > 0) {
         // Walk this stretch again next run: that retries any delete that failed
         // and reaches whatever the cap left.
         next = { after: state?.after ?? null, lapStartedAt };
@@ -383,7 +408,9 @@ export function reconcileOrphanObjects<R>(
         );
         next = state ?? { after: null, lapStartedAt };
       }
-      if (!sameState(state, next)) {
+      // An unreadable stored position is always replaced or removed, so its
+      // warning does not repeat on every run.
+      if (unreadable || !sameState(state, next)) {
         yield* warnOnFailure(
           budget.position.write(next && JSON.stringify(next)),
           "r2 reconcile failed to save its position",

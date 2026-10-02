@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-10-02
 ---
 
 # Backup + Disaster Recovery
@@ -31,7 +31,8 @@ drill and it worked.
 | Local-dev SQLite | Throwaway | Not in scope |
 | Production database (planned: Supabase Postgres) | Not deployed yet | Define backup config when migrating |
 | Redis (rate-limit, rotated-session store, future auth state) | Ephemeral by design (TTL'd state) | OK — no DR needed for ephemeral state; rate-limit fail-closed posture is the safety net |
-| Object storage (planned: Cloudflare R2 for avatars, event covers, message media) | Not deployed yet | Mirror across two regions |
+| Cire object storage — Cloudflare R2 `cire-sheets` (guest spreadsheets) and `cire-assets` (invite images) | Deployed, with no object versioning and no second copy. The daily cron's orphan reconcilers permanently delete any object no `cire-db` row names once R2 says it is 7 days old | No backup. Restoring `cire-db` to an earlier point (below) puts objects at risk |
+| Other object storage (planned: R2 for avatars, event covers, message media) | Not deployed yet | Mirror across two regions |
 | Grafana Cloud (logs / traces / metrics) | Vendor-managed | Out of our scope; vendor SLA |
 | Cloudflare Email | Vendor-managed | Same |
 | GitHub | Vendor-managed | Same; mirror code to a second host (e.g. Codeberg) for catastrophic-vendor scenario |
@@ -60,6 +61,7 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 |---|---|
 | Database corruption | Daily snapshot restore + replay WAL to last good point |
 | Database accidental delete (DROP TABLE, etc.) | Same; 7-day soft-delete policy on user actions reduces blast radius |
+| Restoring `cire-db` (D1 Time Travel) to an earlier point | Rows written after the restore point are gone, so the R2 objects only they named look orphaned: the cire cron's reconcilers delete those already 7 days old at the next 04:00 UTC run, and the rest as they reach 7 days. To keep them, copy them out of `cire-sheets` and `cire-assets` before that run. The reconcilers have no switch of their own: stopping them means stopping the whole cron, retention sweep included |
 | Region outage | Multi-region replica (planned with Supabase config) |
 | Cloud provider outage | Document recovery into a second cloud (planned; long lead-time, accept 24+h RTO) |
 | Domain takeover | Registrar lock + WebAuthn + alert on DNS change |

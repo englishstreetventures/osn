@@ -2889,10 +2889,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "reconciles cire-sheets on D1: a full page of keys in one bound parameter, exact matches only",
     async () => {
-      // A full run's worth of the longest key shape: 499 changes whose
-      // before-images are in the bucket, and two orphans. The lookup sends all
-      // of them, plus the live sample, as one JSON parameter of about 65 KB.
-      const ids = Array.from({ length: 499 }, () => crypto.randomUUID());
+      // A full run's worth of keys, mostly the longest shape: 333 changes whose
+      // events sheet and before-image are in the bucket, and one orphan. The
+      // lookup sends all of them as one JSON parameter of about 60 KB.
+      const ids = Array.from({ length: 333 }, () => crypto.randomUUID());
       const now = Date.now();
       await db.run(
         insertManyViaJsonEach(
@@ -2915,13 +2915,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ),
       );
       const live = ids.flatMap((id) => [
+        `imports/${id}/events.csv`,
         `imports/${id}/before/events.csv`,
         `imports/${id}/before/guests.csv`,
       ]);
-      const orphans = Array.from(
-        { length: 2 },
-        () => `imports/${crypto.randomUUID()}/before/events.csv`,
-      );
+      const orphans = [`imports/${crypto.randomUUID()}/before/events.csv`];
       expect(live.length + orphans.length).toBe(SHEET_LIST_LIMITS.maxObjects);
 
       const uploaded = new Date(now - RECONCILE_GRACE_MS - 60_000);
@@ -2936,11 +2934,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
           for (const key of [keys].flat()) stored.delete(key);
           return Promise.resolve();
         },
+        head: (key) => Promise.resolve(stored.has(key) ? { key } : null),
         get: () => Promise.resolve(null),
         put: () => Promise.resolve(),
       };
 
-      expect(await run(sheetReconcileService.reconcileOrphans(bucket, new Date(now)))).toBe(2);
+      expect(await run(sheetReconcileService.reconcileOrphans(bucket, new Date(now)))).toBe(1);
       expect([...stored].toSorted()).toEqual(live.toSorted());
     },
     MF_TIMEOUT_MS,

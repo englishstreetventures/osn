@@ -621,6 +621,7 @@ describe("D1 session routing at the entry points", () => {
             truncated: false,
           }),
         delete: () => Promise.resolve(),
+        head: (key: string) => Promise.resolve({ key }),
         get: () => Promise.resolve(null),
         put: () => Promise.resolve(),
       };
@@ -640,6 +641,35 @@ describe("D1 session routing at the entry points", () => {
       await DB.prepare("DELETE FROM weddings WHERE id = ?").bind("wed_sheets_cron").run();
     }
   });
+
+  it.each([
+    ["a list call fails", { list: () => Promise.reject(new Error("r2 down")) }, "list failed"],
+    [
+      "its position cannot be read",
+      { get: () => Promise.reject(new Error("r2 down")) },
+      "position read failed",
+    ],
+  ])(
+    "logs a failed cire-sheets reconciliation and settles the job when %s",
+    async (_, broken, reason) => {
+      const sheets = {
+        list: () => Promise.resolve({ objects: [], truncated: false }),
+        delete: () => Promise.resolve(),
+        head: () => Promise.resolve(null),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+        ...broken,
+      };
+      let settled: PromiseSettledResult<unknown>[] = [];
+      const logs = await captureLogs(async () => {
+        const { pending } = await runCron({ SHEETS: sheets });
+        settled = await Promise.allSettled(pending);
+      });
+      expect(settled.every((r) => r.status === "fulfilled")).toBe(true);
+      expect(logs).toContain("scheduled cire-sheets reconciliation failed");
+      expect(logs).toContain(reason);
+    },
+  );
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);

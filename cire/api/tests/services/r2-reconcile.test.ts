@@ -34,7 +34,9 @@ type ListOptions = { prefix?: string; cursor?: string; startAfter?: string; limi
  * returned, and a listing resumes after the later of the cursor and
  * `startAfter`, as Miniflare's R2 does. `limit` is honoured; `shortPages` caps
  * every page while still reporting `truncated`, which R2 may do. Every `list`
- * call is recorded.
+ * call is recorded. The other options make the bucket misbehave in one way
+ * each: ignore the prefix or `startAfter`, include the `startAfter` key, drop
+ * the cursor, fail a list call, or reject deletes while `deletes.reject` is set.
  */
 function createBucket(
   initial: ReadonlyArray<{ key: string; uploaded: Date }>,
@@ -42,39 +44,56 @@ function createBucket(
     shortPages?: number;
     listThrowsOnCall?: number;
     ignoreStartAfter?: boolean;
+    inclusiveStartAfter?: boolean;
+    ignorePrefix?: boolean;
     dropCursor?: boolean;
+    headThrows?: boolean;
   } = {},
-): ReconcilableBucket & { deleted: Set<string>; keys: () => string[]; listCalls: ListOptions[] } {
+): ReconcilableBucket & {
+  deleted: Set<string>;
+  keys: () => string[];
+  listCalls: ListOptions[];
+  deletes: { reject: boolean };
+} {
   const store = new Map(initial.map((o) => [o.key, o.uploaded]));
   const deleted = new Set<string>();
   const listCalls: ListOptions[] = [];
+  const deletes = { reject: false };
   return {
     deleted,
     listCalls,
+    deletes,
     keys: () => [...store.keys()].toSorted(),
+    head(key) {
+      if (opts.headThrows) return Promise.reject(new Error("head boom"));
+      return Promise.resolve(store.has(key) ? { key } : null);
+    },
     list(options) {
       listCalls.push({ ...options });
       if (opts.listThrowsOnCall === listCalls.length) {
         return Promise.reject(new Error("list boom"));
       }
-      const prefix = options?.prefix ?? "";
-      const bounds = [options?.cursor, opts.ignoreStartAfter ? undefined : options?.startAfter];
-      const from = bounds
-        .filter((b): b is string => b !== undefined)
-        .toSorted()
-        .at(-1);
-      const keys = [...store.keys()]
-        .filter((k) => k.startsWith(prefix) && (from === undefined || k > from))
-        .toSorted();
+      const prefix = opts.ignorePrefix ? "" : (options?.prefix ?? "");
+      const startAfter = opts.ignoreStartAfter ? undefined : options?.startAfter;
+      const after = (k: string) =>
+        (options?.cursor === undefined || k > options.cursor) &&
+        (startAfter === undefined ||
+          k > startAfter ||
+          (opts.inclusiveStartAfter && k === startAfter));
+      const keys = [...store.keys()].filter((k) => k.startsWith(prefix) && after(k)).toSorted();
       const slice = keys.slice(0, Math.min(options?.limit ?? 1000, opts.shortPages ?? 1000));
       const truncated = slice.length < keys.length;
       return Promise.resolve({
         objects: slice.map((key) => ({ key, uploaded: store.get(key)! })),
         truncated,
-        cursor: truncated && !opts.dropCursor ? (slice.at(-1) ?? from ?? prefix) : undefined,
+        cursor:
+          truncated && !opts.dropCursor
+            ? (slice.at(-1) ?? options?.cursor ?? startAfter ?? prefix)
+            : undefined,
       });
     },
     delete(keys) {
+      if (deletes.reject) return Promise.reject(new Error("delete boom"));
       for (const k of Array.isArray(keys) ? keys : [keys]) {
         if (store.delete(k)) deleted.add(k);
       }
@@ -172,6 +191,7 @@ describe("reconcileOrphanObjects", () => {
       { key: "imports/a/events.csv", uploaded: OLD },
       { key: "imports/b/events.csv", uploaded: OLD },
       { key: "imports/c/events.csv", uploaded: FRESH },
+      { key: "imports/live/events.csv", uploaded: FRESH },
       { key: "assets/x/hero", uploaded: OLD },
     ]);
     const p = plan(["imports/live/events.csv"]);
@@ -217,13 +237,70 @@ describe("reconcileOrphanObjects", () => {
   });
 
   it("deletes nothing and fails when the lookup dies", async () => {
-    const bucket = createBucket([{ key: "imports/a/events.csv", uploaded: OLD }]);
+    const bucket = createBucket([
+      { key: "imports/a/events.csv", uploaded: OLD },
+      { key: "imports/live", uploaded: FRESH },
+    ]);
     const p = plan(["imports/live"], { named: () => Effect.die("lookup failed") });
 
     expect(await outcome(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(
       "failed: lookup failed",
     );
     expect(bucket.deleted.size).toBe(0);
+  });
+
+  it("fails and deletes nothing when the live sample is not an object in this bucket", async () => {
+    // The database names `imports/elsewhere`, which this bucket does not hold:
+    // a database paired with another environment's bucket looks like this.
+    const bucket = createBucket([{ key: "imports/a/events.csv", uploaded: OLD }]);
+    const p = plan(["imports/elsewhere"]);
+
+    expect(await outcome(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(
+      "failed: the live sample is not an object in this bucket",
+    );
+    expect(p.lookups).toHaveLength(0);
+    expect(bucket.deleted.size).toBe(0);
+  });
+
+  it("fails and deletes nothing when the bucket cannot be asked about the live sample", async () => {
+    const bucket = createBucket(
+      [
+        { key: "imports/a/events.csv", uploaded: OLD },
+        { key: "imports/live", uploaded: OLD },
+      ],
+      { headThrows: true },
+    );
+
+    expect(await outcome(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW))).toBe(
+      "failed: head failed: Error: head boom",
+    );
+    expect(bucket.deleted.size).toBe(0);
+  });
+
+  it("keeps an object uploaded exactly at the grace cutoff", async () => {
+    const bucket = createBucket([
+      { key: "imports/live", uploaded: OLD },
+      { key: "imports/edge", uploaded: new Date(NOW.getTime() - RECONCILE_GRACE_MS) },
+    ]);
+
+    expect(await run(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW))).toBe(0);
+  });
+
+  it("never judges or deletes a key outside the prefix, even when the listing returns one", async () => {
+    const bucket = createBucket(
+      [
+        { key: "assets/x/hero", uploaded: OLD },
+        { key: "imports/live", uploaded: OLD },
+        { key: "imports/orphan", uploaded: OLD },
+        { key: "reconcile/imports-position.json", uploaded: OLD },
+      ],
+      { ignorePrefix: true },
+    );
+    const p = plan(["imports/live"]);
+
+    expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(1);
+    expect([...bucket.deleted]).toEqual(["imports/orphan"]);
+    expect(p.lookups.flat().every((k) => k.startsWith(PREFIX))).toBe(true);
   });
 
   describe("the live sample is the lookup's control", () => {
@@ -296,11 +373,31 @@ describe("reconcileOrphanObjects", () => {
       shortPages: 100,
     });
 
-    const deleted = await run(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW));
+    let deleted = 0;
+    const logs = await captureLogs(async () => {
+      deleted = await run(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW));
+    });
 
     expect(deleted).toBe(RECONCILE_DELETE_CAP);
     expect(bucket.deleted.size).toBe(RECONCILE_DELETE_CAP);
     expect(bucket.deleted.has("imports/live")).toBe(false);
+    expect(logs).toContain("hit its per-run delete cap");
+  });
+
+  it("deletes exactly a cap's worth of orphans without calling it capped", async () => {
+    const objects = Array.from({ length: RECONCILE_DELETE_CAP }, (_, i) => ({
+      key: `imports/${String(i).padStart(4, "0")}/events.csv`,
+      uploaded: OLD,
+    }));
+    const bucket = createBucket([{ key: "imports/live", uploaded: OLD }, ...objects]);
+    let deleted = 0;
+
+    const logs = await captureLogs(async () => {
+      deleted = await run(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW));
+    });
+
+    expect(deleted).toBe(RECONCILE_DELETE_CAP);
+    expect(logs).not.toContain("hit its per-run delete cap");
   });
 
   describe("with a listing budget", () => {
@@ -401,33 +498,37 @@ describe("reconcileOrphanObjects", () => {
       expect(bucket.keys()).toEqual(live);
     });
 
-    it("does not move the position after a run that deleted anything, so the next run checks that stretch again", async () => {
+    it("moves on past a stretch whose deletes all succeeded", async () => {
       const objects = objectsAt(30);
       const bucket = createBucket(objects);
-      const position = memoryPosition({ after: keyAt(9), lapStartedAt: NOW.getTime() - DAY_MS });
+      const lapStartedAt = NOW.getTime() - DAY_MS;
+      const position = memoryPosition({ after: keyAt(9), lapStartedAt });
       const p = plan(
         objects.map((o) => o.key).filter((k) => k !== keyAt(12)),
         { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
       );
 
       expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(1);
-      expect(position.writes).toEqual([]);
-      expect(position.current()).toEqual({ after: keyAt(9), lapStartedAt: NOW.getTime() - DAY_MS });
-
-      // Nothing left to delete in that stretch: now it moves on.
-      await run(reconcileOrphanObjects(bucket, p.plan, NOW));
-      expect(position.current()?.after).toBe(keyAt(20));
+      expect(position.current()).toEqual({ after: keyAt(19), lapStartedAt });
     });
 
-    it("records the lap's start when a fresh lap deletes something", async () => {
-      const bucket = createBucket(objectsAt(3));
+    it("holds its place, recording a fresh lap's start, when the delete cap stops it", async () => {
+      const objects = Array.from({ length: RECONCILE_DELETE_CAP + 20 }, (_, i) => ({
+        key: `imports/${String(i).padStart(4, "0")}/events.csv`,
+        uploaded: OLD,
+      }));
+      const bucket = createBucket(objects);
       const position = memoryPosition();
-      const p = plan([keyAt(0)], {
-        budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store),
+      const p = plan([objects[0]!.key], {
+        budget: budget({ maxObjects: 1000, maxListCalls: 10 }, position.store),
       });
 
-      expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(2);
+      expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(RECONCILE_DELETE_CAP);
       expect(position.current()).toEqual({ after: null, lapStartedAt: NOW.getTime() });
+
+      // The rest of the stretch is reached on the next run, which then ends the lap.
+      expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(19);
+      expect(position.current()).toBeUndefined();
     });
 
     it("writes nothing when a lap fits in one run with nothing to delete", async () => {
@@ -476,18 +577,40 @@ describe("reconcileOrphanObjects", () => {
         JSON.stringify({ after: keyAt(5), lapStartedAt: NOW.getTime() + DAY_MS }),
       ],
       ["the wrong shape", JSON.stringify({ after: 7 })],
-    ])("starts a new lap from the first key, with a warning, on %s", async (_, stored) => {
-      const bucket = createBucket(objectsAt(5));
-      const position = memoryPosition(stored);
+      ["a lap that starts at minus infinity", '{"after":null,"lapStartedAt":-1e999}'],
+    ])(
+      "starts a new lap from the first key, with a warning, on %s, and clears it",
+      async (_, stored) => {
+        const bucket = createBucket(objectsAt(5));
+        const position = memoryPosition(stored);
+        const p = plan(
+          objectsAt(5).map((o) => o.key),
+          { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
+        );
+
+        const logs = await captureLogs(() => run(reconcileOrphanObjects(bucket, p.plan, NOW)));
+
+        expect(bucket.listCalls[0]).toEqual({ prefix: PREFIX, limit: 10 });
+        expect(logs).toContain("position unreadable");
+        // The lap fitted in this run, so the unreadable text is removed rather
+        // than left to warn again tomorrow.
+        expect(position.writes).toEqual([undefined]);
+        const again = await captureLogs(() => run(reconcileOrphanObjects(bucket, p.plan, NOW)));
+        expect(again).not.toContain("position unreadable");
+      },
+    );
+
+    it("replaces an unreadable position with a readable one when the lap does not fit", async () => {
+      const bucket = createBucket(objectsAt(30));
+      const position = memoryPosition("not json");
       const p = plan(
-        objectsAt(5).map((o) => o.key),
+        objectsAt(30).map((o) => o.key),
         { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
       );
 
-      const logs = await captureLogs(() => run(reconcileOrphanObjects(bucket, p.plan, NOW)));
+      await run(reconcileOrphanObjects(bucket, p.plan, NOW));
 
-      expect(bucket.listCalls[0]).toEqual({ prefix: PREFIX, limit: 10 });
-      expect(logs).toContain("position unreadable");
+      expect(position.current()).toEqual({ after: keyAt(9), lapStartedAt: NOW.getTime() });
     });
 
     it("starts a new lap silently when no position is stored", async () => {
@@ -583,6 +706,68 @@ describe("reconcileOrphanObjects", () => {
         "failed: list returned a key at or before the resume position",
       );
       expect(bucket.deleted.size).toBe(0);
+    });
+
+    it("fails when the listing returns the startAfter key itself", async () => {
+      const bucket = createBucket(objectsAt(30), { inclusiveStartAfter: true });
+      const p = plan(
+        objectsAt(30).map((o) => o.key),
+        {
+          budget: budget(
+            { maxObjects: 10, maxListCalls: 10 },
+            memoryPosition({ after: keyAt(14), lapStartedAt: NOW.getTime() }).store,
+          ),
+        },
+      );
+
+      expect(await outcome(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(
+        "failed: list returned a key at or before the resume position",
+      );
+    });
+
+    it("keeps its place after a failed delete, counts it, and deletes on the next run", async () => {
+      const objects = objectsAt(30);
+      const bucket = createBucket(objects);
+      const stored = { after: keyAt(9), lapStartedAt: NOW.getTime() - DAY_MS };
+      const position = memoryPosition(stored);
+      const p = plan(
+        objects.map((o) => o.key).filter((k) => k !== keyAt(12)),
+        { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
+      );
+      const errors = () =>
+        counterValue("cire.r2.objects.swept", { bucket: "sheets", result: "error" });
+      const errorsBefore = await errors();
+
+      bucket.deletes.reject = true;
+      expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(1);
+      expect(await errors()).toBe(errorsBefore + 1);
+      expect(position.writes).toEqual([]);
+      expect(bucket.keys()).toContain(keyAt(12));
+
+      bucket.deletes.reject = false;
+      expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(1);
+      expect([...bucket.deleted]).toEqual([keyAt(12)]);
+      expect(position.current()?.after).toBe(keyAt(19));
+    });
+
+    it("stores only a key under the prefix as its position, even when the listing returns others", async () => {
+      const bucket = createBucket(
+        [
+          { key: "assets/x/hero", uploaded: OLD },
+          { key: "imports/live", uploaded: OLD },
+          { key: "reconcile/imports-position.json", uploaded: OLD },
+          { key: "zz/other", uploaded: OLD },
+        ],
+        { ignorePrefix: true, shortPages: 3 },
+      );
+      const position = memoryPosition();
+      const p = plan(["imports/live"], {
+        budget: budget({ maxObjects: 10, maxListCalls: 1 }, position.store),
+      });
+
+      await run(reconcileOrphanObjects(bucket, p.plan, NOW));
+
+      expect(position.current()).toEqual({ after: "imports/live", lapStartedAt: NOW.getTime() });
     });
 
     it("does not end the lap on a truncated page that carries no cursor", async () => {
