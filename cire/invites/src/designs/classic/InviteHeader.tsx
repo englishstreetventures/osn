@@ -1,6 +1,7 @@
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
+import { HeroScrollCue } from "../../components/HeroScrollCue";
 import {
   cropAspectRatio,
   cropBackgroundStyle,
@@ -256,8 +257,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
             default gradient — keeps WCAG contrast on the title. */}
           {/* In flow (not absolute) so the title block sets the hero's height
               once it outgrows the viewport; min-h-dvh keeps the full-screen
-              feel for every normal-length title. */}
-          <div class="relative flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
+              feel for every normal-length title. The 2.5rem bottom padding is
+              the scroll cue's lane, so a title tall enough to grow the hero
+              still stops above the cue. */}
+          <div class="relative flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
             {/* Title block. A title legibility panel sits behind the title +
               monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
               0–1) controls how solid the dark scrim panel is, and its blur (0–20px)
@@ -333,6 +336,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               </Show>
             </div>
           </div>
+          <HeroScrollCue />
         </section>
       </Show>
 

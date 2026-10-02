@@ -7,7 +7,9 @@ related:
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-01
+  - "[[cire-consent]]"
+  - "[[browser-tests]]"
+last-reviewed: 2026-10-02
 ---
 # Invite design selector
 
@@ -108,6 +110,54 @@ and that download starts as the claim or restore begins.
 `tests/components/LoginSection.link-state.test.tsx` renders the real panel with
 every request held unanswered and fails if the box waits on one.
 
+## The hero scroll cue
+
+Every pack's hero fills the screen, so nothing below it shows. A small gold
+chevron at the hero's foot,
+[`HeroScrollCue`](../../cire/invites/src/components/HeroScrollCue.tsx), tells
+the guest the page carries on. A pack renders it as the last child of its hero
+`<section>` and passes an `align`:
+
+| `align` | Pack | Sits |
+|---|---|---|
+| `center` (default) | classic | centred under the centred title |
+| `end` | gala | in the inline-end corner on the hero's 1.5rem gutter, opposite the bottom-left title |
+
+- **A hint, not a control.** `aria-hidden` and `pointer-events-none`; a tap
+  goes to the hero beneath it.
+- **Motion is CSS, and it stops.** `animate-scroll-cue` (`styles/global.css`)
+  fades the glyph in 1s after load, drifts it 6px down and back twice, and
+  leaves it at rest. Fade and drift take 4.6s together: motion that starts by
+  itself and runs past five seconds needs a control to stop it (WCAG 2.2.2),
+  so a longer or endless drift is not an option. Both play from the server's
+  HTML, before the island hydrates.
+- **The first scroll hides it for good.** `createFirstScroll`
+  ([`first-scroll.ts`](../../cire/invites/src/components/first-scroll.ts))
+  turns true on the first scroll below the top, or at mount on a page the
+  browser restored part-way down, and never turns false again. The cue then
+  fades out over 500ms and pauses its drift; scrolling back to the top does
+  not bring it back. The latch belongs to the mounted hero, so a hero that
+  remounts reads the scroll position afresh.
+- **Reduced motion needs nothing of its own.** The global clamp lands the
+  entry at full opacity at once and runs the drift out to rest, so the cue is
+  there and still. The hide still happens, without the fade.
+- **It takes the bottom 1.875rem of the hero** (a 1rem offset under a
+  0.875rem glyph; the drift moves down, never up). A pack's hero keeps at least 2.5rem of
+  bottom padding under its title, so a title long enough to grow the hero
+  still stops above the cue. The cue's offset carries no `env()` inset: an
+  inset can only widen that padding, never move the cue into the title.
+- **The consent banner covers it on a first visit.** The banner
+  ([[cire-consent]]) is fixed to the bottom of the screen until the guest
+  answers it, and the cue sits underneath. Left that way on purpose: a guest
+  who scrolls with the banner up has found the scroll, which is all the cue
+  is for, and one who does not has to answer the banner to clear the screen,
+  by which time the cue is showing.
+
+`tests/designs/InviteHeader.browser.test.tsx` measures all of this in both
+packs, at phone and desktop width ([[browser-tests]]).
+`tests/designs/InviteHeader.ssr.test.tsx` checks the cue is in each pack's
+server HTML, and fails when the catalog gains a pack it does not list.
+
 ## Adding a design
 
 1. Catalog entry in `@cire/invite-designs` (type error in the web registry
@@ -116,7 +166,10 @@ every request held unanswered and fails if the box waits on one.
    `Document.astro` owns its font preloads and islands, so guests never
    download another design's assets. The pack renders `<LoginSection>` with a
    `layout`; a new panel shape is a new row in its `LAYOUTS` table, never
-   markup of the pack's own.
+   markup of the pack's own. Its hero ends with `<HeroScrollCue>` and keeps
+   2.5rem of bottom padding under the title (see
+   [The hero scroll cue](#the-hero-scroll-cue)); list the pack in
+   `InviteHeader.ssr.test.tsx` and `InviteHeader.browser.test.tsx`.
 3. Row in `cire/host/src/components/invite/design-layout.ts` describing how
    the pack is SHAPED, so the builder's preview stops previewing it as Classic.
    Not optional — `design-layout.test.ts` asserts every catalog id has its own

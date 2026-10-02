@@ -10,7 +10,7 @@ packages:
   - "@cire/host"
   - "@musubi/social"
   - "@pulse/web"
-last-reviewed: 2026-09-28
+last-reviewed: 2026-10-02
 ---
 
 # Browser Tests
@@ -277,6 +277,7 @@ nothing.
 | `@cire/invites`  | `tests/components/EventCard.browser.test.tsx`           | The RSVP confirmation fill **travels** (mid-sweep scale strictly between 0 and 1, so the transition is wired to the property Tailwind actually writes), lands on the `bloom` token, and is still painted seconds past `TOTAL_DURATION_MS`; a reply already on file paints filled on the first frame; the two `scale-x-*` utilities never coexist                                                                                                                                                                                                                                                     |
 | `@cire/invites`  | `tests/components/rsvp-confirmation.browser.test.tsx`   | The same fill, driven through the real `RsvpModal` → `EventCard` seam on real timers: nothing shows while the sheet still covers the button, a partial save leaves it plain, and a completing save's fill survives 5s+                                                                                                                                                                                                                                                                                                                                                                               |
 | `@cire/invites`  | `tests/designs/InvitePage.browser.test.tsx`             | The confirmation and the save toast inside the page they ship in, `describe.each`'d over **both** design packs — including the first-visit path, where Motion One's reveal has left its inline `transform` on the events section. The toast must have no fixed-position containing block between it and `<body>`, must stack above `Z_LAYER.MODAL` **and below `Z_LAYER.CONSENT`**, and must be anchored to the viewport                                                                                                                                                                             |
+| `@cire/invites`  | `tests/designs/InviteHeader.browser.test.tsx` | The hero's scroll cue in **both** packs at 390 and 1440px: once its entry has played it is painted, on screen, inside the hero, and centred (classic) or on the 1.5rem gutter (gala); its drift really moves `transform` 6px, twice, and the fade and drift together end inside WCAG 2.2.2's five seconds, leaving the cue still and in view; the first scroll fades it to opacity 0 and pauses the drift, and scrolling back to the top leaves it hidden; it sits below the title block even when a long title grows the hero past the viewport; and under emulated reduced motion it is painted, still and untransformed, and still hides on scroll |
 | `@cire/host`     | `tests/components/ImportPanel.browser.test.tsx`         | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `@musubi/social` | `tests/styles/token-contract.browser.test.tsx`          | A contract utility emits CSS **at all** (an unresolvable one emits nothing, silently); `bg-ui-accent` paints exactly what `--primary` holds; the destructive button's ink comes from `--destructive-foreground` rather than the `text-white` it used to hard-code; the mapping follows `.dark` because it is aliases and not literals; `base:` still compiles to `:where(…)`, so a call-site `class` still wins                                                                                                                                                                                      |
 | `@pulse/web`     | `tests/styles/token-contract.browser.test.tsx`          | The same chain on a different ramp, plus the mapping decision that only a colour can check: `--ui-accent` paints `--primary` and **not** the coral `--pulse-accent`, so nobody can "fix" the mapping to the brand colour and repaint every shared button                                                                                                                                                                                                                                                                                                                                             |
@@ -287,7 +288,7 @@ nothing.
 | `@cire/host`     | `tests/components/RsvpView.layout.browser.test.tsx`     | The organiser RSVP tables compute `table-layout: fixed` (reached through `[&>table]`, because `Table`'s `class` lands on its scrolling `<section>`); a column's share of the table does not move while a search narrows the list; every heading, status, Host-entered and Household-entered badge, plus-one marker, row button and word fits inside its column at 1280, 768 and 414px for an editor (five columns) and a viewer (four), against a 900-row list carrying a 35-letter unbroken surname and plus-ones whose marker names it; and a phone scrolls the region sideways at the 45rem / 37rem floor. An opt-in timing bench sits at the bottom of the file — see below |
 | `@cire/host`     | `tests/components/invite/InviteMessageCopy.browser.test.tsx` | The invite builder's message preview wraps a link and a household code with no space in them inside its card at the 320px Reflow floor, rather than widening the card — verified against the bug: it fails with `wrap-break-word` removed |
 
-Four of these were verified against the bug rather than merely written green.
+Five of these were verified against the bug rather than merely written green.
 The #203 test fails when the popover is put back at `z-90`. The
 `PreviewInviteButton` test fails when its label is put back to
 `hidden @2xl/frame:inline`, the exact class pair that left the invite preview
@@ -306,6 +307,19 @@ then `bun run --cwd cire/invites test:browser`: 9 failed / 8 passed, reporting
 `scrollWidth 307 > clientWidth 181` at a 320px viewport. Separately, `sr-only`
 replaced with `hidden` on the action's label: 3 failed / 14 passed, on
 `getComputedStyle(label).display` being `none`_
+
+The `InviteHeader` file fails when classic's hero scrim is given back its old
+bottom padding, `py-[max(1.5rem,…)]`: a long title then runs to 24px above the
+hero's edge, and the cue, whose top sits 30px up, overlaps it by 6px. It also fails with the
+drift keyframes moved from `transform` to `translate`, which is what keeps its
+reduced-motion `transform: none` assertion from passing vacuously.
+
+_Measured 2026-10-02 — classic's scrim padding put back to
+`py-[max(1.5rem,env(safe-area-inset-top))]`, then
+`bunx --bun vitest run --project browser tests/designs/InviteHeader.browser.test.tsx`
+from `cire/invites`: 2 failed / 14 passed, reporting `expected 1878.734375 to be
+greater than or equal to 1884.734375` at 390px. Separately, the drift written
+as `translate: 0 6px`: 2 failed / 14 passed, `expected +0 to be close to 6`_
 
 The `EventCard` pair exists because of a **two-PR miss**. The RSVP
 confirmation's fill was reported as reverting twice in a row while every test in
