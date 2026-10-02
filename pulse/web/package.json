@@ -3,8 +3,13 @@
   "version": "0.24.9",
   "private": true,
   "description": "Pulse - Events platform for OSN",
-  "license": "GPL-3.0",
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env vite dev",

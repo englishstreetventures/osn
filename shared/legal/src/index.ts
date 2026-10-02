@@ -74,7 +74,7 @@ export interface LegalEntity {
  * page names are real.
  */
 export const LEGAL_ENTITY: LegalEntity = {
-  name: "{{LEGAL_ENTITY}}",
+  name: "English Street Ventures Pty Ltd",
   postalAddress: "{{POSTAL_ADDRESS}}",
   contactEmail: "aniket@englishstventures.com",
   regulator: "Office of the Australian Information Commissioner (OAIC)",

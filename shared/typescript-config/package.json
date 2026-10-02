@@ -2,6 +2,12 @@
   "name": "@shared/typescript-config",
   "version": "0.0.2",
   "private": true,
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     "./base.json": "./base.json",
     "./solid.json": "./solid.json",
