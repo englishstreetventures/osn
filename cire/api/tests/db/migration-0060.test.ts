@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data-preservation proof for migration 0060 (the helper role + the per-helper
 // run-sheet scope). Structural lockstep is ddl-lockstep.test.ts's job; what
@@ -23,13 +25,8 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
-/** The chain as it stood before 0060. */
-function applyBaseline(db: Database): void {
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted();
-  for (const file of files.slice(0, files.indexOf(MIG_0060))) apply(db, file);
-}
+/** A copy of the archived chain as it stood before 0060. */
+const beforeMigration = (): Database => databaseBefore(MIG_0060, { foreignKeys: false });
 
 function seedSeats(db: Database): void {
   db.exec(
@@ -48,8 +45,7 @@ type SeatRow = { id: string; role: string; run_sheet_scope: string };
 
 describe("migration 0060", () => {
   it("back-fills every pre-existing seat to run_sheet_scope 'own', the closed value", () => {
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seedSeats(db);
     apply(db, MIG_0060);
 
@@ -65,8 +61,7 @@ describe("migration 0060", () => {
   });
 
   it("leaves every pre-existing seat's role untouched", () => {
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seedSeats(db);
     const before = db.query("SELECT id, role FROM wedding_hosts ORDER BY id").all();
     apply(db, MIG_0060);
@@ -75,8 +70,7 @@ describe("migration 0060", () => {
   });
 
   it("gives a seat inserted after 0060 without a scope the closed value too", () => {
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seedSeats(db);
     apply(db, MIG_0060);
     db.exec(
@@ -94,8 +88,7 @@ describe("migration 0060", () => {
     // The enum is app-layer; the column is plain TEXT. This pins that the
     // migration did not need to rebuild the table to admit the new value, which
     // is what makes 0060 a one-line ALTER rather than a copy-and-swap.
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seedSeats(db);
     apply(db, MIG_0060);
     db.exec(

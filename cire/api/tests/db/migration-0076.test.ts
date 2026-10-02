@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data proof for migration 0076, which moves ownership off
 // `weddings.owner_osn_profile_id` and onto `wedding_hosts` as `owner` seats.
@@ -15,16 +17,6 @@ import { join } from "node:path";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0076 = "0076_wedding_owners.sql";
-
-const numberOf = (file: string): number => Number(file.slice(0, 4));
-
-/** The live chain's files numbered in [from, to), in the order wrangler runs them. */
-function chain(from: number, to: number): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()
-    .filter((f) => numberOf(f) >= from && numberOf(f) < to);
-}
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
@@ -57,9 +49,7 @@ const seats = (db: Database): Seat[] =>
  * forbids either.
  */
 function beforeMigration(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 76)) apply(db, file);
+  const db = databaseBefore(MIG_0076, { foreignKeys: true });
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)
       VALUES ('wed_1', 'w1', 'W1', 'usr_owner1', 1000, 2000),
@@ -102,9 +92,7 @@ describe("migration 0076 — wedding owners become seats", () => {
   });
 
   it("mints a different seat id for each wedding", () => {
-    const db = new Database(":memory:");
-    db.exec("PRAGMA foreign_keys = ON;");
-    for (const file of chain(1, 76)) apply(db, file);
+    const db = databaseBefore(MIG_0076, { foreignKeys: true });
     const values = Array.from(
       { length: 20 },
       (_, i) => `('wed_${i}', 'w${i}', 'W', 'usr_${i}', 0, 0)`,
