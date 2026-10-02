@@ -24,6 +24,8 @@ import type {
 } from "../../src/services/invite-image-transform";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import type { RecordedStatement } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { fullWeddingCode, fullWeddingStatements } from "../test-helpers/full-wedding";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -794,7 +796,25 @@ describe("invite image upload + serve + remove", () => {
     expect(bogus.status).toBe(404);
   });
 
-  it("serves the footer image to a claimed session, marked private", async () => {
+  // A live session that belongs to a different wedding is the one input that
+  // tells "this household is invited here" apart from "some session is valid".
+  it("404s the closing image to a household claimed at another wedding", async () => {
+    const { app, db } = buildApp();
+    for (const statement of fullWeddingStatements("wed_lateral")) db.run(statement);
+    await uploadSlot(app, "footer");
+
+    const lateral = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: await guestCookie(app, fullWeddingCode("wed_lateral")) },
+    });
+    expect(lateral.status).toBe(404);
+
+    const home = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: await guestCookie(app) },
+    });
+    expect(home.status).toBe(200);
+  });
+
+  it("serves the footer image to a claimed session, private and for an hour", async () => {
     const { app } = buildApp();
     await appRequest(app, `${orgBase}/image/footer`, {
       method: "POST",
@@ -807,8 +827,48 @@ describe("invite image upload + serve + remove", () => {
     });
     expect(res.status).toBe(200);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
-    // No shared cache may keep a copy of session-gated bytes.
-    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    // No shared cache may keep a copy of session-gated bytes, and the browser
+    // asks the gate again after an hour, so a deactivated code stops showing it.
+    expect(res.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(res.headers.get("etag")).toBeTruthy();
+  });
+
+  // The revalidation answers 304 only past the gate: a browser that kept the
+  // bytes but lost its session gets the same 404 as anyone else.
+  it("revalidates the footer image through the session gate", async () => {
+    const { app } = buildApp();
+    await uploadSlot(app, "footer");
+    const cookie = await guestCookie(app);
+    const first = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: cookie },
+    });
+    const etag = first.headers.get("etag") ?? "";
+
+    const kept = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: cookie, "If-None-Match": etag },
+    });
+    expect(kept.status).toBe(304);
+
+    const lost = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { "If-None-Match": etag },
+    });
+    expect(lost.status).toBe(404);
+  });
+
+  it("logs a failed guest image serve by slot, never by slug", async () => {
+    const { app, db } = buildApp();
+    // A D1 error reaches the handler as a defect; dropping the table is the
+    // cheapest way to raise one here. Hero needs no session, so the lookup runs.
+    db.$client.exec("DROP TABLE wedding_invite_customisations");
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await appRequest(app, `/api/invite/${SLUG}/image/hero`);
+    });
+    expect(res?.status).toBe(500);
+    expect(await jsonBody(res as Response)).toEqual({ error: "Internal error" });
+    expect(logs).toContain("invite image serve failed");
+    expect(logs).toContain("hero");
+    expect(logs).not.toContain(SLUG);
   });
 
   // The public slots must NOT have been dragged behind the gate — the hero and
@@ -924,7 +984,7 @@ describe("organiser read of invite images", () => {
 
   // The portal reaches the API with the organiser session cookie, never a
   // bearer token, so the cookie is the credential that has to work.
-  it("serves the closing image to the owner's session cookie, marked private", async () => {
+  it("serves the closing image to the owner's session cookie, private and for an hour", async () => {
     const { app, db } = buildApp();
     await uploadFooter(app);
     const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
@@ -939,7 +999,78 @@ describe("organiser read of invite images", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
-    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(res.headers.get("etag")).toBeTruthy();
+  });
+
+  // After the hour the browser asks again. The gate answers before the 304, so a
+  // removed seat or a signed-out browser stops being shown the kept copy.
+  it("revalidates through the member gate", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const first = await appRequest(app, orgImage("footer"), {
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    const etag = first.headers.get("etag") ?? "";
+
+    const kept = await appRequest(app, orgImage("footer"), {
+      headers: { ...(await authHeaders(BOOTSTRAP_OWNER)), "If-None-Match": etag },
+    });
+    expect(kept.status).toBe(304);
+    expect(kept.headers.get("cache-control")).toBe("private, max-age=3600");
+
+    const signedOut = await appRequest(app, orgImage("footer"), {
+      headers: { "If-None-Match": etag },
+    });
+    expect(signedOut.status).toBe(401);
+    const helper = await appRequest(app, orgImage("footer"), {
+      headers: { ...(await authHeaders(seatCohost(db, "helper"))), "If-None-Match": etag },
+    });
+    expect(helper.status).toBe(403);
+  });
+
+  // The gate's own query carries the image keys, so the read costs the one
+  // statement that finds the caller's seat, and the wedding row is read once.
+  it("reads the image key in the gate's query", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    const statements = recordStatements(db);
+    const res = await appRequest(app, orgImage("footer"), { headers });
+    expect(res.status).toBe(200);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.sql).toContain('"wedding_invite_customisations"');
+  });
+
+  it("serves each wedding's own object for each slot", async () => {
+    const { app, db } = buildApp();
+    const pngWith = (...tail: number[]) => new Uint8Array([...PNG.subarray(0, 8), ...tail]);
+    const storyBytes = pngWith(0xb0, 0xb1);
+    const otherFooterBytes = pngWith(0xc0, 0xc1);
+    insertWedding(db, {
+      id: "wed_second_image",
+      slug: "second-image-wedding",
+      displayName: "Second",
+      owners: [BOOTSTRAP_OWNER],
+    });
+    const otherBase = "/api/organiser/weddings/wed_second_image/invite";
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    for (const [path, body] of [
+      [`${orgBase}/image/footer`, PNG],
+      [`${orgBase}/image/story`, storyBytes],
+      [`${otherBase}/image/footer`, otherFooterBytes],
+    ] as const) {
+      expect((await appRequest(app, path, { method: "POST", headers, body })).status).toBe(200);
+    }
+
+    const bytesOf = async (path: string) => {
+      const res = await appRequest(app, path, { headers });
+      return res.status === 200 ? new Uint8Array(await res.arrayBuffer()) : res.status;
+    };
+    expect(await bytesOf(orgImage("footer"))).toEqual(PNG);
+    expect(await bytesOf(orgImage("story"))).toEqual(storyBytes);
+    expect(await bytesOf(`${otherBase}/image/footer`)).toEqual(otherFooterBytes);
+    expect(await bytesOf(`${otherBase}/image/story`)).toBe(404);
   });
 
   it("serves every member role: owner by bearer, editor and viewer co-hosts", async () => {
@@ -1032,6 +1163,43 @@ describe("organiser read of invite images", () => {
     expect((await appRequest(app, orgImage("footer"), { headers })).status).toBe(404);
   });
 
+  // A key whose object is gone (an orphaned delete, a failed put) is a stale
+  // reference: the portal shows no image rather than an error.
+  it("404s a closing image whose object is gone from R2", async () => {
+    const { app, assets } = buildApp();
+    await uploadFooter(app);
+    assets._store.clear();
+    const res = await appRequest(app, orgImage("footer"), {
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "Not found" });
+  });
+
+  it("answers a failed serve with a plain 500 and logs the wedding id and slot, never the slug", async () => {
+    const failing = {
+      default: {
+        match: () => Promise.reject(new Error("cache unavailable")),
+        put: () => Promise.resolve(),
+      },
+    } as unknown as CacheStorage;
+    await withCaches(failing, async () => {
+      const { app } = buildApp({ images: createImagesStub() });
+      await uploadFooter(app);
+      const headers = await authHeaders(BOOTSTRAP_OWNER);
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await appRequest(app, orgImage("footer"), { headers });
+      });
+      expect(res?.status).toBe(500);
+      expect(await jsonBody(res as Response)).toEqual({ error: "Internal error" });
+      expect(logs).toContain("invite image serve failed");
+      expect(logs).toContain("footer");
+      expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
+      expect(logs).not.toContain(SLUG);
+    });
+  });
+
   // The guest route's gate is not widened: an organiser session is not a
   // claimed household, so the guest URL still answers as if there were no image.
   it("still 404s the guest route for an organiser session alone", async () => {
@@ -1085,6 +1253,35 @@ describe("organiser read of invite images", () => {
       });
     });
 
+    it("an authenticated non-member is refused before the cache", async () => {
+      const cache = createCacheStub();
+      await withCaches(cache.caches, async () => {
+        const { app, db } = buildApp({ images: createImagesStub() });
+        await uploadFooter(app);
+        insertWedding(db, {
+          id: "wed_other_cache",
+          slug: "other-cache-wedding",
+          displayName: "Other",
+          owners: ["usr_other_cache_owner"],
+        });
+
+        const warm = await appRequest(app, orgImage("footer"), {
+          headers: await authHeaders(BOOTSTRAP_OWNER),
+        });
+        expect(warm.status).toBe(200);
+        expect(cache.calls.put).toBe(1);
+        const matches = cache.calls.match;
+
+        for (const profileId of ["usr_other_cache_owner", seatCohost(db, "helper")]) {
+          const res = await appRequest(app, orgImage("footer"), {
+            headers: await authHeaders(profileId),
+          });
+          expect(res.status).toBe(403);
+        }
+        expect(cache.calls.match).toBe(matches);
+      });
+    });
+
     it("re-stamps a cache hit private on the organiser route", async () => {
       const cache = createCacheStub();
       await withCaches(cache.caches, async () => {
@@ -1097,7 +1294,7 @@ describe("organiser read of invite images", () => {
         const hit = await appRequest(app, orgImage("footer"), { headers });
         expect(hit.status).toBe(200);
         expect(images.widths).toHaveLength(1);
-        expect(hit.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+        expect(hit.headers.get("cache-control")).toBe("private, max-age=3600");
       });
     });
   });
@@ -1590,6 +1787,21 @@ describe("invite write rate limiting (IB-S-L1)", () => {
     // same IP is rejected with 429 regardless of credentials.
     expect((await put(emptyText)).status).not.toBe(429);
     expect((await put(emptyText)).status).toBe(429);
+  });
+
+  // A builder view loads the closing image three or four times; on the write
+  // limiter those loads would spend the organiser's budget for saves.
+  it("does not count the organiser's image loads against the write limit", async () => {
+    const { app } = buildApp({
+      inviteLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    await uploadSlot(app, "footer");
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    for (let load = 0; load < 3; load++) {
+      expect((await appRequest(app, `${orgBase}/image/footer`, { headers })).status).toBe(200);
+    }
+    const write = await appRequest(app, `${orgBase}/image/footer`, { method: "DELETE", headers });
+    expect(write.status).toBe(429);
   });
 });
 

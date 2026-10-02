@@ -78,7 +78,9 @@ export function blurForVariant(variant: ImageVariant): number | undefined {
  * and refusing to mint URLs outside the set is what bounds cardinality.
  */
 export function resolveVariant(raw: string | null | undefined): ImageVariant {
-  if (raw && raw in IMAGE_VARIANTS) return raw as ImageVariant;
+  // An own-key test: `in` would also admit `toString`, `constructor` and the
+  // rest of `Object.prototype`, each a distinct cache key and metric value.
+  if (raw && Object.hasOwn(IMAGE_VARIANTS, raw)) return raw as ImageVariant;
   return DEFAULT_VARIANT;
 }
 
@@ -259,9 +261,10 @@ export function transformAsset(
  *   with its bytes (a re-upload mints a fresh key and so a fresh `?v=`), so a
  *   long life never serves stale bytes; what it gives up is withdrawal.
  * - `revocable` — {@link REVOCABLE_MAX_AGE_S}, and revalidated after it. For a
- *   `public` slot whose route has a gate that can close — the guest gift list
- *   can be unpublished — so that closing it reaches browser and proxy copies in
- *   bounded time rather than in a year.
+ *   slot whose route has a gate that can close — the guest gift list can be
+ *   unpublished, a household's code deactivated, an organiser's seat removed —
+ *   so that closing it reaches browser (and, for a `public` slot, proxy) copies
+ *   in bounded time rather than in a year.
  */
 export type ImageClientLifetime = "immutable" | "revocable";
 
@@ -452,7 +455,7 @@ export function serveTransformedImage(args: {
   images?: ImagesBindingLike;
   /** `private` for session- or organiser-gated slots — no shared cache copy. */
   visibility?: "public" | "private";
-  /** `revocable` for a public slot whose gate can close — see {@link ImageClientLifetime}. */
+  /** `revocable` for a slot whose gate can close — see {@link ImageClientLifetime}. */
   lifetime?: ImageClientLifetime;
 }): Effect.Effect<Response, AssetR2Error, AssetsR2Service> {
   const {

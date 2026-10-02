@@ -312,6 +312,45 @@ const SLOT_COLUMNS = {
 >;
 
 /**
+ * A wedding's image keys and hero blur, as a LEFT JOIN onto
+ * `wedding_invite_customisations` reads them: every field is null when the
+ * wedding has no customisation row yet.
+ */
+export interface InviteImageKeys {
+  readonly heroImageKey: string | null;
+  readonly storyImageKey: string | null;
+  readonly footerImageKey: string | null;
+  readonly heroBlur: number | null;
+}
+
+/** What an image serve needs for one slot: its R2 key, version and hero blur. */
+export interface SlotImage {
+  readonly key: string | null;
+  readonly imageVersion: string | null;
+  readonly heroBlur: number;
+}
+
+/**
+ * Pick one slot's key out of a wedding's image keys, with its key-derived
+ * version and the hero blur (the default when the wedding has none). Both image
+ * serve routes end here: the public route after `imageKeyForSlug`, the organiser
+ * route with the keys its `weddingMember()` gate joined into its own query.
+ */
+export function imageKeyFromRow(row: InviteImageKeys, slot: InviteImageSlot): SlotImage {
+  const key = row[SLOT_COLUMNS[slot].key];
+  const heroBlur = row.heroBlur ?? HERO_BLUR_DEFAULT;
+  return {
+    key,
+    imageVersion: key
+      ? slot === "hero"
+        ? heroVersionFromKey(key, heroBlur)
+        : versionFromKey(key)
+      : null,
+    heroBlur,
+  };
+}
+
+/**
  * The crop column(s) to null out when a slot's image is replaced or removed — a
  * fresh image invalidates the previous rectangle (it framed a different photo),
  * so the slot starts full-frame again. For the hero that means BOTH rectangles.
@@ -685,12 +724,11 @@ export const inviteService = {
    * per-event image path in `event-image.ts`) and the per-wedding `heroBlur`.
    * The serve route derives its edge-cache key from this server-side version
    * (not the client `?v=`), so an attacker can't loop distinct `?v=` values to
-   * force unbounded, per-call-billed transforms (S-M1). Deriving the version
-   * from the SLOT's own key rather than the row's `updatedAt`/`imagesUpdatedAt`
-   * fixes two over-invalidation bugs at once (P-I1): a copy/colour save never
-   * bumps it (the key is unchanged — WT-P-I1), and bumping one slot never
-   * busts another slot's cache (each slot's version comes from its own
-   * column). The version is null when there is no key — either the wedding has
+   * force unbounded, per-call-billed transforms. The version comes from the
+   * SLOT's own key rather than the row's `updatedAt`/`imagesUpdatedAt`, so a
+   * copy/colour save never bumps it (the key is unchanged), and bumping one
+   * slot never busts another slot's cache (each slot's version comes from its
+   * own column). `imageKeyFromRow` does the picking. The version is null when there is no key — either the wedding has
    * no customisation row yet (LEFT JOIN miss) or that slot has no image — so
    * the route 404s before it ever builds a cache key.
    *
@@ -706,20 +744,15 @@ export const inviteService = {
   imageKeyForSlug(
     slug: string,
     slot: InviteImageSlot,
-  ): Effect.Effect<
-    { key: string | null; imageVersion: string | null; heroBlur: number },
-    WeddingNotFound,
-    DbService
-  > {
+  ): Effect.Effect<SlotImage, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Single LEFT JOIN keyed on the slug: a missing weddings row is a 404; a
       // present wedding with a null-joined customisation is a legitimate
-      // "no image yet" (IB-P-I1).
+      // "no image yet".
       const [row] = yield* dbQuery(() =>
         db
           .select({
-            weddingId: weddings.id,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             footerImageKey: weddingInviteCustomisations.footerImageKey,
@@ -734,17 +767,7 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      const key = row[SLOT_COLUMNS[slot].key];
-      const heroBlur = row.heroBlur ?? HERO_BLUR_DEFAULT;
-      return {
-        key,
-        imageVersion: key
-          ? slot === "hero"
-            ? heroVersionFromKey(key, heroBlur)
-            : versionFromKey(key)
-          : null,
-        heroBlur,
-      };
+      return imageKeyFromRow(row, slot);
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 

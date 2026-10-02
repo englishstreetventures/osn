@@ -24,7 +24,8 @@ import {
   type InviteImageSlot,
 } from "../schemas/invite";
 import { eventImageService } from "../services/event-image";
-import { inviteService } from "../services/invite";
+import { imageKeyFromRow, inviteService } from "../services/invite";
+import type { SlotImage } from "../services/invite";
 import { AssetsR2Service, detectImageType, MAX_IMAGE_BYTES } from "../services/invite-assets";
 import type { AssetsBucket } from "../services/invite-assets";
 import { inviteFaqService } from "../services/invite-faq";
@@ -46,9 +47,19 @@ import { tierService } from "../services/tiers";
 const manualParse = { parse: () => ({}) };
 
 /**
+ * How a slot's response may be kept outside the Worker. A `public` response is
+ * served to anyone, so any cache may keep it for a year. A `gated` one is
+ * served only past a gate that can close (a household's code deactivated, an
+ * organiser's seat removed, a sign-out), so it is `private` and `revocable`:
+ * the browser keeps it for an hour, then asks the gate again.
+ */
+type SlotAccess = "public" | "gated";
+
+/**
  * Serve one invite slot's bytes once the calling route's gate has passed. The
  * public route and the organiser route both end here, so they cannot disagree
- * on the cache version, the hero backdrop blur or the cache key.
+ * on the cache version, the hero backdrop blur, the cache key or how long a
+ * gated response may be kept.
  *
  * Both routes use the cache slot `<slug>:<slot>`, so they share one per-colo
  * Cache API entry for the same bytes. That is safe only because each route runs
@@ -58,16 +69,14 @@ function serveSlotImage(args: {
   request: Request;
   slug: string;
   slot: InviteImageSlot;
-  key: string;
-  imageVersion: string | null;
-  heroBlur: number;
+  image: SlotImage & { readonly key: string };
   variant: ImageVariant;
   format: OutputFormat;
-  visibility: "public" | "private";
+  access: SlotAccess;
   images?: ImagesBindingLike;
 }) {
-  const { request, slug, slot, key, imageVersion, heroBlur, variant, format, visibility, images } =
-    args;
+  const { request, slug, slot, image, variant, format, access, images } = args;
+  const { key, imageVersion, heroBlur } = image;
   // Server-derived IMAGE version (a digest of the slot's own R2 key,
   // `versionFromKey`): a re-upload mints a fresh key ⇒ a fresh version ⇒ a
   // fresh cache entry, so the new image is never served stale — while
@@ -93,7 +102,8 @@ function serveSlotImage(args: {
     version,
     cacheSlot: `${slug}:${slot}`,
     logSlot: slot,
-    visibility,
+    visibility: access === "gated" ? "private" : "public",
+    lifetime: access === "gated" ? "revocable" : "immutable",
     variant,
     format,
     blurOverride,
@@ -154,7 +164,7 @@ export const createInvitePublicRoutes = (
       const slot = params.slot;
       // Bounded, allowlisted variant (?variant=) + Accept-negotiated output
       // format. Both collapse to a fixed value, so the transform-URL/format
-      // cardinality per slot is capped (3 variants × 3 formats) — keeps the edge
+      // cardinality per slot is capped (4 variants × 3 formats) — keeps the edge
       // cache hot and denies an attacker unbounded distinct transform URLs.
       // (The client's `?v=` is intentionally NOT read here — the cache version is
       // derived server-side from the SLOT's own R2 key below.)
@@ -175,10 +185,8 @@ export const createInvitePublicRoutes = (
           // on EVERY request — it's cheap and is the source of the authoritative
           // version; the expensive work (R2 read + Images binding call) is still
           // skipped on a cache hit below.
-          const { key, imageVersion, heroBlur } = yield* inviteService.imageKeyForSlug(
-            params.slug,
-            slot,
-          );
+          const image = yield* inviteService.imageKeyForSlug(params.slug, slot);
+          const { key } = image;
           if (!key) {
             set.status = 404;
             return { error: "Not found" };
@@ -217,12 +225,10 @@ export const createInvitePublicRoutes = (
             request,
             slug: params.slug,
             slot,
-            key,
-            imageVersion,
-            heroBlur,
+            image: { ...image, key },
             variant,
             format,
-            visibility: slotRequiresSession(slot) ? "private" : "public",
+            access: slotRequiresSession(slot) ? "gated" : "public",
             images,
           });
         }).pipe(
@@ -327,11 +333,14 @@ export const createInvitePublicRoutes = (
  * people who can load its image: owners, editors and viewers. No organiser
  * credential is 401; a caller with no member seat on this wedding (another
  * wedding's organiser, a helper) is 403; an unknown or deleted wedding is 404.
- * The key is looked up from the slug `weddingMember` read for the caller's seat
- * on `:weddingId`, so no request can reach another wedding's object.
+ * The gate joins the wedding's image keys into the query that finds the
+ * caller's seat on `:weddingId` (`inviteImages: true`), so the handler reads no
+ * row of its own and no request can reach another wedding's object.
  *
- * Every slot is served, always `private`: these responses are authenticated, so
- * no shared cache may keep a copy. Only the closing image is linked here today.
+ * Every slot is served, always `gated`: these responses are authenticated, so no
+ * shared cache may keep a copy, and the browser asks the gate again after an
+ * hour, so a removed seat or a sign-out stops the image being shown. Only the
+ * closing image is linked here today.
  *
  * Its own sibling instance, like the registry image serve route, so the invite
  * writes' per-IP limiter does not count the builder's image loads, and so the
@@ -346,67 +355,57 @@ export const createInviteImageServeRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
-        .get("/invite/image/:slot", ({ weddingId, weddingSlug, params, query, request, set }) => {
-          if (!weddingId || !weddingSlug) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          if (!isInviteImageSlot(params.slot)) {
-            set.status = 404;
-            return { error: "Not found" };
-          }
-          const slot = params.slot;
-          const variant = resolveVariant((query as Record<string, string | undefined>).variant);
-          const format = negotiateFormat(request.headers.get("accept"));
-          return runCire(
-            Effect.gen(function* () {
-              const { key, imageVersion, heroBlur } = yield* inviteService.imageKeyForSlug(
-                weddingSlug,
-                slot,
-              );
-              if (!key) {
-                set.status = 404;
-                return { error: "Not found" };
-              }
-              return yield* serveSlotImage({
+        .use(weddingMember(db, { inviteImages: true }))
+        .get(
+          "/invite/image/:slot",
+          ({ weddingId, weddingSlug, weddingInviteImages, params, query, request, set }) => {
+            if (!weddingId || !weddingSlug || !weddingInviteImages) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            if (!isInviteImageSlot(params.slot)) {
+              set.status = 404;
+              return { error: "Not found" };
+            }
+            const slot = params.slot;
+            const image = imageKeyFromRow(weddingInviteImages, slot);
+            const { key } = image;
+            if (!key) {
+              set.status = 404;
+              return { error: "Not found" };
+            }
+            const variant = resolveVariant((query as Record<string, string | undefined>).variant);
+            const format = negotiateFormat(request.headers.get("accept"));
+            return runCire(
+              serveSlotImage({
                 request,
                 slug: weddingSlug,
                 slot,
-                key,
-                imageVersion,
-                heroBlur,
+                image: { ...image, key },
                 variant,
                 format,
-                visibility: "private",
+                access: "gated",
                 images: deps.images,
-              });
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.provideService(AssetsR2Service, deps.assets as AssetsBucket),
-              Effect.catchTag("WeddingNotFound", () =>
-                Effect.sync(() => {
-                  set.status = 404;
-                  return { error: "Not found" };
-                }),
+              }).pipe(
+                Effect.provideService(AssetsR2Service, deps.assets as AssetsBucket),
+                // A key that is absent from R2 is a stale reference, not a fault.
+                Effect.catchTag("AssetR2Error", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite image serve failed", { weddingId, slot });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
               ),
-              // A key that is absent from R2 is a stale reference, not a fault.
-              Effect.catchTag("AssetR2Error", () =>
-                Effect.sync(() => {
-                  set.status = 404;
-                  return { error: "Not found" };
-                }),
-              ),
-              Effect.catchDefect(() =>
-                Effect.gen(function* () {
-                  yield* Effect.logError("invite image serve failed", { weddingId, slot });
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-            ),
-          );
-        }),
+            );
+          },
+        ),
     );
 
 /**
