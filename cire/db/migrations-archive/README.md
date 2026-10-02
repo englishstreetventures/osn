@@ -16,13 +16,16 @@ this directory. A deployed database that applied them holds their names in its
 - `scripts/cire-db-migrate.ts`, behind every `db:migrate:*` script, compares a
   target database's ledger against these names before it applies anything. A
   database that applied part of this chain must have applied all of it from
-  the first entry it holds; otherwise wrangler would skip the baseline and the
-  rest of the chain would never run there.
+  the start of its chain (`CHAIN_STARTS` in that script) to the newest file
+  here; otherwise wrangler would skip the baseline and the rest of the chain
+  would never run there.
 - The data-migration tests replay them to prove what a migration did to rows
   that already existed — a back-fill that silently changed what a guest sees is
   the bug class they exist for: `cire/api/tests/db/migration-*.test.ts`, the
   `0031` and `0037` blocks in `ddl-lockstep.test.ts`, and the `0063`, `0065`,
   `0073` and `0076` cases in `d1-integration.test.ts`.
+  `cire/api/tests/test-helpers/archived-chain.ts` replays the chain up to a
+  file once and hands each test its own copy.
 
 ## Rules
 

@@ -32,7 +32,8 @@ Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
 `cire/api/wrangler.toml` via the `--config` flag baked into each script. The
 four scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
 which checks the target's ledger first (see the baseline section below) and
-runs the wrangler `cire/api` pins.
+runs the wrangler `cire/api` installs from the lockfile. Without that install
+it stops rather than fetch another version.
 
 | Script             | What it does                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
@@ -108,11 +109,17 @@ the target's ledger before anything is applied:
 | The ledger holds | Verdict |
 | --- | --- |
 | nothing, or no `d1_migrations` table | a fresh database — apply |
-| `0001_initial.sql` and live migrations | built from the baseline — apply |
+| `0001_initial.sql` and live migrations, numbered after the archive | built from the baseline — apply |
 | `0001_initial.sql` alone | apply if every table and index this baseline creates is stored there as written; otherwise an older baseline built it — **refuse** |
-| archived migrations, all of them from the first it holds to the newest | built from the old chain, complete — apply |
-| archived migrations with any later one missing | **refuse**, naming the missing files |
+| archived migrations, every one from the start of their chain to the archive's newest | built from an older chain, complete — apply |
+| archived migrations with any of that run missing | **refuse**, naming the missing files |
+| a name that is not archived yet is numbered within the archive | a migration from outside this chain ran there — **refuse** |
 | no `0001_initial.sql` | **refuse** |
+
+A chain starts at one of the names in `CHAIN_STARTS` in
+`scripts/cire-db-migrate.ts`: `0002`, where the original chain began, and
+`0058`, the first migration after the previous baseline. The ledger read gives
+up after two minutes, so a stalled call fails the deploy instead of holding it.
 
 A bare `wrangler d1 migrations apply` makes no such check. A refused database
 is brought level with the code that matches it, never by applying archived
@@ -132,25 +139,31 @@ When `scripts/guard-d1-migration-cost.ts --all` nears its line, squash the
 chain rather than raise the line:
 
 1. **Every deployed database must already have applied every live migration.**
-   For production, `bunx wrangler --config cire/api/wrangler.toml d1 migrations
-   list cire-db --env production --remote` must say "No migrations to apply!".
+   For production, `bun run --cwd cire/api wrangler d1 migrations list cire-db
+   --env production --remote` must say "No migrations to apply!". Running it
+   through cire/api uses the wrangler the lockfile installs, never one fetched
+   from the registry.
    A database that has not is refused by the ledger check after the squash, and
    every deploy to it stops until a pre-squash deploy run brings it level.
-2. `git mv` every live migration after the baseline into `migrations-archive/`.
+2. Append the first live migration after the baseline to `CHAIN_STARTS` in
+   `scripts/cire-db-migrate.ts`. A database built from the current baseline
+   holds that name first; without it in the list the check refuses every such
+   database after the squash.
+3. `git mv` every live migration after the baseline into `migrations-archive/`.
    The archive stays contiguous from `0001`.
-3. Regenerate `0001_initial.sql` from a replay of the whole archive into
+4. Regenerate `0001_initial.sql` from a replay of the whole archive into
    `bun:sqlite` with `PRAGMA foreign_keys = ON`: each table's and then each
    index's `sqlite_master.sql`, in creation (`rowid`) order, leaving out
    `sqlite_%` objects, each statement followed by `;` and its own
    `--> statement-breakpoint`. Keep the header comment.
-4. Trim `meta/_journal.json` to one entry: `tag: 0001_initial`, `idx` the
+5. Trim `meta/_journal.json` to one entry: `tag: 0001_initial`, `idx` the
    archive's highest number. Keep only the snapshot named for that index.
    `bunx drizzle-kit generate` must print "No schema changes, nothing to
    migrate".
-5. Set the row in `scripts/d1-migration-cost-budgets.txt` to twice the new
+6. Set the row in `scripts/d1-migration-cost-budgets.txt` to twice the new
    baseline, and update the figures in `migrations-archive/README.md`, this
    file and `wiki/conventions/bundle-size-guards.md`.
-6. Run `bun run --cwd cire/api test`, `bun run --cwd cire/api test:d1` and
+7. Run `bun run --cwd cire/api test`, `bun run --cwd cire/api test:d1` and
    `bun run test:scripts`.
 
 ### How `meta/` relates to the hand-authored migrations
