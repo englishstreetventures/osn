@@ -1,5 +1,11 @@
 # @osn/client
 
+## 2.18.3
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+
 ## 2.18.2
 
 ### Patch Changes

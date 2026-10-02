@@ -1,6 +1,6 @@
 {
   "name": "@tools/lab",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "description": "Component lab — a Storybook-shaped scratchpad for spiking UI, three.js and canvas work",
   "type": "module",

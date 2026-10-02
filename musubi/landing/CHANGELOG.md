@@ -1,5 +1,13 @@
 # @osn/landing
 
+## 0.2.9
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/legal@0.0.3
+
 ## 0.2.8
 
 ### Patch Changes

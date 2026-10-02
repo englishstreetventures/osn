@@ -1,5 +1,13 @@
 # @zap/db
 
+## 0.6.3
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @shared/db-utils@0.7.3
+
 ## 0.6.2
 
 ### Patch Changes

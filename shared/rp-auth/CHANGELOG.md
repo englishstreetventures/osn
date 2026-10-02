@@ -1,5 +1,11 @@
 # @shared/rp-auth
 
+## 0.2.7
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+
 ## 0.2.6
 
 ### Patch Changes

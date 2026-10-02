@@ -1,5 +1,21 @@
 # @osn/osn
 
+## 3.28.10
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @osn/db@0.24.4
+  - @shared/crypto@0.13.11
+  - @shared/db-utils@0.7.3
+  - @shared/email@0.13.1
+  - @shared/observability@0.18.4
+  - @shared/openapi-tools@0.1.4
+  - @shared/rate-limit@0.3.4
+  - @shared/redis@0.8.2
+  - @shared/turnstile@0.2.27
+
 ## 3.28.9
 
 ### Patch Changes

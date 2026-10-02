@@ -1,5 +1,18 @@
 # @osn/pulse
 
+## 0.24.10
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @pulse/api@0.27.18
+  - @shared/design-tokens@0.3.3
+  - @shared/legal@0.0.3
+  - @shared/rp-auth@0.2.7
+  - @shared/toast@0.3.2
+  - @shared/ui@0.3.1
+
 ## 0.24.9
 
 ### Patch Changes

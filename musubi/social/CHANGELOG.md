@@ -1,5 +1,18 @@
 # @osn/social
 
+## 0.18.1
+
+### Patch Changes
+
+- 7f0b645: Set package author to English Street Ventures Pty Ltd, license to UNLICENSED, and repository URL.
+- Updated dependencies [7f0b645]
+  - @osn/auth-ui@3.0.6
+  - @osn/client@2.18.3
+  - @shared/design-tokens@0.3.3
+  - @shared/legal@0.0.3
+  - @shared/toast@0.3.2
+  - @shared/ui@0.3.1
+
 ## 0.18.0
 
 ### Minor Changes
