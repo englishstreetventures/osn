@@ -19,8 +19,10 @@ It reads the target's `d1_migrations` ledger first and refuses, naming the
 missing files, a database that stopped part-way through the archive, where
 wrangler would otherwise skip the rest without a word. A ledger holding only
 the baseline's name is checked against the schema itself, so a database an
-older baseline built is refused too. It applies with the wrangler version
-`@cire/api` pins.
+older baseline built is refused too, and so is a ledger naming a migration
+from outside the archived chain. It reads and applies with the wrangler
+`@cire/api` installs from the lockfile, and stops when that install is
+missing rather than fetch another version.
 
 **Production must apply `0062`–`0081` before this merges.** Its last cire-api
 deploy ran on 2026-09-21, when the chain ended at `0061`. Until a pre-squash

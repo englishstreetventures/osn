@@ -661,7 +661,11 @@ That skip is only right once production has applied **every** archived
 migration. `bun run --cwd cire/db db:migrate:prod` runs
 `scripts/cire-db-migrate.ts`, which reads production's ledger first and refuses
 — before any migration runs or the Worker deploys — when an archived migration
-after the first one it holds is missing. The refusal names the files.
+of the chain it started is missing, or when it names a migration from outside
+that chain. The refusal names the files. The script runs the wrangler
+`cire/api` installs from the lockfile and gives up on a ledger read after two
+minutes, so a stalled call fails the job instead of holding the production
+concurrency group.
 
 > [!warning] Bring production level with a deploy run, never by hand
 > Approve the `deploy.yml` run of a commit from before those files were
