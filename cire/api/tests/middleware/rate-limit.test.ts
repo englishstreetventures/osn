@@ -3,8 +3,12 @@ import { describe, it, expect } from "bun:test";
 import { createRateLimiter } from "@shared/rate-limit";
 import { Elysia } from "elysia";
 
-import { rateLimitMiddleware } from "../../src/middleware/rate-limit";
-import { appRequest } from "../test-helpers";
+import {
+  RateLimiterUnbound,
+  rateLimitMiddleware,
+  rateLimitMiddlewareByUser,
+} from "../../src/middleware/rate-limit";
+import { appRequest, jsonBody } from "../test-helpers";
 
 function createTestApp(maxRequests: number) {
   const limiter = createRateLimiter({ maxRequests, windowMs: 60_000 });
@@ -60,5 +64,30 @@ describe("rateLimitMiddleware", () => {
       }),
     );
     expect(res.status).toBe(429);
+  });
+});
+
+describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
+  // Stands in for `osnAuth`, which derives `osnProfileId` before the limiter.
+  function appWith(check: () => Promise<boolean>) {
+    return new Elysia({ aot: false })
+      .derive({ as: "scoped" }, () => ({ osnProfileId: "usr_a" }))
+      .use(rateLimitMiddlewareByUser({ check }))
+      .post("/test", () => ({ ok: true }));
+  }
+
+  it("answers 503 when the limiter has no binding to count with", async () => {
+    const app = appWith(() =>
+      Promise.reject(new RateLimiterUnbound("REGISTRY_THUMB_RATE_LIMITER")),
+    );
+    const res = await appRequest(app, "/test", { method: "POST" });
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ error: "rate_limiter_unavailable" });
+  });
+
+  it("never lets the request through on any other throw", async () => {
+    const app = appWith(() => Promise.reject(new Error("boom")));
+    const res = await appRequest(app, "/test", { method: "POST" });
+    expect(res.status).toBe(500);
   });
 });

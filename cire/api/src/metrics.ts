@@ -534,7 +534,9 @@ type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryIma
 /** How one picker thumbnail ended. `original` is the local path with no Images
  *  binding, where the sniffed bytes are served as they arrived; `unavailable` is
  *  a deployed tier refusing to do that; `transform_failed` includes a spent
- *  Images quota; `budget_spent` is the picker's own monthly share running out. A refusal is its own value, as on the preview counter. */
+ *  Images quota; `budget_spent` is the picker's own monthly share running out;
+ *  `transform_paused` is a request skipped because recent transforms failed.
+ *  A refusal is its own value, as on the preview counter. */
 export type RegistryLinkThumbResult =
   | "ok"
   | "cache_hit"
@@ -545,7 +547,8 @@ export type RegistryLinkThumbResult =
   | "too_large"
   | "transform_failed"
   | "unavailable"
-  | "budget_spent";
+  | "budget_spent"
+  | "transform_paused";
 type RegistryLinkThumbAttrs = { result: RegistryLinkThumbResult };
 /** The Worker entry point a session-routed D1 client was built for. */
 export type D1SessionEntry = "fetch" | "scheduled";
