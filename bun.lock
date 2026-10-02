@@ -241,7 +241,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -436,7 +436,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.19",
+      "version": "0.1.20",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -459,7 +459,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.8",
+      "version": "0.24.9",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -660,7 +660,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
