@@ -133,7 +133,7 @@ describe("repointDevOwnerSeat", () => {
     id: DEV_OWNER_SEAT_ID,
     osnProfileId,
     addedByOsnProfileId: osnProfileId,
-    role: "owner",
+    role: "owner" as const,
   });
 
   function seeded(): TestDb {
