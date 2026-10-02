@@ -474,7 +474,7 @@ How the fast tier avoids them differs by runner, and the difference is worth kno
 | Package | Fast-tier runner | Does `bun run test` load the D1 file? |
 |---|---|---|
 | `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
-| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. Pre-existing and harmless, but it means a workerd failure reddens cire's fast tier too. |
+| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. Pre-existing and harmless, but it means a workerd failure reddens cire's fast tier too. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 ```bash
 bun run test:d1            # all four packages, serially
@@ -533,6 +533,35 @@ both of which must stay silent.
 
 The rule itself is wired into `oxlintrc.json` as a second `jsPlugins` entry, so
 `bun run lint` runs it over the whole repo like any published rule.
+
+## Testing a script that runs another program
+
+A `scripts/*.ts` file with an `import.meta.main` block that spawns a program
+(wrangler, drizzle-kit, `gh`) has two halves. The pure half is tested by
+importing it. The CLI half decides what reaches the program and what the
+script exits with, and it needs a program to talk to, but not the real one.
+Left untested, it is where a change that ignores a refusal or swallows an exit
+code passes a suite that covers only the pure half.
+
+- Copy the script byte for byte into a temporary tree shaped like the
+  repository, so its `import.meta.dir`-relative paths resolve inside the tree.
+  Symlink in anything it only reads.
+- Put a stand-in where the script looks for the program, for example
+  `cire/api/node_modules/.bin/wrangler`: a bash script that appends its working
+  directory and arguments to a log, then prints and exits with whatever files
+  the test wrote. `kill -9 $$` in the stand-in gives a signal exit.
+- Run the copy with `process.execPath run`, then assert on the exit code,
+  stderr and the log — including that a refused case never logged the call it
+  must not make.
+- Each test builds its own tree, so `describe.concurrent` is safe. On macOS,
+  `realpathSync` the temporary root: `/var` links to `/private/var`, and the
+  stand-in reports the real path.
+
+Nothing in the script points it at the stand-in — no flag, no environment
+variable — so the code under test is the code CI runs.
+[cire-db-migrate.cli.test.ts](../../scripts/tests/cire-db-migrate.cli.test.ts)
+is the worked example. A run against the real program that needs a database
+belongs in the D1 integration lane above.
 
 ## Running Tests
 
