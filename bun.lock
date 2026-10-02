@@ -49,6 +49,14 @@
         "wrangler": "^4.127.1",
       },
     },
+    "cire/build-tools": {
+      "name": "@cire/build-tools",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "astro": "^7.2.10",
+        "vitest": "^4.1.11",
+      },
+    },
     "cire/db": {
       "name": "@cire/db",
       "dependencies": {
@@ -93,6 +101,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@cire/build-tools": "workspace:*",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -139,6 +148,7 @@
       "devDependencies": {
         "@astrojs/check": "0.9.10",
         "@capsizecss/metrics": "^4.2.0",
+        "@cire/build-tools": "workspace:*",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -228,6 +238,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@cire/build-tools": "workspace:*",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -1034,6 +1045,8 @@
     "@changesets/write": ["@changesets/write@1.0.1", "", { "dependencies": { "@changesets/format": "^0.1.1", "@changesets/types": "^7.0.0", "human-id": "^4.2.0" } }, "sha512-q/ThtP9gcnEP6xlv7LrY26C2mHqdGBti/MmOVngt/M/oIGYkssmQGxPK9WzBNt2juVcH/vml2WQ+ra8LXYOTaA=="],
 
     "@cire/api": ["@cire/api@workspace:cire/api"],
+
+    "@cire/build-tools": ["@cire/build-tools@workspace:cire/build-tools"],
 
     "@cire/db": ["@cire/db@workspace:cire/db"],
 

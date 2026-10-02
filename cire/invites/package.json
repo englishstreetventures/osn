@@ -40,6 +40,7 @@
   "devDependencies": {
     "@astrojs/check": "0.9.10",
     "@capsizecss/metrics": "^4.2.0",
+    "@cire/build-tools": "workspace:*",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",

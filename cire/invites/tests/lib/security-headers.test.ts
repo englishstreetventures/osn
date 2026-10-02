@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { PRODUCTION_API_ORIGIN, retargetHeaders } from "@cire/build-tools/tier-headers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,11 +12,9 @@ import {
   cspDirectives,
   cspHeaderName,
   cspReportEndpoint,
-  PRODUCTION_API_ORIGIN,
   reportingEndpointsHeader,
   securityHeaders,
 } from "../../src/lib/security-headers";
-import { retargetHeaders } from "../../src/lib/tier-headers";
 
 const DEV_API_ORIGIN = "https://api.dev.cireweddings.com";
 

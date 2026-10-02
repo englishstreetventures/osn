@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { PRODUCTION_API_ORIGIN, retargetHeaders } from "@cire/build-tools/tier-headers";
 import { describe, expect, it } from "vitest";
-
-import { PRODUCTION_API_ORIGIN, retargetHeaders } from "../../src/lib/tier-headers";
 
 /** Every value of `name` set in `contents`, one per header line. */
 function headerValues(contents: string, name: string): string[] {

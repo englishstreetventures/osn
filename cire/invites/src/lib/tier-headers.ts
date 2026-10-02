@@ -1,142 +1,25 @@
 /**
- * Points the CSP in `dist/client/_headers` at the cire-api this build calls.
- *
- * `public/_headers` is written for production: `connect-src`, `img-src`,
- * `report-uri` and `Reporting-Endpoints` all name `https://api.cireweddings.com`.
- * Astro copies it into `dist/client/` (the Worker's static assets) unchanged,
- * and the same file would otherwise ship to every tier — the dev guest site
- * calls `https://api.dev.cireweddings.com`, which that policy does not allow,
- * and would file its violation reports with the production collector. After
- * the build, this integration swaps the production origin for the origin of
- * `PUBLIC_API_URL` (the chain in `api-origin.ts`), so each tier's policy names
- * its own API and its own collector. On a production build the file is left
- * byte-for-byte as committed. The SSR middleware derives the same origin from
- * the same env (`security-headers.ts`).
- *
- * The env comes from Vite's resolved config, the same object that fills
- * `import.meta.env.PUBLIC_*` in the build. As a check that the two agree, the
- * build fails unless the server bundle contains the origin the header now
- * names. The server bundle, not the client one: the pages read the API URL on
- * the server and hand it to the islands as a prop, so no client script
- * carries it.
+ * Points the CSP in `dist/client/_headers` (the Worker's static assets) at the
+ * cire-api this build calls, through the integration all three cire Astro apps
+ * share (`@cire/build-tools/tier-headers`, which holds the rewrite and its
+ * checks). This file holds only the guest site's part: the env chain
+ * `lib/invite.ts` reads (`PUBLIC_API_URL`, else the local API, through
+ * `api-origin.ts`), and the server bundle as the output that must name the
+ * origin, since the pages read the API URL on the server and hand it to the
+ * islands as a prop. The SSR middleware derives the same origin from the same
+ * env (`security-headers.ts`).
  *
  * Build-only: `astro.config.mjs` is the one importer. Never import it from app
- * code — it reads the filesystem.
+ * code — the integration reads the filesystem.
  */
-import { readdir, readFile, writeFile } from "node:fs/promises";
-
+import { tierHeaders as sharedTierHeaders } from "@cire/build-tools/tier-headers";
 import type { AstroIntegration } from "astro";
 
-import { PRODUCTION_API_ORIGIN, resolveApiUrl } from "./api-origin";
-
-export { PRODUCTION_API_ORIGIN };
-
-/**
- * The production origin where it ends: not the start of `…com.example`,
- * `…com:8443` or `…community`. A function, so each caller gets its own
- * `lastIndex`.
- */
-const productionOrigin = () => /https:\/\/api\.cireweddings\.com(?![\w.:-])/g;
-
-/**
- * A DNS name as `new URL` leaves it: lowercased, internationalised labels in
- * punycode. URL parsing lets `*`, `;`, `,` and quotes through in a host; any of
- * them written into the policy would widen a source list or start a directive.
- */
-const PLAIN_HOSTNAME = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
-
-/** The origin of a cire-api URL, or a build error naming the bad value. */
-function originOf(apiUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(apiUrl);
-  } catch {
-    throw new Error(`tier-headers: cannot read the cire-api URL ${JSON.stringify(apiUrl)}`);
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error(`tier-headers: the cire-api URL ${JSON.stringify(apiUrl)} is not http(s)`);
-  }
-  if (!PLAIN_HOSTNAME.test(url.hostname)) {
-    throw new Error(
-      `tier-headers: the cire-api URL ${JSON.stringify(apiUrl)} has a host that is not a plain DNS name`,
-    );
-  }
-  return url.origin;
-}
-
-/**
- * `contents` with every production cire-api origin replaced by `apiUrl`'s.
- * Throws when the file names no production origin, since there would be
- * nothing to point at the tier's API and the policy would ship unchanged.
- */
-export function retargetHeaders(contents: string, apiUrl: string): string {
-  const origin = originOf(apiUrl);
-  if (!productionOrigin().test(contents)) {
-    throw new Error(`tier-headers: _headers does not name ${PRODUCTION_API_ORIGIN}`);
-  }
-  return contents.replace(productionOrigin(), () => origin);
-}
-
-/** Whether any `.js` or `.mjs` file under `dir` contains `origin`. */
-export async function bundleNamesOrigin(dir: URL, origin: string): Promise<boolean> {
-  const scripts = (await readdir(dir, { recursive: true })).filter(
-    (entry) => entry.endsWith(".js") || entry.endsWith(".mjs"),
-  );
-  const sources = await Promise.all(scripts.map((entry) => readFile(new URL(entry, dir), "utf8")));
-  return sources.some((source) => source.includes(origin));
-}
-
-const asString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
+import { resolveApiUrl } from "./api-origin";
 
 export default function tierHeaders(): AstroIntegration {
-  // The API URL Vite's env resolves to. Vite resolves its config more than once
-  // in one `astro build`; every copy carries the same env, so the last one kept
-  // is as good as the first.
-  let apiUrl: string | undefined;
-  // Where the SSR Worker bundle is written, from Astro's final config.
-  let serverDir: URL | undefined;
-
-  return {
-    name: "cire-invites-tier-headers",
-    hooks: {
-      "astro:config:setup": ({ command, updateConfig }) => {
-        if (command !== "build") return;
-        updateConfig({
-          vite: {
-            plugins: [
-              {
-                name: "cire-invites-tier-headers:env",
-                configResolved(config) {
-                  apiUrl = resolveApiUrl(asString(config.env.PUBLIC_API_URL));
-                },
-              },
-            ],
-          },
-        });
-      },
-
-      "astro:config:done": ({ config }) => {
-        serverDir = config.build.server;
-      },
-
-      "astro:build:done": async ({ dir, logger }) => {
-        if (apiUrl === undefined || serverDir === undefined) {
-          throw new Error(
-            "tier-headers: never received Vite's env or Astro's config, so cannot set the CSP origin",
-          );
-        }
-        const file = new URL("_headers", dir);
-        const headers = retargetHeaders(await readFile(file, "utf8"), apiUrl);
-        const origin = originOf(apiUrl);
-        if (!(await bundleNamesOrigin(serverDir, origin))) {
-          throw new Error(
-            `tier-headers: no server script names ${origin}, so the CSP would not match the API the site calls`,
-          );
-        }
-        await writeFile(file, headers);
-        logger.info(`CSP in _headers points at ${origin}`);
-      },
-    },
-  };
+  return sharedTierHeaders({
+    apiUrl: (env) => resolveApiUrl(env.PUBLIC_API_URL),
+    bundle: "server",
+  });
 }
