@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { apiPreconnectHref } from "../../src/lib/api-origin";
+import { apiPreconnectHref, LOCAL_API_URL, resolveApiUrl } from "../../src/lib/api-origin";
+
+describe("resolveApiUrl", () => {
+  it("takes PUBLIC_API_URL, else the local cire-api", () => {
+    expect(resolveApiUrl("https://api.example.test")).toBe("https://api.example.test");
+    expect(resolveApiUrl(undefined)).toBe(LOCAL_API_URL);
+    expect(LOCAL_API_URL).toBe("http://localhost:8787");
+  });
+
+  it("keeps an empty value rather than skipping it", () => {
+    // `??`, not `||`: an empty `PUBLIC_API_URL=` is a misconfiguration the
+    // build reports (the header rewrite cannot parse it), not a silent switch
+    // to the local API.
+    expect(resolveApiUrl("")).toBe("");
+  });
+});
 
 describe("apiPreconnectHref", () => {
   it("reduces a plain API base to its origin", () => {

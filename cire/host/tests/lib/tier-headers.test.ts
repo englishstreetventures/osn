@@ -77,6 +77,15 @@ describe("the portal's tier-headers wiring", () => {
     expect(await build({})).toContain("connect-src http://localhost:8787\n");
   });
 
+  it("fails the build on an empty PUBLIC_CIRE_API_URL rather than falling back", async () => {
+    // The client chunk names the legacy API too, so a build that skipped the
+    // empty value would pass the bundle check.
+    await expect(build({ PUBLIC_CIRE_API_URL: "", PUBLIC_API_URL: LEGACY })).rejects.toThrow(
+      /cire-api URL/,
+    );
+    expect(await readFile(join(dist, "_headers"), "utf8")).toContain(PRODUCTION_API_ORIGIN);
+  });
+
   it("checks the client bundle, so an API only the server output names fails the build", async () => {
     const elsewhere = "https://server-only.example.test";
     await writeFile(join(root, "server", "entry.mjs"), `"${elsewhere}"`);

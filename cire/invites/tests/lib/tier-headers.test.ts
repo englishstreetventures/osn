@@ -66,6 +66,16 @@ describe("the guest site's tier-headers wiring", () => {
     expect(await build({})).toContain("connect-src http://localhost:8787\n");
   });
 
+  it("fails the build on an empty PUBLIC_API_URL rather than falling back to the local API", async () => {
+    // Every server bundle carries the local fallback, so a build that fell back
+    // would pass the bundle check and ship a policy naming localhost.
+    await writeFile(join(dist, "server", "chunks", "invite.mjs"), '"http://localhost:8787"');
+    await expect(build({ PUBLIC_API_URL: "" })).rejects.toThrow(/cire-api URL/);
+    expect(await readFile(join(dist, "client", "_headers"), "utf8")).toContain(
+      PRODUCTION_API_ORIGIN,
+    );
+  });
+
   it("ignores PUBLIC_CIRE_API_URL, which the guest site never reads", async () => {
     await writeFile(join(dist, "server", "chunks", "invite.mjs"), `"${DEV_API}"`);
     const headers = await build({
