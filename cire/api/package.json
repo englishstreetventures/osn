@@ -16,7 +16,7 @@
     "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts",
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
-    "test:d1": "bun test tests/db/d1-integration.test.ts",
+    "test:d1": "CIRE_D1_TIER=1 bun test tests/db/d1-integration.test.ts tests/db/migrate-wrapper.test.ts",
     "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json"
   },
   "portless": {
