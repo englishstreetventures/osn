@@ -18,10 +18,11 @@ related:
   - "[[testing-patterns]]"
   - "[[browser-tests]]"
   - "[[cire-development]]"
+  - "[[cire-invite-designs]]"
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-02
 ---
 
 # Frontend Patterns
@@ -348,6 +349,32 @@ The unit tier cannot see any of this: it resolves `solid-js` to the browser buil
 `@cire/invites` has an `ssr` Vitest project for it (`*.ssr.test.tsx`, see
 [[testing-patterns]] and [[cire-development#Tests]]), which renders an island the
 way Astro does and can assert that no fetch ran.
+
+### Sharing state between islands
+
+Two islands on one page share no Solid root, but they do share modules: the
+client bundle loads each module once per page, so a signal created at the top
+of a module both islands import reaches both, whichever hydrates first. Two
+rules make that safe.
+
+- **Never write it in the Worker.** On the server, a module-scope signal is a
+  plain closure that lives as long as the isolate and is shared by every
+  request it serves, so one request's value would reach the next one's HTML.
+  The setter returns early when `typeof window === "undefined"`.
+- **Hold it back until the reader has mounted.** Hydration keeps the server's
+  text node for a string an island renders, rather than writing it, so an
+  island whose first client render reads a value the server did not have
+  keeps the server's words with nothing to change them later. Gate the read
+  on a `mounted` signal set in `onMount`.
+
+The other way across is a payload-less window event that tells listeners to
+re-read the server (`CLAIM_SESSION_EVENT` in `cire/invites`). Use the event
+when the listener needs fresh server data anyway; use a shared signal when the
+writer already has the answer and a re-read would only cost a request.
+`cire/invites/src/components/returning-household.ts` is the worked example
+([[cire-invite-designs#Returning households]]). Its `.ssr` test proves the first
+rule; `tests/designs/InviteHeader.ssr.test.tsx` and the unit test's
+`createRoot` case prove the second, since no tier here hydrates.
 
 ## Source Files
 

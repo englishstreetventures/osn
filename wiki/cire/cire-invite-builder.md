@@ -375,7 +375,9 @@ The write body is partial, so a portal build that predates the new section keeps
 saving the switches it knows.
 
 Image-only or title-only heroes are valid (the neutral "You're Invited" fallback
-title only renders **inside** an otherwise-shown hero). All built-in fallback
+title only renders **inside** an otherwise-shown hero, and reads "Welcome back to
+your invite" for a household that has replied before, see
+[[cire-invite-designs#Returning households]]). All built-in fallback
 copy is deliberately NEUTRAL: the original bespoke defaults (the "V & R"
 monogram and the couple's personal story text) were replaced 2026-07-10 — a
 multi-tenant product must never default to one couple's content. A deployed

@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   lazy,
+  onCleanup,
   onMount,
   Show,
   Suspense,
@@ -20,8 +21,10 @@ import {
   withChosenMember,
   withoutMember,
 } from "./household-member";
+import { inviteProgress, type InviteProgress } from "./invite-progress";
 import { filterThemeVars } from "./invite-theme";
 import { invitedMembers, isPlusOne } from "./plus-one";
+import { REPLIES_OWED, setReturningHousehold, WELCOME_BACK } from "./returning-household";
 import type { RsvpDeadlineState } from "./rsvp-deadline";
 import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
@@ -329,6 +332,40 @@ export function LoginSection(props: LoginSectionProps) {
       return { ...result, accountLink: next };
     });
   }
+  // A household that has replied before, fully or in part, is welcomed back.
+  // The verdict is taken from the claim result the invite opened with — a
+  // typed code, the `?code=` link or a restored session — and kept while the
+  // same household (by code) stays signed in. The page writes every save back
+  // into `result`, so reading it live would turn a first visit into a return
+  // the moment the guest sent their first reply. Signing out clears it.
+  const progressOnOpen = createMemo<{ publicId: string; progress: InviteProgress } | null>(
+    (previous) => {
+      const result = props.result;
+      if (result === null) return null;
+      if (previous?.publicId === result.publicId) return previous;
+      return { publicId: result.publicId, progress: inviteProgress(result.members, result.rsvps) };
+    },
+    null,
+  );
+  // An organiser previewing the invite sees what a first visit sees.
+  const returning = () =>
+    props.result?.preview !== true &&
+    (progressOnOpen()?.progress ?? "not-started") !== "not-started";
+  // Read live, unlike `returning`: the line goes once the last reply is in.
+  // Not past the deadline, when no reply can be given.
+  const repliesOwed = () => {
+    const result = props.result;
+    return (
+      result !== null &&
+      returning() &&
+      props.rsvpDeadlineState !== "closed" &&
+      inviteProgress(result.members, result.rsvps) === "partial"
+    );
+  };
+  // The hero is another island and swaps its fallback title on this.
+  createEffect(() => setReturningHousehold(returning()));
+  onCleanup(() => setReturningHousehold(false));
+
   const invited = () => invitedMembers(members());
   const isIndividual = () => invited().length === 1;
   const individualName = () => {
@@ -424,6 +461,14 @@ export function LoginSection(props: LoginSectionProps) {
     // the obvious next action.
     codeInputRef?.focus();
   }
+
+  // Directly under the greeting in both branches, so the replies still owed are
+  // the first thing a returning household reads.
+  const repliesOwedLine = () => (
+    <Show when={repliesOwed()}>
+      <p class="text-text text-ui-base leading-ui-normal mb-2 font-light">{REPLIES_OWED}</p>
+    </Show>
+  );
 
   const body = () => (
     <>
@@ -540,8 +585,11 @@ export function LoginSection(props: LoginSectionProps) {
                   heading, and a label repeating it only adds a fourth gold
                   uppercase micro-label to a page that already has too many. */}
               <h2 class={`${HEADING} mb-3 ${layout().greeting} ${layout().headingSize}`}>
-                Welcome, the {props.result?.familyName} Family
+                <Show when={!returning()} fallback={WELCOME_BACK}>
+                  Welcome, the {props.result?.familyName} Family
+                </Show>
               </h2>
+              {repliesOwedLine()}
               <p class="text-text-muted text-ui-base leading-ui-normal mb-2 font-light">
                 {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
               </p>
@@ -562,8 +610,11 @@ export function LoginSection(props: LoginSectionProps) {
               "Dear" reads as part of the greeting, so it belongs in the
               heading, not stranded above it as an uppercase label. */}
           <h2 class={`${HEADING} mb-3 ${layout().greeting} ${layout().headingSize}`}>
-            Dear {individualName()}
+            <Show when={!returning()} fallback={WELCOME_BACK}>
+              Dear {individualName()}
+            </Show>
           </h2>
+          {repliesOwedLine()}
           <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
             {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
           </p>

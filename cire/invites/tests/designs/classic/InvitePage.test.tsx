@@ -671,14 +671,16 @@ describe("InvitePage", () => {
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
 
-    await waitFor(() => expect(getByText(/Dear Priya/)).toBeTruthy(), { timeout: 2000 });
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+      timeout: 2000,
+    });
 
     fireEvent.click(getByText(/Sign out/));
 
     // The code form is back, the previously claimed household's events are
     // gone, and the field the household typed into is blank again.
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
-    expect(queryByText(/Dear Priya/)).toBeNull();
+    expect(queryByText("Welcome back to your invite")).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
     // The returned form must be usable, not merely present. `submitCode`
@@ -726,7 +728,9 @@ describe("InvitePage", () => {
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(getByText(/Dear Priya/)).toBeTruthy(), { timeout: 2000 });
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+      timeout: 2000,
+    });
 
     fireEvent.click(getByText(/Sign out/));
 
@@ -763,6 +767,9 @@ describe("InvitePage", () => {
           eventIds: ["event-1"],
         },
       ],
+      // A household that has not replied yet, so its greeting is its own name
+      // rather than the welcome back the first household (which had) got.
+      rsvps: [],
     };
     const fetchMock = vi
       .fn()
@@ -786,7 +793,9 @@ describe("InvitePage", () => {
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
     fireEvent.click(getByText("Open Invitation"));
-    await waitFor(() => expect(getByText(/Dear Priya/)).toBeTruthy(), { timeout: 2000 });
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy(), {
+      timeout: 2000,
+    });
 
     fireEvent.click(getByText(/Sign out/));
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
@@ -845,14 +854,14 @@ describe("InvitePage", () => {
     // matches `display: none` nodes, so that resolves instantly, before the
     // claim has even landed, and the click would test nothing.
     await waitFor(() => expect(releaseSequence).toBeDefined(), { timeout: 2000 });
-    expect(getByText(/Dear Priya/)).toBeTruthy();
+    expect(getByText("Welcome back to your invite")).toBeTruthy();
     fireEvent.click(getByText(/Sign out/));
 
     // Now let the choreography finish — its trailing write must not resurrect
     // the welcome half over a null claim.
     releaseSequence?.();
     await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
-    expect(queryByText(/Dear Priya/)).toBeNull();
+    expect(queryByText("Welcome back to your invite")).toBeNull();
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).disabled).toBe(false);
   });
 
@@ -875,6 +884,40 @@ describe("InvitePage", () => {
     await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
     // A host preview is not a guest seat — the affordance must not mount.
     expect(queryByTestId("pulse-account-link-stub")).toBeNull();
+  });
+
+  it("keeps a first-time guest's greeting after they send their first reply", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          // A guest who has not replied yet: a first visit, greeted by name.
+          new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, queryByText } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+    await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
+
+    await waitFor(() => expect(getByText(/Respond/i)).toBeTruthy(), { timeout: 2000 });
+    fireEvent.click(getByText(/Respond/i));
+    await waitFor(() => expect(capturedProps.value).not.toBeNull());
+    // The page writes the saved reply back into its claim result.
+    (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)(claim.rsvps);
+
+    // Still a first visit: the greeting is about how the invite opened.
+    await waitFor(() => expect(capturedProps.value!.existingRsvps).toEqual(claim.rsvps));
+    expect(getByText("Dear Priya")).toBeTruthy();
+    expect(queryByText("Welcome back to your invite")).toBeNull();
   });
 
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
@@ -1591,8 +1634,8 @@ describe("InvitePage", () => {
       ));
 
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
-      // The single-member fixture greets the individual, not the household.
-      expect(getByText(/Dear Priya/)).toBeTruthy();
+      // The fixture household has already replied, so it is welcomed back.
+      expect(getByText("Welcome back to your invite")).toBeTruthy();
       // And the code form is actually GONE, not merely behind the events.
       // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
       // is the only thing that flips it — drop that line and every returning
@@ -1803,8 +1846,8 @@ describe("InvitePage", () => {
       });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
       // …and the welcome banner is the thing standing in its place. The fixture
-      // is a single-guest code, so that is the individual greeting.
-      expect(queryByText(/Dear Priya/)).toBeTruthy();
+      // household has already replied, so that is the welcome back.
+      expect(queryByText("Welcome back to your invite")).toBeTruthy();
     });
 
     it("still completes the swap when the sequence never reports", async () => {
