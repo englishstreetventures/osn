@@ -5,6 +5,18 @@ import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
 import { readOsnProfileId } from "./upstream-context";
 
 /**
+ * Thrown by a limiter that has no counter to consult: a deployed tier whose
+ * native binding is missing (`lib/registry-limiters.ts`). The per-user
+ * middleware answers it with 503, never with the request let through.
+ */
+export class RateLimiterUnbound extends Error {
+  constructor(readonly binding: string) {
+    super(`${binding} binding missing`);
+    this.name = "RateLimiterUnbound";
+  }
+}
+
+/**
  * Elysia plugin enforcing per-IP rate limiting via @shared/rate-limit.
  * Returns 429 with Retry-After when the limit is exceeded.
  *
@@ -47,6 +59,8 @@ export function rateLimitMiddleware(limiter: RateLimiterBackend) {
  * the export routes are already gated by `osnAuth()` + `weddingMember()`, but
  * failing closed is the only safe posture (matches `rateLimitMiddleware`'s
  * unresolved-IP behaviour and the wider fail-closed convention in this file).
+ * A limiter that throws {@link RateLimiterUnbound} gets 503
+ * `rate_limiter_unavailable`.
  */
 export function rateLimitMiddlewareByUser(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async (ctx) => {
@@ -62,7 +76,16 @@ export function rateLimitMiddlewareByUser(limiter: RateLimiterBackend) {
       return { error: "unauthorised" };
     }
 
-    const allowed = await limiter.check(osnProfileId);
+    let allowed: boolean;
+    try {
+      allowed = await limiter.check(osnProfileId);
+    } catch (error) {
+      // An unbound limiter fails closed. Any other throw is a defect and goes
+      // to the app's error handler as before.
+      if (!(error instanceof RateLimiterUnbound)) throw error;
+      set.status = 503;
+      return { error: "rate_limiter_unavailable" };
+    }
 
     if (!allowed) {
       set.status = 429;

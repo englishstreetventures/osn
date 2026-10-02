@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Gift registry
@@ -343,7 +343,7 @@ Its own per-organiser limiter, **10 requests a minute**, keyed on `osnProfileId`
 
 **What the limiter bounds.** The 512 KB cap and the lookup budget bound one preview; the limiter bounds how many there are. Together, one organiser profile (the key is `osnProfileId`, not the wedding) can make the Worker read at most 10 × 512 KB of other people's pages a minute and send at most 10 × 28 outbound requests of the preview's own. The same invocation can add a few requests from outside the preview — a JWKS fetch on the bearer-auth path, the trace export once `OTEL_EXPORTER_OTLP_ENDPOINT` is set — so a preview stays under Workers Free's 50 external subrequests per invocation ([[free-tier-limits]]). Three things loosen that figure:
 
-- **The native binding counts per Cloudflare location**, not globally ([[rate-limiting]]). The deployed Worker uses `REGISTRY_PREVIEW_RATE_LIMITER` (`simple = { limit = 10, period = 60 }` in `cire/api/wrangler.toml`); the in-memory default is for local runs and counts per isolate.
+- **The native binding counts per Cloudflare location**, not globally ([[rate-limiting]]). The deployed Worker uses `REGISTRY_PREVIEW_RATE_LIMITER` (`simple = { limit = 10, period = 60 }` in `cire/api/wrangler.toml`); the in-memory default is for local runs and counts per isolate. In a deployed tier a missing `REGISTRY_PREVIEW_RATE_LIMITER`, `REGISTRY_IMAGE_RATE_LIMITER` or `REGISTRY_THUMB_RATE_LIMITER` does not fall back to it: that route answers **503 `rate_limiter_unavailable`** and logs an error on every call, while the rest of the Worker serves (`src/lib/registry-limiters.ts`). The image limiter covers both legs of the save, upload included, because they share one budget.
 - **The image copy is a second budget.** `POST /registry/image/from-url` has its own 10-a-minute limiter, and each call there reads up to the image byte cap.
 - **The thumbnails are a third.** `POST /registry/link-preview/image` has its own 60-a-minute limiter, six for each preview the 10-a-minute budget allows, and each call reads up to the image byte cap and runs one Images transform. See [Thumbnails](#thumbnails).
 - **The per-minute limiter is the only bound on how many previews a profile makes.** The route sits behind an editor seat on a wedding on the paid Gold tier or above, so every caller is a known account. Opening link preview to any cheaper surface needs a per-profile daily budget first, and so does preview traffic in the subrequest count or `cire.registry.link_preview` that runs out of line with hand use. The native binding cannot hold a daily budget — its `period` is 10 or 60 seconds — so it needs a store that counts across isolates.
@@ -398,6 +398,8 @@ The response carries `Cache-Control: private, no-store`, `X-Content-Type-Options
 
 **Every binding call is treated as billed, and the quota is shared.** The Images Free plan allows 5,000 unique transformations a month ([Images pricing](https://developers.cloudflare.com/images/pricing/)), and the invite images guests load spend from the same account quota. So a transformed thumbnail is stored in the Workers Cache API for 30 days under a synthetic key — the SHA-256 of the URL and the format — and a repeat is served from there with no fetch and no transform. The key holds no wedding: the bytes are a shop's public product image, the same for every couple who pastes that page. The Cache API is per colo, so a repeat from another location transforms again. A cold preview still costs up to six transforms, about 830 distinct previews a month. The picker cancels a replaced preview's thumbnail requests rather than let them finish unseen. When the quota runs out, the thumbnail answers 502 and the picker shows "Picture N" in place of the image; picking and saving still work. Invite images fall back to their originals at the same point.
 
+**Repeated failed transforms pause the fetches.** A spent account quota or an Images outage would otherwise cost a fetch and a 5 MB read for every thumbnail that cannot be made. So three failed transforms inside 60 seconds pause that organiser's transforms for 60 seconds (`createTransformBreakers` in `services/link-thumbnail.ts`, keyed on `osnProfileId`): a request answers 502 `thumbnail_failed` after the cache lookup and before the budget read and the fetch, so a cached thumbnail is still served. When the pause ends, one request goes through as a trial and the rest stay paused; its failure starts another pause, its success clears the count. A failure the binding blames on the input (`ImagesError` code 9412, not an image) does not count. The pause is per caller so that one organiser's broken inputs never pause another's thumbnails. The state is per isolate, holds at most 1,000 callers and resets when the app is rebuilt, so each isolate learns of an outage on its own, and the first pause can take as many failures as were in flight. A failed transform that is not the input's fault gives its unit back to the monthly budget, so an outage does not use up the month.
+
 **The picker spends at most half the quota.** The rate limiter counts per minute and per colo, so it cannot bound a month, and an editor seat on a paid wedding could otherwise feed the route distinct URLs until the account's quota ran out. So every cache miss also spends from **2,500 transforms a calendar month (UTC), across every wedding** (`MONTHLY_THUMB_TRANSFORMS` in `services/link-thumbnail.ts`), counted in the D1 table `link_thumb_transforms` (migration 0072): one row per month, `period` (`YYYY-MM`) and `used`, with no wedding or profile id, so it holds no personal data. The route reads the row before the fetch, so a spent month costs no outbound work, and charges it with one conditional upsert (`… DO UPDATE SET used = used + 1 WHERE used < cap RETURNING`) just before the transform, so two isolates cannot both spend the last one. Once it is spent the route answers 429 `thumbnail_budget_spent` and the picker shows "Picture N"; the invite images keep the other 2,500. The trade-off is that one busy editor can spend the picker's share for every couple until the month turns; the invites are what the cap protects.
 
 | Error | Status | Code |
@@ -407,10 +409,11 @@ The response carries `Cache-Control: private, no-store`, `X-Content-Type-Options
 | `LinkThumbTooLarge` | 413 | `image_too_large` |
 | `LinkThumbUnsupportedType` | 415 | `unsupported_image_type` |
 | `LinkThumbTransformFailed` | 502 | `thumbnail_failed` |
+| `LinkThumbTransformPaused` | 502 | `thumbnail_failed` |
 | `LinkThumbUnavailable` | 503 | `thumbnail_unavailable` |
 | `LinkThumbBudgetSpent` | 429 | `thumbnail_budget_spent` |
 
-Logs carry bounded reasons only, never the URL. `counter cire.registry.link_thumb` carries one attribute, `result` ∈ `ok | cache_hit | original | blocked | fetch_failed | unsupported_type | too_large | transform_failed | unavailable | budget_spent`.
+Logs carry bounded reasons only, never the URL. `counter cire.registry.link_thumb` carries one attribute, `result` ∈ `ok | cache_hit | original | blocked | fetch_failed | unsupported_type | too_large | transform_failed | unavailable | budget_spent | transform_paused`.
 
 Both seams — `fetchImpl` and `resolveHost` — are injectable, so `services/link-preview.test.ts` and the route tests touch no network at all.
 
