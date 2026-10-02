@@ -7,7 +7,10 @@ import { join } from "node:path";
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is what
 // a structural diff cannot see — that every wedding already in the database
 // reads as live afterwards, and that the purge's index holds deleted rows only.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0077 = "0077_wedding_soft_delete.sql";
 

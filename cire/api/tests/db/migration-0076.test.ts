@@ -9,9 +9,10 @@ import { join } from "node:path";
 // one thing a structural diff cannot see — what becomes of the weddings, seats
 // and guest data that already exist when the column goes.
 //
-// Reads cire/db/migrations/, the files wrangler applies. The D1 replay of the
-// same file is in d1-integration.test.ts.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here. The D1 replay of the same
+// file is in d1-integration.test.ts.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0076 = "0076_wedding_owners.sql";
 

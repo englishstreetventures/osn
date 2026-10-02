@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Guards that gate on a number
@@ -382,17 +382,23 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **146** | **150** | 3,942 → 4,050 rows | ~25 now, ~24 at the line |
+| `cire/db/migrations` | **96** | **192** | 2,592 → 5,184 rows | ~38 now, ~19 at the line |
+
+*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
 The left two columns are exact; the right two move with the constant. The
-pre-squash chain, for scale: 269 schema writes, about 7,265 rows, roughly 13
-replays a day. Point the guard at `cire/db/migrations-archive` and it goes red,
-which is the fastest way to see it fail.
-*Measured 2026-10-01 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+chain is one baseline file, one `CREATE` per table and per index, and the line
+is its doubling. For scale, the archived chain it replaces —
+`cire/db/migrations-archive`, all 81 files — replays at 351 schema writes,
+about 9,477 rows, roughly 10 replays a day.
 
-The line sits at 150 because the chain has regrown to 146 schema writes since the squash. The next breach is the cue to squash it into a fresh baseline, not to raise the line again.
+*Measured 2026-10-02 — `bun -e 'import { measureChain } from "./scripts/guard-d1-migration-cost.ts"; console.log(measureChain("cire/db/migrations-archive"))'`.*
 
-**Note the arithmetic on the pre-squash chain does not reproduce 8,007.** At 27
+To see the guard fail, lower the row in the budgets file below 2,592 and run
+it. When the chain reaches the line, squash it into a fresh baseline again —
+`cire/db/README.md` has the method — rather than raise the line.
+
+**Note the arithmetic on the first 57 archived files does not reproduce 8,007.** At 27
 it prices at 7,265 and the seed floor is 2,063, which sums past the reported
 total — which is another way of saying the true constant is nearer the bottom
 of the band than the top, and that the guard is deliberately charging more than
@@ -404,18 +410,18 @@ The rule further up this page — headroom smaller than the smallest mistake —
 assumes a baseline that is not supposed to move. A migration chain is supposed
 to grow, and the mistake here is not one bad migration: nothing in the chain
 that went over the ceiling was wrong. So the line is drawn at a **doubling** of
-the squashed baseline of 68 schema writes — which is the smallest step
-that materially changes the answer to "how many rebuilds a day can we afford".
+the squashed baseline, 96 schema writes — which is the smallest step that
+materially changes the answer to "how many rebuilds a day can we afford".
 A budget tight enough to trip on one ordinary feature migration —
-`0057_registry` was 15 schema writes on its own — would be raised on sight every
-few pull requests, which is the failure the second rule names. The doubling is
-in the exact unit, so it holds wherever in the 22–27 band the constant really
-sits.
+`0057_registry` was 15 schema writes on its own, `0058_gift_summary_and_stripe_state`
+12 — would be raised on sight every few pull requests, which is the failure the
+second rule names. The doubling is in the exact unit, so it holds wherever in
+the 22–27 band the constant really sits.
 
 The other half of that: **this guard has a remedy the bundle guards do not.**
 Squashing the chain into a fresh baseline puts the number back down instead of
-moving the line up, which is exactly what englishstventures/osn#984 did — 269 schema
-writes to 68. Reach for that before raising the budget.
+moving the line up: the archived chain's 351 schema writes rebuild as a
+96-write baseline. Reach for that before raising the budget.
 
 ### Where it runs
 

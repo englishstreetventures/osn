@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Data proof for migration 0063 (the per-section visibility switches).
@@ -11,7 +11,10 @@ import { join } from "node:path";
 // the migration: content ⇒ on, no content ⇒ off. "Content" is the rule both
 // emptiness modules implement — text with something besides whitespace, or an
 // image key the API would build a URL from.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains 0063,
+// and replaying history is the point here, so this follows the archived chain.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0063 = "0063_invite_section_visibility.sql";
 
@@ -21,16 +24,10 @@ function apply(db: Database, file: string): void {
 
 /** The chain as it stood before 0063. */
 function applyBaseline(db: Database): void {
-  for (const file of [
-    "0001_initial.sql",
-    "0058_gift_summary_and_stripe_state.sql",
-    "0059_rsvp_dietary_presets.sql",
-    "0060_helper_role_and_run_sheet_scope.sql",
-    "0061_upgrade_purchases.sql",
-    "0062_gift_note_hidden.sql",
-  ]) {
-    apply(db, file);
-  }
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .toSorted();
+  for (const file of files.slice(0, files.indexOf(MIG_0063))) apply(db, file);
 }
 
 type Row = {

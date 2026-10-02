@@ -10,7 +10,7 @@ import { getTableConfig, SQLiteSyncDialect, SQLiteTable } from "drizzle-orm/sqli
 
 import { DDL } from "../../src/db/setup";
 
-// T-S1 — mechanical enforcement of the three-way DDL lockstep contract.
+// Mechanical enforcement of the three-way DDL lockstep contract.
 //
 // The schema has three hand-maintained surfaces that must describe the same
 // database shape:
@@ -39,11 +39,11 @@ import { DDL } from "../../src/db/setup";
 //   but every insert path supplies an id.)
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
-// The 57 files that built this schema between 2026-05 and 2026-08 were squashed
-// into `migrations/0001_initial.sql` on 2026-09-10 (englishstventures/osn#981) and moved
-// to `migrations-archive/`. Wrangler never reads that directory. The two DATA
-// migration replays at the bottom of this file do, because their whole subject
-// is what those migrations did to rows that already existed.
+// `migrations/0001_initial.sql` is a baseline: it builds what every file in
+// `migrations-archive/` builds, replayed in name order. Wrangler never reads the
+// archive. This file does, to prove the baseline faithful, and the two DATA
+// migration replays at the bottom read it because their subject is what those
+// migrations did to rows that already existed.
 const ARCHIVE_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 type ColumnShape = {
@@ -206,25 +206,44 @@ const sqlFilesIn = (dir: string): string[] =>
 
 const migrationFiles = (): string[] => sqlFilesIn(MIGRATIONS_DIR);
 const archiveFiles = (): string[] => sqlFilesIn(ARCHIVE_DIR);
+const numberOf = (file: string): number => Number(file.slice(0, 4));
 
-// `wrangler d1 migrations apply` runs the files in NAME order — that (not the
-// drizzle-kit journal, which stopped being written when migrations went
-// hand-authored after 0008) is the order production experienced.
-function applyMigrations(): Database {
+// `wrangler d1 migrations apply` runs the files in NAME order — that, not the
+// drizzle-kit journal, is the order a deployed database experiences.
+function applyChain(dir: string, files: readonly string[]): Database {
   const db = new Database(":memory:");
   // D1 enforces foreign keys unconditionally; every migration statement must
   // hold under that (see 0006's __keep_* idiom), so replay under the same rule.
   db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of migrationFiles()) {
+  for (const file of files) {
     try {
       // `--> statement-breakpoint` lines are `--` SQL comments, so the whole
       // file execs as-is.
-      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+      db.exec(readFileSync(join(dir, file), "utf8"));
     } catch (cause) {
       throw new Error(`migration ${file} failed to apply cleanly on sqlite`, { cause });
     }
   }
   return db;
+}
+
+const applyMigrations = (): Database => applyChain(MIGRATIONS_DIR, migrationFiles());
+
+/** Every table and index, as the SQL SQLite stored for it, sorted. */
+function storedSchema(db: Database): string[] {
+  try {
+    return (
+      db
+        .query(
+          "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'",
+        )
+        .all() as Array<{ type: string; name: string; sql: string }>
+    )
+      .map((o) => `${o.type} ${o.name}: ${o.sql}`)
+      .toSorted();
+  } finally {
+    db.close();
+  }
 }
 
 function applyMirrorDdl(): Database {
@@ -317,7 +336,7 @@ const drizzleTables = Object.values(cireSchema)
   .filter((v): v is SQLiteTable => v !== undefined);
 
 // Snapshot then release the native handle — the diffs below only need the
-// plain snapshot objects (P-I1).
+// plain snapshot objects.
 function snapshotAndClose(db: Database): SchemaSnapshot {
   try {
     return snapshotSchema(db);
@@ -342,8 +361,7 @@ describe("T-S1 lockstep: migrations chain", () => {
   // drizzle-kit picks the snapshot named for the journal's highest idx, and
   // diffs schema.ts against it to number and fill the next migration. With the
   // pair broken it silently treats the database as empty and emits the WHOLE
-  // schema as the next migration, numbered from 1. That is how the squash left
-  // it before this test existed.
+  // schema as the next migration, numbered from 1.
   it("keeps the drizzle journal and its snapshot in step", () => {
     const journal = JSON.parse(
       readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
@@ -360,31 +378,48 @@ describe("T-S1 lockstep: migrations chain", () => {
 
   // The baseline's FILENAME is load-bearing. `wrangler d1 migrations apply`
   // skips a file already named in the target's `d1_migrations` ledger, and
-  // production's ledger holds `0001_initial.sql`. Rename the baseline to
-  // anything else and wrangler runs the whole schema against the live wedding
-  // database, where every CREATE TABLE fails. englishstventures/osn#981.
+  // every deployed cire ledger holds `0001_initial.sql`. Rename the baseline
+  // and wrangler runs the whole schema against the live wedding database, where
+  // every CREATE TABLE fails.
   it("keeps the squash baseline named 0001_initial.sql", () => {
     expect(migrationFiles()[0]).toBe("0001_initial.sql");
   });
 
-  // Nothing numbered 0002–0057 may come back into the live directory: those
-  // numbers are in production's ledger already, so wrangler would skip a file
-  // reusing one and the change would never reach production. New work starts
-  // at 0058.
-  it("reuses no migration number the archive already spent", () => {
-    const spent = new Set(archiveFiles().map((f) => f.slice(0, 4)));
-    const reused = migrationFiles()
-      .slice(1)
-      .filter((f) => spent.has(f.slice(0, 4)));
-    expect(reused).toEqual([]);
+  // The baseline's journal entry carries the number of the newest migration it
+  // folds in, which is how drizzle-kit numbers the next file after it. The
+  // archive holds exactly those migrations, 0001 up to that number with none
+  // missing: scripts/cire-db-migrate.ts reads a deployed ledger against it.
+  it("archives every migration the baseline folds in, numbered 0001 to the journal's index", () => {
+    const journal = JSON.parse(
+      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const baseline = journal.entries.find((e) => e.tag === "0001_initial");
+    expect(baseline).toBeDefined();
+    expect(archiveFiles().map(numberOf)).toEqual(
+      Array.from({ length: baseline!.idx }, (_, i) => i + 1),
+    );
   });
 
-  // The archive is history, not a migration source. wrangler reads
-  // `migrations_dir` (cire/db/migrations) and never recurses, so this only
-  // catches someone moving the directory back under it.
-  it("keeps the archive out of the applied set", () => {
-    expect(migrationFiles()).not.toContain("0057_registry.sql");
-    expect(archiveFiles()).toHaveLength(57);
+  // Every number the archive spent is in some deployed ledger already, so
+  // wrangler would skip a live file reusing one and the change would never
+  // reach that database. New work is numbered after the archive.
+  it("reuses no migration number the archive already spent", () => {
+    const spent = new Set(archiveFiles().map(numberOf));
+    const reused = migrationFiles()
+      .slice(1)
+      .filter((f) => spent.has(numberOf(f)));
+    expect(reused).toEqual([]);
+  });
+});
+
+describe("lockstep: the baseline ↔ the archived chain", () => {
+  // The baseline is generated from a replay of the archive, so every table and
+  // index must come out with the very SQL the archived chain leaves behind: the
+  // column order and index names a deployed database really has.
+  it("builds exactly what the archived chain builds", () => {
+    expect(storedSchema(applyChain(MIGRATIONS_DIR, ["0001_initial.sql"]))).toEqual(
+      storedSchema(applyChain(ARCHIVE_DIR, archiveFiles())),
+    );
   });
 });
 
@@ -512,7 +547,13 @@ describe("data migration 0031: wedding_hosts role 'host' → 'editor'", () => {
     for (const file of files.slice(cut)) {
       db.exec(readFileSync(join(ARCHIVE_DIR, file), "utf8"));
     }
-    const roles = db.query("SELECT id, role FROM wedding_hosts ORDER BY id").all() as Array<{
+    // Only the two seats seeded above: 0076, later in the chain, gives the
+    // wedding's owner a seat of its own.
+    const roles = db
+      .query(
+        "SELECT id, role FROM wedding_hosts WHERE id IN ('whost_legacy', 'whost_v') ORDER BY id",
+      )
+      .all() as Array<{
       id: string;
       role: string;
     }>;

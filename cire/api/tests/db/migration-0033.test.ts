@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Data-preservation + FK-integrity + invariant proof for migration 0033 (the
 // `families` table rebuild that REVERSES 0032 — `public_id` back to NOT NULL +
 // full column-level UNIQUE, dropping the partial index). Structural lockstep is
-// covered by ddl-lockstep.test.ts (T-S1). This replays the chain around 0033
+// covered by ddl-lockstep.test.ts. This replays the chain around 0033
 // with SEEDED rows across the whole families cascade subtree (guests, sessions,
 // guest_events, rsvps, guest_account_links) and asserts:
 //   1. every household row survives with its id + columns intact,
@@ -26,11 +26,10 @@ import { join } from "node:path";
 // below splits on `--> statement-breakpoint` and runs statement-by-statement —
 // faithfully reproducing how D1 experiences (and aborts on) the NOT NULL row.
 
-// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The 57 files this
-// replays were squashed into a single baseline on 2026-09-10 (englishstventures/osn#981)
-// and moved there; the live directory now holds only that baseline, and
-// wrangler applies nothing else. Replaying history is the whole point here, so
-// this test follows the history.
+// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The live
+// directory holds a baseline that already contains this migration; the archive
+// holds the chain as it ran. Replaying history is the whole point here, so this
+// test follows the archive.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const migrationFiles = (): string[] =>
@@ -199,8 +198,8 @@ describe("migration 0033: families rebuild (public_id back to NOT NULL + full un
       db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
     }
     db.exec(
-      "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +
-        " VALUES ('wed_1', 'w1', 'W1', 'usr_o', 0, 0);",
+      "INSERT INTO weddings (id, slug, display_name, created_at, updated_at)" +
+        " VALUES ('wed_1', 'w1', 'W1', 0, 0);",
     );
 
     // A code is fine once…
