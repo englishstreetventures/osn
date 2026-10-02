@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-943   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-reap-orphan-sheets @ 2026-10-02 — twelve warnings fewer after this branch. No rule was disabled and nothing was suppressed.
+941   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-reap-orphan-sheets @ 2026-10-02 — fourteen warnings fewer after this branch. No rule was disabled and nothing was suppressed.
