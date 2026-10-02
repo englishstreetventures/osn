@@ -30,9 +30,9 @@ import {
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
-import { insertManyViaJsonEach } from "@shared/db-utils";
+import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -1396,6 +1396,68 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(seen.map((n) => [n.weddingId, n.finalEventOn])).toEqual([
         [BOOTSTRAP_WEDDING_ID, "2025-04-20"],
       ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep takes a cohort past D1's 100 bound parameters, weddings and households alike",
+    async () => {
+      // 101 expired weddings with a household each: both id lists the sweep
+      // sends to D1 hold more ids than one statement may bind.
+      const n = 101;
+      const stamp = new Date("2025-01-01T00:00:00.000Z");
+      const ids = Array.from(
+        { length: n },
+        (_, i) => `wed_d1_cohort_${String(i).padStart(3, "0")}`,
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          weddings,
+          ids.map((id) => ({
+            id,
+            slug: `slug-${id}`,
+            displayName: `Wedding ${id}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          events,
+          ids.map((id) => ({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt: "2025-01-01T10:00:00+00:00",
+            endAt: "2025-01-01T11:00:00+00:00",
+            timezone: "UTC",
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          families,
+          ids.map((id, i) => ({
+            id: `fam_${id}`,
+            weddingId: id,
+            publicId: `COHORT${String(i).padStart(3, "0")}`,
+            familyName: "Family",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+
+      await run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z")));
+
+      const left = await db
+        .select({ id: families.id })
+        .from(families)
+        .where(inArray(families.weddingId, jsonEachIn(ids)));
+      expect(left).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

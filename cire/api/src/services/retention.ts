@@ -11,7 +11,7 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
-import { rowsChanged } from "@shared/db-utils";
+import { jsonEachIn, rowsChanged } from "@shared/db-utils";
 import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
@@ -65,9 +65,14 @@ export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
  * Most weddings one sweep will take. The cohort is every wedding whose last
  * event passed a year ago, and nothing else removes a wedding from that set —
  * so after a run of failed crons, or a busy season a year later, it can be
- * arbitrarily large. Every query below feeds it into an `IN (...)`, and SQLite
- * stops at 999 bound variables: past that the sweep does not slow down, it
- * throws, and a compliance-obligated delete fails.
+ * arbitrarily large.
+ *
+ * The cap bounds work, not bound parameters. D1 allows 100 per statement
+ * (wiki/shared/d1-limits.md), fewer than this cohort or its households, so
+ * every id list below rides as ONE `json_each` parameter (`jsonEachIn`); an
+ * `IN (...)` binding each id would throw past 100 and stop a
+ * compliance-obligated delete for good, since the same weddings head the next
+ * run's cohort.
  *
  * The sweep is idempotent and runs on a schedule, so the remainder is simply
  * the next run's work. Capping here rather than per-query bounds the whole
@@ -218,14 +223,14 @@ export const retentionService = {
                 beforeGuestsKey: imports.beforeGuestsR2Key,
               })
               .from(imports)
-              .where(inArray(imports.weddingId, weddingIds))
+              .where(inArray(imports.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
           dbQuery(() =>
             db
               .select({ id: families.id })
               .from(families)
-              .where(inArray(families.weddingId, weddingIds))
+              .where(inArray(families.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
         ],
@@ -262,33 +267,29 @@ export const retentionService = {
             // stated contract is to not depend on FK cascade, and it previously
             // left this one child table to the cascade it said it avoided.
             stmts.push(
-              db
-                .delete(rsvps)
-                .where(
-                  inArray(
-                    rsvps.guestId,
-                    db
-                      .select({ id: guests.id })
-                      .from(guests)
-                      .where(inArray(guests.familyId, familyIds)),
-                  ),
+              db.delete(rsvps).where(
+                inArray(
+                  rsvps.guestId,
+                  db
+                    .select({ id: guests.id })
+                    .from(guests)
+                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
                 ),
+              ),
             );
             stmts.push(
-              db
-                .delete(guestEvents)
-                .where(
-                  inArray(
-                    guestEvents.guestId,
-                    db
-                      .select({ id: guests.id })
-                      .from(guests)
-                      .where(inArray(guests.familyId, familyIds)),
-                  ),
+              db.delete(guestEvents).where(
+                inArray(
+                  guestEvents.guestId,
+                  db
+                    .select({ id: guests.id })
+                    .from(guests)
+                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
                 ),
+              ),
             );
-            stmts.push(db.delete(guests).where(inArray(guests.familyId, familyIds)));
-            stmts.push(db.delete(families).where(inArray(families.id, familyIds)));
+            stmts.push(db.delete(guests).where(inArray(guests.familyId, jsonEachIn(familyIds))));
+            stmts.push(db.delete(families).where(inArray(families.id, jsonEachIn(familyIds))));
           }
           // imports bookkeeping (the uploaded-sheet PII references). The R2
           // objects behind these (+ the invite-image columns) are reaped AFTER
@@ -297,7 +298,7 @@ export const retentionService = {
           // children first, which the bun:sqlite fallback keeps.
           return commitBatchResults(db, [
             ...stmts,
-            db.delete(imports).where(inArray(imports.weddingId, weddingIds)),
+            db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(weddingIds))),
           ]);
         },
         catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
@@ -502,7 +503,10 @@ function writeGiftSummaries(
             // A released claim is a tombstone, not a gift — it is what the couple did
             // NOT receive, and counting it would overstate the record.
             .where(
-              and(inArray(registryClaims.weddingId, ids), ne(registryClaims.status, "released")),
+              and(
+                inArray(registryClaims.weddingId, jsonEachIn(ids)),
+                ne(registryClaims.status, "released"),
+              ),
             )
             .groupBy(registryClaims.weddingId, registryClaims.status)
             .all(),
@@ -523,7 +527,7 @@ function writeGiftSummaries(
             .from(registryContributions)
             .where(
               and(
-                inArray(registryContributions.weddingId, ids),
+                inArray(registryContributions.weddingId, jsonEachIn(ids)),
                 // Only money that actually moved. A pending or failed row is not a gift.
                 eq(registryContributions.status, "succeeded"),
               ),
@@ -652,7 +656,7 @@ function writeGiftSummaries(
         )
         // A soft-deleted wedding's owners are not mailed; its summary row is
         // still written above, so a restore finds it.
-        .where(and(inArray(weddings.id, summarised), weddingIsLive))
+        .where(and(inArray(weddings.id, jsonEachIn(summarised)), weddingIsLive))
         .orderBy(asc(weddingHosts.createdAt))
         .all(),
     );
