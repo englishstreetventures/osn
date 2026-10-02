@@ -142,16 +142,24 @@ the guest the page carries on. A pack renders it as the last child of its hero
   entry at full opacity at once and runs the drift out to rest, so the cue is
   there and still. The hide still happens, without the fade.
 - **It takes the bottom 1.875rem of the hero** (a 1rem offset under a
-  0.875rem glyph; the drift moves down, never up). A pack's hero keeps at least 2.5rem of
-  bottom padding under its title, so a title long enough to grow the hero
-  still stops above the cue. The cue's offset carries no `env()` inset: an
-  inset can only widen that padding, never move the cue into the title.
-- **The consent banner covers it on a first visit.** The banner
+  0.875rem glyph; the drift moves down, never up). A pack's hero keeps at
+  least 2.5rem of bottom padding under its title, so a title long enough to
+  grow the hero still stops above the cue. The cue's offset carries no
+  `env()` inset: an inset can only widen that padding, never move the cue
+  into the title.
+- **It rises above the consent banner.** On a first visit the banner
   ([[cire-consent]]) is fixed to the bottom of the screen until the guest
-  answers it, and the cue sits underneath. Left that way on purpose: a guest
-  who scrolls with the banner up has found the scroll, which is all the cue
-  is for, and one who does not has to answer the banner to clear the screen,
-  by which time the cue is showing.
+  answers it. While it is up it publishes its height as
+  `--consent-banner-height` on `<html>`, and the cue moves up by that much
+  (`-translate-y-[var(--consent-banner-height,0px)]`), so it sits 1rem above
+  the banner's top edge; once the guest answers, the property goes and the cue
+  slides back over 500ms. A `translate`, not a change to `bottom`, so the move
+  adds no layout shift, and the browser test fails on any shift it records.
+  The cue moves; the title does not. On a narrow screen a title that reaches
+  the cue's lifted spot sits under it until the banner is answered: a wide
+  gala title at 390px, or classic's at 320x568, where the title ends 2px
+  above the banner. The banner itself covers the bottom of gala's title there
+  too. Both wait on an owner decision, `englishstventures/osn#1368`.
 
 `tests/designs/InviteHeader.browser.test.tsx` measures all of this in both
 packs, at phone and desktop width ([[browser-tests]]).

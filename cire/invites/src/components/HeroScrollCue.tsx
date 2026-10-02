@@ -27,13 +27,18 @@ interface HeroScrollCueProps {
  * It is a hint, not a control: `aria-hidden`, and `pointer-events-none` so a
  * tap goes to the hero beneath it. It fades in a beat after the title, drifts
  * down and back twice and rests (`animate-scroll-cue`, `styles/global.css`;
- * all motion ends inside five seconds). The guest's first scroll fades it out
+ * the motion lasts under five seconds). The guest's first scroll fades it out
  * for good; scrolling back to the top does not bring it back. Under reduced
  * motion the global clamp lands it at once, still.
  *
  * It takes the bottom 1.875rem of the hero (a 1rem offset under a 0.875rem
  * glyph; the drift moves it down, never up). A pack's hero keeps at least
  * 2.5rem of bottom padding beneath its title, so the two never meet.
+ *
+ * While the consent banner is on screen the cue rises by the banner's height
+ * (`--consent-banner-height`, which the banner publishes on `<html>`), so the
+ * banner never covers it, and it slides back down once the guest answers. A
+ * `translate`, not a change to `bottom`, so the move shifts no layout.
  */
 export function HeroScrollCue(props: HeroScrollCueProps) {
   const scrolled = createFirstScroll();
@@ -45,7 +50,7 @@ export function HeroScrollCue(props: HeroScrollCueProps) {
       // The hide lives here and the entry animation on the glyph: an
       // animation's `both` fill outranks a class, so on one element the fade
       // could never win.
-      class={`pointer-events-none absolute bottom-4 flex transition-opacity duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
+      class={`pointer-events-none absolute bottom-4 flex -translate-y-[var(--consent-banner-height,0px)] transition-[opacity,translate] duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
     >
       <svg
         viewBox="0 0 28 14"

@@ -1,12 +1,15 @@
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, render, within } from "@solidjs/testing-library";
 import type { Component } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
 import "../../src/styles/global.css";
+import { CONSENT_BANNER_HEIGHT_VAR } from "../../src/components/consent/banner-height";
+import { ConsentBanner } from "../../src/components/consent/ConsentBanner";
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
 import GalaInviteHeader from "../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../src/designs/types";
+import { resetConsentForTest } from "../../src/lib/consent/testing";
 
 /**
  * The hero's scroll cue in both packs, measured in a real engine.
@@ -14,9 +17,10 @@ import type { InviteCustomisation } from "../../src/designs/types";
  * `HeroScrollCue.test.tsx` pins the wiring and the class contract. What it
  * cannot see is whether the guest gets the cue: that it is painted once its
  * entry has played, on screen, inside the hero; that its drift really moves,
- * and stops inside five seconds; that the first scroll fades it out and
+ * and the motion lasts under five seconds; that the first scroll fades it out and
  * scrolling back does not bring it back; that it keeps clear of a title tall
- * enough to grow the hero; and that reduced motion leaves it there and still.
+ * enough to grow the hero; that it rises above the consent banner while the
+ * banner is up; and that reduced motion leaves it there and still.
  * Each is a fact of the compiled stylesheet, layout or the animation
  * timeline, none of which jsdom computes.
  *
@@ -75,6 +79,22 @@ async function mount(InviteHeader: Header, initial: InviteCustomisation) {
   return { hero, cue, glyph, titleBlock };
 }
 
+/** A `layout-shift` performance entry; TypeScript's DOM types do not carry it. */
+type LayoutShift = PerformanceEntry & { value: number };
+
+/** The consent banner's panel, once its island has read the (absent) cookie. */
+const consentPanel = () =>
+  document.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
+
+/** The wrapper's running CSS transitions, by the property each one moves. */
+function transitionOf(cue: HTMLElement, property: string) {
+  return cue
+    .getAnimations()
+    .find(
+      (a): a is CSSTransition => a instanceof CSSTransition && a.transitionProperty === property,
+    );
+}
+
 /** The cue's two CSS animations, found by name rather than by position. */
 function animationsOf(glyph: SVGSVGElement) {
   const all = glyph.getAnimations() as CSSAnimation[];
@@ -93,10 +113,12 @@ function scrollPageTo(top: number) {
 
 const rootPx = () => Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
 
-// The scroll position, the motion preference and the viewport all outlive a
-// test, and a cue that mounts on a scrolled page starts out hidden.
+// The scroll position, the motion preference, the viewport and the consent
+// cookie all outlive a test, and a cue that mounts on a scrolled page starts
+// out hidden.
 afterEach(async () => {
   cleanup();
+  resetConsentForTest();
   scrollPageTo(0);
   await vi.waitFor(() => {
     if (window.scrollY !== 0) throw new Error(`page still scrolled to ${window.scrollY}`);
@@ -122,6 +144,11 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
       // rather than sleeping through 1.6s.
       const { entry, drift } = animationsOf(glyph);
       expect(entry?.effect?.getTiming()).toMatchObject({ delay: 1000, duration: 600 });
+      // Inside the delay the glyph is held at its first frame, not shown and
+      // then snatched away when the fade starts.
+      entry!.pause();
+      entry!.currentTime = 500;
+      expect(getComputedStyle(glyph).opacity).toBe("0");
       entry!.finish();
 
       // On the glyph, so the wrapper's opacity counts as well (an ancestor).
@@ -155,6 +182,15 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
 
       scrollPageTo(200);
       await vi.waitFor(() => expect(cue.dataset.scrollCue).toBe("hidden"));
+      // A fade, not a blink: held mid-way, the cue is part-way out.
+      const fade = transitionOf(cue, "opacity");
+      expect(fade?.effect?.getTiming().duration).toBe(500);
+      fade!.pause();
+      fade!.currentTime = 250;
+      const midway = Number(getComputedStyle(cue).opacity);
+      expect(midway).toBeGreaterThan(0);
+      expect(midway).toBeLessThan(1);
+      fade!.finish();
       await vi.waitFor(() => expect(getComputedStyle(cue).opacity).toBe("0"), { timeout: 2000 });
       expect(glyph.checkVisibility({ checkOpacity: true })).toBe(false);
       // A hidden cue runs nothing.
@@ -166,6 +202,70 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
       await nextFrame();
       expect(cue.dataset.scrollCue).toBe("hidden");
       expect(getComputedStyle(cue).opacity).toBe("0");
+    });
+
+    it("rises above the consent banner while it is up, and settles once it is answered", async () => {
+      await page.viewport(...size);
+      const { hero, cue, glyph, titleBlock } = await mount(InviteHeader, invite());
+      // The banner is its own island and hydrates when the page is idle, so it
+      // can arrive after the cue has faded in. Nothing the cue does about it
+      // may shift the layout.
+      const { entry, drift } = animationsOf(glyph);
+      entry!.finish();
+      await nextFrame();
+      await nextFrame();
+      const shifts: LayoutShift[] = [];
+      const shiftObserver = new PerformanceObserver((list) => {
+        shifts.push(...(list.getEntries() as LayoutShift[]));
+      });
+      shiftObserver.observe({ type: "layout-shift" });
+      render(() => <ConsentBanner />);
+      const panel = await vi.waitFor(() => {
+        const found = consentPanel();
+        if (!found) throw new Error("the consent banner has not appeared");
+        return found;
+      });
+      await vi.waitFor(() =>
+        expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe(
+          `${panel.getBoundingClientRect().height}px`,
+        ),
+      );
+      await nextFrame();
+      await nextFrame();
+      shiftObserver.disconnect();
+      expect(shifts.map((s) => s.value)).toEqual([]);
+
+      // Play the drift and the rise out, then measure at rest.
+      drift!.finish();
+      transitionOf(cue, "translate")?.finish();
+
+      const banner = panel.getBoundingClientRect();
+      const box = glyph.getBoundingClientRect();
+      expect(banner.top).toBeLessThan(window.innerHeight);
+      expect(box.top).toBeGreaterThanOrEqual(0);
+      // The drift moves the glyph 6px further down; that too stays clear.
+      expect(box.bottom + 6).toBeLessThanOrEqual(banner.top);
+      expect(glyph.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })).toBe(true);
+      // Nothing of the banner's is painted where the glyph is.
+      const centre = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+      const atCentre = document.elementsFromPoint(centre.x, centre.y);
+      expect(atCentre.some((el) => panel.contains(el))).toBe(false);
+      // And the fixture's title is not under it either.
+      const title = titleBlock.getBoundingClientRect();
+      expect(
+        box.bottom <= title.top ||
+          box.top >= title.bottom ||
+          box.right <= title.left ||
+          box.left >= title.right,
+      ).toBe(true);
+
+      // Answered: the banner goes, the height goes, the cue settles back.
+      within(panel).getByText("Reject all").click();
+      await vi.waitFor(() => expect(consentPanel()).toBeNull());
+      expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe("");
+      transitionOf(cue, "translate")?.finish();
+      const settled = glyph.getBoundingClientRect();
+      expect(settled.bottom).toBeCloseTo(hero.getBoundingClientRect().bottom - rootPx(), 0);
     });
 
     it("sits below the title block, even when a long title grows the hero", async () => {

@@ -78,12 +78,15 @@ describe("createFirstScroll", () => {
   });
 
   it("stops listening once it has latched", async () => {
+    const add = vi.spyOn(window, "addEventListener");
     const remove = vi.spyOn(window, "removeEventListener");
     await createRoot(async (dispose) => {
       createFirstScroll();
       await flushMount();
+      const added = add.mock.calls.find(([type]) => type === "scroll");
       scrollPageTo(10);
-      expect(remove).toHaveBeenCalledWith("scroll", expect.any(Function));
+      // The listener it added, before dispose gets the chance to remove it.
+      expect(remove).toHaveBeenCalledWith("scroll", added?.[1]);
       dispose();
     });
   });
