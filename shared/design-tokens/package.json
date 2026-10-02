@@ -3,6 +3,12 @@
   "version": "0.3.2",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./conformance": "./src/conformance.ts",

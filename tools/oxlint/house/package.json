@@ -1,8 +1,14 @@
 {
   "name": "@tools/oxlint-house",
   "private": true,
-  "type": "module",
   "description": "House Oxlint rules — repo-specific lint rules, kept out of the vendored anti-slop tree",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bun test"

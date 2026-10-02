@@ -3,6 +3,12 @@
   "private": true,
   "description": "Session-performance cards — what an agent session cost the pull request it produced",
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "scripts": {
     "card": "bun run index.ts",
     "check": "tsc --noEmit",
