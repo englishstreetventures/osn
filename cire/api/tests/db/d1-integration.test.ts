@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -98,6 +99,9 @@ import { ownerSeat } from "../test-helpers/wedding";
 /* eslint-disable no-await-in-loop */
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// The live baseline already contains every migration named below, so their
+// data statements are read from the archive, where each one still stands alone.
+const ARCHIVE_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
@@ -105,11 +109,12 @@ const MIGRATION_0076 = "0076_wedding_owners.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
- * breakpoint marker, comment lines dropped. Every chunk in the chain holds one
- * statement, and D1's `prepare` takes exactly one.
+ * breakpoint marker, comment lines dropped. Every chunk of the live chain, and
+ * of each archived file named above, holds one statement, and D1's `prepare`
+ * takes exactly one. Archived files before 0058 do not all keep to that.
  */
-function migrationStatements(file: string): string[] {
-  return readFileSync(join(MIGRATIONS_DIR, file), "utf8")
+function migrationStatements(file: string, dir: string = ARCHIVE_DIR): string[] {
+  return readFileSync(join(dir, file), "utf8")
     .split("--> statement-breakpoint")
     .map((chunk) =>
       chunk
@@ -119,6 +124,40 @@ function migrationStatements(file: string): string[] {
         .trim(),
     )
     .filter(Boolean);
+}
+
+/**
+ * Every table and index `files` (from `dir`, in that order) leave behind on
+ * bun:sqlite, in creation order, tables first: each the SQL SQLite stored for
+ * it, one statement apiece. The same method generates the live baseline.
+ */
+function sqliteSchemaStatements(
+  dir: string,
+  files: readonly string[],
+): Array<{ type: string; name: string; sql: string }> {
+  const db = new Database(":memory:");
+  try {
+    db.exec("PRAGMA foreign_keys = ON;");
+    for (const file of files) db.exec(readFileSync(join(dir, file), "utf8"));
+    const objects = db
+      .query(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+      )
+      .all() as Array<{ type: string; name: string; sql: string }>;
+    return [
+      ...objects.filter((o) => o.type === "table"),
+      ...objects.filter((o) => o.type !== "table"),
+    ];
+  } finally {
+    db.close();
+  }
+}
+
+/** {@link sqliteSchemaStatements}, as sorted text to compare D1 against. */
+function sqliteStoredSchema(dir: string, files: readonly string[]): string[] {
+  return sqliteSchemaStatements(dir, files)
+    .map((o) => `${o.type} ${o.name}: ${o.sql}`)
+    .toSorted();
 }
 
 const PUBLIC_ID = "TESTFAM-AA01";
@@ -1799,10 +1838,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // three columns, so only the migration's UPDATE statements are replayed
       // here: what is being proven is that D1 accepts them (`trim(X, char(...))`
       // included) and that they switch sections the way the emptiness checks do.
-      const migration = readFileSync(
-        join(import.meta.dir, "..", "..", "..", "db", "migrations", MIGRATION_0063),
-        "utf8",
-      );
+      const migration = readFileSync(join(ARCHIVE_DIR, MIGRATION_0063), "utf8");
       const updates = migration
         .split("--> statement-breakpoint")
         .map((chunk) =>
@@ -2045,12 +2081,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "builds the schema from the migration chain, 0064 included, on D1's own SQLite",
+    "builds the schema from the live migration chain on D1's own SQLite",
     async () => {
       // Its own instance: the suite's shared database is built from the test
       // DDL, and replaying a migration into it would mean dropping a table every
-      // later test needs. Here the whole chain runs from empty, in order, the
-      // way `wrangler d1 migrations apply` runs it.
+      // later test needs. Here the whole live chain — the baseline first — runs
+      // from empty, in order, the way `wrangler d1 migrations apply` runs it.
       const chainMf = new Miniflare({
         modules: true,
         script: "export default { fetch() { return new Response('ok'); } };",
@@ -2061,10 +2097,23 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = readdirSync(MIGRATIONS_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
-        expect(files).toContain("0064_invite_faq.sql");
+        expect(files[0]).toBe("0001_initial.sql");
         for (const file of files) {
-          for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
+          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
         }
+
+        // D1 stores every table and index with the SQL bun:sqlite stores for
+        // the same chain, so what the suite proves on bun:sqlite holds on D1.
+        const onD1 = await chainD1
+          .prepare(
+            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'",
+          )
+          .all<{ type: string; name: string; sql: string }>();
+        expect(onD1.results.map((o) => `${o.type} ${o.name}: ${o.sql}`).toSorted()).toEqual(
+          sqliteStoredSchema(MIGRATIONS_DIR, files),
+        );
 
         const columns = await chainD1
           .prepare("PRAGMA table_info(wedding_invite_customisations)")
@@ -2109,9 +2158,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 0076 on D1's own SQLite: owners become seats, nothing cascades",
     async () => {
-      // Its own instance, built from the chain up to 0070, so the weddings the
-      // migration moves are rows that exist before it runs — including one
-      // whose owner already holds a seat, which takes the upsert branch.
+      // Its own instance, holding the schema as it stood just before 0076, so
+      // the weddings the migration moves are rows that exist before it runs —
+      // including one whose owner already holds a seat, which takes the upsert
+      // branch. That schema is built on bun:sqlite from the archived chain and
+      // loaded into D1 one stored statement at a time: the archive's early
+      // files are not all one statement per chunk, and what is under test here
+      // is 0076 itself on D1.
       const chainMf = new Miniflare({
         modules: true,
         script: "export default { fetch() { return new Response('ok'); } };",
@@ -2119,13 +2172,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
+        const files = readdirSync(ARCHIVE_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
         const cut = files.indexOf(MIGRATION_0076);
         expect(cut).toBeGreaterThan(0);
-        for (const file of files.slice(0, cut)) {
-          for (const stmt of migrationStatements(file)) await chainD1.prepare(stmt).run();
+        for (const object of sqliteSchemaStatements(ARCHIVE_DIR, files.slice(0, cut))) {
+          await chainD1.prepare(object.sql).run();
         }
         for (const stmt of [
           "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at) VALUES ('wed_m1', 'm1', 'M1', 'usr_m1', 100, 100), ('wed_m2', 'm2', 'M2', 'usr_m2', 200, 200)",

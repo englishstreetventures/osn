@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -649,38 +649,57 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 
 ### 4.1 Apply cire D1 migrations (remote)
 
-Migrations live in `cire/db/migrations/`. Since the 2026-09-10 squash
-(englishstventures/osn#981) that is one baseline file, `0001_initial.sql`, holding the
-whole schema, plus anything numbered `0058` and up. Production has all 57 old
-names in its `d1_migrations` ledger, including `0001_initial.sql`, so wrangler
-skips the baseline and applies nothing — `d1 migrations list --env production`
-says "No migrations to apply!". The originals are in
-`cire/db/migrations-archive/`, which nothing applies. The `database_id` is
-already wired
-(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1). **CI applies them** — the
-`deploy-cire-api` job runs `wrangler d1 migrations apply cire-db --remote` before the new
-Worker serves, so the commands below are the manual equivalent.
+Migrations live in `cire/db/migrations/`: one baseline file,
+`0001_initial.sql`, holding the whole schema, plus anything numbered `0082` and
+up. The baseline builds exactly what migrations `0001`–`0081` in
+`cire/db/migrations-archive/` build; nothing applies the archive. Production
+applied that chain file by file, so its `d1_migrations` ledger holds every
+archived name, `0001_initial.sql` among them, and wrangler skips the baseline
+there.
 
-> ⚠️ Migration `0015_drop_bootstrap_wedding.sql` (now in
-> `cire/db/migrations-archive/`; it ran on production long ago) DELETEs the orphaned demo wedding
-> row `wed_bootstrap` (seeded by `0006`, owned by the inert sentinel
-> `usr_unclaimed_bootstrap`). Its children cascade-delete. Pre-launch there is no
-> real data on it. This runs on its own in the CI deploy pipeline's migration
-> step (`.github/workflows/deploy.yml`) — no manual action.
+That skip is only right once production has applied **every** archived
+migration. `bun run --cwd cire/db db:migrate:prod` runs
+`scripts/cire-db-migrate.ts`, which reads production's ledger first and refuses
+— before any migration runs or the Worker deploys — when an archived migration
+of the chain it started is missing, or when it names a migration from outside
+that chain. The refusal names the files. The script runs the wrangler
+`cire/api` installs from the lockfile and gives up on a ledger read after two
+minutes, so a stalled call fails the job instead of holding the production
+concurrency group.
+
+> [!warning] Bring production level with a deploy run, never by hand
+> Approve the `deploy.yml` run of a commit from before those files were
+> archived and let its "Deploy cire/api — production" job finish: it applies
+> them and deploys the Worker that matches. Then re-run the refused job. Do
+> not run `db:migrate:prod` from an old checkout instead — that applies the
+> migrations under the Worker already serving, and a migration such as `0076`
+> drops a column that Worker still reads. Approve the old run before re-running
+> the new one: both wait in the `deploy-production-cire-api` concurrency group,
+> and a newer pending job cancels an older one.
+
+The `database_id` is already wired
+(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1). **CI applies them** — the
+`deploy-cire-api` job runs `bun run --cwd cire/db db:migrate:prod` before the
+new Worker serves, so the command below is the manual equivalent.
+
+> Production holds no `wed_bootstrap` demo wedding: archived migration
+> `0015_drop_bootstrap_wedding.sql` deleted it and its children, and the
+> baseline never creates it.
 
 ```bash
-# from cire/api (wrangler.toml lives there)
-cd cire/api
-bunx wrangler d1 migrations apply cire-db --env production --remote
-# or, from repo root via the cire/db script:
-# bun run --cwd cire/db db:migrate:prod
+# from the repo root
+bun run --cwd cire/db db:migrate:prod
 ```
 
+> Never apply cire migrations with a bare `wrangler d1 migrations apply`. It
+> skips the ledger check, so on a production database that is behind it reports
+> "No migrations to apply!" and leaves the missing schema missing.
+
 > `--env production` is not optional. Without it wrangler resolves `cire-db`
-> against the top-level config, which is the local devloop's binding set. The old
-> `db:push:remote` script passed no `--env` and is gone; `cire/db` now has the
-> `db:migrate:local|dev|prod` trio the other db packages already had, each naming
-> its database **and** its env. See `cire/db/README.md`.
+> against the top-level config, which is the local devloop's binding set. The
+> `db:migrate:local|dev|prod` scripts each name their database **and** their
+> env, and the wrapper refuses a call that names neither `--local` nor
+> `--remote`. See `cire/db/README.md`.
 
 > ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
 > and no seeded owner. **Every authenticated OSN user is a first-class

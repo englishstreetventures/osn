@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -237,14 +237,14 @@ the amount of data, and that number only grows. Before adding one, work out its
 cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
 out on every pull request — replaying it offline into an in-memory SQLite and
 failing when the estimate passes the budget in
-`scripts/d1-migration-cost-budgets.txt`. The chain is **146 schema writes**
-against a line at 150; priced at 27 rows each that is about 3,940 written and
-roughly 25 replays a day, but the price per schema write is only pinned to
-about 22–27, so read the row figure as indicative and the schema-write count as
-exact. Method, calibration and how to re-baseline: [[bundle-size-guards]], which
-also sets out why the "89% / 11%" split above cannot be read as a share of one
-rebuild.
-*Measured 2026-10-01 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+`scripts/d1-migration-cost-budgets.txt`. The chain is one squashed baseline of
+**96 schema writes** against a line at 192; priced at 27 rows each that is
+about 2,590 written and roughly 38 replays a day, but the price per schema
+write is only pinned to about 22–27, so read the row figure as indicative and
+the schema-write count as exact. Method, calibration and how to re-baseline:
+[[bundle-size-guards]], which also sets out why the "89% / 11%" split above
+cannot be read as a share of one rebuild.
+*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
 
 **The daily cire cron shares one invocation.** Its ten jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 5-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`). The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway.
 
