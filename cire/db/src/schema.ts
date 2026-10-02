@@ -1084,6 +1084,17 @@ export const rsvps = sqliteTable(
     // True when that write also carried a musubi sign-in matching the member's
     // account link — "signed in as", against "picked from a list".
     submittedViaLink: integer("submitted_via_link", { mode: "boolean" }).notNull().default(false),
+    // The organiser (OSN profile id) whose write is this row's latest — a full
+    // phone/paper reply or a status-only save (migration 0080). Null when a
+    // household wrote it last, and on rows written before the column. Opaque
+    // cross-database id, like `weddings.updated_by_osn_profile_id`: no foreign
+    // key, and no read endpoint returns it.
+    recordedByOsnProfileId: text("recorded_by_osn_profile_id"),
+    // The organiser whose attestation the stored dietary consent record is
+    // (migration 0080). Set with `dietary_consent_at` on an organiser's dietary
+    // answer; null whenever the record is a guest's or household's, or there is
+    // no record. A status-only save keeps it, as it keeps the record.
+    dietaryAttestedByOsnProfileId: text("dietary_attested_by_osn_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [

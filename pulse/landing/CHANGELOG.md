@@ -1,5 +1,17 @@
 # @pulse/landing
 
+## 0.1.21
+
+### Patch Changes
+
+- 1484459: Raise the root `devalue` override from `^5.8.1` to `^5.9.4`, clearing three high advisories on `devalue` 5.9.2 (shared-memory serialisation, quadratic `uneval` expansion, and an unhandled rejection in `stringifyAsync`). Astro pulls `devalue` in for these sites.
+
+## 0.1.20
+
+### Patch Changes
+
+- cb9ca13: Raise the root `devalue` override from `^5.8.1` to `^5.9.4`, clearing three high advisories on `devalue` 5.9.2 (shared-memory serialisation, quadratic `uneval` expansion, and an unhandled rejection in `stringifyAsync`). Astro pulls `devalue` in for these sites.
+
 ## 0.1.19
 
 ### Patch Changes

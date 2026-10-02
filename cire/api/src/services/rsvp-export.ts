@@ -1,6 +1,6 @@
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { formatDietaryCell, parsePresets, type DietaryPreset } from "@cire/dietary";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
@@ -135,6 +135,11 @@ export interface RsvpViewGuest {
    *  plus-one's reply). The dashboard badges organiser-entered answers so an
    *  overwrite of a guest reply is visible. */
   consentSource: ConsentSource;
+  /** Whether an organiser made the row's latest write. On a row whose
+   *  `consentSource` is still the guest's or the household's, a host changed
+   *  the status and the dietary answer is theirs. Which organiser stays
+   *  server-side: the view never returns a profile id. */
+  statusRecordedByHost: boolean;
   /** Set when the guest is a plus-one: the guest id of the member who brought
    *  them. A named plus-one is an ordinary guest, so they already count in the
    *  event's tallies; this only says who they came with. */
@@ -246,6 +251,7 @@ export const rsvpExportService = {
                 dietary: rsvps.dietary,
                 dietaryPresets: rsvps.dietaryPresets,
                 consentSource: rsvps.consentSource,
+                statusRecordedByHost: sql<number>`${rsvps.recordedByOsnProfileId} IS NOT NULL`,
                 submittedByGuestId: rsvps.submittedByGuestId,
                 submittedViaLink: rsvps.submittedViaLink,
                 submittedByFirstName: submitter.firstName,
@@ -334,6 +340,7 @@ export const rsvpExportService = {
           dietary: row.dietary,
           dietaryPresets: parsePresets(row.dietaryPresets),
           consentSource: row.consentSource,
+          statusRecordedByHost: Boolean(row.statusRecordedByHost),
           plusOneOf: row.plusOneOf,
           plusOneOfName: inviterName(row),
           submittedBy:

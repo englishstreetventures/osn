@@ -84,14 +84,24 @@ export async function chooseMember(
 
 /**
  * "Not you?": clear the member and end this browser's cire musubi sign-in.
- * Both fire-and-forget; the page has already returned to "Who are you?". The
+ * Both requests run together; resolves true only when the server confirmed
+ * both, so the page never shows a cleared state that a reload would undo. The
  * sign-in is shared with the organiser portal on this browser, so this signs
  * the organiser out there too (by design: the person at the keyboard said the
  * account is not theirs).
  */
-export function notYou(apiUrl: string): void {
-  void fetch(`${apiUrl}/api/claim/member`, { method: "DELETE", credentials: "include" }).catch(
-    () => {},
+export async function notYou(apiUrl: string): Promise<boolean> {
+  const cleared = fetch(`${apiUrl}/api/claim/member`, {
+    method: "DELETE",
+    credentials: "include",
+  }).then(
+    (res) => res.ok,
+    () => false,
   );
-  void import("@shared/rp-auth").then((auth) => auth.signOut({ apiBase: apiUrl })).catch(() => {});
+  const signedOut = import("@shared/rp-auth").then(
+    (auth) => auth.signOut({ apiBase: apiUrl }),
+    () => false,
+  );
+  const [member, signIn] = await Promise.all([cleared, signedOut]);
+  return member && signIn;
 }
