@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1367,
+    "branch": "fix/cire-closing-image-organiser",
+    "base_sha": "5dd0f3cb972add5e892802676232761f99e0ac8d",
+    "head_sha": "efbf64dce6fe7b4d1a0ffeca9476a41a5fd72796",
+    "generated_at": "2026-10-02T04:53:33.348Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1283,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-10-02T00:31:44.047Z",
+    "last_ts": "2026-10-02T04:53:29.063Z",
+    "span_seconds": 15705,
+    "active_seconds": 3831,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 42.97424735000002,
+    "tokens": {
+      "input": 982,
+      "output": 21817,
+      "thinking": 362,
+      "cache_write_5m": 1944158,
+      "cache_write_1h": 0,
+      "cache_read": 80810512
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 34,
+          "output": 15461,
+          "thinking": 0,
+          "cache_write_5m": 199637,
+          "cache_write_1h": 0,
+          "cache_read": 1620993
+        },
+        "usd_equivalent": 2.4449227500000004,
+        "messages": 24
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 948,
+          "output": 6356,
+          "thinking": 362,
+          "cache_write_5m": 1744521,
+          "cache_write_1h": 0,
+          "cache_read": 79189519
+        },
+        "usd_equivalent": 40.5293246,
+        "messages": 472
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 34,
+          "output": 15461,
+          "thinking": 0,
+          "cache_write_5m": 199637,
+          "cache_write_1h": 0,
+          "cache_read": 1620993
+        },
+        "usd_equivalent": 2.4449227500000004,
+        "messages": 24
+      },
+      "subagent": {
+        "tokens": {
+          "input": 948,
+          "output": 6356,
+          "thinking": 362,
+          "cache_write_5m": 1744521,
+          "cache_write_1h": 0,
+          "cache_read": 79189519
+        },
+        "usd_equivalent": 40.5293246,
+        "messages": 473
+      }
+    },
+    "effort": {
+      "xhigh": 403,
+      "high": 69
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 5,
+      "docs": 4,
+      "config": 0,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 6,
+        "deleted": 0
+      },
+      "test": {
+        "added": 541,
+        "deleted": 16
+      },
+      "docs": {
+        "added": 67,
+        "deleted": 22
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 426,
+        "deleted": 117
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 419,
+      "Read": 65,
+      "Edit": 56,
+      "Skill": 11,
+      "Write": 5,
+      "SubagentHandback": 5,
+      "Agent": 4,
+      "Grep": 4,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 7,
+      "max_edits_one_file": 15
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}
