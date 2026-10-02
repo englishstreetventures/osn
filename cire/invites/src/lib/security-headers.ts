@@ -24,21 +24,20 @@
  * site actually loads — see `CSP_DIRECTIVES` below for the per-origin rationale.
  */
 
-import { apiPreconnectHref, PRODUCTION_API_ORIGIN } from "./api-origin";
+import { apiPreconnectHref } from "./api-origin";
 import { API_URL } from "./invite";
-
-export { PRODUCTION_API_ORIGIN };
 
 /**
  * The origin of the cire-api this build calls — the `PUBLIC_API_URL` baked in
  * at build time (`lib/invite.ts`), so each tier's policy names its own API and
  * its own report collector: production, dev, the portless devloop's
  * `api.cire.localhost`, or `http://localhost:8787` when the env is unset. The
- * build fails on an API URL that is not a plain http(s) origin
- * (`lib/tier-headers.ts`), so the fallback here only keeps a module load from
- * throwing; it never ships. It is the URL itself rather than a second origin
- * literal, so the server bundle names no API it was not built for, and the
- * build's check that it names the header's origin means something.
+ * build fails on an API URL that is not a plain http(s) origin (the shared
+ * integration `lib/tier-headers.ts` wires in, `@cire/build-tools/tier-headers`),
+ * so the fallback here only keeps a module load from throwing; it never ships.
+ * It is the URL itself rather than a second origin literal, so the server
+ * bundle names no API it was not built for, and the build's check that it
+ * names the header's origin means something.
  */
 export const API_ORIGIN = apiPreconnectHref(API_URL) ?? API_URL;
 

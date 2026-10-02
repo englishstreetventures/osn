@@ -1,0 +1,11 @@
+{
+  "extends": "@shared/typescript-config/node.json",
+  "compilerOptions": {
+    // Each cire app type-checks this source under its own `lib`, and the guest
+    // site's is ES2022 (`cire/invites/tsconfig.json`). Pinned to match, so an
+    // ES2023 method fails here rather than only in that app's check.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
+}
