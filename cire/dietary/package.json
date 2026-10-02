@@ -2,6 +2,12 @@
   "name": "@cire/dietary",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

@@ -2,9 +2,25 @@
   "name": "osn",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "packageManager": "bun@1.4.2",
-  "workspaces": ["cire/*", "musubi/*", "osn/*", "pulse/*", "zap/*", "shared/*", "tools/lab", "tools/oxlint/house",
-    "tools/pr-metrics", "tools/metrics"],
+  "workspaces": [
+    "cire/*",
+    "musubi/*",
+    "osn/*",
+    "pulse/*",
+    "zap/*",
+    "shared/*",
+    "tools/lab",
+    "tools/oxlint/house",
+    "tools/pr-metrics",
+    "tools/metrics"
+  ],
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",

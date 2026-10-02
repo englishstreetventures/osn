@@ -2,8 +2,14 @@
   "name": "@tools/lab",
   "version": "0.3.6",
   "private": true,
-  "type": "module",
   "description": "Component lab — a Storybook-shaped scratchpad for spiking UI, three.js and canvas work",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env vite dev",

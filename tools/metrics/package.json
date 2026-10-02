@@ -2,8 +2,14 @@
   "name": "@tools/metrics",
   "version": "0.2.19",
   "private": true,
-  "type": "module",
   "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env vite dev",

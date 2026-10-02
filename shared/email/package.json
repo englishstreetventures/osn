@@ -3,6 +3,12 @@
   "version": "0.13.0",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./metrics": "./src/metrics.ts",

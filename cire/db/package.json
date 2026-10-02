@@ -2,6 +2,12 @@
   "name": "@cire/db",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     ".": "./src/schema.ts",
     "./seed": "./seed/data/index.ts"
