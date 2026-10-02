@@ -411,9 +411,10 @@ function freshForClient(hit: Response, cacheControl: string, etag: string | unde
 
 /**
  * Serve a transformed image given an already-resolved R2 key + server-derived
- * content version. Shared by the wedding-slot (`hero`/`story`), the per-event and
- * the registry-item serve routes so all three get the IDENTICAL Cache-API-short-
- * circuit + Images-binding transform + raw-original fallback pipeline.
+ * content version. Shared by every image serve route — the invite slots (public
+ * and organiser), the per-event images and the registry items — so all of them
+ * get the IDENTICAL Cache-API-short-circuit + Images-binding transform +
+ * raw-original fallback pipeline.
  *
  * `logSlot` is the kind of slot, and the only slot detail the warnings on this
  * path log: `cacheSlot` carries the wedding's public slug, which is the

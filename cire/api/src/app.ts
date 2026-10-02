@@ -30,7 +30,11 @@ import {
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
-import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
+import {
+  createInviteImageServeRoutes,
+  createInviteOrganiserRoutes,
+  createInvitePublicRoutes,
+} from "./routes/invite";
 import { createInviteFaqRoutes } from "./routes/invite-faq";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
@@ -1167,16 +1171,24 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
-  // Stripe's own deliveries. Mounted only with a signing secret: nothing else
-  // authenticates this endpoint, so without one it must not exist.
+  // The portal's read of the invite images. The organiser-facing customisation
+  // links the closing image here, because the public route keeps it for claimed
+  // households. A sibling of the invite builder's writes, with no limiter — see
+  // `createInviteImageServeRoutes`. Mounted past the widening, and before the
+  // no-Stripe early return, for the same reasons as the lifecycle routes.
+  const withInviteImages: AnyElysia = rootApp.use(
+    createInviteImageServeRoutes(db, osnAuthOptions, { assets, images }),
+  );
   // An owner's wedding delete and restore. Mounted past the widening for the
   // same reason as the upgrade routes below, and before the no-Stripe early
   // return so they exist in every deployment.
-  const withLifecycle: AnyElysia = rootApp
+  const withLifecycle: AnyElysia = withInviteImages
     .use(
       createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter, ownerNotices),
     )
     .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter));
+  // Stripe's own deliveries. Mounted only with a signing secret: nothing else
+  // authenticates this endpoint, so without one it must not exist.
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
     ? withLifecycle.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
     : withLifecycle;

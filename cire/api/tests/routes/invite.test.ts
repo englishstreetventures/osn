@@ -58,6 +58,9 @@ function buildApp(opts?: {
     // tests; the rate-limit test below injects a tight one.
     inviteLimiter:
       opts?.inviteLimiter ?? createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    // The same for the claim limiter: its default is 5 a minute for the whole
+    // process, and the gate tests here claim a code to get a household session.
+    claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     inviteDesigns: opts?.inviteDesigns,
   });
   return { db, app, assets };
@@ -657,7 +660,7 @@ describe("invite image upload + serve + remove", () => {
   // Slot isolation. Until 0049 there were exactly two slots and the service
   // branched `slot === "hero" ? … : …` everywhere, so a third slot would have
   // been written into the story's columns. These pin each slot to its own.
-  it("uploads a footer image, serves it, and surfaces it on the public read", async () => {
+  it("uploads a footer image, serves it, and surfaces it on the organiser read", async () => {
     const { app } = buildApp();
 
     const up = await appRequest(app, `${orgBase}/image/footer`, {
@@ -667,7 +670,7 @@ describe("invite image upload + serve + remove", () => {
     });
     expect(up.status).toBe(200);
     const { imageUrl } = (await up.json()) as { imageUrl: string };
-    expect(imageUrl).toContain(`/api/invite/${SLUG}/image/footer`);
+    expect(imageUrl).toContain(`${orgBase}/image/footer`);
 
     const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
     const body = (await org.json()) as {
@@ -680,8 +683,9 @@ describe("invite image upload + serve + remove", () => {
     expect(body.story.imageUrl).toBeNull();
     expect(body.hero.imageUrl).toBeNull();
 
-    // The bytes need a claimed session — see the gate tests below.
-    const img = await appRequest(app, imageUrl, { headers: { Cookie: await guestCookie(app) } });
+    // The organiser's link needs the organiser's credentials; the guest route
+    // and its claimed-session gate are covered below.
+    const img = await appRequest(app, imageUrl, { headers: await authHeaders(BOOTSTRAP_OWNER) });
     expect(img.status).toBe(200);
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
 
@@ -850,6 +854,252 @@ describe("invite image upload + serve + remove", () => {
     const { app } = buildApp();
     const res = await appRequest(app, `/api/invite/${SLUG}/image/story`);
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * The portal's copy of the invite images: `GET …/weddings/:weddingId/invite/image/:slot`.
+ *
+ * The guest route withholds the closing image from anyone without a claimed
+ * household session for the wedding, and an organiser holds an organiser
+ * session instead, so the builder's thumbnail, crop editor and previews link
+ * the closing image here. The gate is the organiser read's own: `osnAuth` and
+ * `weddingMember`.
+ */
+describe("organiser read of invite images", () => {
+  const orgImage = (slot: string) => `${orgBase}/image/${slot}`;
+
+  async function uploadFooter(app: ReturnType<typeof buildApp>["app"]) {
+    await uploadSlot(app, "footer");
+  }
+
+  function seatCohost(
+    db: ReturnType<typeof buildApp>["db"],
+    role: "editor" | "viewer" | "helper",
+  ): string {
+    const profileId = `usr_image_${role}`;
+    db.insert(weddingHosts)
+      .values({
+        id: `whost_image_${role}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: profileId,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role,
+        createdAt: new Date(),
+      })
+      .run();
+    return profileId;
+  }
+
+  it("links the closing image at the organiser route and keeps hero and story public", async () => {
+    const { app } = buildApp();
+    for (const slot of ["hero", "story", "footer"] as const) await uploadSlot(app, slot);
+
+    const res = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await res.json()) as Record<"hero" | "story" | "footer", { imageUrl: string }>;
+    expect(body.footer.imageUrl).toStartWith(`${orgImage("footer")}?v=`);
+    expect(body.hero.imageUrl).toStartWith(`/api/invite/${SLUG}/image/hero?v=`);
+    expect(body.story.imageUrl).toStartWith(`/api/invite/${SLUG}/image/story?v=`);
+  });
+
+  it("answers a write with the organiser link too", async () => {
+    const { app } = buildApp();
+    await uploadFooter(app);
+    const res = await appRequest(app, `${orgBase}/visibility`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ story: false }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { footer: { imageUrl: string } };
+    expect(body.footer.imageUrl).toStartWith(`${orgImage("footer")}?v=`);
+  });
+
+  it("never puts the organiser link in the public invite read", async () => {
+    const { app } = buildApp();
+    await uploadFooter(app);
+    const raw = await (await appRequest(app, `/api/invite/${SLUG}`)).text();
+    expect(raw).not.toContain("/api/organiser/");
+  });
+
+  // The portal reaches the API with the organiser session cookie, never a
+  // bearer token, so the cookie is the credential that has to work.
+  it("serves the closing image to the owner's session cookie, marked private", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+
+    const org = await appRequest(app, orgBase, {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    const { footer } = (await org.json()) as { footer: { imageUrl: string } };
+    const res = await appRequest(app, footer.imageUrl, {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+  });
+
+  it("serves every member role: owner by bearer, editor and viewer co-hosts", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const readers = [BOOTSTRAP_OWNER, seatCohost(db, "editor"), seatCohost(db, "viewer")];
+    for (const profileId of readers) {
+      const res = await appRequest(app, orgImage("footer"), {
+        headers: await authHeaders(profileId),
+      });
+      expect(res.status).toBe(200);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    }
+  });
+
+  it("serves the variant the previews ask for", async () => {
+    const images = createImagesStub();
+    const { app } = buildApp({ images });
+    await uploadFooter(app);
+    const res = await appRequest(app, `${orgImage("footer")}?variant=card`, {
+      headers: { ...(await authHeaders(BOOTSTRAP_OWNER)), accept: "image/webp,*/*" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/webp");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(TRANSFORMED);
+    expect(images.widths).toEqual([800]);
+  });
+
+  it("401s a request with no organiser credentials, a dead cookie or a bad bearer", async () => {
+    const { app } = buildApp();
+    await uploadFooter(app);
+    const credentials: Record<string, string>[] = [
+      {},
+      { cookie: "cire_org_session=not-a-live-session-token" },
+      { authorization: "Bearer not-a-jwt" },
+    ];
+    for (const headers of credentials) {
+      const res = await appRequest(app, orgImage("footer"), { headers });
+      expect(res.status).toBe(401);
+    }
+  });
+
+  // A claimed household of THIS wedding may read the closing image through the
+  // guest route, but its session is not an organiser credential.
+  it("401s a guest session, even one claimed at this wedding", async () => {
+    const { app } = buildApp();
+    await uploadFooter(app);
+    const res = await appRequest(app, orgImage("footer"), {
+      headers: { cookie: await guestCookie(app) },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403s another wedding's organiser", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    insertWedding(db, {
+      id: "wed_other_image",
+      slug: "other-image-wedding",
+      displayName: "Other",
+      owners: ["usr_other_image_owner"],
+    });
+    const res = await appRequest(app, orgImage("footer"), {
+      headers: await authHeaders("usr_other_image_owner"),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  // The run sheet is all a helper may touch; the closing image is guest-facing
+  // invite content.
+  it("403s a helper co-host", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const res = await appRequest(app, orgImage("footer"), {
+      headers: await authHeaders(seatCohost(db, "helper")),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("404s an unknown wedding, an unknown slot and a slot with no image", async () => {
+    const { app } = buildApp();
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    const unknownWedding = await appRequest(
+      app,
+      "/api/organiser/weddings/wed_does_not_exist/invite/image/footer",
+      { headers },
+    );
+    expect(unknownWedding.status).toBe(404);
+    expect((await appRequest(app, orgImage("banner"), { headers })).status).toBe(404);
+    expect((await appRequest(app, orgImage("footer"), { headers })).status).toBe(404);
+  });
+
+  // The guest route's gate is not widened: an organiser session is not a
+  // claimed household, so the guest URL still answers as if there were no image.
+  it("still 404s the guest route for an organiser session alone", async () => {
+    const { app, db } = buildApp();
+    await uploadFooter(app);
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+    const res = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  // The two routes share one Cache API entry per slot, variant, format and
+  // version. That is safe only while each route's gate runs before the lookup.
+  describe("shared Cache API entry", () => {
+    it("an organiser read that warms the entry does not open the guest route", async () => {
+      const cache = createCacheStub();
+      await withCaches(cache.caches, async () => {
+        const { app } = buildApp({ images: createImagesStub() });
+        await uploadFooter(app);
+
+        const warm = await appRequest(app, orgImage("footer"), {
+          headers: await authHeaders(BOOTSTRAP_OWNER),
+        });
+        expect(warm.status).toBe(200);
+        expect(cache.calls.put).toBe(1);
+        const matches = cache.calls.match;
+
+        const anon = await appRequest(app, `/api/invite/${SLUG}/image/footer`);
+        expect(anon.status).toBe(404);
+        expect(cache.calls.match).toBe(matches);
+      });
+    });
+
+    it("a guest read that warms the entry does not open the organiser route", async () => {
+      const cache = createCacheStub();
+      await withCaches(cache.caches, async () => {
+        const { app } = buildApp({ images: createImagesStub() });
+        await uploadFooter(app);
+
+        const warm = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+          headers: { cookie: await guestCookie(app) },
+        });
+        expect(warm.status).toBe(200);
+        expect(cache.calls.put).toBe(1);
+        const matches = cache.calls.match;
+
+        const anon = await appRequest(app, orgImage("footer"));
+        expect(anon.status).toBe(401);
+        expect(cache.calls.match).toBe(matches);
+      });
+    });
+
+    it("re-stamps a cache hit private on the organiser route", async () => {
+      const cache = createCacheStub();
+      await withCaches(cache.caches, async () => {
+        const images = createImagesStub();
+        const { app } = buildApp({ images });
+        await uploadFooter(app);
+        const headers = await authHeaders(BOOTSTRAP_OWNER);
+
+        await appRequest(app, orgImage("footer"), { headers });
+        const hit = await appRequest(app, orgImage("footer"), { headers });
+        expect(hit.status).toBe(200);
+        expect(images.widths).toHaveLength(1);
+        expect(hit.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+      });
+    });
   });
 });
 

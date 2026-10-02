@@ -893,7 +893,10 @@ describe("InviteBuilder shown/hidden badges", () => {
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
-        footer: { message: null, imageUrl: "/api/invite/anita-ben/image/footer?v=1" },
+        footer: {
+          message: null,
+          imageUrl: "/api/organiser/weddings/wed_1/invite/image/footer?v=1",
+        },
       }),
     );
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
