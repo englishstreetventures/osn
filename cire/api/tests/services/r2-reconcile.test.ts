@@ -846,8 +846,7 @@ describe("r2PositionStore", () => {
 // above encodes one reading of that; this runs the same walk against workerd's
 // own R2, with the position kept in the same bucket.
 describe("reconcileOrphanObjects against workerd's R2", () => {
-  let mf: Miniflare;
-  let r2: ReconcilableBucket &
+  type WorkerdBucket = ReconcilableBucket &
     PositionBucket & {
       list(o: { prefix?: string; cursor?: string }): Promise<{
         objects: Array<{ key: string; uploaded: Date }>;
@@ -855,21 +854,28 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
         cursor?: string;
       }>;
     };
+  let mf: Miniflare;
+  // One bucket per test, so no test has to empty a bucket for the next: a
+  // thousand deletes one at a time through Miniflare's local proxy are enough
+  // load for it to reset a socket under the whole suite.
+  let paged: WorkerdBucket;
+  let resumed: WorkerdBucket;
 
   beforeAll(async () => {
     mf = new Miniflare({
       modules: true,
       script: "export default { fetch() { return new Response('ok'); } };",
-      r2Buckets: ["SHEETS"],
+      r2Buckets: ["PAGED", "RESUMED"],
     });
-    r2 = (await mf.getR2Bucket("SHEETS")) as unknown as typeof r2;
+    paged = (await mf.getR2Bucket("PAGED")) as unknown as WorkerdBucket;
+    resumed = (await mf.getR2Bucket("RESUMED")) as unknown as WorkerdBucket;
   }, 30_000);
 
   afterAll(async () => {
     await mf?.dispose();
   });
 
-  const allKeys = async () => {
+  const allKeys = async (r2: WorkerdBucket) => {
     const keys: string[] = [];
     let cursor: string | undefined;
     do {
@@ -882,7 +888,7 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
 
   // Written a few at a time: a thousand concurrent puts can exhaust Miniflare's
   // local proxy when the whole suite runs at once.
-  const putAll = async (keys: ReadonlyArray<string>) => {
+  const putAll = async (r2: WorkerdBucket, keys: ReadonlyArray<string>) => {
     for (let i = 0; i < keys.length; i += 25) {
       await Promise.all(keys.slice(i, i + 25).map((key) => r2.put(key, "x")));
     }
@@ -905,37 +911,38 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
       "imports/zz-1/before/events.csv",
     ];
     const outside = ["assets/w/hero", "importsX/odd"];
-    await putAll([...live, ...orphans, ...outside]);
+    await putAll(paged, [...live, ...orphans, ...outside]);
 
-    const deleted = await run(reconcileOrphanObjects(r2, plan(live).plan, later()));
+    const deleted = await run(reconcileOrphanObjects(paged, plan(live).plan, later()));
 
     expect(deleted).toBe(orphans.length);
-    expect(await allKeys()).toEqual([...live, ...outside].toSorted());
-    for (const key of [...live, ...outside]) await r2.delete(key);
+    expect(await allKeys(paged)).toEqual([...live, ...outside].toSorted());
   }, 30_000);
 
   it("resumes with startAfter across runs, keeping its position in the bucket, until every orphan is gone", async () => {
     const live = Array.from({ length: 25 }, (_, i) => `imports/r-${String(i).padStart(2, "0")}/e`);
     const orphans = ["imports/r-03/x", "imports/r-11/x", "imports/r-19/x", "imports/r-24/x"];
-    await putAll([...live, ...orphans]);
+    await putAll(resumed, [...live, ...orphans]);
     const positionKey = "reconcile/test-position.json";
     const p = plan(live, {
       budget: budget(
         { maxObjects: 6, maxListCalls: 5 },
-        r2PositionStore(r2, positionKey, "sheets"),
+        r2PositionStore(resumed, positionKey, "sheets"),
       ),
     });
 
     let runs = 0;
     let midLap = false;
-    do {
-      await run(reconcileOrphanObjects(r2, p.plan, later()));
+    let lapOpen = true;
+    while (lapOpen && runs < 20) {
+      await run(reconcileOrphanObjects(resumed, p.plan, later()));
       runs += 1;
-      if ((await r2.get(positionKey)) !== null) midLap = true;
-    } while ((await r2.get(positionKey)) !== null && runs < 20);
+      lapOpen = (await resumed.get(positionKey)) !== null;
+      if (lapOpen) midLap = true;
+    }
 
     expect(midLap).toBe(true);
     expect(runs).toBeLessThan(20);
-    expect(await allKeys()).toEqual(live);
+    expect(await allKeys(resumed)).toEqual(live);
   }, 30_000);
 });
