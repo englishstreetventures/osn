@@ -4,7 +4,8 @@ tags: [architecture, privacy, compliance, web, cire]
 related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
-last-reviewed: 2026-09-25
+  - "[[cire-invite-designs]]"
+last-reviewed: 2026-10-02
 ---
 # Site-wide consent framework
 
@@ -105,6 +106,7 @@ Two traps this separation exists to avoid:
 | `lib/consent/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
 | `components/consent/ConsentGate.tsx` | The wrapper + the default blocked-content placeholder. |
 | `components/consent/ConsentBanner.tsx` | First-layer banner + the standing `ConsentPreferencesLink`. |
+| `components/consent/banner-height.ts` | Publishes the banner's height on `<html>` while it is up (see below). |
 | `components/consent/ConsentPreferences.tsx` | The "Choose" dialog. |
 
 ## The vendor registry is the source of truth
@@ -329,6 +331,15 @@ mounted first.
     in front of them unless the category is already off, which is what puts a
     `<ConsentGate>` placeholder there. Tracked in `englishstventures/osn#1061`.
 
+- **The banner publishes its height.** While the first-layer banner is on
+  screen it keeps `--consent-banner-height` on `<html>` equal to its own
+  height, through a `ResizeObserver` (its copy wraps differently at every
+  width and again once the fonts land), and removes it the moment it goes: on
+  a decision, or when the dialog replaces it. Anything that must not sit under
+  the banner reads that property. The hero's scroll cue rises by it
+  ([[cire-invite-designs#The hero scroll cue]]). The islands share nothing else
+  for this: the property is the whole contract.
+
 Only one mounted component renders the dialog at a time
 (`claimConsentDialogHost`), or a page with both a banner and a footer link would
 open two stacked copies with two independent drafts.
@@ -343,8 +354,9 @@ once more — the honest cost of consolidating the gates.
 
 ## Where it's mounted
 
-`<ConsentBanner client:idle />` in all four document shells:
+`<ConsentBanner client:idle />` in all five document shells:
 `designs/classic/Document.astro`, `designs/gala/Document.astro`,
+`components/gift-registry/GiftRegistryDocument.astro`,
 `layouts/LegalLayout.astro`, `components/NotFoundDocument.astro`.
 
 ## Not covered
