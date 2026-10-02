@@ -1,6 +1,7 @@
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
+import { HeroScrollCue } from "../../components/HeroScrollCue";
 import {
   cropAspectRatio,
   cropBackgroundStyle,
@@ -341,6 +342,8 @@ export default function InviteHeader(props: InviteHeaderProps) {
               </Show>
             </div>
           </div>
+          {/* Opposite the bottom-left title, in the scrim's 2.5rem bottom padding. */}
+          <HeroScrollCue align="end" />
         </section>
       </Show>
 

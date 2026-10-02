@@ -1,3 +1,4 @@
+import { DESIGNS } from "@cire/invite-designs";
 import { Suspense, type JSX } from "solid-js";
 import { renderToStringAsync } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +32,12 @@ const packs = [
   ["gala", GalaInviteHeader],
 ] as const;
 
+it("covers every design in the catalog", () => {
+  // A new pack fails here until it is listed above, and so until its hero is
+  // checked for the scroll cue below.
+  expect(packs.map(([id]) => id).toSorted()).toEqual(DESIGNS.map((d) => d.id).toSorted());
+});
+
 describe.each(packs)("%s InviteHeader, rendered on the server", (_pack, InviteHeader) => {
   it("paints the route's payload and fetches nothing", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(Response.json(initial)));
@@ -58,5 +65,32 @@ describe.each(packs)("%s InviteHeader, rendered on the server", (_pack, InviteHe
     // the shell back on an API that is already failing.
     expect(html).not.toContain("Anita &amp; Ben");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("puts the scroll cue in the HTML, shown, before any script runs", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    const html = await serverRender(() => (
+      <InviteHeader apiUrl="https://api.test" slug="anita-and-ben" initial={initial} />
+    ));
+
+    // Its entry and drift are CSS, so they play from the server's HTML; only
+    // the hide on scroll waits for the island.
+    expect(html).toContain('data-scroll-cue="shown"');
+    expect(html).toContain("animate-scroll-cue");
+  });
+
+  it("renders no scroll cue when the hero is switched off", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    const html = await serverRender(() => (
+      <InviteHeader
+        apiUrl="https://api.test"
+        slug="anita-and-ben"
+        initial={{ ...initial, visibility: { hero: false } }}
+      />
+    ));
+
+    expect(html).not.toContain("data-scroll-cue");
   });
 });

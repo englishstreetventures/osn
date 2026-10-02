@@ -11,6 +11,7 @@ import {
   rejectAllConsent,
 } from "../../lib/consent/store";
 import { Z_CLASS } from "../../lib/z-index";
+import { publishBannerHeight } from "./banner-height";
 import { ConsentPreferences } from "./ConsentPreferences";
 
 /**
@@ -58,34 +59,50 @@ export function ConsentBanner() {
           and carries its own Accept/Reject actions, so showing both would leave
           two competing sets of controls on screen. */}
       <Show when={needsConsentDecision() && !consentPreferencesOpen()}>
-        <section
-          aria-label="Privacy choices"
-          class={`fixed inset-x-0 bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
-        >
-          <div class="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p class="font-body text-text-muted text-ui-sm leading-relaxed">
-              We use a little storage to keep you signed in to your invite. Some parts — the venue
-              map and the Pinterest moodboard — are loaded from Google and Pinterest, who can see
-              your IP address and browser. That's switched on; you can turn it off here, or any time
-              from the footer.{" "}
-              <a href="/privacy" class="text-gold-ink underline underline-offset-2">
-                Privacy notice
-              </a>
-            </p>
-
-            <div class="flex shrink-0 flex-wrap gap-2">
-              <BannerButton onClick={rejectAllConsent}>Reject all</BannerButton>
-              <BannerButton onClick={acceptAllConsent}>Accept all</BannerButton>
-              <BannerButton onClick={openConsentPreferences}>Choose</BannerButton>
-            </div>
-          </div>
-        </section>
+        <BannerPanel />
       </Show>
 
       <Show when={consentPreferencesOpen() && host.owns()}>
         <ConsentPreferences />
       </Show>
     </>
+  );
+}
+
+/**
+ * The first-layer banner itself. Its own component so that its height is
+ * published (`banner-height.ts`) exactly while it is mounted: the `Show` above
+ * disposes it on a decision and while the dialog is open, and the published
+ * height goes with it.
+ */
+function BannerPanel() {
+  let panel!: HTMLElement;
+  onMount(() => publishBannerHeight(panel));
+
+  return (
+    <section
+      ref={panel}
+      aria-label="Privacy choices"
+      class={`fixed inset-x-0 bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
+    >
+      <div class="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          We use a little storage to keep you signed in to your invite. Some parts — the venue map
+          and the Pinterest moodboard — are loaded from Google and Pinterest, who can see your IP
+          address and browser. That's switched on; you can turn it off here, or any time from the
+          footer.{" "}
+          <a href="/privacy" class="text-gold-ink underline underline-offset-2">
+            Privacy notice
+          </a>
+        </p>
+
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <BannerButton onClick={rejectAllConsent}>Reject all</BannerButton>
+          <BannerButton onClick={acceptAllConsent}>Accept all</BannerButton>
+          <BannerButton onClick={openConsentPreferences}>Choose</BannerButton>
+        </div>
+      </div>
+    </section>
   );
 }
 

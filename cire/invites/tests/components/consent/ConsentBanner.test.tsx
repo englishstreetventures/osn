@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, within } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CONSENT_BANNER_HEIGHT_VAR } from "../../../src/components/consent/banner-height";
 import {
   ConsentBanner,
   ConsentPreferencesLink,
@@ -8,6 +9,7 @@ import {
 import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
+import { FakeResizeObserver, installFakeResizeObserver } from "../../test-support/resize-observer";
 
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
@@ -20,6 +22,13 @@ const dialog = () => document.querySelector("dialog");
 
 const buttonLabels = (root: HTMLElement) =>
   [...root.querySelectorAll("button")].map((button) => (button.textContent ?? "").trim());
+
+const publishedHeight = () =>
+  document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR);
+
+// The banner observes its own size, and jsdom has no `ResizeObserver`.
+beforeEach(installFakeResizeObserver);
+afterEach(() => vi.unstubAllGlobals());
 
 describe("ConsentBanner", () => {
   beforeEach(resetConsentForTest);
@@ -128,6 +137,37 @@ describe("ConsentBanner", () => {
     const { container } = render(() => <ConsentBanner />);
     const link = bannerOf(container)!.querySelector<HTMLAnchorElement>('a[href="/privacy"]');
     expect(link).not.toBeNull();
+  });
+
+  it("publishes its height while it is up, and takes it away on a decision", () => {
+    // The hero's scroll cue rises by this height, so the banner never covers it.
+    const { container } = render(() => <ConsentBanner />);
+    const banner = bannerOf(container)!;
+    const observer = FakeResizeObserver.instances.find((o) => o.observed.has(banner));
+    expect(observer).toBeDefined();
+
+    observer!.resize(banner, 182.5);
+    expect(publishedHeight()).toBe("182.5px");
+
+    fireEvent.click(within(banner).getByText("Reject all"));
+    expect(bannerOf(container)).toBeNull();
+    expect(publishedHeight()).toBe("");
+  });
+
+  it("takes its height away while the preferences dialog replaces it", () => {
+    const { container } = render(() => <ConsentBanner />);
+    const banner = bannerOf(container)!;
+    FakeResizeObserver.instances.find((o) => o.observed.has(banner))!.resize(banner, 182.5);
+
+    fireEvent.click(within(banner).getByText("Choose"));
+    expect(publishedHeight()).toBe("");
+  });
+
+  it("publishes nothing to a guest who already decided", () => {
+    seedConsentForTest({ embeds: true });
+    render(() => <ConsentBanner />);
+    expect(FakeResizeObserver.instances).toEqual([]);
+    expect(publishedHeight()).toBe("");
   });
 });
 
