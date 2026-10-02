@@ -20,25 +20,23 @@
 # bundle guard does not — squashing the chain into a fresh baseline puts the
 # cost back down instead of moving the line up. Reach for that first.
 
-# 3700 is twice what the squashed baseline prices at today. The mistake this
-# guard exists to catch is not one bad migration — nothing in the chain that
-# went over the ceiling was wrong — it is the chain regrowing until a day's
-# rebuilds no longer fit. So the line is drawn where the bill has doubled: 68
-# schema writes now, tripping at 137.
+# 5184 is twice what the squashed baseline prices at. The mistake this guard
+# exists to catch is not one bad migration — nothing in a chain that goes over
+# the ceiling is wrong on its own — it is the chain regrowing until a day's
+# rebuilds no longer fit. So the line is drawn where the bill has doubled: the
+# baseline is 96 schema writes, one CREATE per table and per index, and the
+# line trips at 192.
 #
-# In rows, priced at 27: 1836 today, 3700 at the line, so a replay goes from
-# 1.8% to 3.7% of the day's 100,000 rows written and from roughly 54 replays a
-# day to 27, against the 13 merges that went over the ceiling on 2026-09-09.
-# Those row figures move with the constant; the 68-against-137 does not.
+# In rows, priced at 27: 2592 for the baseline, 5184 at the line, so a replay
+# goes from 2.6% to 5.2% of the day's 100,000 rows written and from roughly 38
+# replays a day to 19. Those row figures move with the constant; the
+# 96-against-192 does not.
 #
-# The headroom is 69 schema writes, which is MORE than any single migration in
-# the 57-file chain this replaced would add — the heaviest, 0006_multi_tenant,
-# is 28. Deliberate: a budget tight enough to trip on one ordinary feature
-# migration (0057_registry was 15 schema writes on its own) would be raised on
+# The headroom is 96 schema writes, far more than any single migration adds —
+# the heaviest in the archive, 0006_multi_tenant, is 28, and the heaviest of
+# 0058–0081, 0058_gift_summary_and_stripe_state, is 12. Deliberate: a budget
+# tight enough to trip on one ordinary feature migration would be raised on
 # sight every few pull requests, which is the failure the second rule names.
-# Raised to 4050 (150 schema writes) when the equal-owners and wedding
-# soft-delete work added migrations 0076-0078, the last being four child-key
-# indexes the wedding purge's cascade needs. The chain stands at 146 writes.
-# The next breach is the cue to squash the chain into a fresh baseline rather
-# than raise this line again.
-cire/db/migrations 4050
+# When the chain reaches the line, squash it into a fresh baseline again
+# (cire/db/README.md has the method) rather than raise the line.
+cire/db/migrations 5184

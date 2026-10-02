@@ -8,7 +8,10 @@ import { join } from "node:path";
 // dropping `guests` under enforced foreign keys cascades into `rsvps`,
 // `guest_events` and `guest_account_links`. Only rows seeded BEFORE the
 // migration can tell the two apart, which the lockstep test cannot.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0066 = "0066_plus_ones.sql";
 

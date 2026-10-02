@@ -11,7 +11,10 @@ import { join } from "node:path";
 // (wedding, entitlement) to (wedding), so a wedding holding two pending
 // per-module attempts must still migrate — which only works because the
 // expire sits between dropping the old index and creating the new one.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0073 = "0073_wedding_tiers.sql";
 

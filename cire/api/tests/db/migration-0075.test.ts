@@ -8,7 +8,10 @@ import { join } from "node:path";
 // survive untouched, and the two new references must SET NULL on a guest
 // delete — drizzle-kit leaves `ON DELETE` out of an ADD COLUMN, so only a data
 // test sees a missing hand edit.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0075 = "0075_household_member_identity.sql";
 

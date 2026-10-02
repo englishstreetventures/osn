@@ -8,7 +8,10 @@ import { join } from "node:path";
 // from each section's emptiness check, so a blank section arrives here switched
 // off; an organiser may also have switched a filled one off since. Either way
 // 0065 leaves all three on, and touches nothing else on the row.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0065 = "0065_invite_sections_switched_on.sql";
 
