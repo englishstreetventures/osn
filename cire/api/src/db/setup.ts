@@ -25,9 +25,8 @@ export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
 // Tests run against THIS string, not the migration files — any schema
 // change must update all three together or tests will pass on a shape
-// production rejects. Enforced mechanically by tests/db/ddl-lockstep.test.ts
-// (T-S1), which diffs this DDL and the Drizzle schema against the full
-// migration chain.
+// production rejects. Enforced mechanically by tests/db/ddl-lockstep.test.ts,
+// which diffs this DDL and the Drizzle schema against the full migration chain.
 //
 // No `--` comments inside the string: d1-integration.test.ts splits it on `;`
 // and prepares each chunk, and miniflare rejects a chunk whose leading lines

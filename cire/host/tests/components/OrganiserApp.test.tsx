@@ -244,8 +244,14 @@ describe("OrganiserApp Dashboard", () => {
     __resetVendorsCache();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // Kobalte's menus set and clear `aria-hidden` on everything outside them
+    // from a zero-delay timeout that requests an animation frame. Both run
+    // here, before the next test starts; otherwise a menu opened in this test
+    // can leave <body> hidden from a later test's role queries.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     resetOrganiserMocks();
     vi.unstubAllGlobals();
     // The dashboard mirrors its state into the URL hash — reset it so one test's
@@ -995,12 +1001,8 @@ describe("OrganiserApp Dashboard", () => {
     expect(toastSuccess).toHaveBeenCalledWith("Wedding restored.");
     expect(listReads).toBe(2);
 
-    // Back on the list, the wedding is live and no longer restorable. Back by
-    // the hash, not the top bar's button: a Kobalte menu opened earlier in this
-    // file can leave `aria-hidden` on <body>, which hides every role query.
-    window.location.hash = "#/weddings";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    // Back on the list, the wedding is live and no longer restorable.
+    fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
     expect(screen.getByTestId("count").textContent).toBe("1");
     expect(screen.getByTestId("deleted-count").textContent).toBe("0");
   });
