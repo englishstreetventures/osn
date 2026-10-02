@@ -80,6 +80,8 @@ function makeWedding(opts: {
   /** ISO days; an object entry marks that one event open-ended (endAt ""). */
   eventDates: (string | { date: string; openEnded: boolean })[];
   withImport?: boolean;
+  /** Give the import an applied change's before-image keys as well. */
+  withBeforeImage?: boolean;
   /** Add a `wedding_invite_customisations` row with hero/story image keys. */
   withInviteImages?: boolean;
   /** Give the FIRST event an `event_image_key`. */
@@ -204,6 +206,15 @@ function makeWedding(opts: {
       const eventsR2Key = `imports/${weddingId}/events.csv`;
       const guestsR2Key = `imports/${weddingId}/guests.csv`;
       sheetKeys.push(eventsR2Key, guestsR2Key);
+      const beforeEventsR2Key = opts.withBeforeImage
+        ? `imports/${weddingId}/before/events.csv`
+        : null;
+      const beforeGuestsR2Key = opts.withBeforeImage
+        ? `imports/${weddingId}/before/guests.csv`
+        : null;
+      if (beforeEventsR2Key && beforeGuestsR2Key) {
+        sheetKeys.push(beforeEventsR2Key, beforeGuestsR2Key);
+      }
       db.insert(imports)
         .values({
           id: crypto.randomUUID(),
@@ -212,6 +223,8 @@ function makeWedding(opts: {
           format: "csv",
           eventsR2Key,
           guestsR2Key,
+          beforeEventsR2Key,
+          beforeGuestsR2Key,
           summary: "{}",
           status: "applied",
         })
@@ -689,6 +702,26 @@ describe("retentionService.sweepExpiredGuestData", () => {
         ).toBe(0);
         // The failing keys were never recorded as deleted.
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(false);
+      }),
+    ),
+  );
+
+  it(
+    "deletes an applied change's before-image objects along with its uploads",
+    withDb(
+      Effect.gen(function* () {
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { sheetKeys } = yield* makeWedding({
+          eventDates: ["2024-06-01"],
+          withImport: true,
+          withBeforeImage: true,
+        });
+        expect(sheetKeys.length).toBe(4);
+
+        const sheets = createDeleteStub();
+        yield* retentionService.sweepExpiredGuestData(now, { sheets });
+
+        expect([...sheets.deleted].toSorted()).toEqual([...sheetKeys].toSorted());
       }),
     ),
   );

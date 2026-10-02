@@ -26,9 +26,11 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # `d1 migrations apply` still uses this block's DB binding and is unaffected.
 workers_dev = false
 
-# Scheduled expired-session sweep. Daily 04:00 UTC — off-peak for
-# the AU/EU guest audience, low contention with normal traffic. Sessions carry
-# a 30-day TTL so once-a-day pruning bounds the dead-row backlog to <1 day.
+# The one daily cron. Daily 04:00 UTC — off-peak for the AU/EU guest audience,
+# low contention with normal traffic. It runs every maintenance job in
+# `scheduled` (src/index.ts): the session sweeps, guest-data retention, the
+# wedding purge, the two R2 orphan reconcilers and the rest, all in one
+# invocation. Add a job there rather than a second trigger.
 [triggers]
 crons = ["0 4 * * *"]
 
@@ -227,9 +229,12 @@ database_name = "cire-db"
 database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
 migrations_dir = "../db/migrations"
 
-# R2 bucket used by the organiser spreadsheet import flow to stash the raw
-# uploaded sheet alongside its parsed `imports` row. Created 2026-06-17 — if you
-# ever rebuild the account from scratch:
+# R2 bucket for the organiser change flow: each `imports` row's uploaded sheets
+# (or editor draft) and, once applied, its before-image. Guest PII. Objects no
+# row names are reaped by the daily cron (src/services/sheet-reconcile.ts),
+# which keeps its place in `reconcile/imports-position.json` — a key and a
+# timestamp, no guest data. Created 2026-06-17 — if you ever rebuild the
+# account from scratch:
 #   bunx wrangler r2 bucket create cire-sheets
 [[r2_buckets]]
 binding = "SHEETS"
@@ -237,6 +242,9 @@ bucket_name = "cire-sheets"
 
 # R2 bucket for invite-builder images (hero / story photos). Separate from
 # SHEETS: binary content, served publicly through the API, different retention.
+# Objects no row names are reaped by the daily cron
+# (src/services/asset-reconcile.ts), which keeps its place in
+# `reconcile/assets-position.json` — a key and a timestamp, never served.
 # Created 2026-06-15 — if you ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-assets
 [[r2_buckets]]

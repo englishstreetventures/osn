@@ -1,156 +1,95 @@
 /**
- * `cire-assets` orphan reconciliation (IB-S-L2 — the open `cire-assets` half).
+ * `cire-assets` orphan reconciliation.
  *
  * Invite images live in the `cire-assets` R2 bucket (binding `ASSETS`), keyed
- * `assets/<weddingId>/<slot>-<uuid>`. The keys are referenced by
- * `wedding_invite_customisations`' per-slot image keys (hero / story / footer) and
- * `events.event_image_key`. When a re-upload's (or remove's) BEST-EFFORT delete
- * of the SUPERSEDED object fails, that object is orphaned forever — nothing in
- * D1 references it anymore, and there is no R2 lifecycle rule. The retention
- * sweep deliberately never touches `cire-assets` (it keeps the live invite, so
- * those rows survive); this is the separate reconciliation that closes the gap.
+ * `assets/<weddingId>/<slot>-<uuid>`. They are referenced by
+ * `wedding_invite_customisations`' per-slot image keys (hero / story / footer),
+ * `events.event_image_key` and `registry_items.image_key`. When a re-upload's or
+ * remove's best-effort delete of the superseded object fails, nothing in D1
+ * names that object any more and there is no R2 lifecycle rule. The retention
+ * sweep never touches `cire-assets` (it keeps the live invite, so those rows
+ * survive); this reconciliation closes the gap.
  *
- * ───────────────────────────── DESTRUCTIVE-RISK ──────────────────────────────
- * This DELETES real wedding photos. A bug here is catastrophic (it would reap a
- * couple's live invite imagery). Every guard below exists to make "delete the
- * wrong thing" impossible rather than merely unlikely. Read them before editing.
- *
- *  1. ABORT-ON-UNCERTAINTY — the live set is the union of every hero/story key
- *     in `wedding_invite_customisations`, every `event_image_key` in `events` and
- *     every `image_key` in `registry_items`, across ALL weddings. If that read
- *     FAILS, or returns an EMPTY set
- *     while the bucket is non-empty (a strong signal the DB read is wrong / a
- *     half-applied migration / wrong binding), we ABORT and delete NOTHING.
- *     We never delete unless we can POSITIVELY confirm what is live.
- *
- *  2. GRACE PERIOD — an object is only a candidate if its R2 `uploaded`
- *     timestamp is older than {@link RECONCILE_GRACE_MS} (7 days). A freshly
- *     uploaded object whose DB-row write is momentarily lagging (or in flight)
- *     is therefore never reaped on the same day it was written.
- *
- *  3. PREFIX SCOPING — only keys under the `assets/` prefix are ever considered.
- *     Anything else in the bucket is ignored entirely (never listed-against,
- *     never deleted).
- *
- *  4. PER-RUN CAP + CHUNKING — `list()` is paginated via cursor; deletions are
- *     capped at {@link RECONCILE_DELETE_CAP} per run (logged if capped — the next
- *     run continues). Deletes are best-effort via {@link reapR2Objects} (logged,
- *     no PII, bounded `cire.r2.objects.swept` metric); a delete failure never
- *     aborts the run.
- *
- * Runs OFF the hot path — only from the Worker `scheduled()` cron handler.
+ * The walk and its guards — abort on a failed or empty reference read, the
+ * grace window, prefix scoping, the per-run delete cap, the listing budget and
+ * its position — are {@link reconcileOrphanObjects} in `r2-reconcile.ts`. The
+ * live keys are read whole, in one statement, once a run: the sample and the
+ * lookup both come from that one read.
  */
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
-import { isNotNull } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { sql } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { metricR2ObjectsSwept } from "../metrics";
-import { reapR2Objects } from "./r2-cleanup";
-import type { DeletableBucket } from "./r2-cleanup";
+import { r2PositionStore, reconcileOrphanObjects } from "./r2-reconcile";
+import type {
+  ListLimits,
+  PositionBucket,
+  R2ReconcileError,
+  ReconcilableBucket,
+} from "./r2-reconcile";
 
 /** R2 key prefix that holds invite images. ONLY keys under this are touched. */
 export const ASSETS_PREFIX = "assets/";
 
 /**
- * Grace window: an object younger than this (by its R2 `uploaded` time) is never
- * a reconciliation candidate, so a just-uploaded object whose DB-row write is
- * lagging is never reaped. 7 days in milliseconds.
+ * What one run may list: one full page, plus two calls for pages R2 returns
+ * short. The walk resumes where the last run stopped, so a bucket past 1,000
+ * objects is covered over several daily runs.
  */
-export const RECONCILE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+export const ASSET_LIST_LIMITS: ListLimits = { maxObjects: 1_000, maxListCalls: 3 };
 
 /**
- * Max objects deleted per run. A run that would exceed this deletes the first
- * `cap` and logs that it was capped; the next scheduled run continues (the
- * orphans are stable, so they're caught next time). Bounds the Worker
- * subrequest/CPU budget and the blast radius of any single run.
+ * Where the walk keeps its place: one small JSON object in `cire-assets`,
+ * outside `assets/`, so the walk never lists or deletes it. The image routes
+ * serve only keys a row names, so it is never served.
  */
-export const RECONCILE_DELETE_CAP = 500;
+export const ASSET_POSITION_KEY = "reconcile/assets-position.json";
 
-/** Max objects requested per `list()` page (R2's documented ceiling is 1000). */
-const LIST_PAGE_SIZE = 1000;
-
-/**
- * Minimal listable + deletable R2 surface. Cloudflare's `R2Bucket` satisfies
- * this structurally; the in-memory test stub implements just these. `list`
- * returns the cursor-paginated object listing; the delete half is exactly
- * {@link DeletableBucket}, reused rather than re-declared, because the bucket is
- * fed straight to {@link reapR2Objects} (which feature-detects the array form).
- */
-export interface ReconcilableBucket extends DeletableBucket {
-  list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
-    objects: ReadonlyArray<{ key: string; uploaded: Date }>;
-    truncated: boolean;
-    cursor?: string;
-  }>;
-}
-
-export class AssetReconcileError extends Data.TaggedError("AssetReconcileError")<{
-  op: "reconcile";
-  reason: string;
-}> {}
+/** The `ASSETS` binding as the reconciler uses it. `R2Bucket` satisfies it. */
+export type AssetsBucket = ReconcilableBucket & PositionBucket;
 
 /**
  * Build the set of R2 keys that ANY live DB row references — across ALL
  * weddings. The reconciliation only ever deletes keys NOT in this set, so this
  * read is the single source of truth for "what is live". It is also the
- * abort-on-uncertainty signal: a throw here (caught by the caller) aborts the
- * whole run.
+ * abort-on-uncertainty signal: a throw here aborts the run, and an empty set
+ * leaves no live sample, which aborts it too.
+ *
+ * One statement of three arms:
+ *  - every wedding-level image slot's key (one customisation row per wedding).
+ *    It MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
+ *    not a no-op, it is data loss: this set is what marks an object LIVE, so an
+ *    unlisted slot's images look orphaned and get swept once past the grace
+ *    window. Adding an image slot means adding its key column to the first arm;
+ *  - event image keys (one optional per event);
+ *  - registry item images (one optional per gift item). These are copies of
+ *    shop-page pictures the organiser picked, stored here rather than
+ *    hotlinked, so they are live objects like any other, and omitting them
+ *    would make the sweep delete every registry image a week after it was saved.
  */
 function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-
-    // Every wedding-level image slot's key (one customisation row per wedding).
-    // MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
-    // not a no-op, it is data loss: this set is what marks an object LIVE, so an
-    // unlisted slot's images look orphaned and get swept once past the grace
-    // window. Adding an image slot means adding its key column here.
-    const custRows = yield* dbQuery(() =>
-      db
-        .select({
-          hero: weddingInviteCustomisations.heroImageKey,
-          story: weddingInviteCustomisations.storyImageKey,
-          footer: weddingInviteCustomisations.footerImageKey,
-        })
-        .from(weddingInviteCustomisations)
-        .all(),
-    );
-
-    // event image keys (one optional per event). Filter to non-null in SQL.
-    const eventRows = yield* dbQuery(() =>
-      db
-        .select({ key: events.eventImageKey })
-        .from(events)
-        .where(isNotNull(events.eventImageKey))
-        .all(),
-    );
-
-    // Registry item images (one optional per gift item). These are copies of
-    // shop-page pictures the organiser picked, stored here rather than hotlinked
-    // — so they are live objects like any other, and omitting them would make the
-    // sweep delete every registry image a week after it was saved.
-    const registryRows = yield* dbQuery(() =>
-      db
-        .select({ key: registryItems.imageKey })
-        .from(registryItems)
-        .where(isNotNull(registryItems.imageKey))
-        .all(),
+    const rows = yield* dbQuery(() =>
+      db.all<{ a: string | null; b: string | null; c: string | null }>(sql`
+        SELECT ${weddingInviteCustomisations.heroImageKey} AS a,
+          ${weddingInviteCustomisations.storyImageKey} AS b,
+          ${weddingInviteCustomisations.footerImageKey} AS c
+        FROM ${weddingInviteCustomisations}
+        UNION ALL
+        SELECT ${events.eventImageKey}, NULL, NULL FROM ${events}
+        WHERE ${events.eventImageKey} IS NOT NULL
+        UNION ALL
+        SELECT ${registryItems.imageKey}, NULL, NULL FROM ${registryItems}
+        WHERE ${registryItems.imageKey} IS NOT NULL`),
     );
 
     const referenced = new Set<string>();
-    for (const r of custRows) {
-      // Iterate the row's values rather than naming each slot again — one place
-      // to update (the select above) instead of two that can drift apart.
-      for (const key of Object.values(r)) {
+    for (const row of rows) {
+      for (const key of [row.a, row.b, row.c]) {
         if (key) referenced.add(key);
       }
-    }
-    for (const r of eventRows) {
-      if (r.key) referenced.add(r.key);
-    }
-    for (const r of registryRows) {
-      if (r.key) referenced.add(r.key);
     }
     return referenced;
   });
@@ -158,133 +97,34 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
 
 export const assetReconcileService = {
   /**
-   * Sweep the `cire-assets` bucket and best-effort delete objects under
-   * `assets/` that are (a) referenced by NO live DB row and (b) older than the
-   * grace window. See the module docstring for the full guard set. Returns the
-   * number of objects deleted (the log/metric subject); 0 on an abort.
+   * Delete `assets/` objects that no live row references and that are older
+   * than the grace window, walking at most {@link ASSET_LIST_LIMITS} a run from
+   * where the last run stopped. Returns the number deleted; 0 on an abort.
    *
-   * @param bucket the `ASSETS` binding. Absent ⇒ no-op (nothing to reconcile).
-   * @param now    injected clock for the grace-window comparison (tests).
+   * @param bucket the `ASSETS` binding. Absent: no-op.
+   * @param now    the clock the grace window is measured against.
    */
   reconcileOrphans(
-    bucket: ReconcilableBucket | undefined,
+    bucket: AssetsBucket | undefined,
     now: Date = new Date(),
-  ): Effect.Effect<number, AssetReconcileError, DbService> {
+  ): Effect.Effect<number, R2ReconcileError, DbService> {
     return Effect.gen(function* () {
-      // No binding in this deployment (local dev / misconfig) — nothing to do.
-      if (!bucket) {
-        yield* Effect.logInfo("asset reconcile skipped — ASSETS binding absent");
-        return 0;
-      }
-
-      // ── GUARD 1a: build the live set; a READ FAILURE aborts (delete nothing). ──
-      const referenced = yield* loadReferencedKeys().pipe(
-        Effect.catchDefect((cause) =>
-          Effect.fail(new AssetReconcileError({ op: "reconcile", reason: String(cause) })),
-        ),
-        Effect.tapError((err) =>
-          Effect.logWarning("asset reconcile aborted — referenced-key read failed", {
-            reason: err.reason,
-          }),
-        ),
+      const live = yield* Effect.cached(loadReferencedKeys());
+      return yield* reconcileOrphanObjects(
+        bucket,
+        {
+          label: "assets",
+          prefix: ASSETS_PREFIX,
+          liveSample: live.pipe(Effect.map((keys) => keys.values().next().value)),
+          // Every live key: it answers for each key the walk asks about.
+          named: () => live,
+          budget: bucket && {
+            ...ASSET_LIST_LIMITS,
+            position: r2PositionStore(bucket, ASSET_POSITION_KEY, "assets"),
+          },
+        },
+        now,
       );
-
-      const cutoff = now.getTime() - RECONCILE_GRACE_MS;
-
-      // Walk the bucket page by page, collecting orphan candidates. We track
-      // whether the bucket has ANY object under the prefix so the empty-set
-      // abort guard can distinguish "DB read is wrong" from "nothing uploaded".
-      const orphans: string[] = [];
-      let bucketHasPrefixedObject = false;
-      let capped = false;
-
-      // Pagination loop — Effect has no `while`, so recurse over the cursor.
-      const listPage = (nextCursor: string | undefined): Effect.Effect<void, AssetReconcileError> =>
-        Effect.gen(function* () {
-          if (orphans.length >= RECONCILE_DELETE_CAP) {
-            capped = true;
-            return;
-          }
-          const page = yield* Effect.tryPromise({
-            try: () =>
-              bucket.list({
-                prefix: ASSETS_PREFIX,
-                cursor: nextCursor,
-                limit: LIST_PAGE_SIZE,
-              }),
-            catch: (cause) =>
-              new AssetReconcileError({ op: "reconcile", reason: `list failed: ${String(cause)}` }),
-          });
-
-          for (const obj of page.objects) {
-            // GUARD 3: prefix scoping — defence-in-depth (we asked for the
-            // prefix, but never trust the listing to honour it).
-            if (!obj.key.startsWith(ASSETS_PREFIX)) continue;
-            bucketHasPrefixedObject = true;
-            // Live ⇒ never a candidate.
-            if (referenced.has(obj.key)) continue;
-            // GUARD 2: grace period — too-new objects are skipped.
-            if (obj.uploaded.getTime() >= cutoff) continue;
-            orphans.push(obj.key);
-            if (orphans.length >= RECONCILE_DELETE_CAP) {
-              capped = true;
-              return;
-            }
-          }
-
-          if (page.truncated && page.cursor) {
-            yield* listPage(page.cursor);
-          }
-        });
-
-      yield* listPage(undefined).pipe(
-        Effect.tapError((err) =>
-          Effect.logWarning("asset reconcile aborted — bucket list failed", {
-            reason: err.reason,
-          }),
-        ),
-      );
-
-      // ── GUARD 1b: EMPTY live set + a NON-EMPTY bucket ⇒ abort (delete nothing). ──
-      // An empty referenced set while objects exist is a strong signal the DB
-      // read is wrong (half-applied migration, wrong binding, query bug). Never
-      // delete on that signal — the cost of a wrong delete is a couple's photos.
-      if (referenced.size === 0 && bucketHasPrefixedObject) {
-        yield* Effect.logWarning(
-          "asset reconcile aborted — referenced-key set empty while bucket non-empty (delete-nothing safeguard)",
-          { orphanCandidates: orphans.length },
-        );
-        return 0;
-      }
-
-      if (orphans.length === 0) {
-        yield* Effect.logInfo("asset reconcile complete — no orphans", {
-          referenced: referenced.size,
-        });
-        return 0;
-      }
-
-      if (capped) {
-        yield* Effect.logWarning("asset reconcile hit per-run delete cap — next run continues", {
-          cap: RECONCILE_DELETE_CAP,
-        });
-      }
-
-      // GUARD 4: best-effort, bounded deletes. A failure is logged + counted on
-      // `cire.r2.objects.swept` (bucket=assets) but never aborts the run.
-      yield* reapR2Objects(bucket, "assets", orphans);
-
-      yield* Effect.logInfo("asset reconcile complete", {
-        referenced: referenced.size,
-        deleted: orphans.length,
-        capped,
-      });
-      return orphans.length;
-    }).pipe(
-      // A list/abort failure already logged above; surface a single error metric
-      // and re-raise as the typed error so the cron handler's catchAll logs it.
-      Effect.tapError(() => Effect.sync(() => metricR2ObjectsSwept("assets", "error"))),
-      Effect.withSpan("cire.assets.reconcileOrphans"),
-    );
+    }).pipe(Effect.withSpan("cire.assets.reconcileOrphans"));
   },
 };

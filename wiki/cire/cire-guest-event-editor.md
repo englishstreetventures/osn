@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[d1-read-replication]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Guest + Event Editor — plan
 
@@ -110,7 +110,7 @@ Generalise `imports` into a **change history**:
 - **Rollback**: older API code cannot read a current before-image. Code older than the household-only rows refuses them ("Guest First Name is required"); code older than the source columns reads `Family Source` and `Guest Source` as unknown event columns; and code older than the unguarded snapshot refuses any cell beginning `= + - @` as a formula. So rolling `cire-api` back makes a change applied meanwhile unrevertable until its before-image ages out.
 - **Plus-ones are outside the before-image.** A plus-one is the household's, not the organiser's sheet ([[cire-plus-ones]]): the snapshot leaves them out and the diff never matches one. They follow their inviter — removed with them, and invited wherever the inviter is, including when an `events` revert re-invites the inviter to a re-created event. So a revert does not remove plus-ones named since the checkpoint, and a guest it re-creates comes back without their plus-one permission or the plus-one that went with them.
 - **Explicit non-goals, surfaced as preview warnings**: a revert never *restores* deleted RSVPs (cascade deletes are gone — same as today) and cannot restore an image/crop/location of an event it re-creates. Id-matched updates leave those columns untouched, so the common cases (rename, time change) are safe.
-- **Retention** (**decided 2026-07-12**): snapshots are small text objects, but unbounded per-save growth needs a cap on the Free tier — prune before-images beyond the most recent **10** changes per wedding (constant, revisit with `[[free-tier-limits]]` if 10 proves too shallow for real editing sessions). The history list keeps all rows; only old R2 before-images (and thus their revertability) age out, marked in the UI.
+- **Retention** (**decided 2026-07-12**): snapshots are small text objects, but unbounded per-save growth needs a cap on the Free tier — prune before-images beyond the most recent **10** changes per wedding (constant, revisit with `[[free-tier-limits]]` if 10 proves too shallow for real editing sessions). The history list keeps all rows; only old R2 before-images (and thus their revertability) age out, marked in the UI. The prune deletes the objects best-effort and clears the keys either way; `cire/api/src/services/sheet-reconcile.ts` deletes any it failed to, and the retention sweep and the wedding purge delete a change's before-image with its row ([[retention]]).
 
 ## 5. Round-trip export (fixes G2)
 

@@ -11,7 +11,7 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
-import { rowsChanged } from "@shared/db-utils";
+import { jsonEachIn, rowsChanged } from "@shared/db-utils";
 import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
@@ -27,10 +27,12 @@ import { reapR2Objects } from "./r2-cleanup";
  * the binding (local dev / misconfig) still purges the D1 rows; the orphaned
  * objects are logged + counted as errors by {@link reapR2Objects}.
  *
- *  - `sheets` — the `cire-sheets` bucket (binding `SHEETS`): the uploaded
- *    guest/event spreadsheets referenced by `imports.events_r2_key` /
- *    `guests_r2_key`. The sweep deletes the `imports` rows, so these objects
- *    ARE orphaned by it and must be reaped here.
+ *  - `sheets` — the `cire-sheets` bucket (binding `SHEETS`): every object an
+ *    `imports` row names — the uploaded sheets (`events_r2_key` /
+ *    `guests_r2_key`) and an applied change's before-image
+ *    (`before_events_r2_key` / `before_guests_r2_key`). The sweep deletes the
+ *    `imports` rows, so these objects ARE orphaned by it and must be reaped
+ *    here; `sheet-reconcile.ts` reaps any whose delete fails.
  *
  * NOTE — the `cire-assets` invite images (`wedding_invite_customisations`'
  * per-slot image keys + `events.event_image_key`) are deliberately NOT reaped here:
@@ -63,9 +65,14 @@ export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
  * Most weddings one sweep will take. The cohort is every wedding whose last
  * event passed a year ago, and nothing else removes a wedding from that set —
  * so after a run of failed crons, or a busy season a year later, it can be
- * arbitrarily large. Every query below feeds it into an `IN (...)`, and SQLite
- * stops at 999 bound variables: past that the sweep does not slow down, it
- * throws, and a compliance-obligated delete fails.
+ * arbitrarily large.
+ *
+ * The cap bounds work, not bound parameters. D1 allows 100 per statement
+ * (wiki/shared/d1-limits.md), fewer than this cohort or its households, so
+ * every id list below rides as ONE `json_each` parameter (`jsonEachIn`); an
+ * `IN (...)` binding each id would throw past 100 and stop a
+ * compliance-obligated delete for good, since the same weddings head the next
+ * run's cohort.
  *
  * The sweep is idempotent and runs on a schedule, so the remainder is simply
  * the next run's work. Capping here rather than per-query bounds the whole
@@ -88,7 +95,7 @@ function cutoffDateString(now: Date): string {
 
 export const retentionService = {
   /**
-   * Enforce the 1-year guest-data retention promise (C-H2 / privacy notice).
+   * Enforce the 1-year guest-data retention promise of the privacy notice.
    *
    * For every wedding whose **latest event date** is more than
    * `RETENTION_AFTER_FINAL_EVENT_MS` before `now`, delete the personal data:
@@ -111,13 +118,14 @@ export const retentionService = {
    * empty group) — we cannot prove its window has lapsed, so the safe default
    * is to keep it; this is also the in-progress-setup case.
    *
-   * R2 reaping (IB-S-L2 / C-H1): the deleted `imports` rows reference
-   * personal-data R2 objects that D1's `ON DELETE cascade` can NEVER reach — the
-   * uploaded guest/event sheets (`imports.events_r2_key`/`guests_r2_key` in the
-   * `cire-sheets` bucket, which carry guest PII). **Ordering is collect-then-
-   * delete-then-reap**: we read every sheet key for the expired weddings BEFORE
-   * the D1 deletes (once the `imports` rows are gone the keys are unrecoverable),
-   * delete the D1 rows, then best-effort delete the R2 objects. A failed object
+   * R2 reaping: the deleted `imports` rows reference personal-data R2 objects
+   * that D1's `ON DELETE cascade` can NEVER reach — the uploaded guest/event
+   * sheets and each applied change's before-image (the four key columns of
+   * `imports`, in the `cire-sheets` bucket, which carry guest PII). **Ordering
+   * is collect-then-delete-then-reap**: we read every sheet key for the expired
+   * weddings BEFORE the D1 deletes (once the `imports` rows are gone the keys
+   * are unrecoverable), delete the D1 rows, then best-effort delete the R2
+   * objects. A failed object
    * delete is logged + counted but never aborts the sweep (better to orphan a
    * few objects than to leave a cohort's PII in D1) — see {@link reapR2Objects}.
    * Reaping happens AFTER the rows are gone so a reap failure can't leave a live
@@ -189,12 +197,12 @@ export const retentionService = {
       }
 
       // ── COLLECT R2 SHEET KEYS FIRST ────────────────────────────────────────
-      // Read every uploaded-sheet R2 key the about-to-be-deleted `imports` rows
-      // reference BEFORE deleting them — once the rows are gone the keys are
-      // unrecoverable (D1 cascade never reaches R2). These live in the
-      // `cire-sheets` bucket and carry guest PII, so they MUST be reaped. (The
-      // `cire-assets` invite images are deliberately untouched — see the sweep
-      // docstring + RetentionBuckets.)
+      // Read every R2 key the about-to-be-deleted `imports` rows reference,
+      // uploads and before-images alike, BEFORE deleting them: once the rows
+      // are gone the keys are unrecoverable (D1 cascade never reaches R2). These
+      // live in the `cire-sheets` bucket and carry guest PII, so they MUST be
+      // reaped. (The `cire-assets` invite images are deliberately untouched —
+      // see the sweep docstring + RetentionBuckets.)
       //
       // Family ids in scope — `guests` is keyed by `family_id`, not `wedding_id`,
       // so we delete guests via their families. `rsvps` is keyed by `guest_id`;
@@ -208,22 +216,34 @@ export const retentionService = {
         [
           dbQuery(() =>
             db
-              .select({ eventsKey: imports.eventsR2Key, guestsKey: imports.guestsR2Key })
+              .select({
+                eventsKey: imports.eventsR2Key,
+                guestsKey: imports.guestsR2Key,
+                beforeEventsKey: imports.beforeEventsR2Key,
+                beforeGuestsKey: imports.beforeGuestsR2Key,
+              })
               .from(imports)
-              .where(inArray(imports.weddingId, weddingIds))
+              .where(inArray(imports.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
           dbQuery(() =>
             db
               .select({ id: families.id })
               .from(families)
-              .where(inArray(families.weddingId, weddingIds))
+              .where(inArray(families.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
         ],
         { concurrency: "unbounded" },
       );
-      const sheetKeys = importRows.flatMap((r) => [r.eventsKey, r.guestsKey]);
+      // The before keys are NULL on rows that never applied or whose
+      // before-image was pruned; the reaper drops nulls.
+      const sheetKeys = importRows.flatMap((r) => [
+        r.eventsKey,
+        r.guestsKey,
+        r.beforeEventsKey,
+        r.beforeGuestsKey,
+      ]);
       const familyIds = familyRows.map((r) => r.id);
 
       // ── LEAVE THE COUPLE A RECORD, BEFORE TAKING THE DETAIL AWAY ──────────
@@ -247,33 +267,29 @@ export const retentionService = {
             // stated contract is to not depend on FK cascade, and it previously
             // left this one child table to the cascade it said it avoided.
             stmts.push(
-              db
-                .delete(rsvps)
-                .where(
-                  inArray(
-                    rsvps.guestId,
-                    db
-                      .select({ id: guests.id })
-                      .from(guests)
-                      .where(inArray(guests.familyId, familyIds)),
-                  ),
+              db.delete(rsvps).where(
+                inArray(
+                  rsvps.guestId,
+                  db
+                    .select({ id: guests.id })
+                    .from(guests)
+                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
                 ),
+              ),
             );
             stmts.push(
-              db
-                .delete(guestEvents)
-                .where(
-                  inArray(
-                    guestEvents.guestId,
-                    db
-                      .select({ id: guests.id })
-                      .from(guests)
-                      .where(inArray(guests.familyId, familyIds)),
-                  ),
+              db.delete(guestEvents).where(
+                inArray(
+                  guestEvents.guestId,
+                  db
+                    .select({ id: guests.id })
+                    .from(guests)
+                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
                 ),
+              ),
             );
-            stmts.push(db.delete(guests).where(inArray(guests.familyId, familyIds)));
-            stmts.push(db.delete(families).where(inArray(families.id, familyIds)));
+            stmts.push(db.delete(guests).where(inArray(guests.familyId, jsonEachIn(familyIds))));
+            stmts.push(db.delete(families).where(inArray(families.id, jsonEachIn(familyIds))));
           }
           // imports bookkeeping (the uploaded-sheet PII references). The R2
           // objects behind these (+ the invite-image columns) are reaped AFTER
@@ -282,7 +298,7 @@ export const retentionService = {
           // children first, which the bun:sqlite fallback keeps.
           return commitBatchResults(db, [
             ...stmts,
-            db.delete(imports).where(inArray(imports.weddingId, weddingIds)),
+            db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(weddingIds))),
           ]);
         },
         catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
@@ -305,8 +321,8 @@ export const retentionService = {
       });
 
       // ── REAP R2 OBJECTS (best-effort, post-delete) ─────────────────────────
-      // The `imports` rows are gone; now delete the uploaded-sheet objects they
-      // pointed at. Best-effort (logs + counts failures, never throws) so an R2
+      // The `imports` rows are gone; now delete the sheet objects they pointed
+      // at. Best-effort (logs + counts failures, never throws) so an R2
       // hiccup can't fail the sweep or leave guest PII stuck in D1. Keys were
       // collected before the deletes above.
       yield* reapR2Objects(buckets.sheets, "sheets", sheetKeys);
@@ -487,7 +503,10 @@ function writeGiftSummaries(
             // A released claim is a tombstone, not a gift — it is what the couple did
             // NOT receive, and counting it would overstate the record.
             .where(
-              and(inArray(registryClaims.weddingId, ids), ne(registryClaims.status, "released")),
+              and(
+                inArray(registryClaims.weddingId, jsonEachIn(ids)),
+                ne(registryClaims.status, "released"),
+              ),
             )
             .groupBy(registryClaims.weddingId, registryClaims.status)
             .all(),
@@ -508,7 +527,7 @@ function writeGiftSummaries(
             .from(registryContributions)
             .where(
               and(
-                inArray(registryContributions.weddingId, ids),
+                inArray(registryContributions.weddingId, jsonEachIn(ids)),
                 // Only money that actually moved. A pending or failed row is not a gift.
                 eq(registryContributions.status, "succeeded"),
               ),
@@ -637,7 +656,7 @@ function writeGiftSummaries(
         )
         // A soft-deleted wedding's owners are not mailed; its summary row is
         // still written above, so a restore finds it.
-        .where(and(inArray(weddings.id, summarised), weddingIsLive))
+        .where(and(inArray(weddings.id, jsonEachIn(summarised)), weddingIsLive))
         .orderBy(asc(weddingHosts.createdAt))
         .all(),
     );

@@ -22,7 +22,7 @@ packages:
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-10-02
 ---
 
 # D1 Limits
@@ -133,3 +133,4 @@ shows you. Cutting the count is one half; [[d1-read-replication]] is the other.
 | osn-tracker#593 | `osn/api` graph-internal batch route | 101 ids (schema says 200) |
 | osn-tracker#596 | `zap`/`pulse` export caps | 100 ids binds 102 |
 | P-C1 on PR #853 | `osn/api` co-member fan-out, `UNION ALL` arms | 6 organisations |
+| P-C1 on PR #1377 | `cire/api` guest-data retention sweep, ten `IN` lists | 101 weddings or households |

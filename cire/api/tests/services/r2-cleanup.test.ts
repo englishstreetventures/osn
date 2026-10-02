@@ -32,7 +32,20 @@ describe("reapR2Objects", () => {
   it("warns and does not throw when the bucket binding is absent", async () => {
     await expect(
       Effect.runPromise(reapR2Objects(undefined, "assets", ["a", "b"])),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ reaped: 0, failed: 2 });
+  });
+
+  it("reports how many keys it deleted and how many it could not", async () => {
+    const bucket = createRecordingBucket();
+    expect(await Effect.runPromise(reapR2Objects(bucket, "sheets", ["a", "b", "a"]))).toEqual({
+      reaped: 2,
+      failed: 0,
+    });
+    const refusing: DeletableBucket = { delete: () => Promise.reject(new Error("r2 down")) };
+    expect(await Effect.runPromise(reapR2Objects(refusing, "sheets", ["a", "b"]))).toEqual({
+      reaped: 0,
+      failed: 2,
+    });
   });
 
   it("chunks a key list larger than CHUNK_SIZE into multiple delete calls", async () => {

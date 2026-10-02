@@ -1,16 +1,20 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
+import * as cireSchema from "@cire/db";
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
+import { is } from "drizzle-orm";
+import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import {
+  ASSET_LIST_LIMITS,
+  ASSET_POSITION_KEY,
   assetReconcileService,
   ASSETS_PREFIX,
-  RECONCILE_GRACE_MS,
-  RECONCILE_DELETE_CAP,
-  type ReconcilableBucket,
+  type AssetsBucket,
 } from "../../src/services/asset-reconcile";
+import { RECONCILE_GRACE_MS, RECONCILE_DELETE_CAP } from "../../src/services/r2-reconcile";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -30,7 +34,7 @@ const FRESH = new Date(NOW.getTime() - 60_000); // within grace
 function createAssetsStub(
   initial: Array<{ key: string; uploaded: Date }>,
   opts: { pageSize?: number; listThrows?: boolean } = {},
-): ReconcilableBucket & { deleted: Set<string>; remaining: () => string[] } {
+): AssetsBucket & { deleted: Set<string>; remaining: () => string[] } {
   const store = new Map<string, Date>(initial.map((o) => [o.key, o.uploaded]));
   const deleted = new Set<string>();
   const pageSize = opts.pageSize ?? 1000;
@@ -40,6 +44,13 @@ function createAssetsStub(
   return {
     deleted,
     remaining: () => [...store.keys()],
+    head(key) {
+      return Promise.resolve(store.has(key) ? { key } : null);
+    },
+    // The walk's position. Every bucket here fits in one run, so only a capped
+    // run stores one.
+    get: () => Promise.resolve(null),
+    put: () => Promise.resolve(),
     list(options) {
       if (opts.listThrows) throw new Error("list boom");
       const prefix = options?.prefix ?? "";
@@ -134,6 +145,30 @@ describe("asset-reconcile constants", () => {
     expect(RECONCILE_GRACE_MS).toBe(7 * 24 * 60 * 60 * 1000);
     expect(RECONCILE_DELETE_CAP).toBe(500);
     expect(ASSETS_PREFIX).toBe("assets/");
+  });
+
+  // The cases below seed every image-key column `loadReferencedKeys` reads.
+  // An image-key column added to the schema and not to that read would make
+  // its images look orphaned; this fails until both lists are updated.
+  it("knows every image-key column in the schema", () => {
+    const tables = (Object.values(cireSchema) as unknown[]).flatMap((v) =>
+      is(v, SQLiteTable) ? [v] : [],
+    );
+    const columns = tables
+      .flatMap((table) => {
+        const config = getTableConfig(table);
+        return config.columns
+          .filter((c) => c.name.endsWith("image_key"))
+          .map((c) => `${config.name}.${c.name}`);
+      })
+      .toSorted();
+    expect(columns).toEqual([
+      "events.event_image_key",
+      "registry_items.image_key",
+      "wedding_invite_customisations.footer_image_key",
+      "wedding_invite_customisations.hero_image_key",
+      "wedding_invite_customisations.story_image_key",
+    ]);
   });
 });
 
@@ -307,8 +342,8 @@ describe("assetReconcileService.reconcileOrphans", () => {
     withDb(
       Effect.gen(function* () {
         yield* seedReferenced({ hero: "assets/wedF/hero-live" });
-        // One live key + (cap + 50) old orphans, served 100 per page so the
-        // cursor-pagination path is exercised.
+        // One live key + (cap + 50) old orphans, served 250 per page so the
+        // cursor-pagination path is exercised within one run's three list calls.
         const objects = [{ key: "assets/wedF/hero-live", uploaded: OLD }];
         const orphanCount = RECONCILE_DELETE_CAP + 50;
         for (let i = 0; i < orphanCount; i++) {
@@ -317,7 +352,7 @@ describe("assetReconcileService.reconcileOrphans", () => {
             uploaded: OLD,
           });
         }
-        const bucket = createAssetsStub(objects, { pageSize: 100 });
+        const bucket = createAssetsStub(objects, { pageSize: 250 });
 
         const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
 
@@ -346,6 +381,62 @@ describe("assetReconcileService.reconcileOrphans", () => {
 
         expect(result).toBe("failed");
         expect(bucket.deleted.size).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "reads the live keys once a run, for both the sample and the lookup",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ hero: "assets/wedH/hero-live" });
+        const bucket = createAssetsStub([
+          { key: "assets/wedH/hero-live", uploaded: OLD },
+          { key: "assets/wedH/orphan", uploaded: OLD },
+        ]);
+        const db = yield* DbService;
+        const client = (db as unknown as { $client: { prepare: (sql: string) => unknown } })
+          .$client;
+        const prepare = spyOn(client, "prepare");
+
+        const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+
+        const selects = prepare.mock.calls.filter(([sql]) =>
+          sql.trim().toLowerCase().startsWith("select"),
+        );
+        prepare.mockRestore();
+        expect(deleted).toBe(1);
+        // Customisations, event images and registry images, in one statement.
+        expect(selects).toHaveLength(1);
+      }),
+    ),
+  );
+
+  it(
+    "lists a bounded page a run and keeps its place outside assets/",
+    withDb(
+      Effect.gen(function* () {
+        expect(ASSET_LIST_LIMITS).toEqual({ maxObjects: 1_000, maxListCalls: 3 });
+        expect(ASSET_POSITION_KEY.startsWith(ASSETS_PREFIX)).toBe(false);
+        const objects = Array.from({ length: 1_005 }, (_, i) => ({
+          key: `assets/wedP/fresh-${String(i).padStart(4, "0")}`,
+          uploaded: FRESH,
+        }));
+        const bucket = createAssetsStub(objects);
+        const puts: Array<[string, string]> = [];
+        bucket.put = (key, value) => {
+          puts.push([key, value]);
+          return Promise.resolve();
+        };
+
+        yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+
+        expect(puts).toHaveLength(1);
+        expect(puts[0]![0]).toBe(ASSET_POSITION_KEY);
+        expect(JSON.parse(puts[0]![1])).toEqual({
+          after: "assets/wedP/fresh-0999",
+          lapStartedAt: NOW.getTime(),
+        });
       }),
     ),
   );

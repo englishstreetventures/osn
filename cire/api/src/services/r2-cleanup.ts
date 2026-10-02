@@ -36,15 +36,23 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** How many of the keys a reap deleted, and how many it could not. */
+export interface ReapResult {
+  readonly reaped: number;
+  readonly failed: number;
+}
+
 /**
  * Best-effort bulk R2 object reaper, shared by every flow that orphans R2
  * objects when it deletes the D1 rows that referenced them: the guest-data
- * retention sweep, the stale-preview sweep, and the purge of soft-deleted
- * weddings, which reaps both buckets.
+ * retention sweep, the stale-preview sweep, the before-image prune, registry
+ * picture removal, the purge of soft-deleted weddings (which reaps both
+ * buckets), and the two orphan reconcilers (`r2-reconcile.ts`), which catch
+ * what a failed delete here leaves.
  *
- * Why a separate helper: cire stores R2 **keys** in D1 (`imports.events_r2_key`
- * / `guests_r2_key` in the `cire-sheets` bucket; `wedding_invite_customisations`
- * hero/story keys + `events.event_image_key` in `cire-assets`). D1's
+ * Why a separate helper: cire stores R2 **keys** in D1 (the four key columns of
+ * `imports` in the `cire-sheets` bucket; `wedding_invite_customisations`
+ * image keys + `events.event_image_key` in `cire-assets`). D1's
  * `ON DELETE cascade` fans out *within* D1 but NEVER reaches R2, so deleting a
  * wedding/import row silently orphans its objects (uploaded guest sheets +
  * wedding photos — personal data) forever. The caller collects the keys BEFORE
@@ -69,17 +77,19 @@ function chunk<T>(items: T[], size: number): T[][] {
  *  - **Metric.** Emits the bounded-cardinality `cire.r2.objects.swept` counter
  *    (`bucket` ∈ sheets|assets, `result` ∈ ok|error) — count is the number of
  *    keys in the request, so the sum tracks reclaimed objects per bucket.
+ *  - **Result.** Returns how many distinct keys it deleted and how many it
+ *    could not, so a caller that must retry a failure can tell.
  */
 export function reapR2Objects(
   bucket: DeletableBucket | undefined,
   label: R2BucketLabel,
   keys: ReadonlyArray<string | null | undefined>,
-): Effect.Effect<void> {
+): Effect.Effect<ReapResult> {
   return Effect.gen(function* () {
     const present = Array.from(
       new Set(keys.filter((k): k is string => typeof k === "string" && k.length > 0)),
     );
-    if (present.length === 0) return;
+    if (present.length === 0) return { reaped: 0, failed: 0 };
 
     // No binding in this deployment (local dev / a misconfigured env): the rows
     // are already gone, so the objects are orphaned regardless — log it and move
@@ -90,7 +100,7 @@ export function reapR2Objects(
         keys: present.length,
       });
       yield* Effect.sync(() => metricR2ObjectsSwept(label, "error", present.length));
-      return;
+      return { reaped: 0, failed: present.length };
     }
 
     let reaped = 0;
@@ -142,5 +152,6 @@ export function reapR2Objects(
     if (reaped > 0) yield* Effect.sync(() => metricR2ObjectsSwept(label, "ok", reaped));
     if (failed > 0) yield* Effect.sync(() => metricR2ObjectsSwept(label, "error", failed));
     yield* Effect.logInfo("r2 cleanup complete", { bucket: label, reaped, failed });
+    return { reaped, failed };
   }).pipe(Effect.withSpan("cire.r2.reapObjects"));
 }
