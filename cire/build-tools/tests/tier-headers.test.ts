@@ -86,6 +86,29 @@ describe("retargetHeaders", () => {
       expect(() => retargetHeaders(HEADERS, bad)).toThrow(/cire-api URL/);
     }
   });
+
+  it("refuses plain http for any host that is not loopback", () => {
+    // A deployed tier's policy would let the API and its report collector be
+    // reached in cleartext, and violation reports carry the page URL.
+    for (const bad of [
+      "http://api.dev.cireweddings.com",
+      "http://api.cireweddings.com",
+      "http://localhost.example.test",
+      "http://10.0.0.1:8787",
+    ]) {
+      expect(() => retargetHeaders(HEADERS, bad)).toThrow(/is http but not loopback/);
+    }
+  });
+
+  it("accepts plain http on a loopback host, where the local cire-api runs", () => {
+    for (const local of [
+      "http://localhost:8787",
+      "http://api.cire.localhost",
+      "http://127.0.0.1:8787",
+    ]) {
+      expect(retargetHeaders(HEADERS, local)).toContain(`connect-src 'self' ${local};`);
+    }
+  });
 });
 
 /** The one part of a Vite plugin the integration adds: its resolved-config hook. */
@@ -184,6 +207,17 @@ describe("tierHeaders", () => {
   it("fails the build on an empty API URL and leaves the file alone", async () => {
     await expect(build(CLIENT, { PUBLIC_API_URL: "" })).rejects.toThrow(/cire-api URL/);
     expect(await builtHeaders()).toBe(HEADERS);
+  });
+
+  it("logs under the name every cire app's build shares", () => {
+    expect(tierHeaders(CLIENT).name).toBe("cire-tier-headers");
+  });
+
+  it("fails the build when the output holds no _headers to rewrite", async () => {
+    // A tier must never deploy with no policy at all.
+    await rm(join(dist, "client", "_headers"));
+    await writeFile(join(dist, "client", "_astro", "osn.js"), `"${DEV_API}"`);
+    await expect(build(CLIENT, { PUBLIC_API_URL: DEV_API })).rejects.toThrow(/ENOENT/);
   });
 
   it("adds the env probe only to a build", async () => {

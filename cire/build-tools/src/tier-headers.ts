@@ -46,6 +46,16 @@ const productionOrigin = () => /https:\/\/api\.cireweddings\.com(?![\w.:-])/g;
  */
 const PLAIN_HOSTNAME = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
 
+/**
+ * Hosts that resolve to this machine, the only ones a policy may reach over
+ * plain http: the local cire-api (`http://localhost:8787`) and the portless
+ * devloop's `*.localhost` names. Anything else is a deployed API, and plain
+ * http there would let the API and its violation reports, which carry the page
+ * URL, travel in cleartext.
+ */
+const isLoopback = (hostname: string) =>
+  hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1";
+
 /** The origin of a cire-api URL, or a build error naming the bad value. */
 function originOf(apiUrl: string): string {
   let url: URL;
@@ -60,6 +70,11 @@ function originOf(apiUrl: string): string {
   if (!PLAIN_HOSTNAME.test(url.hostname)) {
     throw new Error(
       `tier-headers: the cire-api URL ${JSON.stringify(apiUrl)} has a host that is not a plain DNS name`,
+    );
+  }
+  if (url.protocol === "http:" && !isLoopback(url.hostname)) {
+    throw new Error(
+      `tier-headers: the cire-api URL ${JSON.stringify(apiUrl)} is http but not loopback; a deployed API must be https`,
     );
   }
   return url.origin;

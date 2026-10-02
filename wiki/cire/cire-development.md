@@ -333,11 +333,15 @@ it from app code, since it reads the filesystem.
 The integration reads the env from Vite's resolved config, the same object that
 fills `import.meta.env.PUBLIC_*` in the bundle. A portal resolves it through
 `resolveApiUrl` in `src/lib/api-origin.ts`, the same chain `src/lib/osn.ts`
-uses. It fails the build in three cases, so a mismatch surfaces in CI rather
+uses. It fails the build in these cases, so a mismatch surfaces in CI rather
 than as a blocked API on a deployed tier:
 
-- `_headers` no longer names the production origin
-- `PUBLIC_CIRE_API_URL` does not parse as an http(s) URL. An empty value counts.
+- `dist/` holds no `_headers`, or it no longer names the production origin
+- `PUBLIC_CIRE_API_URL` does not parse as a URL, or is neither https nor http
+  on a loopback host (`localhost`, `*.localhost`, `127.0.0.1`). An empty value
+  counts.
+- Its host is not a plain DNS name, so writing it would add a wildcard or a
+  directive to the policy
 - No `.js` or `.mjs` file in `dist/` contains the origin the header now names
 
 So write only the production origin in `public/_headers`, never a dev or
