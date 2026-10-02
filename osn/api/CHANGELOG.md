@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 3.28.9
+
+### Patch Changes
+
+- ffe22ab: Document cire's owner notices as a third caller of `POST /internal/accounts/emails`.
+- Updated dependencies [ffe22ab]
+  - @shared/email@0.13.0
+
 ## 3.28.8
 
 ### Patch Changes

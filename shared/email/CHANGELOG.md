@@ -1,5 +1,11 @@
 # @shared/email
 
+## 0.13.0
+
+### Minor Changes
+
+- ffe22ab: Add the `wedding-owner-change` and `wedding-delete-started` templates: cire's notices to a wedding's owners when someone is made an owner, an owner is removed or demoted, or the wedding is deleted.
+
 ## 0.12.0
 
 ### Minor Changes
