@@ -23,6 +23,9 @@ import { insertWedding } from "../test-helpers/wedding";
 let db: TestDb;
 let adaId: string;
 
+/** The organiser making every write in this file. */
+const ORGANISER = "usr_organiser";
+
 /** An event id by slug in the bootstrap wedding. */
 function eventBySlug(slug: string): string {
   const row = db.select({ id: events.id }).from(events).where(eq(events.slug, slug)).get();
@@ -96,6 +99,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     const result = await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -134,6 +138,7 @@ describe("organiserRsvpService.record", () => {
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -160,6 +165,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -199,6 +205,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -229,6 +236,7 @@ describe("organiserRsvpService.record", () => {
     const hindu = eventBySlug("hindu");
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -253,6 +261,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId,
           eventId: mehendi,
@@ -279,6 +288,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID, // acting as an editor of the bootstrap wedding
           guestId: "guest_foreign", // but targeting the FOREIGN wedding's guest
           eventId: "evt_foreign",
@@ -304,6 +314,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId, // a real bootstrap guest
           eventId: "evt_foreign", // but a foreign wedding's event
@@ -349,6 +360,7 @@ describe("organiserRsvpService.record", () => {
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: "guest_host",
           eventId: hindu,
@@ -409,6 +421,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     const result = await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -469,6 +482,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -505,6 +519,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -528,6 +543,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -556,6 +572,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -585,6 +602,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: samId,
           eventId: hindu,
@@ -620,6 +638,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -671,6 +690,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: adaId,
         eventId: hindu,
@@ -695,6 +715,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     await run(
       organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
         weddingId: BOOTSTRAP_WEDDING_ID,
         guestId: samId,
         eventId: hindu,
@@ -734,6 +755,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: samId,
           eventId: hindu,
@@ -757,6 +779,7 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
     const err = await run(
       organiserRsvpService
         .record({
+          actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId,
           eventId: hindu,
@@ -771,5 +794,240 @@ describe("organiserRsvpService.record — a plus-one's household-given dietary a
 
     expect(err._tag).toBe("DietaryAttestationMismatch");
     expect(storedRow(adaId, hindu)).toEqual([]);
+  });
+});
+
+describe("organiserRsvpService.record — which organiser wrote, and who attested", () => {
+  const SECOND = "usr_second_organiser";
+
+  function attribution(guestId: string, eventId: string) {
+    return db
+      .select({
+        source: rsvps.consentSource,
+        recordedBy: rsvps.recordedByOsnProfileId,
+        attestedBy: rsvps.dietaryAttestedByOsnProfileId,
+      })
+      .from(rsvps)
+      .where(and(eq(rsvps.guestId, guestId), eq(rsvps.eventId, eventId)))
+      .get();
+  }
+
+  const recordFor = (
+    actor: string,
+    eventId: string,
+    dietary: { text: string; presets: [] | ["vegan"] } | null,
+  ) =>
+    run(
+      organiserRsvpService.record({
+        actorOsnProfileId: actor,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: adaId,
+        eventId,
+        status: "declined",
+        dietary,
+        dietaryConsent: dietary !== null,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
+      }),
+    );
+
+  it("names the organiser as writer and attester of a dietary answer", async () => {
+    const hindu = eventBySlug("hindu");
+    await recordFor(ORGANISER, hindu, { text: "", presets: ["vegan"] });
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "organiser_attested",
+      recordedBy: ORGANISER,
+      attestedBy: ORGANISER,
+    });
+  });
+
+  it("names no attester when the answer holds no dietary data", async () => {
+    const hindu = eventBySlug("hindu");
+    await recordFor(ORGANISER, hindu, { text: "", presets: [] });
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "organiser_attested",
+      recordedBy: ORGANISER,
+      attestedBy: null,
+    });
+  });
+
+  it("a status-only save over a guest's dietary answer names the organiser, not as attester", async () => {
+    const hindu = eventBySlug("hindu");
+    await run(
+      rsvpService.submitRsvp({
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "No nuts",
+        dietaryPresets: ["nuts", "other"],
+        dietaryConsent: true,
+      }),
+    );
+    await recordFor(ORGANISER, hindu, null);
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "guest",
+      recordedBy: ORGANISER,
+      attestedBy: null,
+    });
+  });
+
+  it("a second organiser's status-only save keeps the first one as attester", async () => {
+    const hindu = eventBySlug("hindu");
+    await recordFor(ORGANISER, hindu, { text: "", presets: ["vegan"] });
+    await recordFor(SECOND, hindu, null);
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "organiser_attested",
+      recordedBy: SECOND,
+      attestedBy: ORGANISER,
+    });
+  });
+
+  it("a status-only save over a row holding no consent record clears a stray attester", async () => {
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        consentSource: "organiser_attested",
+        recordedByOsnProfileId: ORGANISER,
+        dietaryAttestedByOsnProfileId: ORGANISER,
+        createdAt: new Date(),
+      })
+      .run();
+    await recordFor(SECOND, hindu, null);
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "organiser_attested",
+      recordedBy: SECOND,
+      attestedBy: null,
+    });
+  });
+
+  it("a household's own reply after an organiser's clears both", async () => {
+    const hindu = eventBySlug("hindu");
+    await recordFor(ORGANISER, hindu, { text: "", presets: ["vegan"] });
+    await run(
+      rsvpService.submitRsvp({
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: ["vegan"],
+        dietaryConsent: true,
+      }),
+    );
+    expect(attribution(adaId, hindu)).toEqual({
+      source: "guest",
+      recordedBy: null,
+      attestedBy: null,
+    });
+  });
+
+  it("a plus-one's first reply lands through the guarded write, timestamps in seconds", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    const before = Math.floor(Date.now() / 1000);
+
+    await run(
+      organiserRsvpService.record({
+        actorOsnProfileId: ORGANISER,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietary: { text: "", presets: ["vegan"] },
+        dietaryConsent: true,
+        dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "Sam",
+      }),
+    );
+
+    const raw = db.$client
+      .query(
+        "SELECT created_at, dietary_consent_at, submitted_via_link, recorded_by_osn_profile_id, dietary_attested_by_osn_profile_id FROM rsvps WHERE guest_id = ?",
+      )
+      .get(samId) as {
+      created_at: number;
+      dietary_consent_at: number;
+      submitted_via_link: number;
+      recorded_by_osn_profile_id: string;
+      dietary_attested_by_osn_profile_id: string;
+    };
+    expect(raw.created_at).toBeGreaterThanOrEqual(before);
+    expect(raw.created_at).toBeLessThan(before + 60);
+    expect(raw.dietary_consent_at).toBe(raw.created_at);
+    expect(raw.submitted_via_link).toBe(0);
+    expect(raw.recorded_by_osn_profile_id).toBe(ORGANISER);
+    expect(raw.dietary_attested_by_osn_profile_id).toBe(ORGANISER);
+  });
+});
+
+describe("rsvpService.submitRsvpIfNamed", () => {
+  const reply = (guestId: string, eventId: string) => ({
+    guestId,
+    eventId,
+    status: "attending" as const,
+    dietary: "",
+    dietaryPresets: ["vegan" as const],
+    dietaryConsent: true,
+    consentSource: "organiser_attested" as const,
+    plusOne: true,
+    recordedByOsnProfileId: ORGANISER,
+  });
+
+  it("writes nothing once the row carries another name", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    // The household renames Sam after the organiser's form was opened.
+    db.update(guests).set({ firstName: "Alex" }).where(eq(guests.id, samId)).run();
+
+    const written = await run(rsvpService.submitRsvpIfNamed(reply(samId, hindu), "Sam"));
+
+    expect(written).toBe(false);
+    expect(db.select({ id: rsvps.id }).from(rsvps).where(eq(rsvps.guestId, samId)).all()).toEqual(
+      [],
+    );
+  });
+
+  it("stores no consent time and no attester when there is no consent", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+
+    const written = await run(
+      rsvpService.submitRsvpIfNamed(
+        { ...reply(samId, hindu), dietaryPresets: [], dietaryConsent: false },
+        "Sam",
+      ),
+    );
+
+    expect(written).toBe(true);
+    const raw = db.$client
+      .query(
+        "SELECT dietary_consent_at, dietary_consent_version, recorded_by_osn_profile_id, dietary_attested_by_osn_profile_id FROM rsvps WHERE guest_id = ?",
+      )
+      .get(samId);
+    expect(raw).toEqual({
+      dietary_consent_at: null,
+      dietary_consent_version: null,
+      recorded_by_osn_profile_id: ORGANISER,
+      dietary_attested_by_osn_profile_id: null,
+    });
+  });
+
+  it("updates an existing reply while the name still matches", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam", lastName: "Guest" });
+    const hindu = eventBySlug("hindu");
+    await run(rsvpService.submitRsvp({ ...reply(samId, hindu), status: "declined" }));
+
+    const written = await run(rsvpService.submitRsvpIfNamed(reply(samId, hindu), " Sam Guest "));
+
+    expect(written).toBe(true);
+    const rows = db
+      .select({ status: rsvps.status })
+      .from(rsvps)
+      .where(eq(rsvps.guestId, samId))
+      .all();
+    expect(rows).toEqual([{ status: "attending" }]);
   });
 });

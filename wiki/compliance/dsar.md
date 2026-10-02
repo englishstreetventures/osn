@@ -211,6 +211,22 @@ owners, each with an `owner` seat. Two consequences:
   are part of the organiser's cire data; removing their seat deletes the row,
   but an OSN account deletion does not reach it, the same orphan as
   `wedding_hosts` below. See [[cire-rsvp-changes]].
+- **Organiser attribution on RSVPs (migration 0080).** `rsvps.recorded_by_osn_profile_id`
+  and `rsvps.dietary_attested_by_osn_profile_id` name the co-host who last
+  wrote a guest's reply and who attested its dietary consent. An access
+  request from the household leaves both out, as it leaves out
+  `note_hidden_by_osn_profile_id`: they identify a co-host (Art. 15(4)), and
+  the household sees only that a host wrote. They are the organiser's data in
+  an organiser's access request. Erasing the household deletes the rows; an
+  OSN account deletion does not reach the ids, the same orphan as
+  `wedding_hosts` below. Removing a co-host's seat keeps both ids: they are
+  the record of who changed a guest's reply and who attested its consent
+  (Art. 5(2), 7(1)), held as long as the reply they describe and swept with
+  it. An erasure request from that organiser nulls them instead, in the same
+  pass that removes the seat:
+  `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
+  and the same for `dietary_attested_by_osn_profile_id`. The consent record
+  itself stays, as evidence an organiser attested.
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

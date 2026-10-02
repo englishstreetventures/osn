@@ -214,11 +214,18 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     was is status-only**: the portal sends no dietary field, and the API sets
     the status and keeps the stored answer, its consent record and its
     `consent_source`, whoever gave them (owner decision). So a guest's own
-    consent is never restamped as an attestation nobody made. Two things
-    follow, both accepted by the owner: organiser recordings are not in the
-    RSVP change log, so after a status-only save nothing in the database
-    records that an organiser changed the status (splitting writer from
-    consent basis would take a migration); and a guest an organiser marks as
+    consent is never restamped as an attestation nobody made. Who wrote is
+    kept apart from the consent basis (migration 0080): every organiser save,
+    status-only included, stores the organiser's OSN profile id in
+    `rsvps.recorded_by_osn_profile_id`, and an organiser's dietary consent
+    record names its attester in `rsvps.dietary_attested_by_osn_profile_id`,
+    so with several editor seats each write and each attestation traces to one
+    person. The writer column holds the latest organiser writer only, not a
+    history: once anyone saves over a row, the earlier writer is gone. The
+    dashboard badges a host's status change on a guest's or household's reply
+    as "Host-updated"; no read endpoint returns either profile id. A household
+    rename of a plus-one clears the attester with the consent record it named.
+    One trade-off stands, accepted by the owner: a guest an organiser marks as
     declined keeps their stored dietary answer until the guest or an
     organiser clears it (the guest's own invite clears it when they decline).
     The RSVP export leaves the dietary cell blank for any declined reply, so

@@ -247,16 +247,23 @@ export interface SignOutOptions {
 
 /**
  * Drop the session. Idempotent and never throws — a sign-out that fails on
- * the network still has to leave the UI signed out, and the caller has no
- * useful recovery.
+ * the network still has to leave the UI signed out, and most callers have no
+ * useful recovery. Resolves true when the server confirmed it (a 2xx), false
+ * on a network failure or any other status, for a caller that must not show
+ * a signed-out state the server does not share.
  */
-export async function signOut(config: RpAuthConfig, options: SignOutOptions = {}): Promise<void> {
+export async function signOut(
+  config: RpAuthConfig,
+  options: SignOutOptions = {},
+): Promise<boolean> {
   const url = `${authBase(config)}/signout${options.allDevices ? "?all=1" : ""}`;
   try {
-    await doFetch(config)(url, { method: "POST", credentials: "include" });
+    const res = await doFetch(config)(url, { method: "POST", credentials: "include" });
+    return res.ok;
   } catch {
     // Cookie may survive on the client, but the next call 401s and the UI
     // bounces to sign-in anyway.
+    return false;
   }
 }
 

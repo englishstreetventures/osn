@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dc9643f5-73a4-4aa3-a1a0-de8e83e0b4a8",
-  "prevId": "de20c0d2-077c-44a2-b21e-06a02b88c981",
+  "id": "f5fd82b5-135b-40f1-95fb-aa2a4fa0b9f3",
+  "prevId": "dc9643f5-73a4-4aa3-a1a0-de8e83e0b4a8",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -1324,6 +1324,46 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "owner_notice_budget": {
+      "name": "owner_notice_budget",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sent": {
+          "name": "sent",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "owner_notice_budget_key_day_pk": {
+          "columns": [
+            "key",
+            "day"
+          ],
+          "name": "owner_notice_budget_key_day_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
