@@ -14,12 +14,14 @@ at any tier:
   computes them.
 - `GET /api/organiser/weddings/:weddingId/tasks.csv`: one row per task, in the
   checklist's lead-time order.
-- `GET /api/organiser/weddings/:weddingId/planning-rows`: how many budget lines
-  and tasks the two files would carry.
+- `GET /api/organiser/weddings/:weddingId/module-rows`: how many rows
+  `budget.csv`, `tasks.csv` and the existing `gifts.csv` would carry.
 
 All three sit in the owner-only export group behind the per-user limiter, with
 no tier gate. Every cell is guarded against spreadsheet formulas, and each file
 stops at 1,000 rows with a logged warning.
 
-In the portal, an owner's locked Budget and Checklist cards offer "Download as
-CSV" when the wedding has rows there, or when the count cannot be read.
+In the portal, an owner's locked Budget, Checklist and Registry cards offer
+"Download as CSV" when the wedding has rows there, or when the count cannot be
+read. The Registry card matters only for a wedding an operator has moved back
+below Gold, since only a Gold wedding can receive gifts.

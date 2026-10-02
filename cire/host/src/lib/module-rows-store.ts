@@ -1,21 +1,24 @@
-// A `weddingId`-keyed cache for the planning row counts (`GET …/planning-rows`)
-// — sibling of `upgrade-store.ts`. The locked Budget and Checklist cards both
-// read it, on the rail and in the sheet, and each card mounts afresh every time
-// it opens; without the cache every open would ask again, and each ask spends
-// the owner's per-user export allowance that the downloads themselves need.
+// A `weddingId`-keyed cache for the locked modules' row counts (`GET
+// …/module-rows`) — sibling of `upgrade-store.ts`. The locked Budget, Checklist
+// and Registry cards read it, on the rail and in the sheet, and each card
+// mounts afresh every time it opens; without the cache every open would ask
+// again, and each ask spends the owner's per-user export allowance that the
+// downloads themselves need.
 //
-// One answer per wedding while its dashboard is on screen. Nothing can change
-// the counts in that time: both modules are locked, so their writes are refused.
+// One answer per wedding while its dashboard is on screen. A locked module
+// refuses its own writes, so the counts hold still in that time; a gift payment
+// settling meanwhile is the one exception, and the file itself is always read
+// fresh.
 //
 // Effect is deliberately NOT imported (frontend code).
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
-import type { PlanningRows } from "./locked-exports";
+import type { ModuleRows } from "./locked-exports";
 import { isWeddingClosed } from "./wedding-scope";
 
 interface CacheEntry {
-  rows: Accessor<PlanningRows | null>;
-  setRows: Setter<PlanningRows | null>;
+  rows: Accessor<ModuleRows | null>;
+  setRows: Setter<ModuleRows | null>;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -27,7 +30,7 @@ const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 function entryFor(weddingId: string): CacheEntry {
   let entry = cache.get(weddingId);
   if (!entry) {
-    const [rows, setRows] = createSignal<PlanningRows | null>(null);
+    const [rows, setRows] = createSignal<ModuleRows | null>(null);
     entry = { rows, setRows };
     cache.set(weddingId, entry);
   }
@@ -35,14 +38,14 @@ function entryFor(weddingId: string): CacheEntry {
 }
 
 /** The subscribing read: `null` until the counts have loaded. */
-export function planningRowsAccessor(weddingId: string): Accessor<PlanningRows | null> {
+export function moduleRowsAccessor(weddingId: string): Accessor<ModuleRows | null> {
   return entryFor(weddingId).rows;
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
  *  registers no dependency. Never use it for a value a view must track; use
  *  the accessor for that. */
-export function hasCachedPlanningRows(weddingId: string): boolean {
+export function hasCachedModuleRows(weddingId: string): boolean {
   return cache.get(weddingId)?.rows() != null;
 }
 
@@ -52,12 +55,12 @@ export function hasCachedPlanningRows(weddingId: string): boolean {
  * its error and caches nothing, so the next caller asks again. Concurrent
  * callers share one request.
  */
-export function ensurePlanningRowsLoaded(
+export function ensureModuleRowsLoaded(
   weddingId: string,
-  fetcher: () => Promise<PlanningRows>,
+  fetcher: () => Promise<ModuleRows>,
 ): Promise<boolean> {
   if (isWeddingClosed(weddingId)) return Promise.resolve(false);
-  if (hasCachedPlanningRows(weddingId)) return Promise.resolve(true);
+  if (hasCachedModuleRows(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);
@@ -78,7 +81,7 @@ export function ensurePlanningRowsLoaded(
 
 /** Forget a wedding's counts. A view still holding the old accessor reads
  *  `null` from then on. */
-export function dropPlanningRows(weddingId: string): void {
+export function dropModuleRows(weddingId: string): void {
   cache.get(weddingId)?.setRows(null);
   cache.delete(weddingId);
   inflight.delete(weddingId);
@@ -86,7 +89,7 @@ export function dropPlanningRows(weddingId: string): void {
 }
 
 /** Test-only: the module cache outlives a test file otherwise. */
-export function __resetPlanningRowsStore(): void {
+export function __resetModuleRowsStore(): void {
   cache.clear();
   inflight.clear();
   generation.clear();

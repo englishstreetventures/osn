@@ -13,7 +13,7 @@ vi.mock("../../src/lib/download", () => ({
 
 import {
   downloadLockedExport,
-  fetchPlanningRows,
+  fetchModuleRows,
   LOCKED_EXPORTS,
   LockedExportError,
   lockedExportFor,
@@ -35,31 +35,40 @@ describe("LOCKED_EXPORTS", () => {
     }
   });
 
-  it("maps the budget to budget.csv and the checklist to tasks.csv, and nothing else", () => {
+  it("maps each Gold module to its file, and Vendors to none", () => {
     expect(lockedExportFor("budget")).toMatchObject({ path: "/budget.csv", count: "budgetLines" });
     expect(lockedExportFor("checklist")).toMatchObject({ path: "/tasks.csv", count: "tasks" });
-    expect(lockedExportFor("registry")).toBeUndefined();
+    expect(lockedExportFor("registry")).toMatchObject({ path: "/gifts.csv", count: "gifts" });
     expect(lockedExportFor("vendors")).toBeUndefined();
+    expect(lockedExportFor("guests")).toBeUndefined();
   });
 });
 
-describe("fetchPlanningRows", () => {
-  it("reads the wedding's counts from planning-rows", async () => {
-    const authFetch = vi.fn(async () => json({ budgetLines: 4, tasks: 12 }));
-    expect(await fetchPlanningRows(authFetch, "wed_1")).toEqual({ budgetLines: 4, tasks: 12 });
+describe("fetchModuleRows", () => {
+  it("reads the wedding's counts from module-rows", async () => {
+    const authFetch = vi.fn(async () => json({ budgetLines: 4, tasks: 12, gifts: 7 }));
+    expect(await fetchModuleRows(authFetch, "wed_1")).toEqual({
+      budgetLines: 4,
+      tasks: 12,
+      gifts: 7,
+    });
     expect(authFetch).toHaveBeenCalledWith(
-      "https://api.test/api/organiser/weddings/wed_1/planning-rows",
+      "https://api.test/api/organiser/weddings/wed_1/module-rows",
     );
   });
 
   it("reads a count that is missing or not a whole number as none", async () => {
     const authFetch = vi.fn(async () => json({ budgetLines: "4", tasks: -1 }));
-    expect(await fetchPlanningRows(authFetch, "wed_1")).toEqual({ budgetLines: 0, tasks: 0 });
+    expect(await fetchModuleRows(authFetch, "wed_1")).toEqual({
+      budgetLines: 0,
+      tasks: 0,
+      gifts: 0,
+    });
   });
 
   it("rejects with the status when the API refuses", async () => {
     const authFetch = vi.fn(async () => json({ error: "rate_limited" }, 429));
-    const failure = fetchPlanningRows(authFetch, "wed_1");
+    const failure = fetchModuleRows(authFetch, "wed_1");
     await expect(failure).rejects.toBeInstanceOf(LockedExportError);
     await expect(failure).rejects.toMatchObject({ status: 429 });
   });

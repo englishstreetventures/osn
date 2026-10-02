@@ -775,3 +775,29 @@ describe("giftExportService.giftsCsv", () => {
     expect(exported.join("\n")).not.toContain("Changed my mind");
   }, 30_000);
 });
+
+describe("giftExportService.giftCount", () => {
+  // The portal offers the file from a locked Registry card only when this is
+  // above zero, so it must count what the file prints: released claims and
+  // refunded gifts included, failed payments and other weddings' gifts not.
+  it("counts exactly the rows giftsCsv prints", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedParity(db);
+    const provide = <A>(eff: Effect.Effect<A, never, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+    const printed = lines(await provide(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID))).slice(1);
+    expect(await provide(giftExportService.giftCount(BOOTSTRAP_WEDDING_ID))).toBe(printed.length);
+    expect(printed).toHaveLength(10);
+  });
+
+  it("is zero for a wedding that has had no gifts", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const count = await Effect.runPromise(
+      giftExportService.giftCount(BOOTSTRAP_WEDDING_ID).pipe(Effect.provideService(DbService, db)),
+    );
+    expect(count).toBe(0);
+  });
+});

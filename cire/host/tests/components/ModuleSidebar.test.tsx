@@ -5,18 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";
 import { MODULE_NAV } from "../../src/lib/module-nav";
-import { __resetPlanningRowsStore, planningRowsAccessor } from "../../src/lib/planning-rows-store";
+import { __resetModuleRowsStore, moduleRowsAccessor } from "../../src/lib/module-rows-store";
 import type { Tier } from "../../src/lib/tiers";
 
 // The Upgrade button mounts a dialog, and the dialog reads `useAuth()` and
 // prices itself. Neither is what this file is about — the nav's job is to OPEN
 // it — so both are stubbed and the dialog's own behaviour is tested next door
 // in UpgradeDialog.test.tsx. The locked cards' downloads ask the same
-// `authFetch`, so it answers by URL: `planningRows` is what `/planning-rows`
+// `authFetch`, so it answers by URL: `moduleRows` is what `/module-rows`
 // says, and a CSV path answers a small file.
-let planningRows: () => Response;
+let moduleRows: () => Response;
 const authFetch = vi.fn(async (url: string) => {
-  if (url.endsWith("/planning-rows")) return planningRows();
+  if (url.endsWith("/module-rows")) return moduleRows();
   if (url.endsWith(".csv")) return new Response("Header\r\n", { status: 200 });
   return new Response(JSON.stringify({ upgrades: [] }), { status: 200 });
 });
@@ -28,16 +28,16 @@ vi.mock("../../src/lib/download", () => ({
   downloadBlob: (name: string, blob: Blob) => downloadBlob(name, blob),
 }));
 
-const counts = (body: { budgetLines: number; tasks: number }) => () =>
-  new Response(JSON.stringify(body), { status: 200 });
+const counts = (body: Partial<{ budgetLines: number; tasks: number; gifts: number }>) => () =>
+  new Response(JSON.stringify({ budgetLines: 0, tasks: 0, gifts: 0, ...body }), { status: 200 });
 
 beforeEach(() => {
-  planningRows = counts({ budgetLines: 0, tasks: 0 });
+  moduleRows = counts({ budgetLines: 0, tasks: 0 });
   authFetch.mockClear();
   downloadBlob.mockReset();
   toast.success.mockReset();
   toast.error.mockReset();
-  __resetPlanningRowsStore();
+  __resetModuleRowsStore();
 });
 
 /** The top tier, which opens every module, so the nav's structural tests are
@@ -633,7 +633,7 @@ describe("ModuleSidebar", () => {
     });
 
     /**
-     * The rows a couple entered before the Budget and Checklist locked. The
+     * The rows a wedding holds in a module it can no longer open. The Gold
      * modules refuse a wedding below Gold, reads included, so the owner's card
      * is the one place left to take them from.
      */
@@ -651,7 +651,7 @@ describe("ModuleSidebar", () => {
         ));
       const row = (name: RegExp) => within(rail()).getByRole("button", { name });
       const probes = () =>
-        authFetch.mock.calls.filter(([url]) => String(url).endsWith("/planning-rows"));
+        authFetch.mock.calls.filter(([url]) => String(url).endsWith("/module-rows"));
 
       it("asks nothing until an owner opens the card", () => {
         asOwner();
@@ -659,7 +659,7 @@ describe("ModuleSidebar", () => {
       });
 
       it("offers the budget as a CSV, with how many lines it holds", async () => {
-        planningRows = counts({ budgetLines: 2, tasks: 0 });
+        moduleRows = counts({ budgetLines: 2, tasks: 0 });
         asOwner();
         fireEvent.click(row(/^Budget/));
 
@@ -675,7 +675,7 @@ describe("ModuleSidebar", () => {
       });
 
       it("offers the checklist as tasks.csv, and names one task as one", async () => {
-        planningRows = counts({ budgetLines: 0, tasks: 1 });
+        moduleRows = counts({ budgetLines: 0, tasks: 1 });
         asOwner();
         fireEvent.click(row(/^Checklist/));
 
@@ -686,17 +686,17 @@ describe("ModuleSidebar", () => {
       });
 
       it("offers nothing when the module holds no rows", async () => {
-        planningRows = counts({ budgetLines: 0, tasks: 5 });
+        moduleRows = counts({ budgetLines: 0, tasks: 5 });
         asOwner();
         fireEvent.click(row(/^Budget/));
         // The count has landed and says there is nothing to take.
-        await waitFor(() => expect(planningRowsAccessor("wed_test")()).not.toBeNull());
+        await waitFor(() => expect(moduleRowsAccessor("wed_test")()).not.toBeNull());
         expect(screen.queryByRole("button", { name: "Download as CSV" })).toBeNull();
         expect(screen.queryByText(/still here/)).toBeNull();
       });
 
       it("asks once for the wedding, however many cards open", async () => {
-        planningRows = counts({ budgetLines: 3, tasks: 4 });
+        moduleRows = counts({ budgetLines: 3, tasks: 4 });
         asOwner();
         fireEvent.click(row(/^Budget/));
         expect(await screen.findByText("Your 3 budget lines are still here.")).toBeTruthy();
@@ -707,8 +707,7 @@ describe("ModuleSidebar", () => {
 
       // A failed count must not hide the only way back to the rows.
       it("still offers the download when the count cannot be read", async () => {
-        planningRows = () =>
-          new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
+        moduleRows = () => new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
         asOwner();
         fireEvent.click(row(/^Budget/));
         expect(await screen.findByText("Anything you entered before is still here.")).toBeTruthy();
@@ -716,7 +715,7 @@ describe("ModuleSidebar", () => {
       });
 
       it("says so when the download fails, and saves nothing", async () => {
-        planningRows = counts({ budgetLines: 2, tasks: 0 });
+        moduleRows = counts({ budgetLines: 2, tasks: 0 });
         asOwner();
         fireEvent.click(row(/^Budget/));
         await screen.findByText("Your 2 budget lines are still here.");
@@ -732,7 +731,7 @@ describe("ModuleSidebar", () => {
 
       // Every export is owner-only, so a co-host's card neither asks nor offers.
       it("offers a co-host nothing and asks nothing", async () => {
-        planningRows = counts({ budgetLines: 2, tasks: 2 });
+        moduleRows = counts({ budgetLines: 2, tasks: 2 });
         render(() => (
           <ModuleSidebar
             weddingId="wed_test"
@@ -749,11 +748,24 @@ describe("ModuleSidebar", () => {
         expect(probes()).toHaveLength(0);
       });
 
-      it("offers nothing on a card whose module has no export", async () => {
-        planningRows = counts({ budgetLines: 2, tasks: 2 });
+      // A wedding holds gifts only once it has been on Gold, so this is the
+      // card a wedding an operator moved back down sees.
+      it("offers the gift log as gifts.csv on the Registry card", async () => {
+        moduleRows = counts({ gifts: 3 });
         asOwner();
         fireEvent.click(lockedRow());
-        expect(await screen.findByText("Gift registry")).toBeTruthy();
+        expect(await screen.findByText("Your 3 gifts are still here.")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Download as CSV" }));
+        await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+        expect(downloadBlob.mock.calls[0]![0]).toBe("cire-gifts-our-day.csv");
+        expect(toast.success).toHaveBeenCalledWith("Gift log downloaded");
+      });
+
+      it("offers nothing on a card whose module has no export", async () => {
+        moduleRows = counts({ budgetLines: 2, tasks: 2, gifts: 2 });
+        asOwner("gold");
+        fireEvent.click(row(/^Vendors/));
+        expect(await screen.findByText("Included with Crimson")).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Download as CSV" })).toBeNull();
         expect(probes()).toHaveLength(0);
       });

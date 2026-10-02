@@ -7,22 +7,22 @@ import { isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
   downloadLockedExport,
-  fetchPlanningRows,
+  fetchModuleRows,
   type LockedExport as LockedExportSpec,
   LockedExportError,
 } from "../lib/locked-exports";
-import { ensurePlanningRowsLoaded, planningRowsAccessor } from "../lib/planning-rows-store";
+import { ensureModuleRowsLoaded, moduleRowsAccessor } from "../lib/module-rows-store";
 
 /** A refusal that means the session is gone, in either form it arrives in. */
 const sessionExpired = (err: unknown): boolean =>
   isAuthExpired(err) || (err instanceof LockedExportError && err.status === 401);
 
 /**
- * The download a locked Budget or Checklist card offers its owner.
+ * The download a locked Budget, Checklist or Registry card offers its owner.
  *
  * The module is shut below Gold, reads included, but the rows the couple
- * entered before are theirs, and the API hands them back as CSV at any tier.
- * This asks how many there are (once per wedding — see `planning-rows-store.ts`)
+ * entered are theirs, and the API hands them back as CSV at any tier.
+ * This asks how many there are (once per wedding — see `module-rows-store.ts`)
  * and offers the file only when there is something in it.
  *
  * If the count cannot be read, the download is offered anyway, without a
@@ -43,7 +43,7 @@ export default function LockedExport(props: {
 
   onMount(() => {
     const weddingId = props.weddingId;
-    ensurePlanningRowsLoaded(weddingId, () => fetchPlanningRows(authFetch, weddingId)).catch(
+    ensureModuleRowsLoaded(weddingId, () => fetchModuleRows(authFetch, weddingId)).catch(
       (err: unknown) => {
         if (sessionExpired(err)) return redirectToLogin();
         setCountFailed(true);
@@ -53,7 +53,7 @@ export default function LockedExport(props: {
 
   /** The rows in this module's file, or `null` while unknown. */
   const count = (): number | null =>
-    planningRowsAccessor(props.weddingId)()?.[props.spec.count] ?? null;
+    moduleRowsAccessor(props.weddingId)()?.[props.spec.count] ?? null;
 
   const offered = () => {
     const n = count();

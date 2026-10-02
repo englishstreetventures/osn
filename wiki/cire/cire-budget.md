@@ -100,7 +100,7 @@ Budget card — see [[cire-entitlements]].
 - Columns: Kind, Category, Item, Estimate, Quoted, Actual, Price Per Guest, Guests, Payment, Amount, Due, Paid At, Currency, Notes. Category prints its label; money prints as a bare decimal in the wedding's currency (`minorToDecimal`); **Guests** is the headcount a per-head line priced.
 - Every cell goes through `serialiseCsv`, so a cell starting `=`, `+`, `-` or `@` gets a leading `'`.
 - Capped at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows, payments included; a longer budget is cut and logs a warning. The comment on the constant gives the CPU reasoning.
-- `GET …/planning-rows` answers `{ budgetLines, tasks }` for the locked Budget and Checklist cards, which offer the download only when there is something in it.
+- `GET …/module-rows` answers `{ budgetLines, tasks, gifts }` for the locked Budget, Checklist and Registry cards, which offer a download only when there is something in it.
 
 **Tenancy:** `BudgetItemNotInWedding` + `PaymentNotInItem` error tags prevent cross-wedding/cross-item access. `EventNotInWedding` refuses a per-head line naming another wedding's event (400 `unknown_event`).
 

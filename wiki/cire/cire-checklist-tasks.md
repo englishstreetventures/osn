@@ -95,7 +95,7 @@ checklist's order: bucket furthest out first, then `sortOrder`. The stored
 bucket keys sort as text in a different order, so the rows are re-sorted rather
 than taken as read. Every cell goes through `serialiseCsv`, and the file stops
 at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows with a logged warning. The locked
-Checklist card offers it when `GET …/planning-rows` counts any tasks.
+Checklist card offers it when `GET …/module-rows` counts any tasks.
 
 `/tasks/reorder` is registered **before** `/tasks/:taskId` in the factory so the
 literal path wins over the param route — the ordering invariant Elysia

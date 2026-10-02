@@ -322,8 +322,8 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  * Two gates. Every CSV download is `weddingOwner()`: a file leaves the portal
  * and goes wherever its holder sends it, so taking the wedding's data away is
  * an owner's call, and editors and viewers read it on screen instead. The row
- * counts behind the budget and checklist downloads (`/planning-rows`) sit with
- * them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
+ * counts behind the budget, checklist and gift downloads (`/module-rows`) sit
+ * with them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
  * `weddingMember()`.
  *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
@@ -470,22 +470,27 @@ export const createOrganiserExportRoutes = (
             ),
           );
         })
-        // How many budget lines and tasks the two files above would carry. The
-        // portal asks when an owner opens a locked Budget or Checklist card,
-        // and offers the download only when there is something in it. Owner
-        // only, like the files it describes, and ungated for the same reason.
-        .get("/planning-rows", ({ weddingId, set }) => {
+        // How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry.
+        // The portal asks when an owner opens a locked Budget, Checklist or
+        // Registry card, and offers that module's file only when there is
+        // something in it. Owner only, like the files it describes, and
+        // ungated for the same reason.
+        .get("/module-rows", ({ weddingId, set }) => {
           if (!weddingId) {
             set.status = 500;
             return { error: "Internal error" };
           }
           noStore(set);
           return runCire(
-            planningExportService.rowCounts(weddingId).pipe(
+            Effect.all(
+              [planningExportService.rowCounts(weddingId), giftExportService.giftCount(weddingId)],
+              { concurrency: 2 },
+            ).pipe(
+              Effect.map(([planning, gifts]) => ({ ...planning, gifts })),
               Effect.provideService(DbService, db),
               Effect.catchDefect(() =>
                 Effect.gen(function* () {
-                  yield* Effect.logError("planning rows read failed", { weddingId });
+                  yield* Effect.logError("module rows read failed", { weddingId });
                   set.status = 500;
                   return { error: "Internal error" };
                 }),

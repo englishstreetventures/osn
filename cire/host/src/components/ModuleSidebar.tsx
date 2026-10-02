@@ -82,8 +82,8 @@ const DWELL_MS = 3000;
  * not only in the popover, so a screen-reader user hears both while tabbing
  * rather than having to dwell.
  *
- * For an owner, the Budget and Checklist cards also offer the rows the couple
- * entered before the module locked, as a CSV download ({@link LockedExport}).
+ * For an owner, the Budget, Checklist and Registry cards also offer the rows
+ * the wedding holds there, as a CSV download ({@link LockedExport}).
  */
 function LockedRow(props: {
   mod: ModuleDef;
@@ -95,7 +95,7 @@ function LockedRow(props: {
   weddingId: string;
   weddingSlug: string;
   /** The module's download, when the card should offer one: an owner's
-   *  Budget or Checklist card. */
+   *  Budget, Checklist or Registry card. */
   lockedExport?: LockedExportSpec;
   children: JSX.Element;
 }) {

@@ -1878,10 +1878,70 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
   it("tells an Ivory owner how many rows each file holds", async () => {
     const { db, app } = buildApp();
     seedPlanning(db);
-    const res = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
+    const res = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toContain("no-store");
-    expect(await jsonBody(res)).toEqual({ budgetLines: 2, tasks: 2 });
+    expect(await jsonBody(res)).toEqual({ budgetLines: 2, tasks: 2, gifts: 0 });
+  });
+
+  // A wedding an operator moved back below Gold keeps its gift log, and its
+  // locked Registry card offers `gifts.csv` when this count says there is one.
+  it("counts the gifts gifts.csv would print, and not a payment that failed", async () => {
+    const { db, app } = buildApp();
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_rows",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "ROWS-AAA-0001",
+        familyName: "Rows",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryItems)
+      .values({
+        id: "ritem_rows",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Teapot",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryClaims)
+      .values({
+        id: "rclaim_rows",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_rows",
+        familyId: "fam_rows",
+        quantity: 1,
+        status: "purchased",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (const [id, status] of [
+      ["rcon_rows_ok", "succeeded"],
+      ["rcon_rows_failed", "failed"],
+    ] as const) {
+      db.insert(registryContributions)
+        .values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: "fam_rows",
+          status,
+          amountMinor: 5_000,
+          currency: "AUD",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    const res = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
+    expect(await jsonBody(res)).toEqual({ budgetLines: 0, tasks: 0, gifts: 2 });
+    const file = await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER);
+    expect((await file.text()).split("\r\n").slice(1)).toHaveLength(2);
   });
 
   it("still serves the files once the wedding is on Gold", async () => {
@@ -1901,11 +1961,11 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
     );
     const checklist = await get(app, `${base}/tasks.csv`, BOOTSTRAP_OWNER);
     expect(await checklist.text()).toBe("Timeframe,Task,Status,Due,Completed At,Notes");
-    const counts = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
-    expect(await jsonBody(counts)).toEqual({ budgetLines: 0, tasks: 0 });
+    const counts = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
+    expect(await jsonBody(counts)).toEqual({ budgetLines: 0, tasks: 0, gifts: 0 });
   });
 
-  for (const route of ["/budget.csv", "/tasks.csv", "/planning-rows"] as const) {
+  for (const route of ["/budget.csv", "/tasks.csv", "/module-rows"] as const) {
     it(`${route}: 401 without a token`, async () => {
       const { app } = buildApp();
       const res = await get(app, `${base}${route}`);
@@ -1963,7 +2023,7 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
   it("answers a failed count with a plain 500", async () => {
     const { db, app } = buildApp();
     db.$client.exec("DROP TABLE tasks");
-    const res = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
+    const res = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
     expect(res.status).toBe(500);
     expect(await jsonBody(res)).toEqual({ error: "Internal error" });
   });
