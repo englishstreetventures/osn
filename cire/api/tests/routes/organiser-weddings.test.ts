@@ -2,15 +2,18 @@ import { describe, it, expect, beforeAll } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
+  budgetItems,
   events,
   families,
   guestEvents,
   guests,
+  payments,
   registryClaims,
   registryContributions,
   registryItems,
   rsvps,
   sessions,
+  tasks,
   weddingEntitlements,
   weddingHosts,
   weddings,
@@ -1424,6 +1427,10 @@ describe("organiser CSV exports read the wedding row once", () => {
     ["guests.csv", "cire-guests-cire-wedding.csv"],
     ["events.csv", "cire-events-cire-wedding.csv"],
     ["gifts.csv", "cire-gifts-cire-wedding.csv"],
+    ["tasks.csv", "cire-tasks-cire-wedding.csv"],
+    // `budget.csv` is not here: it reads the wedding row a second time, for
+    // the currency and the RSVP deadline (`budgetService.get`), which the
+    // owner gate does not select. Its filename still comes from the gate.
     ["export/events.csv", "cire-export-events-cire-wedding.csv"],
     ["export/guests.csv", "cire-export-guests-cire-wedding.csv"],
   ] as const;
@@ -1705,6 +1712,260 @@ describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
     const res = await get(app, path, "usr_viewer_giftscsv");
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+  });
+});
+
+describe("the budget and checklist exports for a wedding below Gold", () => {
+  const COHOST = "usr_cohost_planning";
+  const VIEWER = "usr_viewer_planning";
+  const base = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}`;
+
+  function seedSeat(db: Db, osnProfileId: string, role: "editor" | "viewer") {
+    db.insert(weddingHosts)
+      .values({
+        id: `whost_${osnProfileId}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role,
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  /**
+   * What an Ivory couple entered before the two modules became Gold: two
+   * budget lines, one with a payment, and two tasks. Plus another wedding's
+   * line and task, which must never reach this couple's files.
+   */
+  function seedPlanning(db: Db) {
+    const now = new Date();
+    db.insert(budgetItems)
+      .values([
+        {
+          id: "bit_hall",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          category: "venue",
+          name: "Town hall",
+          quotedMinor: 450_000,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "bit_flowers",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          category: "florals",
+          name: "Peonies",
+          estimateMinor: 80_000,
+          notes: "=ask the florist",
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "bit_other",
+          weddingId: OTHER_WEDDING_ID,
+          category: "venue",
+          name: "Someone elses barn",
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .run();
+    db.insert(payments)
+      .values({
+        id: "pay_hall",
+        budgetItemId: "bit_hall",
+        label: "Deposit",
+        amountMinor: 100_000,
+        dueAt: "2026-12-01",
+        createdAt: now,
+      })
+      .run();
+    db.insert(tasks)
+      .values([
+        {
+          id: "tsk_rings",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Choose rings",
+          timeframeBucket: "6m",
+          sortOrder: 0,
+          createdAt: now,
+        },
+        {
+          id: "tsk_venue",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Book the venue",
+          timeframeBucket: "12m",
+          status: "done",
+          sortOrder: 0,
+          createdAt: now,
+          completedAt: now,
+        },
+        {
+          id: "tsk_other",
+          weddingId: OTHER_WEDDING_ID,
+          title: "Someone elses task",
+          timeframeBucket: "6m",
+          sortOrder: 0,
+          createdAt: now,
+        },
+      ])
+      .run();
+  }
+
+  function tierOf(db: TestDb): string {
+    const [wedding] = db
+      .select({ tier: weddings.tier })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    return wedding!.tier;
+  }
+
+  // The point of the two files. The modules' own reads refuse a wedding below
+  // Gold, and the files must not: they are how the couple get back what they
+  // entered. A tier gate added to the export group breaks these.
+  it("hands an Ivory owner their budget lines and payments, which the module refuses", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    expect(tierOf(db)).toBe("ivory");
+
+    const locked = await get(app, `${base}/budget`, BOOTSTRAP_OWNER);
+    expect(locked.status).toBe(402);
+
+    const res = await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.headers.get("content-disposition")).toContain(
+      'attachment; filename="cire-budget-cire-wedding.csv"',
+    );
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    expect((await res.text()).split("\r\n")).toEqual([
+      "Kind,Category,Item,Estimate,Quoted,Actual,Price Per Guest,Guests,Payment,Amount,Due,Paid At,Currency,Notes",
+      "Budget line,Venue,Town hall,,4500.00,,,,,,,,AUD,",
+      "Payment,Venue,Town hall,,,,,,Deposit,1000.00,2026-12-01,,AUD,",
+      "Budget line,Florals,Peonies,800.00,,,,,,,,,AUD,'=ask the florist",
+    ]);
+  });
+
+  it("hands an Ivory owner their tasks, which the module refuses", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    expect(tierOf(db)).toBe("ivory");
+
+    const locked = await get(app, `${base}/tasks`, BOOTSTRAP_OWNER);
+    expect(locked.status).toBe(402);
+
+    const res = await get(app, `${base}/tasks.csv`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.headers.get("content-disposition")).toContain(
+      'attachment; filename="cire-tasks-cire-wedding.csv"',
+    );
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = await res.text();
+    const [header, first, second, ...rest] = body.split("\r\n");
+    expect(header).toBe("Timeframe,Task,Status,Due,Completed At,Notes");
+    expect(first).toStartWith("12+ months out,Book the venue,Done,,20");
+    expect(second).toBe("6 months out,Choose rings,Open,,,");
+    expect(rest).toEqual([]);
+    expect(body).not.toContain("Someone elses task");
+  });
+
+  it("tells an Ivory owner how many rows each file holds", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    const res = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    expect(await jsonBody(res)).toEqual({ budgetLines: 2, tasks: 2 });
+  });
+
+  it("still serves the files once the wedding is on Gold", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const budget = await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER);
+    expect(budget.status).toBe(200);
+    expect(await budget.text()).toContain("Town hall");
+  });
+
+  it("serves header-only files and zero counts to a wedding that never used either", async () => {
+    const { app } = buildApp();
+    const budget = await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER);
+    expect(await budget.text()).toBe(
+      "Kind,Category,Item,Estimate,Quoted,Actual,Price Per Guest,Guests,Payment,Amount,Due,Paid At,Currency,Notes",
+    );
+    const checklist = await get(app, `${base}/tasks.csv`, BOOTSTRAP_OWNER);
+    expect(await checklist.text()).toBe("Timeframe,Task,Status,Due,Completed At,Notes");
+    const counts = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
+    expect(await jsonBody(counts)).toEqual({ budgetLines: 0, tasks: 0 });
+  });
+
+  for (const route of ["/budget.csv", "/tasks.csv", "/planning-rows"] as const) {
+    it(`${route}: 401 without a token`, async () => {
+      const { app } = buildApp();
+      const res = await get(app, `${base}${route}`);
+      expect(res.status).toBe(401);
+    });
+
+    it(`${route}: 403 for a non-member`, async () => {
+      const { app } = buildApp();
+      const res = await get(app, `${base}${route}`, OTHER_OWNER);
+      expect(res.status).toBe(403);
+    });
+
+    it(`${route}: 404 for an unknown wedding`, async () => {
+      const { app } = buildApp();
+      const res = await get(app, `/api/organiser/weddings/wed_nope${route}`, BOOTSTRAP_OWNER);
+      expect(res.status).toBe(404);
+    });
+
+    // An editor and a viewer read the modules on screen when the wedding is
+    // on Gold; taking a copy away, or learning what there is to take, is the
+    // owners' call, like every other export.
+    it(`${route}: 403 forbidden for an editor and a viewer co-host`, async () => {
+      const { db, app } = buildApp();
+      seedPlanning(db);
+      seedSeat(db, COHOST, "editor");
+      seedSeat(db, VIEWER, "viewer");
+      for (const caller of [COHOST, VIEWER]) {
+        const res = await get(app, `${base}${route}`, caller);
+        expect(res.status).toBe(403);
+        expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+      }
+    });
+  }
+
+  it("answers a failed budget read with a plain 500, never part of a file", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    db.$client.exec("DROP TABLE payments");
+    const res = await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("answers a failed task read with a plain 500, never part of a file", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+    db.$client.exec("DROP TABLE tasks");
+    const res = await get(app, `${base}/tasks.csv`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("answers a failed count with a plain 500", async () => {
+    const { db, app } = buildApp();
+    db.$client.exec("DROP TABLE tasks");
+    const res = await get(app, `${base}/planning-rows`, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
   });
 });
 

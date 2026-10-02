@@ -15,7 +15,7 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -165,11 +165,18 @@ guest surface never tells a caller which of those it is.
 |---|---|
 | The upgrade routes (`/upgrade/*`) | Gating the route that sells a tier on that tier is a 402 loop ([[cire-upgrades]]) |
 | `GET …/gifts.csv` | The couple's own record of gifts; they can take it away whatever tier the wedding is on ([[cire-registry]]) |
+| `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
+| `GET …/planning-rows` | How many budget lines and tasks those two files would carry, so a locked card offers a download only when there is something in it |
 | `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
 
 A wedding whose tier no longer includes a module keeps that module's rows; it
-cannot read them through the module until it is back on the tier. An export
-for that case is englishstventures/osn#1316.
+cannot read them through the module until it is back on the tier. The budget
+and the checklist hand them back as CSV instead, through the three routes
+above: owner only, in the per-user-limited export group
+(`createOrganiserExportRoutes` in `cire/api/src/routes/organiser-weddings.ts`),
+like every CSV export. `cire/api/tests/routes/organiser-weddings.test.ts`
+downloads both files for an Ivory wedding whose module reads answer 402, so a
+tier gate added to that group fails it.
 
 ---
 
@@ -250,7 +257,12 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
 - **The rail and the sheet** keep a locked row visible but faded. Its accessible
   name and its popover name the tier that includes it ("Included with Gold");
   the popover's **Upgrade to Gold** button opens the purchase dialog
-  ([[cire-upgrades]]). See [[cire-host-portal-layout]].
+  ([[cire-upgrades]]). For an owner, the Budget and Checklist popovers also
+  offer the rows entered before the lock: they ask `GET …/planning-rows` when
+  first opened (cached per wedding in `cire/host/src/lib/planning-rows-store.ts`)
+  and show **Download as CSV** when the module holds rows, or when the count
+  could not be read. `LOCKED_EXPORTS` in `cire/host/src/lib/locked-exports.ts`
+  maps each module to its file. See [[cire-host-portal-layout]].
 - **Overview** shows no card for a locked module and makes no read for it:
   `/tasks`, `/budget` and `/vendors` answer 402 below their tier, and a refused
   tasks read would reject the whole snapshot and blank the guest and event

@@ -12,6 +12,7 @@ import { dropEnquiries } from "./enquiries-store";
 import { dropEvents } from "./events-store";
 import { dropGuests } from "./guests-store";
 import { dropHouseholds } from "./households-store";
+import { dropPlanningRows } from "./planning-rows-store";
 import { dropRegistry } from "./registry-store";
 import { dropTasks } from "./tasks-store";
 import { dropCatalogue } from "./upgrade-store";
@@ -35,6 +36,7 @@ export function dropWeddingCaches(weddingId: string): void {
   dropEvents(weddingId);
   dropGuests(weddingId);
   dropHouseholds(weddingId);
+  dropPlanningRows(weddingId);
   dropRegistry(weddingId);
   dropTasks(weddingId);
   dropCatalogue(weddingId);

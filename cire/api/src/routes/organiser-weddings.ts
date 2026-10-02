@@ -18,6 +18,7 @@ import { familyDeactivateService } from "../services/family-deactivate";
 import { giftExportService } from "../services/gift-export";
 import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
+import { planningExportService } from "../services/planning-export";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
@@ -32,10 +33,10 @@ import { weddingsService } from "../services/weddings";
 const manualParse = { parse: () => ({}) };
 
 /**
- * Wrap a server-built CSV in a browser-download response. Shared by the four
- * exports (rsvps / guests / events / gifts): Content-Disposition: attachment so the
- * browser downloads it directly; guest PII (names, dietary, codes) — never let
- * an intermediary cache it; nosniff as belt-and-braces against content sniffing.
+ * Wrap a server-built CSV in a browser-download response. Shared by every export
+ * below: Content-Disposition: attachment so the browser downloads it directly;
+ * guest PII (names, dietary, codes) and the couple's own figures — never let
+ * an intermediary cache them; nosniff as belt-and-braces against content sniffing.
  */
 const csvAttachment = (csv: string, filename: string) =>
   new Response(csv, {
@@ -320,8 +321,9 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  *
  * Two gates. Every CSV download is `weddingOwner()`: a file leaves the portal
  * and goes wherever its holder sends it, so taking the wedding's data away is
- * an owner's call, and editors and viewers read it on screen instead. The
- * dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
+ * an owner's call, and editors and viewers read it on screen instead. The row
+ * counts behind the budget and checklist downloads (`/planning-rows`) sit with
+ * them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
  * `weddingMember()`.
  *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
@@ -425,6 +427,69 @@ export const createOrganiserExportRoutes = (
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId)),
+            ),
+          );
+        })
+        // The budget and checklist exports — the couple's budget lines (each
+        // followed by its payments) and their tasks, in the portal's order.
+        // Same owner gate + attachment/no-store contract as the exports above.
+        //
+        // No `weddingTier(db, "gold")` gate, though both modules are Gold,
+        // reads included, for the reason `gifts.csv` has none: these are rows
+        // the couple entered, a wedding keeps them when its tier no longer
+        // opens the module, and refusing to hand back data we hold is the
+        // worse failure. Each file is capped (`MAX_PLANNING_EXPORT_ROWS`) and
+        // the group is rate-limited.
+        .get("/budget.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* planningExportService.budgetCsv(weddingId);
+              return csvAttachment(csv, `cire-budget-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "budget.csv", weddingId)),
+            ),
+          );
+        })
+        .get("/tasks.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* planningExportService.tasksCsv(weddingId);
+              return csvAttachment(csv, `cire-tasks-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "tasks.csv", weddingId)),
+            ),
+          );
+        })
+        // How many budget lines and tasks the two files above would carry. The
+        // portal asks when an owner opens a locked Budget or Checklist card,
+        // and offers the download only when there is something in it. Owner
+        // only, like the files it describes, and ungated for the same reason.
+        .get("/planning-rows", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          noStore(set);
+          return runCire(
+            planningExportService.rowCounts(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() =>
+                Effect.gen(function* () {
+                  yield* Effect.logError("planning rows read failed", { weddingId });
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
             ),
           );
         })

@@ -418,7 +418,9 @@ export default function ModuleShell(props: ModuleShellProps) {
         <ModuleSidebar
           active={module()}
           weddingId={props.weddingId}
+          weddingSlug={props.weddingSlug}
           tier={props.tier}
+          canManage={props.canManage}
           onSelect={props.onModule}
         />
 

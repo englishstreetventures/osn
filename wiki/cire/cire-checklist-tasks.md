@@ -7,7 +7,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[drag-and-drop]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Checklist / Tasks
 
@@ -80,10 +80,22 @@ read/write split pattern used by the hosts routes in `app.ts`):
 **Gold only, reads included.** Both factories mount `weddingTier(db, "gold")`
 directly behind their role gate, so a wedding below Gold gets
 `402 { "error": "payment_required", "tier": "gold" }` from every route above and
-its tasks stay where they are until it is back on Gold (an export for that case
-is englishstventures/osn#1316). In the portal the Checklist row is locked below
+its tasks stay where they are until it is back on Gold; the owner can still
+download them (below). In the portal the Checklist row is locked below
 Gold, and Overview neither reads `/tasks` nor shows the Checklist card: a refused
 tasks read there would blank the whole snapshot. See [[cire-entitlements]].
+
+**Export (`tasks.csv`).** `GET /api/organiser/weddings/:weddingId/tasks.csv`
+hands the owner every task as a spreadsheet **at any tier**: it sits in the
+owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate
+(see [[cire-entitlements]]). `planningExportService.tasksCsv`
+(`cire/api/src/services/planning-export.ts`) prints Timeframe (the bucket's
+label), Task, Status (`Open` or `Done`), Due, Completed At and Notes, in the
+checklist's order: bucket furthest out first, then `sortOrder`. The stored
+bucket keys sort as text in a different order, so the rows are re-sorted rather
+than taken as read. Every cell goes through `serialiseCsv`, and the file stops
+at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows with a logged warning. The locked
+Checklist card offers it when `GET …/planning-rows` counts any tasks.
 
 `/tasks/reorder` is registered **before** `/tasks/:taskId` in the factory so the
 literal path wins over the param route — the ordering invariant Elysia
