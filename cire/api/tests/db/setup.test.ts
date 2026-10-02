@@ -1,9 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
 import * as schema from "@cire/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { createDb, DDL, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
+import {
+  createDb,
+  DDL,
+  DEV_OWNER_PROFILE_ID,
+  DEV_OWNER_SEAT_ID,
+  repointDevOwnerSeat,
+  seedDb,
+  type TestDb,
+} from "../../src/db/setup";
 
 describe("multi-tenant schema", () => {
   it("seeds a bootstrap wedding and scopes families/events to it", () => {
@@ -98,5 +106,122 @@ describe("DDL mirror", () => {
     expect(DDL).not.toContain("events_wedding_idx ");
     // Guard the un-padded name too (e.g. followed by a newline or paren).
     expect(/events_wedding_idx\b/.test(DDL)).toBe(false);
+  });
+});
+
+describe("repointDevOwnerSeat", () => {
+  const PROFILE = "usr_real_person";
+  const SAMPLE = schema.BOOTSTRAP_WEDDING_ID;
+  const { weddingHosts } = schema;
+
+  /** The seats one profile holds on one wedding. */
+  const seatsOf = (db: TestDb, osnProfileId: string, weddingId: string = SAMPLE) =>
+    db
+      .select({
+        id: weddingHosts.id,
+        osnProfileId: weddingHosts.osnProfileId,
+        addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+        role: weddingHosts.role,
+      })
+      .from(weddingHosts)
+      .where(
+        and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
+      )
+      .all();
+
+  const ownerSeatHeldBy = (osnProfileId: string) => ({
+    id: DEV_OWNER_SEAT_ID,
+    osnProfileId,
+    addedByOsnProfileId: osnProfileId,
+    role: "owner",
+  });
+
+  function seeded(): TestDb {
+    const db = createDb();
+    seedDb(db);
+    return db;
+  }
+
+  function addSeat(
+    db: TestDb,
+    seat: { id: string; osnProfileId: string; weddingId?: string; role: "editor" | "viewer" },
+  ) {
+    db.insert(weddingHosts)
+      .values({
+        weddingId: SAMPLE,
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        createdAt: new Date(),
+        ...seat,
+      })
+      .run();
+  }
+
+  it("hands the owner seat to a profile that holds no seat", () => {
+    const db = seeded();
+
+    repointDevOwnerSeat(db, PROFILE);
+
+    expect(seatsOf(db, PROFILE)).toEqual([ownerSeatHeldBy(PROFILE)]);
+    expect(seatsOf(db, DEV_OWNER_PROFILE_ID)).toEqual([]);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+  });
+
+  it("drops the co-host seat a profile already holds, so the one-seat-per-wedding index holds", () => {
+    const db = seeded();
+    addSeat(db, { id: "whost_profile_cohost", osnProfileId: PROFILE, role: "editor" });
+    addSeat(db, { id: "whost_other_cohost", osnProfileId: "usr_other", role: "editor" });
+
+    repointDevOwnerSeat(db, PROFILE);
+
+    expect(seatsOf(db, PROFILE)).toEqual([ownerSeatHeldBy(PROFILE)]);
+    // Another co-host's seat is theirs, not the profile's.
+    expect(seatsOf(db, "usr_other").map((s) => s.id)).toEqual(["whost_other_cohost"]);
+  });
+
+  it("leaves the profile's seats on other weddings alone", () => {
+    const db = seeded();
+    const now = new Date();
+    db.insert(schema.weddings)
+      .values({
+        id: "wed_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    addSeat(db, {
+      id: "whost_profile_elsewhere",
+      osnProfileId: PROFILE,
+      weddingId: "wed_other",
+      role: "viewer",
+    });
+
+    repointDevOwnerSeat(db, PROFILE);
+
+    expect(seatsOf(db, PROFILE, "wed_other").map((s) => [s.id, s.role])).toEqual([
+      ["whost_profile_elsewhere", "viewer"],
+    ]);
+    expect(seatsOf(db, PROFILE)).toEqual([ownerSeatHeldBy(PROFILE)]);
+  });
+
+  it("keeps the owner seat when the profile already holds it", () => {
+    const db = seeded();
+
+    repointDevOwnerSeat(db, DEV_OWNER_PROFILE_ID);
+
+    expect(seatsOf(db, DEV_OWNER_PROFILE_ID)).toEqual([ownerSeatHeldBy(DEV_OWNER_PROFILE_ID)]);
+  });
+
+  it("makes the seat an owner seat whatever role it held", () => {
+    const db = seeded();
+    db.update(weddingHosts)
+      .set({ role: "editor" })
+      .where(eq(weddingHosts.id, DEV_OWNER_SEAT_ID))
+      .run();
+
+    repointDevOwnerSeat(db, PROFILE);
+
+    expect(seatsOf(db, PROFILE)).toEqual([ownerSeatHeldBy(PROFILE)]);
   });
 });

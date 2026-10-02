@@ -7,6 +7,7 @@ import {
   events as eventsData,
   guests as guestsData,
 } from "@cire/db/seed";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { Db } from "./index";
@@ -574,9 +575,9 @@ export function createDb(path: string = ":memory:") {
 }
 
 // The precise sync-only shape createDb() returns — narrower than the
-// production Db union (which must also cover D1's async driver). Test-local
-// helpers that only ever see a createDb() handle should take this, not Db,
-// so .all()/.get() keep their sync return types inside the helper body.
+// production Db union (which must also cover D1's async driver). Code that only
+// ever sees a createDb() handle (test helpers, the local dev server) should take
+// this, not Db, so .all()/.get()/.run() keep their sync return types inside it.
 export type TestDb = ReturnType<typeof createDb>;
 
 // Sample wedding for local dev + the test suite — every seeded family/event is
@@ -669,4 +670,35 @@ export function seedDb(db: Db): void {
       }
     });
   }
+}
+
+/**
+ * Hands the sample wedding's owner seat (id `DEV_OWNER_SEAT_ID`) to
+ * `osnProfileId`, so the local dev server lists the sample wedding for a real
+ * signed-in account. Afterwards the profile holds that seat as `owner` and no
+ * other seat on the sample wedding; its seats on other weddings are untouched.
+ *
+ * Any other seat the profile holds on the sample wedding is deleted first: a
+ * profile holds one seat per wedding (`wedding_hosts_wedding_profile_uniq`), so
+ * the update would otherwise fail on the unique index. `seedDb` seeds no co-host
+ * seats, so on a fresh seed that delete matches nothing.
+ *
+ * Takes the synchronous `createDb()` handle because the delete must land before
+ * the update. `scripts/cire-db-seed.sh` repoints the D1 seed with the same two
+ * statements in SQL; a change to one belongs in the other.
+ */
+export function repointDevOwnerSeat(db: TestDb, osnProfileId: string): void {
+  db.delete(schema.weddingHosts)
+    .where(
+      and(
+        eq(schema.weddingHosts.weddingId, schema.BOOTSTRAP_WEDDING_ID),
+        eq(schema.weddingHosts.osnProfileId, osnProfileId),
+        ne(schema.weddingHosts.id, DEV_OWNER_SEAT_ID),
+      ),
+    )
+    .run();
+  db.update(schema.weddingHosts)
+    .set({ osnProfileId, addedByOsnProfileId: osnProfileId, role: "owner" })
+    .where(eq(schema.weddingHosts.id, DEV_OWNER_SEAT_ID))
+    .run();
 }
