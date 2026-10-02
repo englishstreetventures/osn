@@ -8,16 +8,19 @@ import {
   weddings,
   weddingUpgradePurchases,
 } from "@cire/db";
+import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
+import type { AppOptions } from "../../src/app";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { RESTORE_WINDOW_S } from "../../src/db/live-wedding";
 import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { formatRestoreUntil } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
 import { CLAIM_TTL_MS } from "../../src/services/changes";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
@@ -48,7 +51,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp(lifecycleLimit = 1000) {
+function buildApp(lifecycleLimit = 1000, overrides: Partial<AppOptions> = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -74,6 +77,7 @@ function buildApp(lifecycleLimit = 1000) {
     weddingLifecycleLimiter: createRateLimiter({ maxRequests: lifecycleLimit, windowMs: 60_000 }),
     claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     claimSessionLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    ...overrides,
   });
   return { app, db };
 }
@@ -623,5 +627,56 @@ describe("the restore window's edge", () => {
     deletedAt(kept.db, nowS - RESTORE_WINDOW_S + 1);
     expect((await purgeAt(kept.db)).purged).toBe(0);
     expect(weddingRow(kept.db)!.deletedAt).not.toBeNull();
+  });
+});
+
+describe("the delete notice", () => {
+  const ADDRESSES: Record<string, string> = {
+    [CREATOR]: "creator@example.test",
+    [SECOND]: "second@example.test",
+    usr_editor: "editor@example.test",
+  };
+
+  function noticeApp() {
+    const mail = makeLogEmailLive();
+    const built = buildApp(1000, {
+      emailLayer: mail.layer,
+      organiserEmailLookup: async (ids) => ({
+        answered: true,
+        emails: new Map(ids.flatMap((id) => (ADDRESSES[id] ? [[id, ADDRESSES[id]] as const] : []))),
+      }),
+      resolveOsnProfileDisplays: async (ids) =>
+        new Map(
+          ids.includes(CREATOR)
+            ? [[CREATOR, { handle: "creator", displayName: "Cee Reator" }]]
+            : [],
+        ),
+    });
+    return { ...built, mail };
+  }
+
+  it("mails every owner once, the deleter included, naming the deleter and the 7-day window", async () => {
+    const { app, mail } = noticeApp();
+    const res = await del(app, CREATOR);
+    expect(res.status).toBe(200);
+    const { restoreUntil } = (await res.json()) as { restoreUntil: string };
+
+    const sent = mail.recorded();
+    // Every owner, the deleter first; never the editor.
+    expect(sent.map((m) => m.to)).toEqual(["creator@example.test", "second@example.test"]);
+    expect(sent[0]?.text).toContain("You deleted");
+    const notice = sent[1];
+    expect(notice?.template).toBe("wedding-delete-started");
+    expect(notice?.text).toContain("Cee Reator (@creator) deleted");
+    expect(notice?.text).toContain(
+      `restore it for 7 days: until ${formatRestoreUntil(new Date(restoreUntil))}`,
+    );
+  });
+
+  it("sends nothing for a refused delete", async () => {
+    const { app, mail } = noticeApp();
+    const res = await del(app, CREATOR, { confirmSlug: "not-the-slug" });
+    expect(res.status).toBe(400);
+    expect(mail.recorded()).toEqual([]);
   });
 });

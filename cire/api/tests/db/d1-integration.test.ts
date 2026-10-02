@@ -2211,13 +2211,16 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(added.role).toBe("owner");
 
       // Two owners: one may step down, after which the other is the last.
-      await run(
+      // The batch's read runs before its UPDATE, so it reports the role the
+      // seat held before: what tells the route an owner was demoted.
+      const stepDown = await run(
         hostsService.setRole({
           weddingId: BOOTSTRAP_WEDDING_ID,
           osnProfileId: "usr_second",
           role: "editor",
         }),
       );
+      expect(stepDown.previousRole).toBe("owner");
       expect(await seatRole("usr_second")).toBe("editor");
       const demote = await Effect.runPromiseExit(
         hostsService
@@ -2245,9 +2248,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       // A co-host's removal goes through, marker and all.
       await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_second", false));
-      await run(
-        hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
-      );
+      expect(
+        await run(
+          hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+        ),
+      ).toMatchObject({ removed: { role: "editor", addedByOsnProfileId: "usr_test" } });
       expect(await seatRole("usr_second")).toBeUndefined();
       expect(
         await db

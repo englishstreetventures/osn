@@ -124,6 +124,23 @@ describe("renderTemplate", () => {
       vendorName: "Bloom & Co",
     },
     "vendor-claim-review-pending": { pending: 2, oldestWaitingDays: 3, env: "production" },
+    "wedding-delete-started": {
+      weddingName: "Ama & Jonah",
+      actorName: "Ama Mensah (@ama)",
+      audience: "owner",
+      restoreUntil: "9 October 2026, 14:05 UTC",
+      restoreDays: 7,
+      portalUrl: "https://host.example.test",
+    },
+    "wedding-owner-change": {
+      weddingName: "Ama & Jonah",
+      actorName: "Ama Mensah (@ama)",
+      subjectName: "@jonah",
+      change: "removed",
+      audience: "owner",
+      self: false,
+      portalUrl: "https://host.example.test",
+    },
   } satisfies { [K in EmailTemplate]: EmailTemplateData<K> };
 
   it("renders every declared template without throwing", () => {

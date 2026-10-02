@@ -485,6 +485,16 @@ const handler: ExportedHandler<Env> = {
         resolveOsnAccountId,
         resolveOsnProfileByHandle,
         resolveOsnProfileDisplays,
+        // Owner notices need both a way to find the owners' addresses and a
+        // real transport; without Resend they would only reach the log
+        // stand-in, so none are sent.
+        organiserEmailLookup: env.RESEND_API_KEY
+          ? ((await createOrganiserEmailLookupFromEnv({
+              osnApiUrl: env.OSN_API_URL,
+              arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+              arcKeyId: env.CIRE_API_ARC_KEY_ID,
+            })) ?? undefined)
+          : undefined,
         resolveOsnHandleSearch,
         resolveOsnConnectionSearch,
         turnstileVerifier,

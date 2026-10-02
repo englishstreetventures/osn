@@ -169,6 +169,13 @@
       "when": 1790897065980,
       "tag": "0080_rsvp_organiser_attribution",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "6",
+      "when": 1790899232005,
+      "tag": "0081_owner_notice_budget",
+      "breakpoints": true
     }
   ]
 }

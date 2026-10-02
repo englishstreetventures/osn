@@ -1,16 +1,5 @@
 import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
-import {
-  and,
-  asc,
-  count,
-  eq,
-  getTableColumns,
-  ne,
-  notExists,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, asc, eq, getTableColumns, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
@@ -190,6 +179,13 @@ export interface WeddingHostRow {
    * added themselves, and they have nothing to react to.
    */
   addedByOsnProfileId: string;
+}
+
+/** A seat {@link hostsService.remove} deleted, as it stood. */
+export interface RemovedSeat {
+  role: WeddingRole;
+  addedByOsnProfileId: string;
+  createdAt: Date;
 }
 
 /** A seat could not be added: the target already holds a seat on this wedding
@@ -463,27 +459,25 @@ export const hostsService = {
             role: weddingHosts.role,
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+            // The window runs before LIMIT, so every row carries the wedding's
+            // true seat count, not the number returned.
+            total: sql<number>`count(*) over ()`,
           })
           .from(weddingHosts)
           .where(eq(weddingHosts.weddingId, weddingId))
           .orderBy(asc(weddingHosts.createdAt))
-          // Defensive ceiling (P-I1): a wedding has a handful of hosts; bounds
-          // the worst-case payload if a row ever accumulates pathologically many.
+          // Defensive ceiling: a wedding has a handful of seats; this bounds
+          // the payload if one ever holds pathologically many.
           .limit(LIST_CEILING)
           .all(),
       );
-      // Counted in the same parallel step rather than derived from `rows.length`,
-      // which would report the ceiling as the truth exactly when it isn't.
-      const [total] = yield* dbQuery(() =>
-        db
-          .select({ count: count() })
-          .from(weddingHosts)
-          .where(eq(weddingHosts.weddingId, weddingId))
-          .all(),
-      );
       return {
-        hosts: rows.map((row) => ({ ...row, role: normaliseHostRole(row.role) })),
-        total: total?.count ?? rows.length,
+        hosts: rows.map(({ total: _total, ...row }) => ({
+          ...row,
+          role: normaliseHostRole(row.role),
+        })),
+        // No row means no seat, so the count is 0.
+        total: rows[0]?.total ?? 0,
       };
     }).pipe(Effect.withSpan("cire.host.list"));
   },
@@ -497,8 +491,10 @@ export const hostsService = {
    * The last-owner guard rides in the UPDATE's own WHERE, so it holds however
    * many owners act at once: moving an owner down needs another owner to
    * remain. A refused change writes nothing. A role change neither adds nor
-   * removes a seat, so the seat cap does not apply. A read of the seat rides in
-   * the same batch, so the reason given is the one the UPDATE saw.
+   * removes a seat, so the seat cap does not apply. A read of the seat opens
+   * the same batch, so the reason given is the one the UPDATE saw, and the
+   * result carries the role the seat held before (`previousRole`) — what tells
+   * a caller an owner was demoted.
    *
    * Fails `HostNotFound` when the profile holds no seat, and `LastOwner` when
    * the seat is the wedding's only owner.
@@ -507,7 +503,11 @@ export const hostsService = {
     weddingId: string;
     osnProfileId: string;
     role: AssignableHostRole;
-  }): Effect.Effect<WeddingHostRow, HostNotFound | LastOwner | HostWriteError, DbService> {
+  }): Effect.Effect<
+    WeddingHostRow & { previousRole: WeddingRole },
+    HostNotFound | LastOwner | HostWriteError,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // An owner staying an owner, or any seat moving to owner, leaves the
@@ -521,6 +521,12 @@ export const hostsService = {
       const results = yield* Effect.tryPromise({
         try: () =>
           commitBatchResults(db, [
+            // The seat as it stood before the UPDATE: whether it exists, and
+            // the role it held, which is how a caller tells a demotion apart.
+            db
+              .select({ role: weddingHosts.role })
+              .from(weddingHosts)
+              .where(seatOf(input.weddingId, input.osnProfileId)),
             db
               .update(weddingHosts)
               .set({ role: input.role })
@@ -530,10 +536,6 @@ export const hostsService = {
                 createdAt: weddingHosts.createdAt,
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
               }),
-            db
-              .select({ id: weddingHosts.id })
-              .from(weddingHosts)
-              .where(seatOf(input.weddingId, input.osnProfileId)),
           ]),
         catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
       }).pipe(
@@ -541,14 +543,21 @@ export const hostsService = {
           Effect.logError("host role update failed", { reason: err.reason }),
         ),
       );
-      const [updated] = results[0] as readonly {
+      const [seat] = results[0] as readonly { role: string }[];
+      const [updated] = results[1] as readonly {
         id: string;
         createdAt: Date;
         addedByOsnProfileId: string;
       }[];
-      const [seat] = results[1] as readonly { id: string }[];
 
-      if (!updated) {
+      if (updated && !seat) {
+        // Both statements ran in one batch, so a write with no seat before it
+        // cannot happen; failing beats reporting a demotion as no change.
+        return yield* Effect.fail(
+          new HostWriteError({ op: "update", reason: "seat read missing from the batch" }),
+        );
+      }
+      if (!updated || !seat) {
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
         // The seat is there and the UPDATE matched nothing: only the last-owner
         // guard refuses a seat that exists.
@@ -562,6 +571,7 @@ export const hostsService = {
         role: input.role,
         createdAt: updated.createdAt,
         addedByOsnProfileId: updated.addedByOsnProfileId,
+        previousRole: normaliseHostRole(seat.role),
       };
     }).pipe(Effect.withSpan("cire.host.setRole"));
   },
@@ -578,12 +588,14 @@ export const hostsService = {
    * go in the same batch, ahead of the seat and under the same guard, so a
    * refused removal keeps both and a batch that fails part-way never leaves a
    * seat without its notice row. A read of the seat closes the batch: still
-   * there means the guard refused it, which fails `LastOwner`.
+   * there means the guard refused it, which fails `LastOwner`. On success,
+   * `removed` is the seat as it stood — its role, who created it and when — or
+   * `null` when there was none.
    */
   remove(input: {
     weddingId: string;
     osnProfileId: string;
-  }): Effect.Effect<void, LastOwner | HostWriteError, DbService> {
+  }): Effect.Effect<{ removed: RemovedSeat | null }, LastOwner | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const results = yield* Effect.tryPromise({
@@ -614,7 +626,12 @@ export const hostsService = {
                   seatOf(input.weddingId, input.osnProfileId),
                   or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
                 ),
-              ),
+              )
+              .returning({
+                role: weddingHosts.role,
+                addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+                createdAt: weddingHosts.createdAt,
+              }),
             db
               .select({ id: weddingHosts.id })
               .from(weddingHosts)
@@ -629,6 +646,20 @@ export const hostsService = {
         yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
         return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
       }
+      const [removed] = results[1] as readonly {
+        role: string;
+        addedByOsnProfileId: string;
+        createdAt: Date;
+      }[];
+      return {
+        removed: removed
+          ? {
+              role: normaliseHostRole(removed.role),
+              addedByOsnProfileId: removed.addedByOsnProfileId,
+              createdAt: removed.createdAt,
+            }
+          : null,
+      };
     }).pipe(Effect.withSpan("cire.host.remove"));
   },
 

@@ -59,8 +59,10 @@ function wireEmail(e: ProfileEmail) {
  *   POST /internal/accounts/emails — resolves OSN profile ids to the address
  *   of the account that owns each. The only caller is cire-api, which holds
  *   no address of its own and mails a wedding's organisers: its retention
- *   sweep reaches a couple whose gift detail it is about to delete, and its
- *   daily RSVP digest reaches a wedding's owner and editor co-hosts.
+ *   sweep reaches a couple whose gift detail it is about to delete, its
+ *   daily RSVP digest reaches a wedding's owner and editor co-hosts, and its
+ *   owner notices reach a wedding's owners (and an owner just removed) when
+ *   ownership changes or the wedding is deleted.
  *   Minimisation rules live on the handler; the short version is a cap, an
  *   omit-list, and no oracle.
  *

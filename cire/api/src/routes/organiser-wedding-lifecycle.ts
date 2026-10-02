@@ -4,6 +4,9 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { RESTORE_WINDOW_S } from "../db/live-wedding";
+import { dispatchNotice } from "../lib/owner-notice-email";
+import type { OwnerNotices } from "../lib/owner-notice-email";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -62,11 +65,15 @@ const failed = (set: SetStatus, error: string) =>
  * facts; it keeps this route on the same gate as every other owner-only route,
  * so a change to the service's guard cannot open it. A rare, owner-only action
  * pays one extra statement for that.
+ *
+ * Once the delete has committed, every other owner is emailed who deleted it
+ * and until when it can be restored (`ownerNotices`; none when not configured).
  */
 export const createOrganiserWeddingDeleteRoute = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  ownerNotices?: OwnerNotices,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -89,6 +96,21 @@ export const createOrganiserWeddingDeleteRoute = (
               osnProfileId,
               confirmSlug: body.confirmSlug,
             });
+            // Every other owner hears who deleted it and until when it can
+            // be restored.
+            if (ownerNotices) {
+              yield* dispatchNotice(
+                request,
+                ownerNotices
+                  .deleteStarted({
+                    weddingId,
+                    actorOsnProfileId: osnProfileId,
+                    restoreUntil: deleted.restoreUntil,
+                    restoreDays: RESTORE_WINDOW_S / (24 * 60 * 60),
+                  })
+                  .pipe(Effect.provideService(DbService, db)),
+              );
+            }
             return {
               deleted: true,
               weddingId: deleted.weddingId,
