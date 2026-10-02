@@ -110,9 +110,11 @@ the compliance checklist.
 
 Cire is a wedding-invite app merged into the monorepo as the `cire/*`
 workspace. It runs its **own** Cloudflare D1 and R2, separate from `osn/db`
-(see [[cire]], [[cire-auth]]). The **controller** for guest data is the
-wedding organiser (the couple) who uploads the guest list; OSN/cire is the
-**platform / processor** and provides the technical means — **except** for the
+(see [[cire]], [[cire-auth]]). A wedding's owners (the couple, and anyone
+they make an owner) are **joint controllers** of its guest data (Art. 26): each
+holds every owner power and decides alone, so they decide the purposes and means
+together. OSN/cire is their **processor** and provides the technical means —
+**except** for the
 three decisions cire makes unilaterally and identically for every wedding, where
 cire is the controller (see the Controller / processor note below). A wedding's
 owners — all equal — are identified by their `owner` seats,
@@ -203,9 +205,14 @@ Vendor personal data arises when the vendor is a **sole trader**, so their conta
 
 **Controller note for vendor data.** For `directory_vendors` contact data supplied initially by an organiser (before the vendor claims the listing): the organiser is the original source of entry and cire is the platform. Once the vendor claims the listing and becomes an OSN org-holder, the vendor themselves is the data subject exercising control over the listing fields (controller = cire/OSN for the platform; DSAR + right-to-erasure via standard organiser or vendor account flows).
 
-**Controller / processor note.** For guest data the organiser is the
-controller (they decide to upload the list, set the field contents); cire
-is the processor **for that content**.
+**Controller / processor note.** For guest data a wedding's owners are
+**joint controllers** (Art. 26): any owner may upload the list, set the field
+contents, export it or delete the wedding, and none needs another's sign-off.
+Cire is their processor **for that content**. The arrangement between the
+owners is theirs to make; cire's part is that every owner sees every seat
+([[access-control]]) and, on a deployment with the ARC and Resend keys set, is
+emailed when an owner is removed or demoted or the wedding is deleted
+([[cire-auth]]).
 
 Cire is the **controller** for three decisions it takes on its own account,
 applies to every wedding alike, and no organiser can override:
@@ -263,6 +270,8 @@ no gate of its own until then. Light-touch by design.
 |---|---|---|---|---|
 | Outbound email (OTP, security notice) | Transactional auth | Art. 6(1)(b) | Resend retains delivery logs per their DPA | **Resend (US)** — live transport; Cloudflare Email Service (US) is a legacy fallback |
 | Outbound email — cire RSVP digest (organiser's own address, the wedding's name, counts of households per kind of RSVP change, a portal link, a signed stop link) | Tell a wedding's owner and editors, once a day and only on days with changes, that guests changed their RSVPs | The owner: Art. 6(1)(b) — the service they signed up for. An editor co-host seated by someone else has no contract with cire: Art. 6(1)(f) — the wedding's interest in its organisers hearing about replies, balanced by counts-only content and a per-wedding switch each co-host sets for themselves — from the Overview when signed in, or from the email's one-click stop link (`List-Unsubscribe`, RFC 8058) without signing in | Resend retains delivery logs per their DPA | **Resend (US)**. No guest data: no household or guest name, no attendance, no dietary data. The address is fetched from osn-api per run (ARC `account:email-read`) and not stored by cire. The stop link carries the wedding id and the recipient's OSN profile id, encoded and signed but not encrypted, so Resend holds both; Cloudflare's Workers request logs hold them too when the link is used. See [[cire-rsvp-changes]] |
+| Outbound email — cire owner notices (each recipient's own address, the wedding's name, the OSN display name and handle of the owner who acted and of the person whose seat changed, the new role or the restore deadline, a portal link) | Tell a wedding's owners when someone is added, promoted, removed or demoted as an owner, or the wedding is deleted, and who did it | An owner who created the wedding: Art. 6(1)(b) — the service they signed up for. An owner seated by another owner, and the person just removed or demoted, have no contract with cire: Art. 6(1)(f) — their interest, and the other owners', in knowing who controls the wedding, balanced by content that names only the people involved and no guest, and by not mailing a seat the remover created in the last day | Resend retains delivery logs per their DPA | **Resend (US)**. No guest data. Addresses fetched from osn-api per notice (ARC `account:email-read`) and not stored by cire. See [[cire-auth]] |
+| `owner_notice_budget` (`key` = `wedding:<id>` or `actor:<OSN profile id>`, `day`, `sent`; migration 0081) | Count owner-notice emails per wedding and per acting owner per UTC day, so the cap holds across Worker isolates | Art. 6(1)(f) — keeping the shared mail allowance for sign-in codes | Until the next notice after the day ends: each notice deletes every earlier day's rows | `@cire/api` only. Holds an OSN profile id (pseudonymous) and a count, nothing else |
 | Outbound email — cire vendor-claim reminder (the operator's address from the `CIRE_OPS_EMAIL` Worker secret, the number of claims waiting, the age in days of the oldest) | Tell the operator, once a day and only while a vendor claim waits for review, that one is waiting | Art. 6(1)(f) — cire's interest in reviewing claims promptly; the recipient is cire's own operator, and the email names no vendor, claimant or couple | Resend retains delivery logs per their DPA | **Resend (US)**. Counts only. The address lives in the Worker's secrets, never in the repository or D1. See [[cire-vendors]] |
 | Geocoder query (Pulse) | Convert typed address → coordinates | Currently no consent — **outstanding compliance gap (S-M13)** | Not retained by us; Photon retains per their policy | Photon (Komoot, Germany) |
 | Visitor IP-derived coarse location — `request.cf` city/region/country (Pulse **marketing** site) | Show the visitor's approximate "what's on near you" area on the `@pulse/landing` hero + route its CTA to the nearest city | Art. 6(1)(f) — legit interest in a relevant landing page (coarse, city-level only) | **Not retained** — computed per request at the Cloudflare edge, never stored, no cookies | `@pulse/landing` Pages Function (`/api/geo`) → the visitor's own browser only; no third party. See [[pulse-landing]] |
