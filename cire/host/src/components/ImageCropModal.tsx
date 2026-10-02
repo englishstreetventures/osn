@@ -399,8 +399,9 @@ export default function ImageCropModal(props: ImageCropModalProps) {
             (no-cors) <img> first, and the API sends `Vary: Accept, Origin`, so the
             browser cannot answer a CORS-mode request from that cached copy and
             fetches the image again on every switch of mode. An anonymous CORS
-            load also sends no cookie, and the closing image is served only to a
-            claimed guest session. */}
+            load also sends no cookie, and the closing image is linked at the
+            organiser image route, which answers 401 without the organiser
+            session. */}
       <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
         <img
           ref={imgEl}

@@ -5,6 +5,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { runCire } from "../observability";
 import { hostsService } from "../services/hosts";
+import type { InviteImageKeys } from "../services/invite";
 import type { Tier } from "../services/tiers";
 import { readOsnProfileId } from "./upstream-context";
 import { decideCapability } from "./wedding-role";
@@ -21,10 +22,17 @@ const fail = (status: number, error: string) => ({
   weddingRole: undefined as WeddingRole | undefined,
   weddingSlug: undefined as string | undefined,
   weddingTier: undefined as Tier | undefined,
+  weddingInviteImages: undefined as InviteImageKeys | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
-const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) => ({
+const pass = (
+  weddingId: string,
+  role: WeddingRole,
+  slug: string,
+  tier: Tier,
+  inviteImages: InviteImageKeys | undefined,
+) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
   weddingRole: role as WeddingRole | undefined,
@@ -34,6 +42,8 @@ const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) =>
   // Read in the same query too, for a `weddingTier(db, min)` mounted after
   // this gate.
   weddingTier: tier as Tier | undefined,
+  // Read in the same query only when the mount asks for it (`inviteImages`).
+  weddingInviteImages: inviteImages,
   weddingGateError: undefined as GateError | undefined,
 });
 
@@ -59,8 +69,13 @@ const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) =>
  * Also derives `weddingTier`, read from the wedding row this gate already
  * selects, so a `weddingTier(db, min)` mounted directly after it costs no
  * query of its own.
+ *
+ * `inviteImages: true` joins the wedding's invite image keys into that same
+ * query and derives them as `weddingInviteImages`, so the organiser image read
+ * resolves its object without a second one. Every other mount leaves it off and
+ * runs the narrower query.
  */
-export function weddingMember(db: Db) {
+export function weddingMember(db: Db, options: { readonly inviteImages?: boolean } = {}) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
@@ -70,15 +85,29 @@ export function weddingMember(db: Db) {
       if (!weddingId) return fail(400, "wedding_id_missing");
       if (!osnProfileId) return fail(401, "unauthorised");
 
-      const result = await runCire(
-        hostsService.authorize(weddingId, osnProfileId).pipe(Effect.provideService(DbService, db)),
-      );
+      const result = options.inviteImages
+        ? await runCire(
+            hostsService
+              .authorizeWithInviteImages(weddingId, osnProfileId)
+              .pipe(Effect.provideService(DbService, db)),
+          )
+        : await runCire(
+            hostsService
+              .authorize(weddingId, osnProfileId)
+              .pipe(Effect.provideService(DbService, db)),
+          );
 
       if (!result) return fail(404, "wedding_not_found");
       if (!result.role) return fail(403, "forbidden");
       const decision = decideCapability(result.role, "member");
       if (!decision.allowed) return fail(403, decision.error);
-      return pass(weddingId, result.role, result.weddingSlug, result.weddingTier);
+      return pass(
+        weddingId,
+        result.role,
+        result.weddingSlug,
+        result.weddingTier,
+        result.inviteImages,
+      );
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

@@ -20,10 +20,12 @@ import {
   InviteThemeBody,
   InviteVisibilityBody,
   isInviteImageSlot,
+  slotRequiresSession,
   type InviteImageSlot,
 } from "../schemas/invite";
 import { eventImageService } from "../services/event-image";
-import { inviteService } from "../services/invite";
+import { imageKeyFromRow, inviteService } from "../services/invite";
+import type { SlotImage } from "../services/invite";
 import { AssetsR2Service, detectImageType, MAX_IMAGE_BYTES } from "../services/invite-assets";
 import type { AssetsBucket } from "../services/invite-assets";
 import { inviteFaqService } from "../services/invite-faq";
@@ -32,7 +34,11 @@ import {
   resolveVariant,
   serveTransformedImage,
 } from "../services/invite-image-transform";
-import type { ImagesBindingLike } from "../services/invite-image-transform";
+import type {
+  ImagesBindingLike,
+  ImageVariant,
+  OutputFormat,
+} from "../services/invite-image-transform";
 import { sessionService } from "../services/session";
 import { tierService } from "../services/tiers";
 
@@ -40,9 +46,69 @@ import { tierService } from "../services/tiers";
 // hand (JSON for text, raw bytes for images) — matches the import route.
 const manualParse = { parse: () => ({}) };
 
-/** Slots whose bytes require a claimed guest session (see `getForSlug`). */
-function slotRequiresSession(slot: InviteImageSlot): boolean {
-  return slot === "footer";
+/**
+ * How a slot's response may be kept outside the Worker. A `public` response is
+ * served to anyone, so any cache may keep it for a year. A `gated` one is
+ * served only past a gate that can close (a household's code deactivated, an
+ * organiser's seat removed, a sign-out), so it is `private` and `revocable`:
+ * the browser keeps it for an hour, then asks the gate again.
+ */
+type SlotAccess = "public" | "gated";
+
+/**
+ * Serve one invite slot's bytes once the calling route's gate has passed. The
+ * public route and the organiser route both end here, so they cannot disagree
+ * on the cache version, the hero backdrop blur, the cache key or how long a
+ * gated response may be kept.
+ *
+ * Both routes use the cache slot `<slug>:<slot>`, so they share one per-colo
+ * Cache API entry for the same bytes. That is safe only because each route runs
+ * its own gate before calling this; the cache lookup happens in here.
+ */
+function serveSlotImage(args: {
+  request: Request;
+  slug: string;
+  slot: InviteImageSlot;
+  image: SlotImage & { readonly key: string };
+  variant: ImageVariant;
+  format: OutputFormat;
+  access: SlotAccess;
+  images?: ImagesBindingLike;
+}) {
+  const { request, slug, slot, image, variant, format, access, images } = args;
+  const { key, imageVersion, heroBlur } = image;
+  // Server-derived IMAGE version (a digest of the slot's own R2 key,
+  // `versionFromKey`): a re-upload mints a fresh key ⇒ a fresh version ⇒ a
+  // fresh cache entry, so the new image is never served stale — while
+  // copy/colour saves (same key) and another slot's changes (different column)
+  // both leave it untouched, keeping the transform cache warm.
+  const version = imageVersion ?? undefined;
+
+  // Per-wedding hero backdrop blur (migration 0018). It applies ONLY to the
+  // blurred `hero-bg` variant of the `hero` slot; every other slot/variant
+  // renders sharp and passes no override. Server-derived (read off the row in
+  // imageKeyForSlug, NEVER a client query param), so it can be folded into the
+  // cache key without letting an attacker mint arbitrary transforms.
+  const blurOverride = slot === "hero" && variant === "hero-bg" ? heroBlur : undefined;
+
+  // Identical Cache-API-short-circuit + Images-binding transform + raw-original
+  // fallback pipeline as the per-event serve route — see `serveTransformedImage`.
+  // The cache version is ALWAYS the server-derived one (here the slot's
+  // key-derived version, NEVER the client `?v=`), so an attacker can't loop
+  // arbitrary `?v=` to mint unbounded per-call-billed transforms.
+  return serveTransformedImage({
+    request,
+    key,
+    version,
+    cacheSlot: `${slug}:${slot}`,
+    logSlot: slot,
+    visibility: access === "gated" ? "private" : "public",
+    lifetime: access === "gated" ? "revocable" : "immutable",
+    variant,
+    format,
+    blurOverride,
+    images,
+  });
 }
 
 /**
@@ -98,10 +164,10 @@ export const createInvitePublicRoutes = (
       const slot = params.slot;
       // Bounded, allowlisted variant (?variant=) + Accept-negotiated output
       // format. Both collapse to a fixed value, so the transform-URL/format
-      // cardinality per slot is capped (3 variants × 3 formats) — keeps the edge
+      // cardinality per slot is capped (4 variants × 3 formats) — keeps the edge
       // cache hot and denies an attacker unbounded distinct transform URLs.
       // (The client's `?v=` is intentionally NOT read here — the cache version is
-      // derived server-side from the SLOT's own R2 key below, S-M1.)
+      // derived server-side from the SLOT's own R2 key below.)
       const variant = resolveVariant((query as Record<string, string | undefined>).variant);
       const format = negotiateFormat(request.headers.get("accept"));
       return runCire(
@@ -112,17 +178,15 @@ export const createInvitePublicRoutes = (
           // SLOT's own R2 key (`versionFromKey`, NOT the client `?v=`). Slugs are
           // public, so if we keyed on the raw `?v=` an attacker could loop
           // ?v=1,2,3… on a valid slug to force unbounded cache-missing, per-call-
-          // billed transforms, defeating the bounded-cardinality cost guarantee
-          // (S-M1). The client may still SEND `?v=` (the frontend uses it for
+          // billed transforms, defeating the bounded-cardinality cost guarantee.
+          // The client may still SEND `?v=` (the frontend uses it for
           // browser-cache busting and it equals the key-derived version anyway)
           // but it MUST NOT influence this key. By design this DB read now runs
           // on EVERY request — it's cheap and is the source of the authoritative
           // version; the expensive work (R2 read + Images binding call) is still
           // skipped on a cache hit below.
-          const { key, imageVersion, heroBlur } = yield* inviteService.imageKeyForSlug(
-            params.slug,
-            slot,
-          );
+          const image = yield* inviteService.imageKeyForSlug(params.slug, slot);
+          const { key } = image;
           if (!key) {
             set.status = 404;
             return { error: "Not found" };
@@ -137,6 +201,10 @@ export const createInvitePublicRoutes = (
           //
           // 404, not 401/403: an unclaimed visitor should not learn whether a
           // closing image exists, and the route already 404s a slot with no key.
+          //
+          // An organiser session is not a household session, so the portal
+          // links these slots at the organiser image route instead
+          // (`createInviteImageServeRoutes`).
           if (slotRequiresSession(slot)) {
             const token = parseSessionToken(request.headers.get("cookie"));
             const familyId = token
@@ -153,38 +221,14 @@ export const createInvitePublicRoutes = (
               return { error: "Not found" };
             }
           }
-          // Server-derived IMAGE version (a digest of the slot's own R2 key,
-          // `versionFromKey`): a re-upload mints a fresh key ⇒ a fresh version ⇒
-          // a fresh cache entry, so the new image is never served stale — while
-          // copy/colour saves (same key) and another slot's changes (different
-          // column) both leave it untouched, keeping the transform cache warm
-          // (WT-P-I1 / P-I1).
-          const version = imageVersion ?? undefined;
-
-          // Per-wedding hero backdrop blur (migration 0018). It applies ONLY to
-          // the blurred `hero-bg` variant of the `hero` slot; every other
-          // slot/variant renders sharp and passes no override. Server-derived
-          // (read off the row in imageKeyForSlug, NEVER a client query param), so
-          // it can be folded into the cache key without letting an attacker mint
-          // arbitrary transforms.
-          const blurOverride = slot === "hero" && variant === "hero-bg" ? heroBlur : undefined;
-
-          // Identical Cache-API-short-circuit + Images-binding transform + raw-
-          // original fallback pipeline as the per-event serve route — see
-          // `serveTransformedImage`. The cache version is ALWAYS the server-
-          // derived one (here the slot's key-derived version, NEVER the client
-          // `?v=`), so an attacker can't loop arbitrary `?v=` to mint unbounded
-          // per-call-billed transforms (S-M1).
-          return yield* serveTransformedImage({
+          return yield* serveSlotImage({
             request,
-            key,
-            version,
-            cacheSlot: `${params.slug}:${slot}`,
-            logSlot: slot,
-            visibility: slotRequiresSession(slot) ? "private" : "public",
+            slug: params.slug,
+            slot,
+            image: { ...image, key },
             variant,
             format,
-            blurOverride,
+            access: slotRequiresSession(slot) ? "gated" : "public",
             images,
           });
         }).pipe(
@@ -203,7 +247,9 @@ export const createInvitePublicRoutes = (
             }),
           ),
           Effect.catchDefect(() =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
+              // The slot, never the slug: the slug is the couple's names.
+              yield* Effect.logError("invite image serve failed", { slot });
               set.status = 500;
               return { error: "Internal error" };
             }),
@@ -269,6 +315,98 @@ export const createInvitePublicRoutes = (
         ),
       );
     });
+
+/**
+ * The organiser portal's read of the invite images:
+ *
+ *   GET /api/organiser/weddings/:weddingId/invite/image/:slot
+ *
+ * The public route serves the closing image (`slotRequiresSession`) only to a
+ * claimed household session for the wedding, and the portal holds an organiser
+ * session instead, so the organiser-facing customisation links that slot here
+ * (`organiserImagePath` in `services/invite.ts`). The builder's thumbnail, crop
+ * editor and previews load it as a plain image; the `cire_org_session` cookie
+ * rides that load because the portal and the API are same-site.
+ *
+ * The gate is the organiser read's own, `osnAuth` and then `weddingMember`, so
+ * the people who can read the closing note through `GET /invite` are exactly the
+ * people who can load its image: owners, editors and viewers. No organiser
+ * credential is 401; a caller with no member seat on this wedding (another
+ * wedding's organiser, a helper) is 403; an unknown or deleted wedding is 404.
+ * The gate joins the wedding's image keys into the query that finds the
+ * caller's seat on `:weddingId` (`inviteImages: true`), so the handler reads no
+ * row of its own and no request can reach another wedding's object.
+ *
+ * Every slot is served, always `gated`: these responses are authenticated, so no
+ * shared cache may keep a copy, and the browser asks the gate again after an
+ * hour, so a removed seat or a sign-out stops the image being shown. Only the
+ * closing image is linked here today.
+ *
+ * Its own sibling instance, like the registry image serve route, so the invite
+ * writes' per-IP limiter does not count the builder's image loads, and so the
+ * GET's member gate stays apart from the writes' editor gate.
+ */
+export const createInviteImageServeRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  deps: { readonly assets?: AssetsBucket; readonly images?: ImagesBindingLike },
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingMember(db, { inviteImages: true }))
+        .get(
+          "/invite/image/:slot",
+          ({ weddingId, weddingSlug, weddingInviteImages, params, query, request, set }) => {
+            if (!weddingId || !weddingSlug || !weddingInviteImages) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            if (!isInviteImageSlot(params.slot)) {
+              set.status = 404;
+              return { error: "Not found" };
+            }
+            const slot = params.slot;
+            const image = imageKeyFromRow(weddingInviteImages, slot);
+            const { key } = image;
+            if (!key) {
+              set.status = 404;
+              return { error: "Not found" };
+            }
+            const variant = resolveVariant((query as Record<string, string | undefined>).variant);
+            const format = negotiateFormat(request.headers.get("accept"));
+            return runCire(
+              serveSlotImage({
+                request,
+                slug: weddingSlug,
+                slot,
+                image: { ...image, key },
+                variant,
+                format,
+                access: "gated",
+                images: deps.images,
+              }).pipe(
+                Effect.provideService(AssetsR2Service, deps.assets as AssetsBucket),
+                // A key that is absent from R2 is a stale reference, not a fault.
+                Effect.catchTag("AssetR2Error", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite image serve failed", { weddingId, slot });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+        ),
+    );
 
 /**
  * Organiser invite-builder routes, a sibling instance under /api/organiser.

@@ -1,9 +1,10 @@
-import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
+import { hostRsvpNotices, weddingHosts, weddingInviteCustomisations, weddings } from "@cire/db";
 import { and, asc, eq, getTableColumns, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
+import type { InviteImageKeys } from "./invite";
 import { normaliseTier } from "./tiers";
 import type { Tier } from "./tiers";
 
@@ -282,6 +283,9 @@ type AuthorizeResult = {
   /** The wedding's plan tier, from the same row, so a tier gate mounted after
    *  the role gate needs no query of its own. */
   weddingTier: Tier;
+  /** The wedding's invite image keys, from the same query. Set only by
+   *  `authorizeWithInviteImages()`; every other lookup leaves it out. */
+  inviteImages?: InviteImageKeys;
 };
 
 /** What the wedding row and the caller's seat on it — if any — say. */
@@ -676,6 +680,51 @@ export const hostsService = {
     osnProfileId: string,
   ): Effect.Effect<AuthorizeResult | null, never, DbService> {
     return authorizeCaller(weddingId, osnProfileId);
+  },
+
+  /**
+   * `authorize()` plus the wedding's invite image keys, in the same single
+   * query: the customisation row is LEFT JOINed on the wedding's primary key,
+   * so the gate in front of the organiser image read also tells the handler
+   * which object each slot points at. The keys are null when the wedding has
+   * no customisation row yet. Only `weddingMember(db, { inviteImages: true })`
+   * calls this; every other gate keeps the narrower query.
+   */
+  authorizeWithInviteImages(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<AuthorizeResult | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            slug: weddings.slug,
+            tier: weddings.tier,
+            seatId: weddingHosts.id,
+            role: weddingHosts.role,
+            runSheetScope: weddingHosts.runSheetScope,
+            heroImageKey: weddingInviteCustomisations.heroImageKey,
+            storyImageKey: weddingInviteCustomisations.storyImageKey,
+            footerImageKey: weddingInviteCustomisations.footerImageKey,
+            heroBlur: weddingInviteCustomisations.heroBlur,
+          })
+          .from(weddings)
+          .leftJoin(weddingHosts, callerSeat(osnProfileId))
+          .leftJoin(
+            weddingInviteCustomisations,
+            eq(weddingInviteCustomisations.weddingId, weddings.id),
+          )
+          .where(and(eq(weddings.id, weddingId), weddingIsLive))
+          .all(),
+      );
+      if (!row) return null;
+      const { heroImageKey, storyImageKey, footerImageKey, heroBlur } = row;
+      return {
+        ...resolveSeat(row),
+        inviteImages: { heroImageKey, storyImageKey, footerImageKey, heroBlur },
+      };
+    }).pipe(Effect.withSpan("cire.host.authorizeWithInviteImages"));
   },
 
   /**

@@ -40,6 +40,14 @@ describe("resolveVariant", () => {
     expect(resolveVariant("../../etc/passwd")).toBe(DEFAULT_VARIANT);
   });
 
+  // Each would be its own cache key and metric value if the allowlist check
+  // walked the prototype chain.
+  it("collapses Object.prototype names to the default", () => {
+    for (const name of ["toString", "valueOf", "constructor", "__proto__", "hasOwnProperty"]) {
+      expect(resolveVariant(name)).toBe(DEFAULT_VARIANT);
+    }
+  });
+
   it("accepts the blurred hero-bg variant but keeps the allowlist bounded", () => {
     // hero-bg is a known variant (so the blurred backdrop resolves), but the set
     // stays bounded — an attacker still can't mint an arbitrary blur/width.

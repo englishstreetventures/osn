@@ -6,9 +6,11 @@
  * `invite/ImageField.tsx`, which is the portal's other image control. Two things
  * differ, and both come from the backend:
  *
- *  - **Every picture is fetched, not linked.** Invite images are served by a
- *    PUBLIC route (`/api/invite/:slug/image/:slot`), so `ImageField` can put the
- *    URL straight in an `<img src>`. A registry image is served behind the
+ *  - **Every picture is fetched, not linked.** `ImageField` puts an invite
+ *    image's URL straight in an `<img src>`: the hero and story are on the
+ *    public route (`/api/invite/:slug/image/:slot`), and the closing image is on
+ *    the organiser image route, whose session cookie a same-site image load
+ *    carries. A registry image is served behind the
  *    organiser session, the role gate and the Gold tier gate, and answered
  *    `private`; it is read with `authFetch` (which sends the session cookie)
  *    into an object URL, revoked when it is replaced or the field goes away.

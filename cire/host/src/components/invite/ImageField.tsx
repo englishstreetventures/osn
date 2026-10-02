@@ -10,7 +10,6 @@ import Button from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
-import { apiUrl } from "../../lib/api";
 import { haptic } from "../../lib/haptics";
 import {
   CROP_ASPECT,
@@ -19,6 +18,7 @@ import {
   type CropSlot,
   type ImageCrop,
 } from "../../lib/image-crop";
+import { inviteImageSrc } from "../../lib/invite-image";
 import { InstantBadge } from "./fields";
 
 const ImageCropModal = lazy(() => import("../ImageCropModal"));
@@ -43,10 +43,11 @@ export default function ImageField(props: {
   // one just opens on a tall 9:16 frame and saves to the mobile rectangle.
   const [cropping, setCropping] = createSignal<"desktop" | "mobile" | null>(null);
   const hasMobileCrop = () => props.onSaveCropMobile !== undefined;
-  // Absolute, cache-busted image URL for the thumbnail + the cropper. The crop
-  // editor works against the ORIGINAL (full) image so the organiser can re-frame
-  // freely, so it always loads the unmodified `src`.
-  const absoluteUrl = (): string | null => (props.url ? apiUrl(props.url) : null);
+  // Absolute, cache-busted image URL for the thumbnail + the cropper: the same
+  // URL the previews load, so the browser fetches the image once. A crop is
+  // stored as fractions of the image, and its natural size only gives the
+  // aspect, so the `card` copy frames the same as the original.
+  const absoluteUrl = (): string | null => (props.url ? inviteImageSrc(props.url) : null);
   // WYSIWYG thumbnail: when a crop is saved, render the cropped region with the
   // same background-image fraction technique the guest site uses, so the preview
   // matches the invite. With no crop, fall back to the plain object-cover image.

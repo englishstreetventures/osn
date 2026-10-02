@@ -24,6 +24,7 @@ import {
   type InviteTextBody,
   type InviteThemeBody,
   type InviteVisibilityBody,
+  slotRequiresSession,
 } from "../schemas/invite";
 import { versionFromKey } from "./event-image";
 import { deleteAsset, storeAsset } from "./invite-assets";
@@ -248,6 +249,27 @@ function imagePath(slug: string, slot: InviteImageSlot, version: string): string
   return `/api/invite/${encodeURIComponent(slug)}/image/${slot}?v=${version}`;
 }
 
+/** The wedding an organiser-facing image link belongs to. */
+interface WeddingRef {
+  readonly id: string;
+  readonly slug: string;
+}
+
+/**
+ * The link the organiser portal loads a slot's image from. A slot the public
+ * route serves to anyone is linked there. A slot the public route keeps for
+ * claimed households (`slotRequiresSession`) is linked at the organiser image
+ * route, which admits the wedding's members, because the portal holds an
+ * organiser session, not a household one.
+ *
+ * Every image URL in an organiser-facing customisation comes from here. The
+ * public read never carries one: `publicView` drops the closing section.
+ */
+function organiserImagePath(wedding: WeddingRef, slot: InviteImageSlot, version: string): string {
+  if (!slotRequiresSession(slot)) return imagePath(wedding.slug, slot, version);
+  return `/api/organiser/weddings/${encodeURIComponent(wedding.id)}/invite/image/${slot}?v=${version}`;
+}
+
 /**
  * Version for the HERO slot's URLs. The hero backdrop blur is applied
  * server-side to the `hero-bg` variant, so a blur-only save changes the bytes we
@@ -290,6 +312,45 @@ const SLOT_COLUMNS = {
 >;
 
 /**
+ * A wedding's image keys and hero blur, as a LEFT JOIN onto
+ * `wedding_invite_customisations` reads them: every field is null when the
+ * wedding has no customisation row yet.
+ */
+export interface InviteImageKeys {
+  readonly heroImageKey: string | null;
+  readonly storyImageKey: string | null;
+  readonly footerImageKey: string | null;
+  readonly heroBlur: number | null;
+}
+
+/** What an image serve needs for one slot: its R2 key, version and hero blur. */
+export interface SlotImage {
+  readonly key: string | null;
+  readonly imageVersion: string | null;
+  readonly heroBlur: number;
+}
+
+/**
+ * Pick one slot's key out of a wedding's image keys, with its key-derived
+ * version and the hero blur (the default when the wedding has none). Both image
+ * serve routes end here: the public route after `imageKeyForSlug`, the organiser
+ * route with the keys its `weddingMember()` gate joined into its own query.
+ */
+export function imageKeyFromRow(row: InviteImageKeys, slot: InviteImageSlot): SlotImage {
+  const key = row[SLOT_COLUMNS[slot].key];
+  const heroBlur = row.heroBlur ?? HERO_BLUR_DEFAULT;
+  return {
+    key,
+    imageVersion: key
+      ? slot === "hero"
+        ? heroVersionFromKey(key, heroBlur)
+        : versionFromKey(key)
+      : null,
+    heroBlur,
+  };
+}
+
+/**
  * The crop column(s) to null out when a slot's image is replaced or removed — a
  * fresh image invalidates the previous rectangle (it framed a different photo),
  * so the slot starts full-frame again. For the hero that means BOTH rectangles.
@@ -306,9 +367,12 @@ function normaliseCopy(value: string | null): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-/** Map a (possibly absent, via LEFT JOIN) customisation row + slug to the response. */
+/**
+ * Map a (possibly absent, via LEFT JOIN) customisation row to the
+ * organiser-facing response. Image links come from `organiserImagePath`.
+ */
 function toCustomisation(
-  slug: string,
+  wedding: WeddingRef,
   c: {
     heroTitle: string | null;
     heroSubtitle: string | null;
@@ -377,7 +441,7 @@ function toCustomisation(
       title: c.heroTitle,
       subtitle: c.heroSubtitle,
       imageUrl: c.heroImageKey
-        ? imagePath(slug, "hero", heroVersionFromKey(c.heroImageKey, c.heroBlur))
+        ? organiserImagePath(wedding, "hero", heroVersionFromKey(c.heroImageKey, c.heroBlur))
         : null,
       // Only surface a crop when there's an image to crop — a stored rectangle on
       // a since-removed image is inert. `decodeCrop` drops a malformed/legacy
@@ -389,7 +453,9 @@ function toCustomisation(
       eyebrow: c.storyEyebrow,
       heading: c.storyHeading,
       body: c.storyBody,
-      imageUrl: c.storyImageKey ? imagePath(slug, "story", versionFromKey(c.storyImageKey)) : null,
+      imageUrl: c.storyImageKey
+        ? organiserImagePath(wedding, "story", versionFromKey(c.storyImageKey))
+        : null,
       imageCrop: c.storyImageKey ? decodeCrop(c.storyImageCrop) : null,
     },
     details: { eyebrow: c.detailsEyebrow, heading: c.detailsHeading },
@@ -402,7 +468,7 @@ function toCustomisation(
     footer: {
       message: c.footerMessage,
       imageUrl: c.footerImageKey
-        ? imagePath(slug, "footer", versionFromKey(c.footerImageKey))
+        ? organiserImagePath(wedding, "footer", versionFromKey(c.footerImageKey))
         : null,
       imageCrop: c.footerImageKey ? decodeCrop(c.footerImageCrop) : null,
     },
@@ -496,7 +562,7 @@ function fromWritten(
   rows: readonly (typeof weddingInviteCustomisations.$inferSelect)[],
 ): InviteCustomisation {
   const [row] = rows;
-  return row ? toCustomisation(slug, row) : EMPTY;
+  return row ? toCustomisation({ id: row.weddingId, slug }, row) : EMPTY;
 }
 
 export const inviteService = {
@@ -514,7 +580,7 @@ export const inviteService = {
           .where(eq(weddingInviteCustomisations.weddingId, weddingId))
           .all(),
       );
-      return row ? toCustomisation(slug, row) : EMPTY;
+      return row ? toCustomisation({ id: weddingId, slug }, row) : EMPTY;
     }).pipe(Effect.withSpan("cire.invite.getForWedding"));
   },
 
@@ -589,7 +655,7 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({}));
-      return toCustomisation(row.slug, row);
+      return toCustomisation({ id: weddingId, slug: row.slug }, row);
     }).pipe(Effect.withSpan("cire.invite.getForWeddingId"));
   },
 
@@ -658,12 +724,11 @@ export const inviteService = {
    * per-event image path in `event-image.ts`) and the per-wedding `heroBlur`.
    * The serve route derives its edge-cache key from this server-side version
    * (not the client `?v=`), so an attacker can't loop distinct `?v=` values to
-   * force unbounded, per-call-billed transforms (S-M1). Deriving the version
-   * from the SLOT's own key rather than the row's `updatedAt`/`imagesUpdatedAt`
-   * fixes two over-invalidation bugs at once (P-I1): a copy/colour save never
-   * bumps it (the key is unchanged — WT-P-I1), and bumping one slot never
-   * busts another slot's cache (each slot's version comes from its own
-   * column). The version is null when there is no key — either the wedding has
+   * force unbounded, per-call-billed transforms. The version comes from the
+   * SLOT's own key rather than the row's `updatedAt`/`imagesUpdatedAt`, so a
+   * copy/colour save never bumps it (the key is unchanged), and bumping one
+   * slot never busts another slot's cache (each slot's version comes from its
+   * own column). `imageKeyFromRow` does the picking. The version is null when there is no key — either the wedding has
    * no customisation row yet (LEFT JOIN miss) or that slot has no image — so
    * the route 404s before it ever builds a cache key.
    *
@@ -679,20 +744,15 @@ export const inviteService = {
   imageKeyForSlug(
     slug: string,
     slot: InviteImageSlot,
-  ): Effect.Effect<
-    { key: string | null; imageVersion: string | null; heroBlur: number },
-    WeddingNotFound,
-    DbService
-  > {
+  ): Effect.Effect<SlotImage, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Single LEFT JOIN keyed on the slug: a missing weddings row is a 404; a
       // present wedding with a null-joined customisation is a legitimate
-      // "no image yet" (IB-P-I1).
+      // "no image yet".
       const [row] = yield* dbQuery(() =>
         db
           .select({
-            weddingId: weddings.id,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             footerImageKey: weddingInviteCustomisations.footerImageKey,
@@ -707,23 +767,13 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      const key = row[SLOT_COLUMNS[slot].key];
-      const heroBlur = row.heroBlur ?? HERO_BLUR_DEFAULT;
-      return {
-        key,
-        imageVersion: key
-          ? slot === "hero"
-            ? heroVersionFromKey(key, heroBlur)
-            : versionFromKey(key)
-          : null,
-        heroBlur,
-      };
+      return imageKeyFromRow(row, slot);
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 
   /**
    * Upsert the text overrides for a wedding. Empty/whitespace clears to default.
-   * Answers with the customisation as written; `slug` builds its image URLs.
+   * Answers with the customisation as written; `weddingId` and `slug` build its image URLs.
    */
   upsertText(
     weddingId: string,
@@ -767,7 +817,7 @@ export const inviteService = {
    * (fonts/tones/preset ∈ closed enums, seeds ∈ the CSS-colour allow-list) at
    * the route boundary, so by the time it reaches here every value is safe to
    * persist; a `null` clears that field back to the built-in default. Answers
-   * with the customisation as written; `slug` builds its image URLs.
+   * with the customisation as written; `weddingId` and `slug` build its image URLs.
    */
   upsertTheme(
     weddingId: string,
@@ -911,7 +961,8 @@ export const inviteService = {
 
   /**
    * Store an uploaded image for a slot and point the row at it, deleting the
-   * superseded object best-effort. Returns the new public image path.
+   * superseded object best-effort. Returns the slot's new link for the organiser
+   * portal (`organiserImagePath`).
    */
   setImage(
     weddingId: string,
@@ -969,7 +1020,7 @@ export const inviteService = {
 
       yield* Effect.logInfo("invite image uploaded", { weddingId });
       yield* Effect.sync(() => metricInviteAssetUploaded("ok", bytes.byteLength));
-      return imagePath(slug, slot, now.getTime().toString());
+      return organiserImagePath({ id: weddingId, slug }, slot, now.getTime().toString());
     }).pipe(
       Effect.tapError(() => Effect.sync(() => metricInviteAssetUploaded("error"))),
       Effect.withSpan("cire.invite.setImage"),

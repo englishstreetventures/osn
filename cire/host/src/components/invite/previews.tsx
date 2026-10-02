@@ -19,8 +19,8 @@ import { headingSizeCss, typographyVar } from "@cire/theme";
 import Button from "@cire/ui/button";
 import { createMemo, createSignal, Show } from "solid-js";
 
-import { apiUrl } from "../../lib/api";
 import { cropAspectRatio, cropBackgroundStyle, type ImageCrop } from "../../lib/image-crop";
+import { inviteImageSrc } from "../../lib/invite-image";
 import { designLayout } from "./design-layout";
 import { DEFAULTS } from "./model";
 
@@ -77,13 +77,10 @@ export function DeviceToggle(props: {
   );
 }
 
-/** A non-blurred image variant URL so the client-side CSS blur is the only
- *  blur in the preview (`card`, never the server-blurred `hero-bg`). The
- *  imageUrl already carries the ?v= cache-buster. */
+/** The preview's image URL, the same one the builder's image field loads
+ *  (`inviteImageSrc`), so the CSS blur is the only blur in the preview. */
 function previewVariantSrc(imageUrl: string | null): string | null {
-  if (!imageUrl) return null;
-  const sep = imageUrl.includes("?") ? "&" : "?";
-  return apiUrl(`${imageUrl}${sep}variant=card`);
+  return imageUrl ? inviteImageSrc(imageUrl) : null;
 }
 
 /**
