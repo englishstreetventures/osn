@@ -231,8 +231,10 @@ migrations_dir = "../db/migrations"
 
 # R2 bucket for the organiser change flow: each `imports` row's uploaded sheets
 # (or editor draft) and, once applied, its before-image. Guest PII. Objects no
-# row names are reaped daily by src/services/sheet-reconcile.ts. Created 2026-06-17 — if you
-# ever rebuild the account from scratch:
+# row names are reaped by the daily cron (src/services/sheet-reconcile.ts),
+# which keeps its place in `reconcile/imports-position.json` — a key and a
+# timestamp, no guest data. Created 2026-06-17 — if you ever rebuild the
+# account from scratch:
 #   bunx wrangler r2 bucket create cire-sheets
 [[r2_buckets]]
 binding = "SHEETS"

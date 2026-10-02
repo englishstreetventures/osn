@@ -594,29 +594,51 @@ describe("D1 session routing at the entry points", () => {
     expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
   });
 
-  it("gives the cire-sheets reconciliation a session of its own, with one read of imports", async () => {
-    // With a SHEETS binding the reconciler reads the four key columns of every
-    // `imports` row before it lists anything. That read must be the first query
-    // of a session of its own, so it reaches the primary: a stale replica could
-    // make a live sheet look like an orphan.
-    const sheets = {
-      list: () => Promise.resolve({ objects: [], truncated: false }),
-      delete: () => Promise.resolve(),
-    };
-    const { pending, probe } = await runCron({ SHEETS: sheets });
-    expect(pending).toHaveLength(10);
-    const reconcile = probe.sessionQueries.filter((queries) =>
-      queries.some((q) =>
-        /^select "events_r2_key", "guests_r2_key", "before_events_r2_key", "before_guests_r2_key" from "imports"$/.test(
-          q,
-        ),
+  it("gives the cire-sheets reconciliation a session of its own: a live sample read first, then one lookup", async () => {
+    // The reconciler's reads must open a session of their own, so the first of
+    // them reaches the primary: a stale replica could make a live sheet look
+    // like an orphan. One live row and one old object in the bucket give it
+    // something to judge, so both of its reads run.
+    await DB.batch([
+      DB.prepare(
+        "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES (?, ?, ?, 0, 0)",
+      ).bind("wed_sheets_cron", "sheets-cron", "Sheets Cron"),
+      DB.prepare(
+        "INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, summary, status) VALUES (?, ?, 0, 'csv', ?, ?, '{}', 'applied')",
+      ).bind(
+        "imp_cron",
+        "wed_sheets_cron",
+        "imports/imp_cron/events.csv",
+        "imports/imp_cron/guests.csv",
       ),
-    );
-    expect(reconcile).toHaveLength(1);
-    const statements = reconcile[0]!.filter(
-      (q) => !q.startsWith("bind:") && !q.startsWith("batch:"),
-    );
-    expect(statements).toHaveLength(1);
+    ]);
+    try {
+      const uploaded = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const sheets = {
+        list: () =>
+          Promise.resolve({
+            objects: [{ key: "imports/imp_cron/events.csv", uploaded }],
+            truncated: false,
+          }),
+        delete: () => Promise.resolve(),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      };
+      const { pending, probe } = await runCron({ SHEETS: sheets });
+      expect(pending).toHaveLength(10);
+      const reconcile = probe.sessionQueries.filter((queries) =>
+        queries.some((q) => q.startsWith("WITH listed(r2_key)")),
+      );
+      expect(reconcile).toHaveLength(1);
+      const statements = reconcile[0]!.filter(
+        (q) => !q.startsWith("bind:") && !q.startsWith("batch:"),
+      );
+      expect(statements).toHaveLength(2);
+      expect(statements[0]).toMatch(/^select "events_r2_key" from "imports" limit \?$/);
+      expect(statements[1]).toStartWith("WITH listed(r2_key)");
+    } finally {
+      await DB.prepare("DELETE FROM weddings WHERE id = ?").bind("wed_sheets_cron").run();
+    }
   });
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {

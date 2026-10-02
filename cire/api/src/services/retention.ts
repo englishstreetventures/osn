@@ -116,10 +116,11 @@ export const retentionService = {
    * R2 reaping: the deleted `imports` rows reference personal-data R2 objects
    * that D1's `ON DELETE cascade` can NEVER reach — the uploaded guest/event
    * sheets and each applied change's before-image (the four key columns of
-   * `imports`, in the `cire-sheets` bucket, which carry guest PII). **Ordering is collect-then-
-   * delete-then-reap**: we read every sheet key for the expired weddings BEFORE
-   * the D1 deletes (once the `imports` rows are gone the keys are unrecoverable),
-   * delete the D1 rows, then best-effort delete the R2 objects. A failed object
+   * `imports`, in the `cire-sheets` bucket, which carry guest PII). **Ordering
+   * is collect-then-delete-then-reap**: we read every sheet key for the expired
+   * weddings BEFORE the D1 deletes (once the `imports` rows are gone the keys
+   * are unrecoverable), delete the D1 rows, then best-effort delete the R2
+   * objects. A failed object
    * delete is logged + counted but never aborts the sweep (better to orphan a
    * few objects than to leave a cohort's PII in D1) — see {@link reapR2Objects}.
    * Reaping happens AFTER the rows are gone so a reap failure can't leave a live
@@ -191,12 +192,12 @@ export const retentionService = {
       }
 
       // ── COLLECT R2 SHEET KEYS FIRST ────────────────────────────────────────
-      // Read every R2 key the about-to-be-deleted `imports` rows reference —
-      // uploads and before-images alike — BEFORE deleting them — once the rows are gone the keys are
-      // unrecoverable (D1 cascade never reaches R2). These live in the
-      // `cire-sheets` bucket and carry guest PII, so they MUST be reaped. (The
-      // `cire-assets` invite images are deliberately untouched — see the sweep
-      // docstring + RetentionBuckets.)
+      // Read every R2 key the about-to-be-deleted `imports` rows reference,
+      // uploads and before-images alike, BEFORE deleting them: once the rows
+      // are gone the keys are unrecoverable (D1 cascade never reaches R2). These
+      // live in the `cire-sheets` bucket and carry guest PII, so they MUST be
+      // reaped. (The `cire-assets` invite images are deliberately untouched —
+      // see the sweep docstring + RetentionBuckets.)
       //
       // Family ids in scope — `guests` is keyed by `family_id`, not `wedding_id`,
       // so we delete guests via their families. `rsvps` is keyed by `guest_id`;

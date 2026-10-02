@@ -11,6 +11,7 @@ import {
   guestEvents,
   guests,
   hostRsvpNotices,
+  imports,
   registryClaims,
   registryContributions,
   registryItems,
@@ -29,6 +30,7 @@ import {
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
+import { insertManyViaJsonEach } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
 import { asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
@@ -66,6 +68,7 @@ import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
+import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import {
   registryGuestService,
   registryService,
@@ -75,6 +78,11 @@ import { type GiftSummaryNotice, retentionService } from "../../src/services/ret
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import {
+  SHEET_LIST_LIMITS,
+  sheetReconcileService,
+  type SheetsBucket,
+} from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
@@ -2812,6 +2820,66 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ]),
       ).rejects.toThrow();
       expect(await db.select().from(weddings).where(eq(weddings.id, "wed_d1_orphan"))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reconciles cire-sheets on D1: a full page of keys in one bound parameter, exact matches only",
+    async () => {
+      // A full run's worth of the longest key shape: 499 changes whose
+      // before-images are in the bucket, and two orphans. The lookup sends all
+      // of them, plus the live sample, as one JSON parameter of about 65 KB.
+      const ids = Array.from({ length: 499 }, () => crypto.randomUUID());
+      const now = Date.now();
+      await db.run(
+        insertManyViaJsonEach(
+          imports,
+          ids.map((id) => ({
+            id,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            uploadedAt: now,
+            format: "csv" as const,
+            eventsR2Key: `imports/${id}/events.csv`,
+            guestsR2Key: `imports/${id}/guests.csv`,
+            summary: "{}",
+            status: "applied" as const,
+            kind: "import" as const,
+            appliedAt: now,
+            revertedAt: null,
+            beforeEventsR2Key: `imports/${id}/before/events.csv`,
+            beforeGuestsR2Key: `imports/${id}/before/guests.csv`,
+          })),
+        ),
+      );
+      const live = ids.flatMap((id) => [
+        `imports/${id}/before/events.csv`,
+        `imports/${id}/before/guests.csv`,
+      ]);
+      const orphans = Array.from(
+        { length: 2 },
+        () => `imports/${crypto.randomUUID()}/before/events.csv`,
+      );
+      expect(live.length + orphans.length).toBe(SHEET_LIST_LIMITS.maxObjects);
+
+      const uploaded = new Date(now - RECONCILE_GRACE_MS - 60_000);
+      const stored = new Set([...live, ...orphans]);
+      const bucket: SheetsBucket = {
+        list: () =>
+          Promise.resolve({
+            objects: [...stored].toSorted().map((key) => ({ key, uploaded })),
+            truncated: false,
+          }),
+        delete: (keys) => {
+          for (const key of [keys].flat()) stored.delete(key);
+          return Promise.resolve();
+        },
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      };
+
+      expect(await run(sheetReconcileService.reconcileOrphans(bucket, new Date(now)))).toBe(2);
+      expect([...stored].toSorted()).toEqual(live.toSorted());
     },
     MF_TIMEOUT_MS,
   );

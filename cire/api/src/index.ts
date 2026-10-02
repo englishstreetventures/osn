@@ -594,8 +594,9 @@ const handler: ExportedHandler<Env> = {
   // 10. The purge of soft-deleted weddings past their restore window, a few a
   //     run, with the R2 objects their rows name — services/maintenance-sweeps.ts.
   // 11. `cire-sheets` orphan reconciliation — the same guarded walk as 4 over
-  //     `imports/`, against the four key columns of `imports`, with a listing
-  //     budget per run. See services/sheet-reconcile.ts.
+  //     `imports/`, against the four key columns of `imports`, listing at most
+  //     1,000 objects a run and resuming where the last run stopped. See
+  //     services/sheet-reconcile.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
   // the other and the isolate stays alive until each delete settles. All eleven
@@ -620,7 +621,7 @@ const handler: ExportedHandler<Env> = {
     // bottom: they delete R2 objects no DB row references, so unlike the others
     // a stale read there would destroy live data rather than merely skip a row.
     // What bounds that is RECONCILE_GRACE_MS (7 days, services/r2-reconcile.ts)
-    // plus the two abort guards — orders of magnitude more than any replica lag.
+    // plus the abort guards — orders of magnitude more than any replica lag.
     // Shortening that window is the change that would make this paragraph matter.
     const d1 = env.DB;
     const runSweep = <Result>(body: () => Promise<Result>) =>
@@ -875,7 +876,8 @@ const handler: ExportedHandler<Env> = {
     // Reconcile orphaned `cire-sheets` objects: every flow that deletes or
     // rewrites an `imports` row deletes its objects best-effort afterwards, and
     // a failed delete leaves guest PII that nothing else retries. Same guards as
-    // the assets walk, plus a listing budget. Absent SHEETS ⇒ no-op.
+    // the assets walk, plus a listing budget and a position kept in the bucket.
+    // Absent SHEETS ⇒ no-op.
     runSweep(() =>
       Effect.runPromise(
         sheetReconcileService.reconcileOrphans(env.SHEETS).pipe(

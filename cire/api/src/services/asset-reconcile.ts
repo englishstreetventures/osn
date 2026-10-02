@@ -10,10 +10,11 @@
  * sweep never touches `cire-assets` (it keeps the live invite, so those rows
  * survive); this reconciliation closes the gap.
  *
- * The walk and its guards — abort on a failed or empty referenced-key read, the
+ * The walk and its guards — abort on a failed or empty reference read, the
  * grace window, prefix scoping, the per-run delete cap — are
  * {@link reconcileOrphanObjects} in `r2-reconcile.ts`. This bucket is walked
- * whole every run, with no listing budget.
+ * whole every run, with no listing budget, and its live keys are read whole
+ * once a run: the sample and the lookup both come from that one read.
  */
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
 import { isNotNull } from "drizzle-orm";
@@ -30,8 +31,8 @@ export const ASSETS_PREFIX = "assets/";
  * Build the set of R2 keys that ANY live DB row references — across ALL
  * weddings. The reconciliation only ever deletes keys NOT in this set, so this
  * read is the single source of truth for "what is live". It is also the
- * abort-on-uncertainty signal: a throw here (caught by the caller) aborts the
- * whole run.
+ * abort-on-uncertainty signal: a throw here aborts the run, and an empty set
+ * leaves no live sample, which aborts it too.
  */
 function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
   return Effect.gen(function* () {
@@ -104,10 +105,19 @@ export const assetReconcileService = {
     bucket: ReconcilableBucket | undefined,
     now: Date = new Date(),
   ): Effect.Effect<number, R2ReconcileError, DbService> {
-    return reconcileOrphanObjects(
-      bucket,
-      { label: "assets", prefix: ASSETS_PREFIX, referencedKeys: loadReferencedKeys() },
-      now,
-    ).pipe(Effect.withSpan("cire.assets.reconcileOrphans"));
+    return Effect.gen(function* () {
+      const live = yield* Effect.cached(loadReferencedKeys());
+      return yield* reconcileOrphanObjects(
+        bucket,
+        {
+          label: "assets",
+          prefix: ASSETS_PREFIX,
+          liveSample: live.pipe(Effect.map((keys) => keys.values().next().value)),
+          named: (keys) =>
+            live.pipe(Effect.map((all) => new Set(keys.filter((key) => all.has(key))))),
+        },
+        now,
+      );
+    }).pipe(Effect.withSpan("cire.assets.reconcileOrphans"));
   },
 };
