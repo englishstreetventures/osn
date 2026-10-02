@@ -1,0 +1,24 @@
+{
+  "name": "@cire/build-tools",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
+  "exports": {
+    "./tier-headers": "./src/tier-headers.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "astro": "^7.2.10",
+    "vitest": "^4.1.11"
+  }
+}

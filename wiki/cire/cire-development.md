@@ -9,6 +9,7 @@ packages:
   - "@cire/vendor"
   - "@cire/api"
   - "@cire/db"
+  - "@cire/build-tools"
 related:
   - "[[cire]]"
   - "[[cire-auth]]"
@@ -20,7 +21,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Cire development guide
@@ -310,9 +311,9 @@ not read that file, so the devloop runs with no CSP at all.
 
 **The committed file is the production policy.** Its `connect-src`, `img-src`,
 `report-uri` and `Reporting-Endpoints` name `https://api.cireweddings.com` and
-nothing else. After `astro build`, the integration in `src/lib/tier-headers.ts`
-rewrites the copy in `dist/`: every production cire-api origin becomes the
-origin of the `PUBLIC_CIRE_API_URL` the bundle was built with. So:
+nothing else. After `astro build`, an Astro integration rewrites the copy in
+`dist/`: every production cire-api origin becomes the origin of the
+`PUBLIC_CIRE_API_URL` the bundle was built with. So:
 
 | Build | The policy in `dist/_headers` names |
 |---|---|
@@ -320,15 +321,28 @@ origin of the `PUBLIC_CIRE_API_URL` the bundle was built with. So:
 | Dev (`deploy.yml` sets `https://api.dev.cireweddings.com`) | The dev API and the dev API's CSP report collector |
 | Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
 
+All three cire Astro apps share that integration: `tierHeaders` in
+[`cire/build-tools/src/tier-headers.ts`](../../cire/build-tools/src/tier-headers.ts),
+imported as `@cire/build-tools/tier-headers`. It holds the rewrite, the URL
+checks and the bundle check, and its tests cover both kinds of build. Each
+app's `src/lib/tier-headers.ts` holds only that app's part: the env chain it
+reads and which build output must name the API. The package is build-only, so
+only an app's `astro.config.mjs` (through that file) imports it; never import
+it from app code, since it reads the filesystem.
+
 The integration reads the env from Vite's resolved config, the same object that
-fills `import.meta.env.PUBLIC_*` in the bundle, and resolves it through
+fills `import.meta.env.PUBLIC_*` in the bundle. A portal resolves it through
 `resolveApiUrl` in `src/lib/api-origin.ts`, the same chain `src/lib/osn.ts`
-uses. It fails the build in three cases, so a mismatch surfaces in CI rather
+uses. It fails the build in these cases, so a mismatch surfaces in CI rather
 than as a blocked API on a deployed tier:
 
-- `_headers` no longer names the production origin
-- `PUBLIC_CIRE_API_URL` does not parse as an http(s) URL. An empty value counts.
-- No `.js` file in `dist/` contains the origin the header now names
+- `dist/` holds no `_headers`, or it no longer names the production origin
+- `PUBLIC_CIRE_API_URL` does not parse as a URL, or is neither https nor http
+  on a loopback host (`localhost`, `*.localhost`, `127.0.0.1`). An empty value
+  counts.
+- Its host is not a plain DNS name, so writing it would add a wildcard or a
+  directive to the policy
+- No `.js` or `.mjs` file in `dist/` contains the origin the header now names
 
 So write only the production origin in `public/_headers`, never a dev or
 loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
@@ -363,9 +377,10 @@ two places, and both name the API of the build. The middleware in
 the origin of `PUBLIC_API_URL`, read through `resolveApiUrl` in
 `src/lib/api-origin.ts`, the same chain `src/lib/invite.ts` uses.
 `public/_headers` covers the static assets and the prerendered legal pages, and
-`src/lib/tier-headers.ts` rewrites its copy in `dist/client/` the way the
-portals' integration does. Its bundle check reads the server bundle, because the
-pages read the API URL on the server and hand it to the islands as a prop. The
+the shared integration rewrites its copy in `dist/client/` the way it does the
+portals'. The guest site's `src/lib/tier-headers.ts` points the bundle check at
+the server bundle (`bundle: "server"`), because the pages read the API URL on
+the server and hand it to the islands as a prop. The
 committed file names only the production API and no loopback origin:
 
 | Run | The guest-site policy names |
