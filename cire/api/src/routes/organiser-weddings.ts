@@ -49,9 +49,9 @@ const csvAttachment = (csv: string, filename: string) =>
   });
 
 /**
- * Shared defect recovery for the CSV export routes: log the failure (S-L2 —
- * a silent run of 500s on a PII-bearing export leaves no incident signal;
- * weddingId only, never guest data) and answer a generic 500.
+ * Shared defect recovery for the CSV export routes: log the failure (a silent
+ * run of 500s on a PII-bearing export leaves no incident signal; weddingId
+ * only, never guest data) and answer a generic 500.
  */
 const exportDefect = (set: { status?: number | string }, exportName: string, weddingId: string) =>
   Effect.gen(function* () {
@@ -275,7 +275,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingOwner(db))
-        // C2: rotate a family's claim code + revoke its sessions, atomically.
+        // Rotate a family's claim code + revoke its sessions, atomically.
         // weddingOwner() already proved the caller owns :weddingId; the service
         // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an
         // owner of wedding A can't rotate a family under wedding B.
@@ -571,7 +571,7 @@ export const createOrganiserExportRoutes = (
 
 /**
  * Create a new wedding owned by the caller, split into its own instance so the
- * per-IP rate limiter (S-L1) gates only this mutating insert and not the
+ * per-IP rate limiter gates only this mutating insert and not the
  * `GET /weddings` list above. osnAuth() supplies the owner — the body carries
  * only the display name (slug + id are server-generated). Same sibling-instance
  * pattern as the preview + account-link POSTs.
@@ -633,7 +633,7 @@ export const createOrganiserWeddingCreateRoute = (
 /**
  * Host preview-code provisioning, split into its own instance so the per-IP
  * rate limiter gates only this mutating route (the find-or-create + event-relink
- * amplifier — S-M2) and not the dashboard's read endpoints above. Gated
+ * amplifier) and not the dashboard's read endpoints above. Gated
  * osnAuth + weddingMember (any role): previewing the invite is the read
  * experience — it's the only way a co-host, including a read-only viewer, sees
  * the invite as a guest would — and the minted code is the wedding's synthetic
@@ -701,7 +701,7 @@ export const createOrganiserRemintRoutes = (
       group
         .use(weddingOwner(db))
         .use(rateLimitMiddleware(limiter))
-        // C3: flip the wedding's code style + rotate EVERY guest family's code
+        // Flip the wedding's code style + rotate EVERY guest family's code
         // onto it, clearing each family's shared marker + revoking its sessions,
         // atomically. Destructive: any already-shared code is invalidated.
         // weddingOwner() proved ownership; the service only touches rows scoped

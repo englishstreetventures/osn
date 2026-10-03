@@ -710,10 +710,10 @@ describe("ModuleShell", () => {
     afterEach(() => vi.unstubAllGlobals());
 
     const openBudgetCard = () => {
-      const rail = screen
+      const railNav = screen
         .getAllByRole("navigation", { name: /Wedding modules/i })
         .find((nav) => !nav.closest('[role="dialog"]'))!;
-      fireEvent.click(within(rail).getByRole("button", { name: /^Budget/ }));
+      fireEvent.click(within(railNav).getByRole("button", { name: /^Budget/ }));
     };
 
     it("offers an owner the budget file, named for the wedding", async () => {
