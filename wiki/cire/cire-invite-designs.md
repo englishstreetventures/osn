@@ -180,9 +180,11 @@ a code is accepted. For a typed code the hero is above the guest's scroll
 position by then.
 
 The swap has a cost on a hero with no couple title. Once the restore lands, the
-longer title wraps to more lines, which moves the subtitle within the hero: a
-layout shift, and on a hero with no image a later Largest Contentful Paint. A
-hero with a couple title, the usual case, does not change.
+longer title wraps to one more line, which moves the title block within the
+hero: a layout shift inside it, with nothing below the hero moving, since the
+hero is at least the screen's height. Whether it also moves Largest Contentful
+Paint on a hero with no image is unmeasured. A hero with a couple title, the
+usual case, does not change.
 
 Tests: in `@cire/api`, `tests/services/claim.test.ts` ("householdReplied in the
 claim payload"). In `@cire/invites`, `tests/components/invite-progress.test.ts`,
