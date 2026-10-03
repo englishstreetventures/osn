@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
 import type { Tier } from "../../src/lib/tiers";
@@ -16,6 +16,15 @@ import type { WeddingRole } from "../../src/lib/wedding-roles";
  * state, sub-tab routing, role-gated sub visibility, and that a viewer / co-host
  * never reaches a write-only or owner-only sub even via a stale deep link.
  */
+
+// The locked card's download, stubbed: the real one reads `useAuth()`. What the
+// shell owns is handing the sidebar the owner flag and the wedding's slug, so
+// the stub shows both ends of that.
+vi.mock("../../src/components/LockedExport", () => ({
+  default: (p: { weddingSlug: string; spec: { path: string } }) => (
+    <div data-testid="locked-export" data-slug={p.weddingSlug} data-path={p.spec.path} />
+  ),
+}));
 
 // `tier` is on the mock deliberately. The shell is the only place its two ends
 // meet — Overview's own tests pass the prop directly — and a required prop
@@ -137,11 +146,18 @@ vi.mock("../../src/components/HostsPanel", () => ({
 vi.mock("../../src/components/SettingsPanel", () => ({
   // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
   // co-host deadline write to a real co-host, and nothing else can see it.
-  default: (p: { weddingId: string; canManage: boolean; canEditRsvpDeadline?: boolean }) => (
+  // And the tier, which decides the locked modules whose downloads it lists.
+  default: (p: {
+    weddingId: string;
+    canManage: boolean;
+    canEditRsvpDeadline?: boolean;
+    tier: Tier;
+  }) => (
     <div
       data-testid="settings"
       data-can-manage={String(p.canManage)}
       data-can-edit-rsvp={String(p.canEditRsvpDeadline)}
+      data-tier={p.tier}
     >
       {p.weddingId}
     </div>
@@ -367,6 +383,13 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("settings");
       expect(panel.getAttribute("data-can-manage")).toBe("true");
       expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
+    });
+
+    // The panel lists the downloads of the modules this tier locks, so it has
+    // to be handed the wedding's tier, not a constant.
+    it.each(["ivory", "gold"] as const)("hands the panel the %s tier", (tier) => {
+      renderShell({ module: "settings", sub: "wedding", tier });
+      expect(screen.getByTestId("settings").getAttribute("data-tier")).toBe(tier);
     });
   });
 
@@ -667,6 +690,45 @@ describe("ModuleShell", () => {
       expect(screen.queryByTestId("budget")).toBeNull();
       setTier("gold");
       expect(screen.getByTestId("budget")).toBeTruthy();
+    });
+  });
+
+  /**
+   * An owner's locked Budget card offers the module's rows as a file. Only an
+   * owner's: every export is owner-only, and `canEdit` is the flag that would
+   * type-check in `canManage`'s place.
+   */
+  describe("the locked cards' downloads", () => {
+    /** Kobalte's popper observes its elements; happy-dom ships no
+     *  `ResizeObserver`, and runs no layout for one to report. */
+    class NoopResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    beforeEach(() => vi.stubGlobal("ResizeObserver", NoopResizeObserver));
+    afterEach(() => vi.unstubAllGlobals());
+
+    const openBudgetCard = () => {
+      const rail = screen
+        .getAllByRole("navigation", { name: /Wedding modules/i })
+        .find((nav) => !nav.closest('[role="dialog"]'))!;
+      fireEvent.click(within(rail).getByRole("button", { name: /^Budget/ }));
+    };
+
+    it("offers an owner the budget file, named for the wedding", async () => {
+      renderShell({ canManage: true, tier: "ivory" });
+      openBudgetCard();
+      const offer = await screen.findByTestId("locked-export");
+      expect(offer.dataset.slug).toBe("r-and-v");
+      expect(offer.dataset.path).toBe("/budget.csv");
+    });
+
+    it("offers an editor nothing", async () => {
+      renderShell({ canManage: false, canEdit: true, tier: "ivory" });
+      openBudgetCard();
+      expect(await screen.findByText("Included with Gold")).toBeTruthy();
+      expect(screen.queryByTestId("locked-export")).toBeNull();
     });
   });
 

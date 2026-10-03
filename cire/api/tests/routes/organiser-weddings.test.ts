@@ -1429,8 +1429,9 @@ describe("organiser CSV exports read the wedding row once", () => {
     ["gifts.csv", "cire-gifts-cire-wedding.csv"],
     ["tasks.csv", "cire-tasks-cire-wedding.csv"],
     // `budget.csv` is not here: it reads the wedding row a second time, for
-    // the currency and the RSVP deadline (`budgetService.get`), which the
-    // owner gate does not select. Its filename still comes from the gate.
+    // the currency and the RSVP deadline (`budgetService.exportSnapshot`),
+    // which the owner gate does not select. Its filename still comes from the
+    // gate.
     ["export/events.csv", "cire-export-events-cire-wedding.csv"],
     ["export/guests.csv", "cire-export-guests-cire-wedding.csv"],
   ] as const;
@@ -2020,6 +2021,52 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
     expect(res.headers.get("content-disposition")).toBeNull();
   });
 
+  for (const route of ["/budget.csv", "/tasks.csv", "/module-rows"] as const) {
+    // A browser reaches these with the organiser session cookie, not a bearer
+    // token, so each route is shown taking a live cookie and refusing a dead
+    // one and a bearer that does not verify.
+    it(`${route}: takes the organiser session cookie, and refuses bad credentials`, async () => {
+      const { db, app } = buildApp();
+      const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+      const live = await appRequest(app, `${base}${route}`, {
+        headers: { cookie: `cire_org_session=${token}` },
+      });
+      expect(live.status).toBe(200);
+
+      const dead = await appRequest(app, `${base}${route}`, {
+        headers: { cookie: "cire_org_session=not-a-live-session-token" },
+      });
+      expect(dead.status).toBe(401);
+      expect(await jsonBody(dead)).toEqual({ error: "unauthorised" });
+
+      const forged = await appRequest(app, `${base}${route}`, {
+        headers: { authorization: "Bearer not-a-jwt" },
+      });
+      expect(forged.status).toBe(401);
+      expect(await jsonBody(forged)).toEqual({ error: "unauthorised" });
+    });
+  }
+
+  // The owner gate reads the wedding row once and names the file from it.
+  // `budget.csv` reads it a second time, for the currency and the RSVP
+  // deadline (`budgetService.exportSnapshot`). `/module-rows` is the gate's
+  // statement plus one more, which counts all three files' rows from the
+  // wedding's own row.
+  it("costs budget.csv two wedding reads, and module-rows two statements", async () => {
+    const { db, app } = buildApp();
+    seedPlanning(db);
+
+    const budgetStatements = recordStatements(db);
+    expect((await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect(budgetStatements.filter((s) => /\bfrom "weddings"/.test(s.sql))).toHaveLength(2);
+
+    const { db: countDb, app: countApp } = buildApp();
+    const countStatements = recordStatements(countDb);
+    expect((await get(countApp, `${base}/module-rows`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect(countStatements).toHaveLength(2);
+    expect(countStatements.filter((s) => /\bcount\(/.test(s.sql))).toHaveLength(1);
+  });
+
   it("answers a failed count with a plain 500", async () => {
     const { db, app } = buildApp();
     db.$client.exec("DROP TABLE tasks");
@@ -2240,6 +2287,35 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     expect(first.status).toBe(200);
     const second = await get(app, path, BOOTSTRAP_OWNER);
     expect(second.status).toBe(429);
+  });
+
+  // The budget, checklist and count routes carry no tier gate; the owner
+  // gate and this limiter are what stand in front of them. They share the one
+  // per-user allowance with every other export.
+  for (const route of ["budget.csv", "tasks.csv", "module-rows"] as const) {
+    it(`429s ${route} once the per-user export limit is spent`, async () => {
+      const db = createDb(":memory:");
+      seedDb(db);
+      const app = createApp(db, {
+        osnTestKey: auth.key,
+        exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      });
+      const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/${route}`;
+      expect((await get(app, path, BOOTSTRAP_OWNER)).status).toBe(200);
+      expect((await get(app, path, BOOTSTRAP_OWNER)).status).toBe(429);
+    });
+  }
+
+  it("spends the same allowance on the row count as on the download it describes", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const base = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}`;
+    expect((await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/budget.csv`, BOOTSTRAP_OWNER)).status).toBe(429);
   });
 
   it("does NOT limit a different user's exports (buckets are per-user)", async () => {

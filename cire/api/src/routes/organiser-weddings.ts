@@ -482,11 +482,7 @@ export const createOrganiserExportRoutes = (
           }
           noStore(set);
           return runCire(
-            Effect.all(
-              [planningExportService.rowCounts(weddingId), giftExportService.giftCount(weddingId)],
-              { concurrency: 2 },
-            ).pipe(
-              Effect.map(([planning, gifts]) => ({ ...planning, gifts })),
+            planningExportService.moduleRows(weddingId).pipe(
               Effect.provideService(DbService, db),
               Effect.catchDefect(() =>
                 Effect.gen(function* () {

@@ -703,6 +703,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     weddingId={props.weddingId}
                     canManage={props.canManage}
                     canEditRsvpDeadline={props.canEdit}
+                    tier={props.tier}
                     onWeddingUpdated={props.onWeddingUpdated}
                     onWeddingDeleted={props.onWeddingDeleted}
                   />

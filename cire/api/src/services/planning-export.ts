@@ -1,16 +1,16 @@
-import { budgetItems, tasks } from "@cire/db";
-import { count, eq } from "drizzle-orm";
+import { budgetItems, tasks, weddings } from "@cire/db";
+import { asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
+import { TIMEFRAME_BUCKETS, TIMEFRAME_BUCKET_KEYS } from "../lib/checklist-buckets";
 import { serialiseCsv } from "../lib/csv";
+import { displayRank } from "../lib/display-rank";
 import { minorToDecimal } from "../lib/money";
 import { SERVICE_CATEGORIES } from "../lib/service-categories";
 import { budgetService, lineEstimate } from "./budget";
-import type { BudgetItemDto, PaymentDto } from "./budget";
-import { tasksService } from "./tasks";
-import type { TaskDto } from "./tasks";
+import type { PaymentDto } from "./budget";
+import { giftCountSql } from "./gift-export";
 
 /**
  * Row ceiling on one budget or checklist export. A budget file counts its
@@ -30,11 +30,15 @@ import type { TaskDto } from "./tasks";
  * twice as long to serialise as 2,000 rows with short ones, so 1,000 of the
  * worst rows cost about what the gift ceiling allows.
  *
- * The rows come from the modules' own reads (`budgetService.get`,
- * `tasksService.list`), which are unpaged: opening the module reads them all
- * too. The ceiling bounds what this export adds on top, the serialisation.
+ * The ceiling bounds the read as well as the file: each read is ordered and cut
+ * in the database at one row past it (`budgetService.exportSnapshot`, the tasks
+ * read below), so the Worker never receives, sorts or builds a row it will not
+ * print, however large the module is.
  */
 export const MAX_PLANNING_EXPORT_ROWS = 1000;
+
+/** One past the ceiling, so a cut is seen on the row that would be dropped. */
+const READ_AHEAD = MAX_PLANNING_EXPORT_ROWS + 1;
 
 type PlanningExport = "budget.csv" | "tasks.csv";
 
@@ -57,24 +61,17 @@ const BUDGET_HEADER = [
 
 const TASKS_HEADER = ["Timeframe", "Task", "Status", "Due", "Completed At", "Notes"];
 
-/** Display position and label of each known key. An unknown key sorts after
- *  every known one and prints as stored. */
-const categoryRank = new Map<string, number>(SERVICE_CATEGORIES.map((c, i) => [c.key, i]));
+/** Display labels. An unknown key prints as stored. */
 const categoryLabel = new Map<string, string>(SERVICE_CATEGORIES.map((c) => [c.key, c.label]));
-const bucketRank = new Map<string, number>(TIMEFRAME_BUCKETS.map((b, i) => [b.key, i]));
 const bucketLabel = new Map<string, string>(TIMEFRAME_BUCKETS.map((b) => [b.key, b.label]));
 
-const rankOf = (ranks: ReadonlyMap<string, number>, key: string): number =>
-  ranks.get(key) ?? ranks.size;
+const iso = (at: Date | number | null): string => (at === null ? "" : new Date(at).toISOString());
 
-/** Ties on position and time fall to the id, so the order never depends on the
- *  order the database happened to return rows in. */
-const byId = (a: { id: string }, b: { id: string }): number =>
-  a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-
-const iso = (ms: number | null): string => (ms === null ? "" : new Date(ms).toISOString());
-
-/** Keep the first `MAX_PLANNING_EXPORT_ROWS` rows, and say so when that cut any. */
+/**
+ * Keep the first `MAX_PLANNING_EXPORT_ROWS` rows, and say so when that cut any.
+ * No row count: the reads stop one past the ceiling, so it could only ever
+ * report that.
+ */
 function capRows(
   rows: string[][],
   weddingId: string,
@@ -85,7 +82,6 @@ function capRows(
     Effect.annotateLogs({
       weddingId,
       export: name,
-      rows: rows.length,
       exportCap: MAX_PLANNING_EXPORT_ROWS,
       truncated: true,
     }),
@@ -95,16 +91,17 @@ function capRows(
 
 /**
  * The couple's budget and checklist as CSV downloads, and the row counts that
- * tell the portal whether there is anything to download.
+ * tell the portal whether a locked module has anything to download.
  *
  * Both modules are Gold, reads included, but these files are not: a wedding
  * keeps its rows when its tier no longer opens the module, and the couple must
  * be able to take back what they entered. The route that serves them is the
  * owner-only export group, with no tier gate.
  *
- * Every cell goes through `serialiseCsv`, which defuses a cell a spreadsheet
- * would run as a formula. Money prints as a bare decimal in the wedding's
- * currency, which has a column of its own on every row.
+ * Every cell goes through `serialiseCsv`, which puts a `'` before a cell that
+ * starts with `=`, `+`, `-` or `@`, so a spreadsheet reads it as text. Money
+ * prints as a bare decimal in the wedding's currency, which has a column of its
+ * own on every row.
  */
 export const planningExportService = {
   /**
@@ -116,11 +113,12 @@ export const planningExportService = {
    */
   budgetCsv(weddingId: string): Effect.Effect<string, never, DbService> {
     return Effect.gen(function* () {
-      const snapshot = yield* budgetService.get(weddingId);
+      const snapshot = yield* budgetService.exportSnapshot(weddingId, READ_AHEAD);
       const { currency, rsvpsClosed } = snapshot;
       const money = (minor: number | null): string =>
         minor === null ? "" : minorToDecimal(minor, currency);
 
+      // Already in line order; grouping keeps each line's payments in theirs.
       const paymentsByItem = new Map<string, PaymentDto[]>();
       for (const payment of snapshot.payments) {
         const list = paymentsByItem.get(payment.budgetItemId) ?? [];
@@ -128,16 +126,8 @@ export const planningExportService = {
         paymentsByItem.set(payment.budgetItemId, list);
       }
 
-      const items = snapshot.items.toSorted(
-        (a: BudgetItemDto, b: BudgetItemDto) =>
-          rankOf(categoryRank, a.category) - rankOf(categoryRank, b.category) ||
-          a.sortOrder - b.sortOrder ||
-          a.createdAt - b.createdAt ||
-          byId(a, b),
-      );
-
       const rows: string[][] = [];
-      for (const item of items) {
+      for (const item of snapshot.items) {
         const category = categoryLabel.get(item.category) ?? item.category;
         const guests =
           item.headcount === null
@@ -159,10 +149,7 @@ export const planningExportService = {
           currency,
           item.notes ?? "",
         ]);
-        const itemPayments = (paymentsByItem.get(item.id) ?? []).toSorted(
-          (a, b) => a.createdAt - b.createdAt || byId(a, b),
-        );
-        for (const payment of itemPayments) {
+        for (const payment of paymentsByItem.get(item.id) ?? []) {
           rows.push([
             "Payment",
             category,
@@ -180,6 +167,7 @@ export const planningExportService = {
             "",
           ]);
         }
+        if (rows.length > MAX_PLANNING_EXPORT_ROWS) break;
       }
 
       return serialiseCsv(BUDGET_HEADER, yield* capRows(rows, weddingId, "budget.csv"));
@@ -189,60 +177,74 @@ export const planningExportService = {
   /**
    * One row per task, in the checklist's order: lead time furthest out first,
    * then the couple's order within it. The stored bucket key sorts as text in
-   * a different order ("12m" before "1m" before "6m"), so the list is
-   * re-sorted here rather than taken as read.
+   * a different order ("12m" before "1m" before "6m"), so the read orders by
+   * the bucket's display position instead, and stops one row past the ceiling.
    */
   tasksCsv(weddingId: string): Effect.Effect<string, never, DbService> {
     return Effect.gen(function* () {
-      const list = yield* tasksService.list(weddingId);
-      const rows = list
-        .toSorted(
-          (a: TaskDto, b: TaskDto) =>
-            rankOf(bucketRank, a.timeframeBucket) - rankOf(bucketRank, b.timeframeBucket) ||
-            a.sortOrder - b.sortOrder ||
-            a.createdAt - b.createdAt ||
-            byId(a, b),
-        )
-        .map((task) => [
-          bucketLabel.get(task.timeframeBucket) ?? task.timeframeBucket,
-          task.title,
-          task.status === "done" ? "Done" : "Open",
-          task.dueAt ?? "",
-          iso(task.completedAt),
-          task.notes ?? "",
-        ]);
+      const db = yield* DbService;
+      const list = yield* dbQuery(() =>
+        db
+          .select({
+            title: tasks.title,
+            notes: tasks.notes,
+            timeframeBucket: tasks.timeframeBucket,
+            dueAt: tasks.dueAt,
+            status: tasks.status,
+            completedAt: tasks.completedAt,
+          })
+          .from(tasks)
+          .where(eq(tasks.weddingId, weddingId))
+          .orderBy(
+            displayRank(tasks.timeframeBucket, TIMEFRAME_BUCKET_KEYS),
+            asc(tasks.sortOrder),
+            asc(tasks.createdAt),
+            asc(tasks.id),
+          )
+          .limit(READ_AHEAD)
+          .all(),
+      );
+      const rows = list.map((task) => [
+        bucketLabel.get(task.timeframeBucket) ?? task.timeframeBucket,
+        task.title,
+        task.status === "done" ? "Done" : "Open",
+        task.dueAt ?? "",
+        iso(task.completedAt),
+        task.notes ?? "",
+      ]);
 
       return serialiseCsv(TASKS_HEADER, yield* capRows(rows, weddingId, "tasks.csv"));
     }).pipe(Effect.withSpan("cire.planning-export.tasksCsv"));
   },
 
   /**
-   * How many budget lines and tasks the wedding holds. The portal asks before
-   * it offers a download from a locked module, so it offers one only when
-   * there is something in it. Payments are not counted: every payment belongs
-   * to a line.
+   * How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry, in one
+   * statement. The portal asks before it offers a download from a locked
+   * Budget, Checklist or Registry card, so it offers one only when there is
+   * something in it. Budget payments are not counted: every payment belongs to
+   * a line.
    */
-  rowCounts(
+  moduleRows(
     weddingId: string,
-  ): Effect.Effect<{ budgetLines: number; tasks: number }, never, DbService> {
+  ): Effect.Effect<{ budgetLines: number; tasks: number; gifts: number }, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [[lines], [taskRows]] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({ n: count() })
-              .from(budgetItems)
-              .where(eq(budgetItems.weddingId, weddingId))
-              .all(),
-          ),
-          dbQuery(() =>
-            db.select({ n: count() }).from(tasks).where(eq(tasks.weddingId, weddingId)).all(),
-          ),
-        ],
-        { concurrency: 2 },
+      const [counts] = yield* dbQuery(() =>
+        db
+          .select({
+            budgetLines: db.$count(budgetItems, eq(budgetItems.weddingId, weddingId)),
+            tasks: db.$count(tasks, eq(tasks.weddingId, weddingId)),
+            gifts: giftCountSql(db, weddingId),
+          })
+          .from(weddings)
+          .where(eq(weddings.id, weddingId))
+          .all(),
       );
-      return { budgetLines: lines?.n ?? 0, tasks: taskRows?.n ?? 0 };
-    }).pipe(Effect.withSpan("cire.planning-export.rowCounts"));
+      return {
+        budgetLines: Number(counts?.budgetLines ?? 0),
+        tasks: Number(counts?.tasks ?? 0),
+        gifts: Number(counts?.gifts ?? 0),
+      };
+    }).pipe(Effect.withSpan("cire.planning-export.moduleRows"));
   },
 };

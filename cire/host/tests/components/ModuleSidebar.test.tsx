@@ -710,7 +710,7 @@ describe("ModuleSidebar", () => {
         moduleRows = () => new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
         asOwner();
         fireEvent.click(row(/^Budget/));
-        expect(await screen.findByText("Anything you entered before is still here.")).toBeTruthy();
+        expect(await screen.findByText("Anything in your budget is still here.")).toBeTruthy();
         expect(screen.getByRole("button", { name: "Download as CSV" })).toBeTruthy();
       });
 
@@ -746,6 +746,23 @@ describe("ModuleSidebar", () => {
         expect(await screen.findByText("Included with Gold")).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Download as CSV" })).toBeNull();
         expect(probes()).toHaveLength(0);
+      });
+
+      // The sheet is the phone's nav, wired apart from the rail, and on a
+      // phone it is the only way to the download.
+      it("offers the download from the sheet's locked card too", async () => {
+        moduleRows = counts({ budgetLines: 2 });
+        asOwner();
+        fireEvent.click(
+          screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
+        );
+        const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
+        fireEvent.click(within(sheet).getByRole("button", { name: /^Budget/ }));
+
+        expect(await screen.findByText("Your 2 budget lines are still here.")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Download as CSV" }));
+        await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+        expect(downloadBlob.mock.calls[0]![0]).toBe("cire-budget-our-day.csv");
       });
 
       // A wedding holds gifts only once it has been on Gold, so this is the

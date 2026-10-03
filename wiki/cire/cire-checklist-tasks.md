@@ -92,8 +92,9 @@ owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate
 (`cire/api/src/services/planning-export.ts`) prints Timeframe (the bucket's
 label), Task, Status (`Open` or `Done`), Due, Completed At and Notes, in the
 checklist's order: bucket furthest out first, then `sortOrder`. The stored
-bucket keys sort as text in a different order, so the rows are re-sorted rather
-than taken as read. Every cell goes through `serialiseCsv`, and the file stops
+bucket keys sort as text in a different order, so the read orders by each
+bucket's display position (`displayRank` in `cire/api/src/lib/display-rank.ts`)
+and stops in D1 one row past the ceiling. Every cell goes through `serialiseCsv`, and the file stops
 at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows with a logged warning. The locked
 Checklist card offers it when `GET …/module-rows` counts any tasks.
 

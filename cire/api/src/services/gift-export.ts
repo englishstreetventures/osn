@@ -1,9 +1,11 @@
 import { families, registryClaims, registryContributions, registryItems } from "@cire/db";
-import { and, count, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import type { Db } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { minorToDecimal } from "../lib/money";
 import { giftNoteView } from "./registry";
@@ -35,6 +37,23 @@ import { giftNoteView } from "./registry";
 export const MAX_GIFT_EXPORT_ROWS = 2000;
 
 type GiftKind = "Gift list" | "Cash gift";
+
+/**
+ * How many rows `giftsCsv` prints before its ceiling, as an SQL expression a
+ * caller can select beside other counts: every claim, and every cash gift that
+ * did not fail. The joins `giftsCsv` makes cannot drop a row — a claim's item
+ * and household, and a cash gift's household, are required references that
+ * cascade — so the counts read the filters alone. The portal asks for it
+ * before it offers the file from a locked Registry card.
+ */
+export function giftCountSql(db: Db, weddingId: string): SQL<number> {
+  const claims = db.$count(registryClaims, eq(registryClaims.weddingId, weddingId));
+  const cash = db.$count(
+    registryContributions,
+    and(eq(registryContributions.weddingId, weddingId), ne(registryContributions.status, "failed")),
+  );
+  return sql<number>`(${claims} + ${cash})`;
+}
 
 const iso = (at: Date | null): string => (at ? at.toISOString() : "");
 
@@ -217,44 +236,5 @@ export const giftExportService = {
 
       return serialiseCsv(header, rows);
     }).pipe(Effect.withSpan("cire.gift-export.giftsCsv"));
-  },
-
-  /**
-   * How many rows `giftsCsv` would print before its ceiling: every claim, and
-   * every cash gift that did not fail. The portal asks before it offers the
-   * file from a locked Registry card, so it offers one only when there is
-   * something in it. The joins `giftsCsv` makes cannot drop a row — a claim's
-   * item and household, and a cash gift's household, are required references
-   * that cascade — so the two counts read the filters alone.
-   */
-  giftCount(weddingId: string): Effect.Effect<number, never, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const [[claims], [cash]] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({ n: count() })
-              .from(registryClaims)
-              .where(eq(registryClaims.weddingId, weddingId))
-              .all(),
-          ),
-          dbQuery(() =>
-            db
-              .select({ n: count() })
-              .from(registryContributions)
-              .where(
-                and(
-                  eq(registryContributions.weddingId, weddingId),
-                  ne(registryContributions.status, "failed"),
-                ),
-              )
-              .all(),
-          ),
-        ],
-        { concurrency: 2 },
-      );
-      return (claims?.n ?? 0) + (cash?.n ?? 0);
-    }).pipe(Effect.withSpan("cire.gift-export.giftCount"));
   },
 };

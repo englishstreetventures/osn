@@ -18,10 +18,12 @@ at any tier:
   `budget.csv`, `tasks.csv` and the existing `gifts.csv` would carry.
 
 All three sit in the owner-only export group behind the per-user limiter, with
-no tier gate. Every cell is guarded against spreadsheet formulas, and each file
-stops at 1,000 rows with a logged warning.
+no tier gate. Every cell goes through the existing CSV guard, which puts a `'`
+before a cell starting with `=`, `+`, `-` or `@`. Each file stops at 1,000 rows
+with a logged warning, and the database stops each read one row past that.
 
 In the portal, an owner's locked Budget, Checklist and Registry cards offer
 "Download as CSV" when the wedding has rows there, or when the count cannot be
 read. The Registry card matters only for a wedding an operator has moved back
-below Gold, since only a Gold wedding can receive gifts.
+below Gold, since only a Gold wedding can receive gifts. Settings lists the same
+downloads for an owner, where a keyboard can reach them.

@@ -262,7 +262,9 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
   first opened (cached per wedding in `cire/host/src/lib/module-rows-store.ts`)
   and show **Download as CSV** when the module holds rows, or when the count
   could not be read. `LOCKED_EXPORTS` in `cire/host/src/lib/locked-exports.ts`
-  maps each module to its file. See [[cire-host-portal-layout]].
+  maps each module to its file. A hover card's content takes no keyboard focus,
+  so Settings lists the same downloads for an owner in the page's own tab order
+  (`LockedModuleDownloads.tsx`). See [[cire-host-portal-layout]].
 - **Overview** shows no card for a locked module and makes no read for it:
   `/tasks`, `/budget` and `/vendors` answer 402 below their tier, and a refused
   tasks read would reject the whole snapshot and blank the guest and event

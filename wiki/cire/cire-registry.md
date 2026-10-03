@@ -284,7 +284,7 @@ A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. Th
 
 `GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingOwner` → per-user limiter — every CSV export is owner-only — and not the Gold tier gate: a couple whose wedding is no longer on Gold must still be able to take their own record out.
 
-Below Gold the Registry module itself is locked in the portal, so the download moves to the locked Registry card: an owner who opens it is offered **Download as CSV** when `GET …/module-rows` counts any gifts (`giftExportService.giftCount`, which counts exactly the rows the file prints). Only a wedding that has been on Gold can hold gifts, so in practice that is a wedding an operator moved back down. See [[cire-entitlements]].
+Below Gold the Registry module itself is locked in the portal, so the download moves to the locked Registry card and to Settings: an owner is offered **Download as CSV** when `GET …/module-rows` counts any gifts (`giftCountSql`, which counts exactly the rows the file prints). Only a wedding that has been on Gold can hold gifts, so in practice that is a wedding an operator moved back down. See [[cire-entitlements]].
 
 The export exists because the two things above are in tension. The portal reads the log **a page at a time** and the retention sweep **deletes the detail after a year**, leaving only the aggregate summary. Between those, the couple have no way to hold the whole thing. A download is that way.
 

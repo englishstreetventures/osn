@@ -156,7 +156,10 @@ component was previously reading a container it did not live in.
   saying how many ("Your 12 budget lines are still here."). The popover's
   content mounts only while it is open, so the row count is asked for on the
   first open and kept per wedding (`module-rows-store.ts`, dropped with the
-  other caches). See [[cire-entitlements]] and [[cire-upgrades]].
+  other caches). Kobalte's hover card moves no focus into its portalled
+  content, so a keyboard cannot reach that button; Settings → Profile lists the
+  same downloads for an owner (`LockedModuleDownloads.tsx`), in the page's own
+  tab order. See [[cire-entitlements]] and [[cire-upgrades]].
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is

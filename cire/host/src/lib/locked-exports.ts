@@ -33,6 +33,8 @@ export interface LockedExport {
   count: keyof ModuleRows;
   /** What the file is, for the toast that says it saved. */
   label: string;
+  /** Where the rows live, for the sentence shown when they cannot be counted. */
+  place: string;
   /** The rows, named for the card's sentence. */
   noun: { one: string; many: string };
 }
@@ -46,6 +48,7 @@ export const LOCKED_EXPORTS = {
     stem: "budget",
     count: "budgetLines",
     label: "Budget",
+    place: "your budget",
     noun: { one: "budget line", many: "budget lines" },
   },
   checklist: {
@@ -53,6 +56,7 @@ export const LOCKED_EXPORTS = {
     stem: "tasks",
     count: "tasks",
     label: "Checklist",
+    place: "your checklist",
     noun: { one: "task", many: "tasks" },
   },
   registry: {
@@ -60,6 +64,7 @@ export const LOCKED_EXPORTS = {
     stem: "gifts",
     count: "gifts",
     label: "Gift log",
+    place: "your gift log",
     noun: { one: "gift", many: "gifts" },
   },
 } as const satisfies Partial<Record<Module, LockedExport>>;

@@ -1,18 +1,27 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, budgetItems, payments, tasks, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  budgetItems,
+  guestEvents,
+  payments,
+  rsvps,
+  tasks,
+  weddings,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Logger, References } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
-import { minorToDecimal } from "../../src/lib/money";
+import type { TestDb } from "../../src/db/setup";
 import { budgetService, lineEstimate } from "../../src/services/budget";
 import {
   MAX_PLANNING_EXPORT_ROWS,
   planningExportService,
 } from "../../src/services/planning-export";
+import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
@@ -27,7 +36,7 @@ const BUDGET_HEADER =
   "Kind,Category,Item,Estimate,Quoted,Actual,Price Per Guest,Guests,Payment,Amount,Due,Paid At,Currency,Notes";
 const TASKS_HEADER = "Timeframe,Task,Status,Due,Completed At,Notes";
 
-function freshDb(): Db {
+function freshDb(): TestDb {
   const db = createDb(":memory:");
   seedDb(db);
   insertWedding(db, {
@@ -210,7 +219,7 @@ describe("planningExportService.budgetCsv", () => {
     ]);
   });
 
-  it("prices a per-head line exactly as the portal's budget read does", async () => {
+  it("prices a per-head line on the guests expected while RSVPs are open", async () => {
     const db = freshDb();
     insertItem(db, {
       id: "bit_food",
@@ -220,15 +229,48 @@ describe("planningExportService.budgetCsv", () => {
       unitPriceMinor: 8_500,
     });
 
+    // The seed invites six guests and none has replied, so all six are
+    // expected: 6 x 85.00.
+    const csv = await run(db, planningExportService.budgetCsv(BOOTSTRAP_WEDDING_ID));
+    expect(lines(csv)[1]).toBe("Budget line,Catering,Dinner,510.00,,,85.00,6,,,,,AUD,");
+
+    // The same figure the portal's budget read shows.
     const snapshot = await run(db, budgetService.get(BOOTSTRAP_WEDDING_ID));
-    const item = snapshot.items[0]!;
-    const heads = snapshot.rsvpsClosed ? item.headcount!.confirmed : item.headcount!.expected;
-    const estimate = lineEstimate(item, snapshot.rsvpsClosed)!;
+    expect(snapshot.rsvpsClosed).toBe(false);
+    expect(lineEstimate(snapshot.items[0]!, false)).toBe(51_000);
+  });
+
+  it("prices a per-head line on the guests confirmed once RSVPs have closed", async () => {
+    const db = freshDb();
+    db.update(weddings)
+      .set({ rsvpDeadline: "2020-01-01", rsvpDeadlineTimezone: "UTC" })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    insertItem(db, {
+      id: "bit_food",
+      category: "catering",
+      name: "Dinner",
+      sortOrder: 0,
+      unitPriceMinor: 8_500,
+    });
+    // One invited guest says yes; the other five have not replied, and no
+    // longer count once the deadline has passed.
+    const [invite] = db
+      .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
+      .from(guestEvents)
+      .all();
+    db.insert(rsvps)
+      .values({
+        id: "rsvp_yes",
+        guestId: invite!.guestId,
+        eventId: invite!.eventId,
+        status: "attending",
+        createdAt: at(1),
+      })
+      .run();
 
     const csv = await run(db, planningExportService.budgetCsv(BOOTSTRAP_WEDDING_ID));
-    expect(lines(csv)[1]).toBe(
-      `Budget line,Catering,Dinner,${minorToDecimal(estimate, "AUD")},,,85.00,${heads},,,,,AUD,`,
-    );
+    expect(lines(csv)[1]).toBe("Budget line,Catering,Dinner,85.00,,,85.00,1,,,,,AUD,");
   });
 
   it("prints money in the wedding's currency, with that currency's decimals", async () => {
@@ -358,10 +400,110 @@ describe("planningExportService.budgetCsv", () => {
     expect(warnings[0]!.annotations).toEqual({
       weddingId: BOOTSTRAP_WEDDING_ID,
       export: "budget.csv",
-      rows: MAX_PLANNING_EXPORT_ROWS + 1,
       exportCap: MAX_PLANNING_EXPORT_ROWS,
       truncated: true,
     });
+  }, 30_000);
+});
+
+/** `count` budget lines, each with one payment, on the bootstrap wedding. */
+function seedBigBudget(db: TestDb, count: number) {
+  const all = Array.from({ length: count }, (_, i) => i);
+  for (let start = 0; start < all.length; start += 100) {
+    const slice = all.slice(start, start + 100);
+    db.insert(budgetItems)
+      .values(
+        slice.map((i) => ({
+          id: `bit_${String(i).padStart(4, "0")}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          category: "other",
+          name: `line-${String(i).padStart(4, "0")}`,
+          sortOrder: i,
+          createdAt: at(0),
+          updatedAt: at(0),
+        })),
+      )
+      .run();
+    db.insert(payments)
+      .values(
+        slice.map((i) => ({
+          id: `pay_${String(i).padStart(4, "0")}`,
+          budgetItemId: `bit_${String(i).padStart(4, "0")}`,
+          label: "Deposit",
+          amountMinor: 100,
+          createdAt: at(1),
+        })),
+      )
+      .run();
+  }
+}
+
+describe("the export reads", () => {
+  const silent = Logger.layer([]);
+
+  // The ceiling bounds the Worker's work, not only the file: a budget twice
+  // the ceiling's size still reaches the Worker as one row past it per read.
+  it("reads at most one line and one payment past the ceiling for budget.csv", async () => {
+    const db = freshDb();
+    seedBigBudget(db, 2 * MAX_PLANNING_EXPORT_ROWS);
+
+    const statements = recordStatements(db);
+    await Effect.runPromise(
+      planningExportService
+        .budgetCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(silent)),
+    );
+
+    const lineRead = statements.find((s) => /^select .* from "budget_items"/.test(s.sql))!;
+    const paymentRead = statements.find((s) => /from "payments"/.test(s.sql))!;
+    expect(lineRead.rowCounts).toEqual([MAX_PLANNING_EXPORT_ROWS + 1]);
+    expect(paymentRead.rowCounts).toEqual([MAX_PLANNING_EXPORT_ROWS + 1]);
+  }, 30_000);
+
+  it("prints the first lines with their payments when a budget passes the ceiling", async () => {
+    const db = freshDb();
+    seedBigBudget(db, MAX_PLANNING_EXPORT_ROWS);
+
+    const csv = await Effect.runPromise(
+      planningExportService
+        .budgetCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(silent)),
+    );
+    const data = lines(csv).slice(1);
+    // Line, payment, line, payment...: 500 lines with their payments fill it.
+    expect(data).toHaveLength(MAX_PLANNING_EXPORT_ROWS);
+    expect(data[0]).toStartWith("Budget line,Other,line-0000,");
+    expect(data[1]).toStartWith("Payment,Other,line-0000,");
+    expect(data.at(-1)).toStartWith("Payment,Other,line-0499,");
+    expect(csv).not.toContain("line-0500");
+  }, 30_000);
+
+  it("reads at most one task past the ceiling for tasks.csv", async () => {
+    const db = freshDb();
+    const all = Array.from({ length: 2 * MAX_PLANNING_EXPORT_ROWS }, (_, i) => i);
+    for (let start = 0; start < all.length; start += 100) {
+      db.insert(tasks)
+        .values(
+          all.slice(start, start + 100).map((i) => ({
+            id: `tsk_${String(i).padStart(4, "0")}`,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title: `task-${String(i).padStart(4, "0")}`,
+            timeframeBucket: "3m",
+            sortOrder: i,
+            createdAt: at(0),
+          })),
+        )
+        .run();
+    }
+
+    const statements = recordStatements(db);
+    await Effect.runPromise(
+      planningExportService
+        .tasksCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db), Effect.provide(silent)),
+    );
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.rowCounts).toEqual([MAX_PLANNING_EXPORT_ROWS + 1]);
   }, 30_000);
 });
 
@@ -479,7 +621,6 @@ describe("planningExportService.tasksCsv", () => {
     expect(warnings[0]!.annotations).toEqual({
       weddingId: BOOTSTRAP_WEDDING_ID,
       export: "tasks.csv",
-      rows: MAX_PLANNING_EXPORT_ROWS + 1,
       exportCap: MAX_PLANNING_EXPORT_ROWS,
       truncated: true,
     });
@@ -514,7 +655,7 @@ describe("planningExportService.tasksCsv", () => {
   }, 30_000);
 });
 
-describe("planningExportService.rowCounts", () => {
+describe("planningExportService.moduleRows", () => {
   it("counts this wedding's budget lines and tasks, and nobody else's", async () => {
     const db = freshDb();
     insertItem(db, { id: "bit_1", category: "venue", name: "Hall", sortOrder: 0 });
@@ -536,16 +677,18 @@ describe("planningExportService.rowCounts", () => {
     insertTask(db, { id: "tsk_1", title: "One", bucket: "3m", sortOrder: 0 });
     insertTask(db, { id: "tsk_x", title: "Theirs", bucket: "3m", sortOrder: 0, weddingId: OTHER });
 
-    expect(await run(db, planningExportService.rowCounts(BOOTSTRAP_WEDDING_ID))).toEqual({
+    expect(await run(db, planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID))).toEqual({
       budgetLines: 2,
       tasks: 1,
+      gifts: 0,
     });
   });
 
   it("is zero and zero for a wedding that never used either module", async () => {
-    expect(await run(freshDb(), planningExportService.rowCounts(BOOTSTRAP_WEDDING_ID))).toEqual({
+    expect(await run(freshDb(), planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID))).toEqual({
       budgetLines: 0,
       tasks: 0,
+      gifts: 0,
     });
   });
 });

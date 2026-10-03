@@ -8,9 +8,11 @@ import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import type { Tier } from "../lib/tiers";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
 import DeleteWeddingDialog from "./DeleteWeddingDialog";
+import LockedModuleDownloads from "./LockedModuleDownloads";
 import SectionIntro from "./SectionIntro";
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its free-text `address` (the sole
@@ -68,6 +70,9 @@ interface SettingsPanelProps {
    *  editor may change — chasing replies is exactly their job — so it stays
    *  live while the rest of the form is read-only. Viewers get nothing. */
   canEditRsvpDeadline?: boolean;
+  /** The wedding's plan tier. An owner is offered the rows held in the modules
+   *  it locks, as downloads. */
+  tier: Tier;
   /** Reports a saved name/slug up so the header + wedding list stay current
    *  without a refetch. */
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
@@ -428,6 +433,10 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             </Button>
           </Show>
         </form>
+      </Show>
+
+      <Show when={props.canManage && !loading() && !loadError()}>
+        <LockedModuleDownloads weddingId={props.weddingId} weddingSlug={slug()} tier={props.tier} />
       </Show>
 
       <Show when={props.canManage && !loading() && !loadError() && props.onWeddingDeleted}>

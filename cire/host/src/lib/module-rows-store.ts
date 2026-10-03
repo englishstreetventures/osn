@@ -42,13 +42,6 @@ export function moduleRowsAccessor(weddingId: string): Accessor<ModuleRows | nul
   return entryFor(weddingId).rows;
 }
 
-/** Subscribes only when the entry already exists — a read from a cold cache
- *  registers no dependency. Never use it for a value a view must track; use
- *  the accessor for that. */
-export function hasCachedModuleRows(weddingId: string): boolean {
-  return cache.get(weddingId)?.rows() != null;
-}
-
 /**
  * Load the counts once. Resolves `true` when they are cached, `false` when the
  * wedding is closed or a drop overtook the load. A failed fetch rejects with
@@ -60,7 +53,7 @@ export function ensureModuleRowsLoaded(
   fetcher: () => Promise<ModuleRows>,
 ): Promise<boolean> {
   if (isWeddingClosed(weddingId)) return Promise.resolve(false);
-  if (hasCachedModuleRows(weddingId)) return Promise.resolve(true);
+  if (entryFor(weddingId).rows() != null) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);

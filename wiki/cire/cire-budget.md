@@ -94,13 +94,13 @@ Budget card — see [[cire-entitlements]].
 
 ### Downloading the budget
 
-`GET /api/organiser/weddings/:weddingId/budget.csv` hands the owner the whole budget as a spreadsheet **at any tier**: it sits in the owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate, because a wedding below Gold keeps rows it can no longer open (see [[cire-entitlements]]). `planningExportService.budgetCsv` (`cire/api/src/services/planning-export.ts`) builds it from `budgetService.get`, the module's own read, so a per-head line's estimate is the figure the portal shows.
+`GET /api/organiser/weddings/:weddingId/budget.csv` hands the owner the whole budget as a spreadsheet **at any tier**: it sits in the owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate, because a wedding below Gold keeps rows it can no longer open (see [[cire-entitlements]]). `planningExportService.budgetCsv` (`cire/api/src/services/planning-export.ts`) builds it from `budgetService.exportSnapshot`, which prices per-head lines exactly as the module's own read (`budgetService.get`) does, so an estimate is the figure the portal shows.
 
 - One row per line, in the portal's order (category in `SERVICE_CATEGORIES` order, then `sortOrder`), each followed by its payments (oldest first, ties by id). A **Kind** column says `Budget line` or `Payment`; a payment row repeats its line's category and item.
 - Columns: Kind, Category, Item, Estimate, Quoted, Actual, Price Per Guest, Guests, Payment, Amount, Due, Paid At, Currency, Notes. Category prints its label; money prints as a bare decimal in the wedding's currency (`minorToDecimal`); **Guests** is the headcount a per-head line priced.
 - Every cell goes through `serialiseCsv`, so a cell starting `=`, `+`, `-` or `@` gets a leading `'`.
-- Capped at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows, payments included; a longer budget is cut and logs a warning. The comment on the constant gives the CPU reasoning.
-- `GET …/module-rows` answers `{ budgetLines, tasks, gifts }` for the locked Budget, Checklist and Registry cards, which offer a download only when there is something in it.
+- Capped at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows, payments included; a longer budget is cut and logs a warning. The cut happens in D1, not the Worker: `exportSnapshot` orders lines by category position (`displayRank` in `cire/api/src/lib/display-rank.ts`) and reads at most one line and one payment past the ceiling, so the Worker never receives a row it will not print. The comment on the constant gives the CPU reasoning.
+- `GET …/module-rows` answers `{ budgetLines, tasks, gifts }`, counted in one statement, for the locked Budget, Checklist and Registry cards and the Settings list, which offer a download only when there is something in it.
 
 **Tenancy:** `BudgetItemNotInWedding` + `PaymentNotInItem` error tags prevent cross-wedding/cross-item access. `EventNotInWedding` refuses a per-head line naming another wedding's event (400 `unknown_event`).
 
