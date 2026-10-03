@@ -44,28 +44,39 @@ pre-push:
       # advisory. Pairs with `bunfig.toml`'s `minimumReleaseAge` — one stops
       # fresh malice, this one stops known malice.
       #
-      # An --ignore entry is allowed ONLY for a high/critical advisory with no
-      # installable fix that is confirmed unreachable in every deployed Worker
-      # and page: build each consumer and search its output for the package's
-      # code. Each entry names its package, why it cannot be reached, and its
-      # drop-trigger. An ignore covers every path to the package, not only the
-      # ones checked, so repeat the check when a parent named below is upgraded
-      # or a workspace starts to depend on the package, and remove the entry if
-      # it fails. `bun audit` cannot see copies bundled inside other packages.
+      # An --ignore entry is allowed ONLY when all of these hold, and only with
+      # the owner's approval on the pull request that adds it:
+      #   - the advisory is high/critical and no installable version fixes it;
+      #   - it is not a malicious-package advisory, which is never ignored:
+      #     remove or replace the package;
+      #   - no deployed Worker or page contains the package: build each
+      #     consumer and search its output for the package's code;
+      #   - wherever the package does run (install, build, CI, dev server,
+      #     tests), no attacker-controlled input reaches the flawed code, and
+      #     the entry names the inputs it does get.
+      # Each entry is the full GHSA-xxxx-xxxx-xxxx id: bun matches --ignore
+      # against any part of the advisory URL, so `--ignore=GHSA-` or a
+      # truncated id silences every advisory. Each names its package, why it
+      # cannot be reached, and its drop-trigger. An ignore covers every path
+      # to the package, not only the ones checked, so repeat the check when a
+      # parent named below is upgraded or a workspace starts to depend on the
+      # package, and remove the entry if it fails. `bun audit` cannot see
+      # copies bundled inside other packages.
       #
       # GHSA-vfj7-8cjw-p6xm — braces 3.0.3, stack exhaustion on deeply nested
       # patterns. Installed via @pulse/web › @solidjs/start 2.0.4 › micromatch
-      # and fast-glob, which only its Vite plugin's route scanner calls, at
-      # build time, on patterns from repository config; no deployed build
-      # contains braces code. Copies bundled in vite, tsx, prettier, oxfmt and
-      # playwright-core are build, dev and test tooling. Drop when braces
-      # > 3.0.3 ships and bun.lock resolves it, or when @solidjs/start stops
-      # depending on micromatch.
+      # and fast-glob, which only its Vite plugins call (the route scanner and
+      # the server-function scan), at build and dev time, on patterns from
+      # repository config; no deployed build contains braces code. Copies
+      # bundled in vite, tsx, prettier, oxfmt and playwright-core are build,
+      # dev and test tooling. Drop when braces > 3.0.3 ships and bun.lock
+      # resolves it, or when @solidjs/start stops depending on micromatch.
       #
       # GHSA-ch52-4w7c-c8xp — http-cache-semantics 4.2.0, max-stale handling
       # in a shared cache. Installed via astro 7.2.10, which uses it only in
-      # its build-time remote-image cache (`dist/assets/build/remote.js`) and
-      # never calls `evaluateRequest`, the flawed path; no deployed build
+      # its build-time remote-image cache (`dist/assets/build/remote.js`) on
+      # requests it builds itself, and never calls `evaluateRequest` or
+      # `satisfiesWithoutRevalidation`, the flawed path; no deployed build
       # contains it. Miniflare's bundled copy runs only in `wrangler dev` and
       # the D1 test tier, for one developer's own Worker. Drop when
       # http-cache-semantics > 4.2.0 ships and bun.lock resolves it, or when
