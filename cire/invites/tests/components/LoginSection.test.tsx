@@ -396,6 +396,38 @@ describe("LoginSection returning household", () => {
     expect(greeting(container)?.textContent).toBe("Welcome back to your invite, Chi");
   });
 
+  it("tells a lone guest who still owes a reply, directly under their greeting", () => {
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={household([chidi], [reply("g-Chidi", "ceremony")])}
+        onClaimed={noop}
+        rsvpDeadlineState="open"
+      />
+    ));
+    expect(greeting(container)?.textContent).toBe("Welcome back to your invite, Chidi");
+    expect(greeting(container)?.nextElementSibling?.textContent).toBe(
+      "You still have replies to give",
+    );
+  });
+
+  it.each([
+    ["open", "open"],
+    ["closing soon", "closing-soon"],
+    ["unknown to the page", null],
+    ["absent, for a wedding with no RSVP-by date", undefined],
+  ] as const)("says replies are owed while the deadline is %s", (_, state) => {
+    const { container } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={household([chidi, ada], someReplies)}
+        onClaimed={noop}
+        rsvpDeadlineState={state}
+      />
+    ));
+    expect(container.textContent).toContain("You still have replies to give");
+  });
+
   it("says no replies are owed once RSVPs have closed, since none can be given", () => {
     const { container } = render(() => (
       <LoginSection

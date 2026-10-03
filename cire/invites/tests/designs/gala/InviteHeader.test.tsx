@@ -498,6 +498,16 @@ describe("gala InviteHeader fallback title for a returning household", () => {
     expect(queryByText("Welcome back to your invite")).toBeNull();
   });
 
+  it("welcomes back once mounted when the panel found the household first", async () => {
+    // The panel's island can settle before the hero's; the hero still opens
+    // on the server's words and swaps once it has mounted.
+    setReturningHousehold(true);
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
+    ));
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy());
+  });
+
   it("never replaces the couple's own title", () => {
     setReturningHousehold(true);
     const { getByText, queryByText } = render(() => (

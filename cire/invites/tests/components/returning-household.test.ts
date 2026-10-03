@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createHeroFallbackTitle,
   HERO_FALLBACK_TITLE,
-  REPLIES_OWED,
   returningHousehold,
   setReturningHousehold,
   WELCOME_BACK,
@@ -13,14 +12,6 @@ import {
 afterEach(() => {
   // Module state outlives each case; put it back.
   setReturningHousehold(false);
-});
-
-describe("the returning-household copy", () => {
-  it("is the owner's wording, verbatim", () => {
-    expect(HERO_FALLBACK_TITLE).toBe("You're Invited");
-    expect(WELCOME_BACK).toBe("Welcome back to your invite");
-    expect(REPLIES_OWED).toBe("You still have replies to give");
-  });
 });
 
 describe("returningHousehold", () => {
