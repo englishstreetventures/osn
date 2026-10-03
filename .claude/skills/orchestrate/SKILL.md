@@ -277,7 +277,7 @@ The full table, with the reason behind each, is `references/gotchas.md`. The one
 
 - Feature input dispatched straight into the loop → the subagent guesses scope. Step 00 first.
 - `gh pr ready` does not propagate at once; a still-draft PR shows `BLOCKED` with green checks. Wait, then read.
-- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR.
+- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. Only when no fixed version exists, and every deployed build is shown not to contain the package, may it get an `--ignore` entry, on the terms in the comment above `audit` in `lefthook.yml`.
 - Merging several PRs in sequence: the release workflow versions on every merge, so sibling PRs touching `wrangler.toml` or an `index.ts` conflict. Merge in dependency order and rebase additively.
 - Wrangler named environments inherit no top-level bindings. Every `[[d1_databases]]`, `[[r2_buckets]]` and `[images]` is mirrored into `[env.production]` and `[env.dev]`; verify with `wrangler deploy --dry-run`.
 

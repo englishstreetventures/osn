@@ -44,13 +44,40 @@ pre-push:
       # advisory. Pairs with `bunfig.toml`'s `minimumReleaseAge` — one stops
       # fresh malice, this one stops known malice.
       #
-      # No --ignore entries: the prior ws/vite dev-tooling advisories
-      # (GHSA-96hv-2xvq-fx4p, GHSA-fx2h-pf6j-xcff) were cleared by the #214
-      # dependency sweep (root overrides ws ≥8.21.0, vite ≥7.3.5). Re-add an
-      # entry here ONLY to temporarily accept a NEW high/critical advisory
-      # that's confirmed unreachable in any deployed Worker / production path,
-      # and note its drop-trigger inline — then prune it once upstream ships.
-      run: bun audit --audit-level=high
+      # An --ignore entry is allowed ONLY for a high/critical advisory with no
+      # installable fix that is confirmed unreachable in every deployed Worker
+      # and page: build each consumer and search its output for the package's
+      # code. Each entry names its package, why it cannot be reached, and its
+      # drop-trigger. An ignore covers every path to the package, not only the
+      # ones checked, so repeat the check when a parent named below is upgraded
+      # or a workspace starts to depend on the package, and remove the entry if
+      # it fails. `bun audit` cannot see copies bundled inside other packages.
+      #
+      # GHSA-vfj7-8cjw-p6xm — braces 3.0.3, stack exhaustion on deeply nested
+      # patterns. Installed via @pulse/web › @solidjs/start 2.0.4 › micromatch
+      # and fast-glob, which only its Vite plugin's route scanner calls, at
+      # build time, on patterns from repository config; no deployed build
+      # contains braces code. Copies bundled in vite, tsx, prettier, oxfmt and
+      # playwright-core are build, dev and test tooling. Drop when braces
+      # > 3.0.3 ships and bun.lock resolves it, or when @solidjs/start stops
+      # depending on micromatch.
+      #
+      # GHSA-ch52-4w7c-c8xp — http-cache-semantics 4.2.0, max-stale handling
+      # in a shared cache. Installed via astro 7.2.10, which uses it only in
+      # its build-time remote-image cache (`dist/assets/build/remote.js`) and
+      # never calls `evaluateRequest`, the flawed path; no deployed build
+      # contains it. Miniflare's bundled copy runs only in `wrangler dev` and
+      # the D1 test tier, for one developer's own Worker. Drop when
+      # http-cache-semantics > 4.2.0 ships and bun.lock resolves it, or when
+      # astro stops depending on it.
+      #
+      # Comments stay above `run:`. Inside the folded block a `#` line is part
+      # of the command, and the shell would drop every flag after it.
+      # Both drops are tracked in englishstventures/osn#1381.
+      run: >
+        bun audit --audit-level=high
+        --ignore=GHSA-vfj7-8cjw-p6xm
+        --ignore=GHSA-ch52-4w7c-c8xp
     release-age:
       # The third guard over the same dependency surface, and the one that
       # covers the soak policy itself rather than the packages under it: every
