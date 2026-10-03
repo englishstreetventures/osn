@@ -136,8 +136,10 @@ household, `householdReplied`: true when any of its reply rows has a
 recorded by phone or on paper does not make a first visit a return. That
 covers a household reply, the household's reply for its plus-one, and a host's
 status change over a household reply that holds a dietary answer, since that
-save keeps the household's consent basis. The payload never says which rows a
-host wrote, and no organiser id leaves the API.
+save keeps the household's consent basis. The flag is a total for the
+household, not a field on each row, though with one reply on file, or only a
+host's, it does show their source; the household those replies are about is
+its only recipient, and no organiser id leaves the API.
 
 The rows keep only their latest writer. When a host saves a full reply over a
 household's, or changes the status of a household reply that has no dietary

@@ -526,8 +526,8 @@ function buildInvite(
       // back. A row stays `organiser_attested` only while an organiser's write
       // is all it holds: a household reply, the household's reply for its
       // plus-one, and a host's status change over a household's dietary answer
-      // each keep a household source. One yes or no for the household, so the
-      // payload never says which of its replies a host wrote.
+      // each keep a household source. One yes or no for the household rather
+      // than a field on each row; only the household it describes receives it.
       householdReplied: rsvpRows.some((r) => r.consentSource !== "organiser_attested"),
       // The stored key list becomes an array at the boundary, and the stored
       // consent record collapses to "may this person's box open ticked?" — the

@@ -226,8 +226,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     as "Host-updated"; no read endpoint returns either profile id. The
     household's claim payload carries one yes or no derived from
     `consent_source` (`householdReplied`: whether any of its replies is its
-    own), so the invite can greet a returning household; it never says which
-    rows a host wrote. A household rename of a plus-one clears the attester
+    own), so the invite can greet a returning household. It is a household
+    total rather than a field on each row, but with one reply on file, or
+    with only a host's, it does show where they came from; the household
+    those replies are about is its only recipient. A household rename of a plus-one clears the attester
     with the consent record it named.
     One trade-off stands, accepted by the owner: a guest an organiser marks as
     declined keeps their stored dietary answer until the guest or an

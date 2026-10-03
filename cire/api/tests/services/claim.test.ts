@@ -1013,7 +1013,7 @@ describe("householdReplied in the claim payload", () => {
     expect((await lookup()).householdReplied).toBe(true);
   });
 
-  it("names no writer on any reply row", async () => {
+  it("adds no field to the reply rows, and no organiser id anywhere", async () => {
     const { bo, first, second, lookup, reply, organiserReply } = setUp();
     await reply(bo.id, first);
     await organiserReply(bo.id, second);
