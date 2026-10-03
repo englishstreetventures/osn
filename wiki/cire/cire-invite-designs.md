@@ -10,7 +10,7 @@ related:
   - "[[cire-consent]]"
   - "[[browser-tests]]"
   - "[[frontend-patterns]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-03
 ---
 # Invite design selector
 
@@ -232,22 +232,39 @@ the guest the page carries on. A pack renders it as the last child of its hero
   grow the hero still stops above the cue. The cue's offset carries no
   `env()` inset: an inset can only widen that padding, never move the cue
   into the title.
-- **It rises above the consent banner.** On a first visit the banner
-  ([[cire-consent]]) is fixed to the bottom of the screen until the guest
-  answers it. While it is up it publishes its height as
-  `--consent-banner-height` on `<html>`, and the cue moves up by that much
+- **On a phone the consent prompt is a dialog, and the cue stays put.** Below
+  the `md` breakpoint the first-visit consent prompt ([[cire-consent]]) is a
+  modal dialog. It publishes no height, so the cue rests on the hero's foot;
+  the dialog's backdrop covers it until the guest answers, and then nothing
+  sits over the hero.
+- **From `md` up it rises above the consent banner.** There the prompt is a
+  banner fixed to the bottom of the screen until the guest answers it. While
+  it is up it publishes its height as `--consent-banner-height` on `<html>`,
+  and the cue moves up by that much
   (`-translate-y-[var(--consent-banner-height,0px)]`), so it sits 1rem above
   the banner's top edge; once the guest answers, the property goes and the cue
   slides back over 500ms. A `translate`, not a change to `bottom`, so the move
   adds no layout shift, and the browser test fails on any shift it records.
-  The cue moves; the title does not. On a narrow screen a title that reaches
-  the cue's lifted spot sits under it until the banner is answered: a wide
-  gala title at 390px, or classic's at 320x568, where the title ends 2px
-  above the banner. The banner itself covers the bottom of gala's title there
-  too. Both wait on an owner decision, `englishstventures/osn#1368`.
+  The same happens on a phone once the guest has dismissed the dialog without
+  answering, because the prompt then carries on as the banner.
+- **The banner still covers gala's title until it is answered.** The cue
+  moves; the title does not. Gala anchors its title bottom-left, and with the
+  banner up the bottom of the title is under it at every width from `md` up,
+  on landscape phones (which are wider than `md`), and on a phone after a
+  dismissed dialog — where a two-name title also reaches the lifted cue at
+  375x667 and 390x844. At 1440x900, "Anita & Ben" spans 732–858px and the
+  banner's top edge is at 774px. Classic's centred title clears the banner on
+  tablet and desktop screens, but a landscape phone is too short for it: a
+  two-name title runs under the banner there (844x390: the banner's top edge
+  at 272px, the title to 399px).
+
+  *Measured 2026-10-02 and 2026-10-03 — a throwaway Vitest browser test in
+  Chromium rendering each pack's `InviteHeader` with the banner up, comparing
+  the title block's and the banner's `getBoundingClientRect()`.*
 
 `tests/designs/InviteHeader.browser.test.tsx` measures all of this in both
-packs, at phone and desktop width ([[browser-tests]]).
+packs, at phone and desktop width, and the prompt's two forms over a two-name
+title at 320x568, 375x667, 390x844 and 1440x900 ([[browser-tests]]).
 `tests/designs/InviteHeader.ssr.test.tsx` checks the cue is in each pack's
 server HTML, and fails when the catalog gains a pack it does not list.
 

@@ -10,6 +10,7 @@ import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
 import { FakeResizeObserver, installFakeResizeObserver } from "../../test-support/resize-observer";
+import { mockViewport } from "../../test-support/viewport";
 
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
@@ -168,6 +169,139 @@ describe("ConsentBanner", () => {
     render(() => <ConsentBanner />);
     expect(FakeResizeObserver.instances).toEqual([]);
     expect(publishedHeight()).toBe("");
+  });
+});
+
+/**
+ * Below the `md` breakpoint the first-layer prompt is a modal dialog rather
+ * than the bottom banner, so nothing sits over the invite's hero once the
+ * guest has answered. jsdom has no `matchMedia`, which is why every test above
+ * gets the banner; `mockViewport(false)` answers it as a phone. The gestures
+ * themselves (Escape, a backdrop tap, focus) and the geometry are in
+ * `ConsentBanner.browser.test.tsx`, where a real `<dialog>` exists.
+ */
+describe("ConsentBanner on a phone", () => {
+  let restoreViewport: () => void = () => {};
+
+  const prompt = () =>
+    [...document.querySelectorAll("dialog")].find(
+      (candidate) => candidate.querySelector("h2")?.textContent === "Privacy choices",
+    ) ?? null;
+
+  beforeEach(() => {
+    resetConsentForTest();
+    restoreViewport = mockViewport(false);
+  });
+
+  afterEach(() => {
+    cleanup();
+    resetConsentForTest();
+    restoreViewport();
+  });
+
+  it("asks in a dialog, not the bottom banner", () => {
+    const { container } = render(() => <ConsentBanner />);
+    expect(prompt()).not.toBeNull();
+    expect(bannerOf(container)).toBeNull();
+  });
+
+  it("is named by its visible heading and described by the notice itself", () => {
+    render(() => <ConsentBanner />);
+    const panel = prompt()!;
+    const heading = panel.querySelector(`#${cssEscape(panel.getAttribute("aria-labelledby")!)}`);
+    expect(heading?.textContent).toBe("Privacy choices");
+    const description = panel.querySelector(
+      `#${cssEscape(panel.getAttribute("aria-describedby")!)}`,
+    );
+    expect(description?.textContent).toContain("Google");
+  });
+
+  it("says the same thing as the banner, privacy link included", () => {
+    render(() => <ConsentBanner />);
+    const text = prompt()!.textContent ?? "";
+    expect(text).toContain("Google");
+    expect(text).toContain("Pinterest");
+    expect(text.toLowerCase()).toContain("switched on");
+    expect(text.toLowerCase()).toContain("turn it off");
+    expect(prompt()!.querySelector('a[href="/privacy"]')).not.toBeNull();
+  });
+
+  it("offers reject first, then accept, then choose — reject styled exactly as accept", () => {
+    render(() => <ConsentBanner />);
+    const panel = prompt()!;
+    expect(buttonLabels(panel)).toEqual(["Reject all", "Accept all", "Choose"]);
+    const [reject, accept] = [...panel.querySelectorAll("button")];
+    expect(reject!.className).toBe(accept!.className);
+    expect(reject!.tagName).toBe(accept!.tagName);
+  });
+
+  it("records a refusal on 'Reject all' and goes away", () => {
+    const { container } = render(() => <ConsentBanner />);
+    fireEvent.click(within(prompt()!).getByText("Reject all"));
+
+    expect(readConsentFromDocument()!.grants.embeds).toBe(false);
+    expect(prompt()).toBeNull();
+    expect(bannerOf(container)).toBeNull();
+  });
+
+  it("records every category on 'Accept all' and goes away", () => {
+    render(() => <ConsentBanner />);
+    fireEvent.click(within(prompt()!).getByText("Accept all"));
+
+    expect(readConsentFromDocument()!.grants.embeds).toBe(true);
+    expect(prompt()).toBeNull();
+  });
+
+  it("publishes no banner height, so the hero's scroll cue stays where it rests", () => {
+    render(() => <ConsentBanner />);
+    expect(FakeResizeObserver.instances).toEqual([]);
+    expect(publishedHeight()).toBe("");
+  });
+
+  it("hands over to the preferences dialog on 'Choose', leaving one dialog", () => {
+    render(() => <ConsentBanner />);
+    fireEvent.click(within(prompt()!).getByText("Choose"));
+
+    expect(consentPreferencesOpen()).toBe(true);
+    expect(prompt()).toBeNull();
+    expect(document.querySelectorAll("dialog")).toHaveLength(1);
+  });
+
+  it("comes back as a dialog when the preferences dialog is dismissed", () => {
+    render(() => <ConsentBanner />);
+    fireEvent.click(within(prompt()!).getByText("Choose"));
+    document.querySelector("dialog")!.dispatchEvent(new Event("close"));
+
+    expect(consentPreferencesOpen()).toBe(false);
+    expect(prompt()).not.toBeNull();
+  });
+
+  it("turns into the banner when dismissed, and records nothing", () => {
+    // Escape, Android's back gesture and a backdrop tap all reach `Modal`'s
+    // `onClose`. None of them is an answer, and under the opt-out defaults the
+    // notice is the guest's only sight of what is switched on, so it stays on
+    // screen — as the banner — until they give one.
+    const { container } = render(() => <ConsentBanner />);
+    prompt()!.dispatchEvent(new Event("close"));
+
+    expect(readConsentFromDocument()).toBeNull();
+    expect(prompt()).toBeNull();
+    expect(bannerOf(container)).not.toBeNull();
+  });
+
+  it("shows nothing to a guest who already decided", () => {
+    seedConsentForTest({ embeds: false });
+    const { container } = render(() => <ConsentBanner />);
+    expect(prompt()).toBeNull();
+    expect(bannerOf(container)).toBeNull();
+  });
+
+  it("keeps the banner where the page asks for it", () => {
+    // The legal pages: the prompt links to `/privacy`, and a modal there would
+    // stand between the guest and the notice it links to.
+    const { container } = render(() => <ConsentBanner phone="banner" />);
+    expect(bannerOf(container)).not.toBeNull();
+    expect(prompt()).toBeNull();
   });
 });
 

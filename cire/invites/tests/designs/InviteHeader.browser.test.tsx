@@ -243,7 +243,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
         shifts.push(...(list.getEntries() as LayoutShift[]));
       });
       shiftObserver.observe({ type: "layout-shift" });
-      render(() => <ConsentBanner />);
+      render(() => <ConsentBanner phone="banner" />);
       const panel = await vi.waitFor(() => {
         const found = consentPanel();
         if (!found) throw new Error("the consent banner has not appeared");
@@ -376,5 +376,109 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
 
     scrollPageTo(200);
     await vi.waitFor(() => expect(getComputedStyle(cue).opacity).toBe("0"));
+  });
+});
+
+/**
+ * Which form the consent prompt takes over the hero, at the widths where the
+ * old bottom banner covered the couple's name or put the lifted cue on it:
+ * gala's two-name title at 375x667 and 390x844, classic's at 320x568.
+ *
+ * Below the `md` breakpoint the prompt is a modal dialog. It publishes no
+ * height, so the cue never lifts there, and once the guest answers nothing is
+ * left over the hero. From `md` up it is the banner, and the cue rises above
+ * it. (The per-viewport test above pins the banner itself at both widths with
+ * `phone="banner"` — the form a phone guest gets after dismissing the dialog,
+ * and on the legal pages.)
+ */
+describe.each(PACKS)("%s hero under the consent prompt", (_pack, InviteHeader) => {
+  const twoNames = () => invite({ title: "Alexandra Konstantinou & Maximilian Featherstone" });
+
+  const overlaps = (a: DOMRect, b: DOMRect) =>
+    !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+
+  describe.each([
+    { name: "320x568", size: [320, 568] as Viewport },
+    { name: "375x667", size: [375, 667] as Viewport },
+    { name: "390x844", size: PHONE },
+  ])("on a $name phone", ({ size }) => {
+    it("asks in a dialog that leaves the cue at rest, and nothing over the hero once answered", async () => {
+      await page.viewport(...size);
+      const { hero, cue, glyph, titleBlock } = await mount(InviteHeader, twoNames());
+      const { entry, drift } = animationsOf(glyph);
+      entry!.finish();
+      await nextFrame();
+      await nextFrame();
+
+      // The prompt's island hydrates after the hero has painted. A dialog in
+      // the top layer moves nothing in the page's flow; what this guards is a
+      // scroll lock or a reserved space added later, either of which would
+      // move the hero under the guest's eyes.
+      const shifts: LayoutShift[] = [];
+      const shiftObserver = new PerformanceObserver((list) => {
+        shifts.push(...(list.getEntries() as LayoutShift[]));
+      });
+      shiftObserver.observe({ type: "layout-shift" });
+      render(() => <ConsentBanner />);
+      const prompt = await vi.waitFor(() => {
+        const found = document.querySelector("dialog");
+        if (!found) throw new Error("the consent prompt has not opened");
+        return found;
+      });
+      expect(prompt.matches(":modal")).toBe(true);
+      await nextFrame();
+      await nextFrame();
+      shifts.push(...(shiftObserver.takeRecords() as LayoutShift[]));
+      shiftObserver.disconnect();
+      expect(shifts.map((s) => s.value)).toEqual([]);
+
+      // No banner, so no height to rise by: the cue rests on the hero's foot,
+      // clear of the title.
+      expect(consentPanel()).toBeNull();
+      expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe("");
+      drift!.finish();
+      const resting = glyph.getBoundingClientRect();
+      expect(resting.bottom).toBeCloseTo(hero.getBoundingClientRect().bottom - rootPx(), 0);
+      expect(overlaps(resting, titleBlock.getBoundingClientRect())).toBe(false);
+
+      // Answered: the dialog goes, and whatever is painted at the cue and at
+      // the title is the hero's own.
+      within(prompt).getByText("Reject all").click();
+      await vi.waitFor(() => expect(document.querySelector("dialog")).toBeNull());
+      expect(consentPanel()).toBeNull();
+      for (const rect of [glyph.getBoundingClientRect(), titleBlock.getBoundingClientRect()]) {
+        const x = (rect.left + rect.right) / 2;
+        const y = (rect.top + rect.bottom) / 2;
+        expect(hero.contains(document.elementFromPoint(x, y))).toBe(true);
+      }
+      expect(cue.dataset.scrollCue).toBe("shown");
+    });
+  });
+
+  it("is the banner on a desktop, with the cue risen above it and clear of the title", async () => {
+    await page.viewport(...DESKTOP);
+    const { cue, glyph, titleBlock } = await mount(InviteHeader, twoNames());
+    const { entry, drift } = animationsOf(glyph);
+    entry!.finish();
+    render(() => <ConsentBanner />);
+    const panel = await vi.waitFor(() => {
+      const found = consentPanel();
+      if (!found) throw new Error("the consent banner has not appeared");
+      return found;
+    });
+    expect(document.querySelector("dialog")).toBeNull();
+    await vi.waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe(
+        `${panel.getBoundingClientRect().height}px`,
+      ),
+    );
+    await nextFrame();
+    drift!.finish();
+    transitionOf(cue, "translate")?.finish();
+
+    const box = glyph.getBoundingClientRect();
+    // The drift moves the glyph 6px further down; that too stays clear.
+    expect(box.bottom + 6).toBeLessThanOrEqual(panel.getBoundingClientRect().top);
+    expect(overlaps(box, titleBlock.getBoundingClientRect())).toBe(false);
   });
 });

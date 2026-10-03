@@ -38,7 +38,10 @@ interface HeroScrollCueProps {
  * While the consent banner is on screen the cue rises by the banner's height
  * (`--consent-banner-height`, which the banner publishes on `<html>`), so the
  * banner never covers it, and it slides back down once the guest answers. A
- * `translate`, not a change to `bottom`, so the move shifts no layout.
+ * `translate`, not a change to `bottom`, so the move shifts no layout. On a
+ * phone the prompt is a modal dialog instead, which publishes no height, so
+ * the cue stays at rest: the dialog's backdrop covers it until the guest
+ * answers, and then nothing does.
  */
 export function HeroScrollCue(props: HeroScrollCueProps) {
   const scrolled = createFirstScroll();

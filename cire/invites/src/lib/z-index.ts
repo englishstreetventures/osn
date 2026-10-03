@@ -46,7 +46,11 @@
  *
  * The preferences DIALOG has no layer here because it has nothing left to rank
  * against: it is an `@shared/ui` `Modal` too, so opening it from inside a sheet
- * makes it the blocking dialog and the sheet goes inert beneath it.
+ * makes it the blocking dialog and the sheet goes inert beneath it. The same
+ * holds for the first-layer prompt on a phone, which is a `Modal` rather than
+ * the banner: if it arrives while a sheet is already open, it opens above the
+ * sheet. The banner — on a wider screen, on the legal pages, and on a phone
+ * once the guest has dismissed that dialog — is what this layer ranks.
  *
  * ## Tailwind v4 note
  *
