@@ -1,6 +1,6 @@
 ---
 name: rate-complexity
-description: Use when an issue needs its complexity declared — proposing a rating from the issue body alone and getting the owner to confirm or amend it, or backfilling a rating onto an existing unrated issue. Invoked by new-feat at issue-creation time; also the backfill path for issues opened before the label existed.
+description: Use when an issue needs its complexity declared — proposing a rating from the issue body alone and getting the owner to confirm or amend it, or backfilling a rating onto an existing unrated issue. Invoked by write-issue on every issue it opens and by new-feat on an unrated issue it picks up; also the backfill path for issues opened before the label existed.
 ---
 
 Declare how hard an issue is, **before anyone starts work on it**.
@@ -51,7 +51,7 @@ in the repository already; the issue body names the file and the fix.
 
 ## Mode A — with the owner (the normal path)
 
-Used by `new-feat` on an issue being opened or picked up.
+Used by `write-issue` on every issue it opens, and by `new-feat` on an unrated issue it picks up.
 
 1. Read the issue body — **only** the body. Not the branch, not the code, not
    the conversation that led to it.

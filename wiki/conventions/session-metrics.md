@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-08
 ---
 
 # Session Metrics
@@ -51,7 +51,7 @@ outliers are a **query over raw fields**, never a stored field.
 ## Declaring complexity
 
 The rating lives on the **issue**, as a `complexity:` label, and it is set
-**before work starts** — `/new-feat` does it at Step 0 through the
+**before work starts** — the `write-issue` skill does it when the issue is filed, through the
 `rate-complexity` skill (`.claude/skills/rate-complexity/SKILL.md`), which proposes a number from the issue body alone and
 asks the owner to confirm or amend it.
 

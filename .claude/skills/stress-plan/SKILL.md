@@ -115,8 +115,9 @@ Read the findings yourself and act on each one. Three outcomes and no fourth:
   wrong. A rejection you did not write down is indistinguishable from a finding
   you missed, three steps later when it turns out to matter.
 - **Escalate it** when it needs a decision only the repo owner can make — label the
-  issue `needs:decision`, write the body so they can decide from the issue alone,
-  and carry on with the rest of the plan.
+  issue `needs:decision`, write the body so they can decide from the issue alone
+  (the `write-issue` skill, §A `needs:decision` proposal), and carry on with the
+  rest of the plan.
 
 Reject with evidence, not with confidence. A rejected finding on this repo turned
 out to be a reviewer measuring a build directory two processes had written into at
