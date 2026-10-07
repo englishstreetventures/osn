@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Dev environment (cire + OSN identity)
@@ -553,7 +553,7 @@ What exists, exactly — **one** self-hosted application, not one per host:
 | Application name | `cire dev tier` |
 | Type | Self-hosted |
 | Destinations | the five public hostnames above |
-| Policy | `allow owner email` — Action `Allow`, Include `Emails` → `chavaniket@duck.com` |
+| Policy | `allow owner email` (a reusable policy) — Action `Allow`, two Include rules, either of which admits: `Emails` → `chavaniket@duck.com`, and `Emails ending in` → `englishstventures.com` |
 | Identity | "Accept all available identity providers" left **on**; One-time PIN is the only IdP on this account, so that is the email-OTP path |
 | Session duration | 24 hours |
 
@@ -563,7 +563,9 @@ cap — the form refuses a sixth destination with *"You've added the maximum num
 of hostnames per application allowed."* A sixth dev host needs a second
 application, and then two OTP prompts.
 
-Add more people by adding emails to `allow owner email`, never by adding an
+Anyone with an `@englishstventures.com` mailbox gets in, so the dev tier is only
+as private as that domain's mailboxes. Add someone outside the domain by adding
+their email to the `Emails` rule of `allow owner email`, never by adding an
 application.
 
 > [!note] Building it in the dashboard
