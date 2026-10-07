@@ -62,19 +62,29 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
-// Leaf views stubbed to data-testids; WeddingList exposes select + create
-// triggers so we can drive the parent's state transitions.
+// Leaf views stubbed to data-testids; WeddingList exposes select, create,
+// restore and restore-expired triggers so we can drive the parent's state
+// transitions. The last two act on the first deleted wedding listed.
 vi.mock("../../src/components/WeddingList", () => ({
   default: (props: {
     weddings: { id: string; displayName: string }[];
     deleted?: { id: string }[];
     onSelect: (w: unknown) => void;
     onCreated: (w: unknown) => void;
+    onRestored?: (weddingId: string) => void;
+    onRestoreExpired?: (weddingId: string) => void;
   }) => (
     <div data-testid="wedding-list">
       <span data-testid="count">{props.weddings.length}</span>
       <span data-testid="deleted-count">{(props.deleted ?? []).length}</span>
+      <span data-testid="deleted-ids">{(props.deleted ?? []).map((w) => w.id).join(",")}</span>
       <button onClick={() => props.onSelect(props.weddings[0])}>select-first</button>
+      <button onClick={() => props.onRestored?.(props.deleted![0]!.id)}>
+        restore-first-deleted
+      </button>
+      <button onClick={() => props.onRestoreExpired?.(props.deleted![0]!.id)}>
+        expire-first-deleted
+      </button>
       <button
         onClick={() =>
           props.onCreated({
@@ -183,6 +193,8 @@ import {
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
+/** A `GET /api/organiser/weddings` answer. `deleted`, when given, is the
+ *  owner's restorable weddings; left out, the body carries no `deleted` key. */
 function listResponse(
   weddings: {
     id: string;
@@ -193,6 +205,8 @@ function listResponse(
     entitlements?: string[];
     guestCap?: number;
   }[],
+  deleted?: { id: string; slug: string; displayName: string }[],
+  status = 200,
 ) {
   return new Response(
     JSON.stringify({
@@ -203,9 +217,16 @@ function listResponse(
         guestCap: 100,
         ...w,
       })),
+      ...(deleted && {
+        deleted: deleted.map((w) => ({
+          deletedAt: "2026-10-01T12:00:00.000Z",
+          restoreUntil: "2026-10-08T12:00:00.000Z",
+          ...w,
+        })),
+      }),
     }),
     {
-      status: 200,
+      status,
       headers: { "Content-Type": "application/json" },
     },
   );
@@ -214,12 +235,23 @@ function listResponse(
 describe("OrganiserApp Dashboard", () => {
   beforeEach(() => {
     authFetchMock.mockReset();
+    // The toast spies are this suite's own, so `resetOrganiserMocks` does not
+    // clear them; a test asserting a toast is absent needs them empty.
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    toastInfo.mockReset();
     __resetWeddingScope();
     __resetVendorsCache();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    // Kobalte's menus set and clear `aria-hidden` on everything outside them
+    // from a zero-delay timeout that requests an animation frame. Both run
+    // here, before the next test starts; otherwise a menu opened in this test
+    // can leave <body> hidden from a later test's role queries.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     resetOrganiserMocks();
     vi.unstubAllGlobals();
     // The dashboard mirrors its state into the URL hash — reset it so one test's
@@ -947,6 +979,116 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     expect(listCalls()).toBe(2);
     expect(screen.getByTestId("deleted-count").textContent).toBe("1");
+  });
+
+  // ── Restoring a deleted wedding ─────────────────────────────────────────────
+
+  const deletedA = { id: "wed_a", slug: "a", displayName: "Alice & Bob" };
+
+  it("opens a restored wedding, takes it off the restorable list, and says so", async () => {
+    let listReads = 0;
+    authFetchMock.mockImplementation(async () => {
+      listReads += 1;
+      return listReads === 1 ? listResponse([], [deletedA]) : listResponse([deletedA], []);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-count").textContent).toBe("1"));
+
+    fireEvent.click(screen.getByText("restore-first-deleted"));
+
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(window.location.hash).toBe("#/w/wed_a");
+    expect(toastSuccess).toHaveBeenCalledWith("Wedding restored.");
+    expect(listReads).toBe(2);
+
+    // Back on the list, the wedding is live and no longer restorable.
+    fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(screen.getByTestId("deleted-count").textContent).toBe("0");
+  });
+
+  it("shows the lists the API answers when they do not yet carry the restored wedding", async () => {
+    // The restore went through, but the read straight after it can be stale.
+    // Both lists follow that answer, nothing opens, and the restore is still
+    // reported, because it happened.
+    const deletedC = { id: "wed_c", slug: "c", displayName: "Cal & Dee" };
+    const liveB = { id: "wed_b", slug: "b", displayName: "Bea & Cal" };
+    let listReads = 0;
+    authFetchMock.mockImplementation(async () => {
+      listReads += 1;
+      return listReads === 1
+        ? listResponse([], [deletedA, deletedC])
+        : listResponse([liveB], [deletedA]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_a,wed_c"));
+    const hash = window.location.hash;
+
+    fireEvent.click(screen.getByText("restore-first-deleted"));
+
+    await waitFor(() => expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_a"));
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(window.location.hash).toBe(hash);
+    expect(toastSuccess).toHaveBeenCalledWith("Wedding restored.");
+  });
+
+  it("sends the organiser to sign-in when the session lapses as the restored list loads", async () => {
+    let listReads = 0;
+    authFetchMock.mockImplementation(() => {
+      listReads += 1;
+      return listReads === 1
+        ? Promise.resolve(listResponse([], [deletedA]))
+        : Promise.reject(new Error("AuthExpiredError"));
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-count").textContent).toBe("1"));
+
+    fireEvent.click(screen.getByText("restore-first-deleted"));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(screen.getByTestId("deleted-count").textContent).toBe("1");
+  });
+
+  it.each([
+    // A refused read is not a list, even when its body looks like one.
+    ["refused", () => Promise.resolve(listResponse([deletedA], [], 503))],
+    ["lost to the network", () => Promise.reject(new Error("network down"))],
+  ])("changes nothing when the list read after a restore is %s", async (_label, failedRead) => {
+    let listReads = 0;
+    authFetchMock.mockImplementation(() => {
+      listReads += 1;
+      return listReads === 1 ? Promise.resolve(listResponse([], [deletedA])) : failedRead();
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-count").textContent).toBe("1"));
+
+    fireEvent.click(screen.getByText("restore-first-deleted"));
+    // The read is counted the moment the handler sends it; what it does with
+    // the answer runs after, so wait past that before asserting nothing moved.
+    await waitFor(() => expect(listReads).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(screen.getByTestId("count").textContent).toBe("0");
+    expect(screen.getByTestId("deleted-count").textContent).toBe("1");
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("drops a deleted wedding from the restorable list once its restore window has passed", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([], [deletedA, { id: "wed_c", slug: "c", displayName: "Cal & Dee" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_a,wed_c"));
+
+    fireEvent.click(screen.getByText("expire-first-deleted"));
+
+    expect(screen.getByTestId("deleted-ids").textContent).toBe("wed_c");
+    // Local: the list is not asked again.
+    expect(listCalls()).toBe(1);
   });
 
   it("does not recheck on a 404 for a row inside the wedding", async () => {

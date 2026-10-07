@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Cire
@@ -96,19 +96,27 @@ bun run --cwd cire/db db:seed             # seed only (runs scripts/cire-db-seed
 ```
 
 `scripts/cire-db-seed.sh` seeds the local miniflare D1 with a sample wedding
-owned by `CIRE_DEV_OWNER_PROFILE_ID` so it shows under your signed-in dev
+owned by the fixed dev id `usr_dev_bootstrap_owner`, then hands that wedding's
+owner seat to `CIRE_DEV_OWNER_PROFILE_ID` so it shows under your signed-in dev
 account. Set it in `cire/db/.env`:
 
 ```bash
 CIRE_DEV_OWNER_PROFILE_ID=usr_<your-osn-profile-id>
 ```
 
-The `cire/api` dev server (`local.ts`) seeds the same owner into its own
-**in-memory** DB (not the persistent D1), so `bun run dev:cire` shows a wedding
-under your account without a separate seed step. (Since #156 removed the
-bootstrap-owner re-point machinery, the dev seed *creates* a wedding for your
-profile rather than re-pointing a sentinel-owned demo row.) Both paths are
-dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
+The `cire/api` dev server (`local.ts`) seeds the same sample wedding into its
+own **in-memory** DB (not the persistent D1), so `bun run dev:cire` shows it
+without a separate seed step. When `CIRE_DEV_OWNER_PROFILE_ID` is set in its
+environment, it hands over the owner seat the same way, through
+`repointDevOwnerSeat` in [`cire/api/src/db/setup.ts`](../../cire/api/src/db/setup.ts).
+
+Both repoints first delete any other seat the profile holds on the sample
+wedding, because a profile holds one seat per wedding. They are two copies of
+one rule — SQL in a shell string in
+[`scripts/cire-db-seed.sh`](../../scripts/cire-db-seed.sh), Drizzle in
+`setup.ts` — so a change to one belongs in the other. Both paths are dev-only:
+neither runs in the deployed Worker (entry `src/index.ts`).
+
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
 
