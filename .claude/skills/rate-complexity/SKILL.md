@@ -51,7 +51,7 @@ in the repository already; the issue body names the file and the fix.
 
 ## Mode A — with the owner (the normal path)
 
-Used by `new-feat` on an issue being opened or picked up.
+Used by `write-issue` on every issue it opens, and by `new-feat` on an unrated issue it picks up.
 
 1. Read the issue body — **only** the body. Not the branch, not the code, not
    the conversation that led to it.

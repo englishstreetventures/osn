@@ -36,7 +36,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - `englishstventures/osn` (public) holds product work, ops, docs and schema.
 - `englishstventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Never link a tracker issue from a public file; state the constraint instead.
 - Each issue carries one `product:` label, an org type (`Feature`, `Bug`, `Task`) and a `complexity:` rating set **before** work starts (the `rate-complexity` skill). The full label scheme is in `wiki/conventions/github-issues-setup.md`; how to file a finding is in `wiki/conventions/review-findings.md`.
-- A body must stand on its own months later: name the file and line, state the fix or what "done" looks like, spell out acronyms, and cite wiki pages by repo path, since a `[[wikilink]]` does not resolve on GitHub.
+- Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
 - When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
 - Never delete an issue; close it.
 

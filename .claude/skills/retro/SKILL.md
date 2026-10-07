@@ -285,10 +285,10 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |
 | A security, performance or compliance defect | `englishstventures/osn-tracker`, and only if `prep-pr` did not already file it | per `wiki/conventions/review-findings.md` |
 
-Every issue carries a `complexity:` rating before work starts — invoke
-`rate-complexity`, or apply `complexity:unconfirmed` on an unattended run. Every
-issue body stands on its own: name the file and line, state the concrete fix,
-spell out what the evidence was. "The retro found this" is not a body.
+Write each issue with the `write-issue` skill, which also rates it through
+`rate-complexity` before work starts (`complexity:unconfirmed` on an unattended
+run). The body spells out what the evidence was; "the retro found this" is not a
+body.
 
 Where the next step needs a choice only the repo owner can make, write what you
 propose, apply `needs:decision`, and move on.

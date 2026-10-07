@@ -2,12 +2,13 @@
 
 Reference for `prep-pr` Step 7. The four fields are Issue / Why / Solution / Rationale, in that order.
 
-```bash
-gh issue create --repo englishstventures/osn-tracker \
-  --title "S-M1 — No rate limit on POST /events/:id/rsvp" \
-  --type Bug \
-  --label "area:security" --label "severity:medium" --label "product:cire" \
-  --body "$(cat <<'EOF'
+Write the body to a scratch file outside the repository first (with the Write
+tool), then pass the file. A heredoc inside `$(…)` is forbidden in this
+repository, and the local shell, fish, has no heredocs at all.
+
+The body file:
+
+```markdown
 **Issue:** `cire/api/src/routes/rsvp.ts:42` — `POST /events/:id/rsvp` has no
 rate limit. Every sibling write route calls `rateLimit()` first; this one does not.
 
@@ -23,6 +24,14 @@ no new mechanism to maintain. Keying on the token, not the IP, is what stops one
 token behind a shared NAT from locking out a whole venue's guests.
 
 Found reviewing `<branch-name>`.
-EOF
-)"
+```
+
+The command:
+
+```bash
+gh issue create --repo englishstventures/osn-tracker \
+  --title "S-M1 — No rate limit on POST /events/:id/rsvp" \
+  --type Bug \
+  --label "area:security" --label "severity:medium" --label "product:cire" \
+  --body-file <path to the body file>
 ```
