@@ -13,6 +13,7 @@ import { heroState, storyState } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
 import { createInviteRetry } from "../../components/invite-retry";
 import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
+import { createHeroFallbackTitle } from "../../components/returning-household";
 import type { HeroDisplay, InviteCustomisation } from "../types";
 
 // The Our Story photo's default display aspect (4∶3) — the shape the box used
@@ -94,6 +95,11 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // Whether to paint the title legibility panel at all (opacity 0 ⇒ none).
   const showTitleBackdrop = () => titleBackdropOpacity() > 0;
 
+  // The title for a hero the organiser gave none: "You're Invited", or
+  // "Welcome back to your invite" once the welcome panel finds a household that
+  // has replied before. The organiser's own title is never replaced.
+  const fallbackTitle = createHeroFallbackTitle();
+
   // Per-section CSS-variable maps. Each only contains the variables the organiser
   // actually set (and that passed validation); an absent variable falls through
   // to the built-in token via the `var(--invite-*, <default>)` fallbacks below,
@@ -110,7 +116,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // Conditional-segment gates. Each section renders only when its visibility
   // switch is on AND it has content. A hero with no image, no title and no
   // subtitle would paint an empty full-screen section (including the built-in
-  // "You're Invited" fallback title), so we render NOTHING for it; the story
+  // fallback title), so we render NOTHING for it; the story
   // hides when its heading, body and image are all absent. Both read the same
   // state functions the organiser builder mirrors for its badges.
   const showHero = () => {
@@ -299,7 +305,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                 // default to one couple's initials.
                 fallback={
                   <span class="font-display text-gold leading-ui-none max-w-full pb-1 text-left text-[calc(clamp(2.75rem,9vw,6.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
-                    You're Invited
+                    {fallbackTitle()}
                   </span>
                 }
               >

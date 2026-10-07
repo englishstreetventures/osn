@@ -24,6 +24,7 @@ import { setExecutionCtx } from "../../src/lib/execution-ctx";
 import { hostCodeService } from "../../src/services/host-code";
 import { eff } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { eventIdsOf, guestNamed } from "../test-helpers/plus-one";
 
 interface FamilyMember {
   guestId: string;
@@ -44,6 +45,7 @@ interface ClaimOk {
   members: FamilyMember[];
   events: ClaimEvent[];
   rsvps: unknown[];
+  householdReplied: boolean;
   rsvpDeadline: unknown;
   closing: { message: string | null };
   faq: { visible: boolean; entries: { question: string; answer: string }[] };
@@ -975,6 +977,37 @@ describe("account-link state on POST /api/claim and GET /api/claim/session", () 
     expect(kept).toHaveLength(1);
     release(true);
     expect(await kept[0]).toBe(true);
+  });
+
+  // The invite greets a household that replied itself as returning. The flag
+  // must reach the wire on both entry points, through either way the payload
+  // is built: with linking on (the member step's branch) and off.
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])("carries householdReplied on both responses with linking %s", async (_, flag) => {
+    const { linkDb, linkApp } = buildApp({ flag });
+    const first = await claim(linkApp, "TESTTWO-OAK-BB22");
+    expect(first.body.householdReplied).toBe(false);
+    expect((await restore(linkApp, first.household)).householdReplied).toBe(false);
+
+    // One reply the household sent itself (the column's default source).
+    const bo = guestNamed(linkDb, "Bo");
+    linkDb
+      .insert(rsvps)
+      .values({
+        id: "rsvp_household",
+        guestId: bo.id,
+        eventId: eventIdsOf(linkDb, bo.id)[0]!,
+        status: "attending",
+        dietary: "",
+        createdAt: new Date(),
+      })
+      .run();
+
+    const again = await claim(linkApp, "TESTTWO-OAK-BB22");
+    expect(again.body.householdReplied).toBe(true);
+    expect((await restore(linkApp, again.household)).householdReplied).toBe(true);
   });
 
   it("reports linking off on both responses while the flag is off", async () => {

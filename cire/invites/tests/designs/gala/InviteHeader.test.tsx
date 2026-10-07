@@ -1,6 +1,7 @@
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+import { setReturningHousehold } from "../../../src/components/returning-household";
 import InviteHeader from "../../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../../src/designs/types";
 
@@ -464,5 +465,55 @@ describe("gala InviteHeader visibility switches (migration 0063)", () => {
     });
     await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
     expect(container.querySelector("section")).toBeNull();
+  });
+});
+
+describe("gala InviteHeader fallback title for a returning household", () => {
+  afterEach(() => {
+    setReturningHousehold(false);
+  });
+
+  function hero(title: string | null): InviteCustomisation {
+    return {
+      hero: { title, subtitle: "Lisbon · 12 June", imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+  }
+
+  it("welcomes back the household the panel found, and goes back once it signs out", async () => {
+    const { getByText, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
+    ));
+    expect(getByText("You're Invited")).toBeTruthy();
+
+    // The welcome panel is another island; it publishes what it found.
+    setReturningHousehold(true);
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy());
+    expect(queryByText("You're Invited")).toBeNull();
+
+    setReturningHousehold(false);
+    await waitFor(() => expect(getByText("You're Invited")).toBeTruthy());
+    expect(queryByText("Welcome back to your invite")).toBeNull();
+  });
+
+  it("welcomes back once mounted when the panel found the household first", async () => {
+    // The panel's island can settle before the hero's; the hero still opens
+    // on the server's words and swaps once it has mounted.
+    setReturningHousehold(true);
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
+    ));
+    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy());
+  });
+
+  it("never replaces the couple's own title", () => {
+    setReturningHousehold(true);
+    const { getByText, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={hero("Anita & Ben")} />
+    ));
+    expect(getByText("Anita & Ben")).toBeTruthy();
+    expect(queryByText("Welcome back to your invite")).toBeNull();
   });
 });

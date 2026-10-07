@@ -3,6 +3,10 @@ import { Suspense, type JSX } from "solid-js";
 import { renderToStringAsync } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  returningHousehold,
+  setReturningHousehold,
+} from "../../src/components/returning-household";
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
 import GalaInviteHeader from "../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../src/designs/types";
@@ -78,6 +82,35 @@ describe.each(packs)("%s InviteHeader, rendered on the server", (_pack, InviteHe
     // the hide on scroll waits for the island.
     expect(html).toContain('data-scroll-cue="shown"');
     expect(html).toContain("animate-scroll-cue");
+  });
+
+  it("serves the first-visit title even when the store says the household is returning", async () => {
+    // The Worker never learns the household, and the store ignores writes
+    // there; force it true to prove the hero's own guard. The hero's first
+    // render must match this HTML, since hydration keeps the server's text.
+    vi.stubGlobal("window", {});
+    setReturningHousehold(true);
+    vi.unstubAllGlobals();
+    expect(returningHousehold()).toBe(true);
+    vi.stubGlobal("fetch", vi.fn());
+
+    try {
+      const html = await serverRender(() => (
+        <InviteHeader
+          apiUrl="https://api.test"
+          slug="anita-and-ben"
+          // No couple title, so the hero draws its fallback.
+          initial={{ ...initial, hero: { title: null, subtitle: "Lisbon", imageUrl: null } }}
+        />
+      ));
+
+      expect(html).toContain("You're Invited");
+      expect(html).not.toContain("Welcome back to your invite");
+    } finally {
+      vi.stubGlobal("window", {});
+      setReturningHousehold(false);
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders no scroll cue when the hero is switched off", async () => {

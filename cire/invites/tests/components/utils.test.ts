@@ -395,6 +395,17 @@ describe("isValidClaimResponse", () => {
   ])("admits a claim carrying %s — the link state can never cost the invite", (_, accountLink) => {
     expect(isValidClaimResponse({ ...validResponse, accountLink })).toBe(true);
   });
+
+  it.each([
+    ["true", true],
+    ["false", false],
+    ["a value this build does not know", "yes"],
+  ])(
+    "admits a claim whose householdReplied is %s — the greeting can never cost the invite",
+    (_, householdReplied) => {
+      expect(isValidClaimResponse({ ...validResponse, householdReplied })).toBe(true);
+    },
+  );
 });
 
 describe("readAccountLink", () => {

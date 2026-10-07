@@ -238,6 +238,14 @@ export interface ClaimResult {
    */
   accountLink?: unknown;
   /**
+   * Whether the household has sent a reply itself, as opposed to only having
+   * replies an organiser recorded for it. A household that has is greeted as
+   * returning. Unproven, like `accountLink`, so a bad value costs the greeting
+   * and never the invite: only `true` counts, and an API that does not send it
+   * reads as a first visit.
+   */
+  householdReplied?: unknown;
+  /**
    * Which household member this session says it is, exactly as it arrived.
    * Present only while the member step is on for the household; `null` until
    * chosen. Unproven, like `accountLink`: read it only through `readMember`,

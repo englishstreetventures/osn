@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1420,
+    "branch": "feat/cire-invite-welcome-back",
+    "base_sha": "006de563e6978fae22897e157fcffe23cb6294e3",
+    "head_sha": "be2ae047f341ec819a82934352ba94adcb93df59",
+    "generated_at": "2026-10-07T13:07:50.139Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1292,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 6,
+    "first_ts": "2026-10-02T05:18:31.324Z",
+    "last_ts": "2026-10-07T13:07:46.329Z",
+    "span_seconds": 460155,
+    "active_seconds": 5523,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 58.65303675000001,
+    "tokens": {
+      "input": 963,
+      "output": 19370,
+      "thinking": 237,
+      "cache_write_5m": 3349736,
+      "cache_write_1h": 0,
+      "cache_read": 102867590
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 55,
+          "output": 12689,
+          "thinking": 0,
+          "cache_write_5m": 151429,
+          "cache_write_1h": 0,
+          "cache_read": 1132825
+        },
+        "usd_equivalent": 1.8303437500000002,
+        "messages": 30
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 6
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 908,
+          "output": 6681,
+          "thinking": 237,
+          "cache_write_5m": 3198307,
+          "cache_write_1h": 0,
+          "cache_read": 101734765
+        },
+        "usd_equivalent": 56.822693000000015,
+        "messages": 447
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 55,
+          "output": 12689,
+          "thinking": 0,
+          "cache_write_5m": 151429,
+          "cache_write_1h": 0,
+          "cache_read": 1132825
+        },
+        "usd_equivalent": 1.8303437500000002,
+        "messages": 31
+      },
+      "subagent": {
+        "tokens": {
+          "input": 908,
+          "output": 6681,
+          "thinking": 237,
+          "cache_write_5m": 3198307,
+          "cache_write_1h": 0,
+          "cache_read": 101734765
+        },
+        "usd_equivalent": 56.822693000000015,
+        "messages": 452
+      }
+    },
+    "effort": {
+      "xhigh": 332,
+      "high": 115
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 13,
+      "docs": 6,
+      "config": 0,
+      "source": 8
+    },
+    "loc": {
+      "generated": {
+        "added": 6,
+        "deleted": 0
+      },
+      "test": {
+        "added": 897,
+        "deleted": 19
+      },
+      "docs": {
+        "added": 128,
+        "deleted": 8
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 191,
+        "deleted": 6
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 406,
+      "Read": 61,
+      "Edit": 55,
+      "Write": 10,
+      "Grep": 10,
+      "Agent": 8,
+      "SubagentHandback": 7,
+      "Skill": 6,
+      "StructuredOutput": 3
+    },
+    "edit_churn": {
+      "files_edited_3plus": 8,
+      "max_edits_one_file": 13
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "general-purpose": 6
+    }
+  }
+}
