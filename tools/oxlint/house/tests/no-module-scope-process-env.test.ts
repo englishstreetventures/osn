@@ -166,7 +166,11 @@ describe("house/no-module-scope-process-env", () => {
 
 // The rule is only worth anything where the root config turns it on. These
 // run oxlint with the repository's own oxlintrc.json, the way `bun run lint`
-// does, against files inside the scoped tree.
+// does, against files inside the scoped tree. Each starts oxlint with the full
+// root config and its JS plugins, and the last lints all of cire/api/src: on a
+// CI runner busy with the rest of the suite that takes about as long as bun's
+// 5 s default, so they carry a 30 s budget and a slow run cannot read as a
+// failing rule.
 describe("house/no-module-scope-process-env, as the repository configures it", () => {
   const rootConfig = join(repoRoot, "oxlintrc.json");
   const workerDirectory = join(repoRoot, "cire/api/src/lib");
@@ -188,16 +192,16 @@ describe("house/no-module-scope-process-env, as the repository configures it", (
     expect(
       ruleHits(lint(rootConfig, repoRoot, "cire/api/src/lib/__house-process-env-probe.ts")),
     ).toHaveLength(1);
-  });
+  }, 30_000);
 
   it("leaves the Bun-only local entry alone", () => {
     expect(ruleHits(lint(rootConfig, repoRoot, "cire/api/src/local.ts"))).toHaveLength(0);
-  });
+  }, 30_000);
 
   it("finds nothing in the committed cire Worker source", () => {
     const hits = ruleHits(lint(rootConfig, repoRoot, "cire/api/src")).filter(
       (d) => !d.filename.endsWith("__house-process-env-probe.ts"),
     );
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 });

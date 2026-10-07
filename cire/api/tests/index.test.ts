@@ -567,6 +567,13 @@ describe("D1 session routing at the entry points", () => {
     return { pending, probe };
   };
 
+  // A cron run takes every scheduled sweep through Miniflare's D1 proxy, where
+  // each prepare and bind is a blocking round trip to workerd. That is seconds,
+  // not milliseconds, on a CI runner busy with the rest of the suite, so every
+  // test below that calls `runCron` carries a 30 s budget rather than bun's 5 s
+  // default. A timeout here is worse than a failure: bun kills workerd, and the
+  // next blocking call waits on it forever, so `bun test` never exits.
+
   it("gives each scheduled sweep its own session", async () => {
     // One session per sweep — deliberately NOT one shared by all of them.
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
@@ -577,7 +584,7 @@ describe("D1 session routing at the entry points", () => {
     expect(pending).toHaveLength(10);
     expect(probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
-  });
+  }, 30_000);
 
   it("gives the wedding purge a session of its own", async () => {
     // The purge's candidate reads are the only cron queries that compare
@@ -592,7 +599,7 @@ describe("D1 session routing at the entry points", () => {
     const statements = purge[0]!.filter((q) => !q.startsWith("bind:") && !q.startsWith("batch:"));
     expect(statements).toHaveLength(2);
     expect(statements.every((q) => q.includes('"weddings"'))).toBe(true);
-  });
+  }, 30_000);
 
   it("gives the cire-sheets reconciliation a session of its own: a live sample read first, then one lookup", async () => {
     // The reconciler's reads must open a session of their own, so the first of
@@ -640,7 +647,7 @@ describe("D1 session routing at the entry points", () => {
     } finally {
       await DB.prepare("DELETE FROM weddings WHERE id = ?").bind("wed_sheets_cron").run();
     }
-  });
+  }, 30_000);
 
   it.each([
     ["a list call fails", { list: () => Promise.reject(new Error("r2 down")) }, "list failed"],
@@ -669,6 +676,7 @@ describe("D1 session routing at the entry points", () => {
       expect(logs).toContain("scheduled cire-sheets reconciliation failed");
       expect(logs).toContain(reason);
     },
+    30_000,
   );
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
@@ -684,7 +692,7 @@ describe("D1 session routing at the entry points", () => {
     // Either half missing: no digest.
     expect((await runCron(mail)).pending).toHaveLength(10);
     expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(10);
-  });
+  }, 30_000);
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
     // A cron-only isolate never runs the `fetch` check, and the digest builds
@@ -702,5 +710,5 @@ describe("D1 session routing at the entry points", () => {
     });
     expect(result?.pending).toHaveLength(10);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
-  });
+  }, 30_000);
 });
