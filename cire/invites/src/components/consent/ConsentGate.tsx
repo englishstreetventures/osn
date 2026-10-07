@@ -38,10 +38,11 @@ interface ConsentGateProps {
  * written it one. Consent lived wherever someone had remembered to put it.
  *
  * Note what the wrapper does and does not guarantee. The `embeds` category is
- * OPT-OUT (see `lib/consent/categories.ts`), so wrapping an embed does not stop
- * it loading for an undecided guest — it makes the embed *governed*: listed in
- * the preferences dialog, named in the privacy notice, and switchable off for
- * good. The old arrangement could offer that for Pinterest and nothing else.
+ * off until the guest allows it (see `lib/consent/categories.ts`), so wrapping
+ * an embed keeps it from loading for an undecided guest, and makes it
+ * *governed*: listed in the preferences dialog, named in the privacy notice,
+ * and switchable off again for good. The old arrangement could offer that for
+ * Pinterest and nothing else.
  *
  * Children are not rendered — not hidden — while the category is off, so a
  * gated component's `onMount`/`createEffect` never runs and no request can
@@ -55,7 +56,7 @@ export function ConsentGate(props: ConsentGateProps) {
   // depending on a banner having mounted first, so an embed behaves correctly
   // on any page — including one that never shows the banner because the guest
   // already decided. Until this runs the store sits at the required-only floor,
-  // so a stored refusal is never briefly overridden by the opt-out default.
+  // so a stored refusal is never briefly overridden by a default.
   onMount(hydrateConsent);
 
   // Which vendor's code this gate actually ran decides whether a later refusal
@@ -84,9 +85,9 @@ export function ConsentGate(props: ConsentGateProps) {
  * The standard blocked-content notice: what would be here, who it comes from,
  * and two ways to act on it.
  *
- * Under the opt-out defaults this is almost always the result of a deliberate
- * refusal rather than an un-answered question, so the copy explains what the
- * guest is currently not seeing and offers the way back — it does not nag. Both
+ * It shows both to a guest who refused and to one who has not answered yet,
+ * so the copy says what the guest is not seeing and how to allow it, without
+ * claiming which of the two they are — and it does not nag. Both
  * routes are offered on purpose: "Allow" turns just this category back on, so a
  * guest who changes their mind about the moodboard isn't sent through a settings
  * dialog to get it; "privacy choices" opens the full picture for the guest who
@@ -109,8 +110,8 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
         </Show>
       </p>
       <p class="font-body text-text-muted/80 text-ui-xs mt-1.5 leading-relaxed">
-        It's switched off because you turned off {categoryTitle()}. It loads from {vendorName()}'s
-        servers, which lets them see your IP address and browser.
+        It's switched off until you allow {categoryTitle()}. It loads from {vendorName()}'s servers,
+        which lets them see your IP address and browser.
       </p>
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <Button variant="cta" size="sm" type="button" onClick={() => grantCategory(props.category)}>

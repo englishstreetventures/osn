@@ -117,16 +117,28 @@ describe("PinterestBoard", () => {
     expect(scriptHandle.all()).toHaveLength(0);
   });
 
-  it("loads the embed by default — third-party content is opt-out", () => {
-    // No consent cookie. The moodboard is content the couple put in the invite,
-    // and the banner's job is to say it is loading and offer the off switch.
+  it("injects nothing before the guest allows it, and offers the placeholder and the link", () => {
+    // No consent cookie. Pinterest's script sees the guest's IP address,
+    // browser and behaviour, so it waits for the guest's yes; meanwhile the
+    // moodboard is still one tap away through the outbound link.
+    const { container } = render(() => (
+      <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />
+    ));
+
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+    expect(container.textContent ?? "").toContain("Allow third-party content");
+    expect(fallbackLink(container)).toBeDefined();
+  });
+
+  it("loads the embed, and holds the link back, once the guest has allowed it", () => {
+    seedConsentForTest({ embeds: true });
     const { container } = render(() => (
       <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />
     ));
 
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(scriptHandle.all()).toHaveLength(1);
-
     // The board is on its way, so the fallback link is held back.
     expect(fallbackLink(container)).toBeUndefined();
   });
@@ -620,10 +632,11 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
     expect(fallbackLink(container)).toBeDefined();
   });
 
-  it("loads the embed by default on touch too (opt-out applies on every device)", () => {
+  it("injects nothing before the guest allows it on touch too", () => {
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(scriptHandle.all()).toHaveLength(1);
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+    expect(fallbackLink(container)).toBeDefined();
   });
 
   it("injects the tracker + mounts the embed anchor on consent (touch)", () => {

@@ -43,22 +43,21 @@ const buttonOf = (root: HTMLElement, label: string) =>
  * root: the banner's `<section>` or the prompt's `<dialog>`.
  */
 function sharedPromptContract(mount: () => HTMLElement) {
-  it("tells the guest third-party content is ALREADY on, and names who gets the data", () => {
-    // Under opt-out the map and moodboard are loading by the time this is read.
-    // A prompt that asked "may we?" while the request had already gone would be
-    // the worst of both postures: no prior consent AND a misleading account of it.
+  it("tells the guest third-party content stays off until they allow it, and names who gets the data", () => {
+    // Nothing of Google's or Pinterest's loads before the guest says yes, and
+    // the prompt says so — naming both companies and what they would see.
     const text = mount().textContent ?? "";
 
     expect(text).toContain("Google");
     expect(text).toContain("Pinterest");
-    expect(text.toLowerCase()).toContain("switched on");
-    expect(text.toLowerCase()).toContain("turn it off");
+    expect(text).toContain("IP address");
+    expect(text.toLowerCase()).toContain("stay off until you allow them");
   });
 
-  it("names the answer that turns it off, since that answer's label says 'Accept'", () => {
-    // The copy promises an off switch; the control that is one reads "Accept
-    // necessary". Naming it in the sentence leaves no working-out to the guest.
-    expect(mount().querySelector("p")?.textContent).toContain("“Accept necessary”");
+  it("names the answer that allows it", () => {
+    // The highlighted answer keeps it off; the copy says which one turns it on,
+    // so neither label needs working out.
+    expect(mount().querySelector("p")?.textContent).toContain("“Accept all”");
   });
 
   it("links to both legal pages from the prompt itself", () => {
@@ -300,10 +299,10 @@ describe("ConsentPreferences dialog", () => {
     expect(necessary.disabled).toBe(true);
   });
 
-  it("shows an undecided guest what is ACTUALLY loading, not a row of empty boxes", () => {
-    // Opt-out: third-party content and preferences are already on, so their
-    // toggles must be ticked. A dialog showing `embeds` unticked while the
-    // venue map was on screen would be describing a state the site isn't in.
+  it("shows an undecided guest what is ACTUALLY loading", () => {
+    // Preferences are first-party and on by default, so ticked; third-party
+    // content waits for the guest to allow it, so unticked. A toggle that
+    // disagreed with what the page loads would describe a state it isn't in.
     const panel = dialog()!;
     const embeds = panel.querySelector<HTMLInputElement>(
       "#" + cssEscape(labelledInputId(panel, "Third-party content")),
@@ -311,7 +310,7 @@ describe("ConsentPreferences dialog", () => {
     const preferences = panel.querySelector<HTMLInputElement>(
       "#" + cssEscape(labelledInputId(panel, "Preferences")),
     )!;
-    expect(embeds.checked).toBe(true);
+    expect(embeds.checked).toBe(false);
     expect(preferences.checked).toBe(true);
   });
 
@@ -335,24 +334,25 @@ describe("ConsentPreferences dialog", () => {
   });
 
   it("persists exactly the categories left switched on when Save is pressed", () => {
-    // Start from the opt-out defaults (embeds + preferences on, analytics off),
-    // switch embeds OFF and analytics ON, and save. Both directions must stick.
+    // Start from the defaults (preferences on, embeds and analytics off),
+    // switch embeds ON and preferences OFF, and save. Both directions must
+    // stick.
     const panel = dialog()!;
     const embeds = panel.querySelector<HTMLInputElement>(
       "#" + cssEscape(labelledInputId(panel, "Third-party content")),
     )!;
-    const analytics = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Analytics")),
+    const preferences = panel.querySelector<HTMLInputElement>(
+      "#" + cssEscape(labelledInputId(panel, "Preferences")),
     )!;
     fireEvent.click(embeds);
-    fireEvent.click(analytics);
+    fireEvent.click(preferences);
     fireEvent.click(within(panel).getByText("Save choices"));
 
     const grants = readConsentFromDocument()!.grants;
-    expect(grants.embeds).toBe(false);
-    expect(grants.analytics).toBe(true);
+    expect(grants.embeds).toBe(true);
+    expect(grants.functional).toBe(false);
     // Untouched toggles keep their default.
-    expect(grants.functional).toBe(true);
+    expect(grants.analytics).toBe(false);
   });
 
   it("lists the vendors each switch actually governs", () => {

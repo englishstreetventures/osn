@@ -229,10 +229,26 @@ describe("MapPreview", () => {
   describe("with PUBLIC_GOOGLE_MAPS_EMBED_KEY configured, no decision made yet", () => {
     const KEY = "test-embed-key";
 
-    it("DOES render the embed — third-party content is on by default (opt-out)", () => {
-      // No consent cookie at all. Under the opt-out defaults the map is part of
-      // the invite from the first visit; the banner tells the guest it is on and
-      // offers the off switch, rather than asking first.
+    it("makes NO request to Google before the guest has allowed third-party content", () => {
+      // No consent cookie at all. The map loads from Google, which then sees
+      // the guest's IP address and browser, so it waits for the guest's yes.
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { container } = render(() => <MapPreview event={baseEvent} />);
+
+      expect(container.querySelector("iframe")).toBeNull();
+    });
+
+    it("shows the CSS map card meanwhile, with the venue and its maps link", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { getByRole, getByText } = render(() => <MapPreview event={baseEvent} />);
+
+      expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
+      const link = getByRole("link") as HTMLAnchorElement;
+      expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
+    });
+
+    it("renders the embed once the guest has allowed it", () => {
+      seedConsentForTest({ embeds: true });
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
       const { container } = render(() => <MapPreview event={baseEvent} />);
 
@@ -240,8 +256,8 @@ describe("MapPreview", () => {
     });
 
     it("still renders nothing when no key is configured", () => {
-      // The default only removes the consent condition; the key condition is
-      // independent and still gates the iframe.
+      // The key condition is independent of consent and still gates the
+      // iframe.
       const { container } = render(() => <MapPreview event={baseEvent} />);
       expect(container.querySelector("iframe")).toBeNull();
     });
@@ -253,8 +269,7 @@ describe("MapPreview", () => {
     beforeEach(() => seedConsentForTest({ embeds: false }));
 
     it("makes NO request to Google once the guest has switched it off", () => {
-      // The refusal has to beat the permissive default. A stored "no" and an
-      // absent record must never collapse into the same state.
+      // A stored "no" holds on every later visit.
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
       const { container } = render(() => <MapPreview event={baseEvent} />);
 

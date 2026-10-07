@@ -135,8 +135,12 @@ describe.each([
       const rect = link.getBoundingClientRect();
       expect(rect.top).toBeGreaterThanOrEqual(0);
       expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
-      const point = visibleCentre(rect);
-      expect(link.contains(document.elementFromPoint(point.x, point.y))).toBe(true);
+      // Every line box of the link, since the copy can wrap it across two —
+      // and the centre of the whole box then lands between them.
+      for (const line of link.getClientRects()) {
+        const point = visibleCentre(line);
+        expect(link.contains(document.elementFromPoint(point.x, point.y))).toBe(true);
+      }
     }
   });
 });

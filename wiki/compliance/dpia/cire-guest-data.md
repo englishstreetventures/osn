@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # DPIA — Cire guest data
@@ -186,9 +186,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   - **Not the cookie-consent framework.** Moving this into the site-wide
     consent framework (`cire/invites/src/lib/consent/`, see
     [[cire-consent]]) was considered and rejected. That framework is an
-    ePrivacy cookie instrument: category-level granularity, opt-out defaults
-    for `embeds` and `functional`, and a client-writable cookie the guest can
-    clear. None of those can carry Art. 9(2)(a) *explicit* consent specific to
+    ePrivacy cookie instrument: category-level granularity, a default that
+    applies before the guest decides (on for first-party `functional`), and a
+    client-writable cookie the guest can clear. None of those can carry Art. 9(2)(a) *explicit* consent specific to
     a named purpose, satisfy the Art. 7(1) duty to demonstrate it, or express
     per-guest consent from a per-browser store — and the organiser-attested
     path has no guest browser at all.
@@ -325,7 +325,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |
 | Guest data in operator logs | Low | Medium | `@cire/api` has no redacted logger yet (C-M2); deny-list is the interim guard for cross-service logs only. |
-| Third-party (Pinterest) exposure of guest IP/UA/behaviour | Low | Low–Medium | Consent-gated under the site-wide `embeds` category (opt-out, persisted), on every device; an outbound link replaces the board whenever it is not showing — refused, blocked or timed out; DPA/transfer basis TODO ([[subprocessors]]). |
+| Third-party (Pinterest) exposure of guest IP/UA/behaviour | Low | Low–Medium | Consent-gated under the site-wide `embeds` category (off until allowed, persisted), on every device; an outbound link replaces the board whenever it is not showing — refused, blocked or timed out; DPA/transfer basis TODO ([[subprocessors]]). |
 
 ## 4. Mitigations
 

@@ -28,9 +28,11 @@ describe("defaultGrants — the floor", () => {
   });
 });
 
-describe("preDecisionGrants — the opt-out defaults", () => {
-  it("switches third-party content and preferences ON for an undecided guest", () => {
-    expect(preDecisionGrants().embeds).toBe(true);
+describe("preDecisionGrants — what applies before the guest decides", () => {
+  it("keeps third-party content OFF and first-party preferences on for an undecided guest", () => {
+    // Pinterest and Google see the guest's IP address and browser the moment
+    // their embed loads, so nothing of theirs loads until the guest allows it.
+    expect(preDecisionGrants().embeds).toBe(false);
     expect(preDecisionGrants().functional).toBe(true);
     expect(preDecisionGrants().necessary).toBe(true);
   });
@@ -235,19 +237,21 @@ describe("decodeConsentRecord — inputs it must refuse to trust", () => {
 });
 
 describe("isGranted", () => {
-  it("falls back to the opt-out defaults for a null record", () => {
-    expect(isGranted(null, "embeds")).toBe(true);
+  it("falls back to the pre-decision defaults for a null record", () => {
+    expect(isGranted(null, "embeds")).toBe(false);
     expect(isGranted(null, "functional")).toBe(true);
     expect(isGranted(null, "necessary")).toBe(true);
     expect(isGranted(null, "analytics")).toBe(false);
   });
 
-  it("honours an explicit refusal over the permissive default", () => {
-    // The distinction the opt-out posture turns on: "never asked" allows
-    // embeds, "asked and refused" does not, and the two must never collapse.
+  it("honours an explicit refusal over the default, which still differ", () => {
+    // "Never asked" and "asked and refused" stay distinct states: preferences
+    // apply to the first and not to the second.
     const refused = makeConsentRecord(defaultGrants(), NOW);
+    expect(isGranted(refused, "functional")).toBe(false);
+    expect(isGranted(null, "functional")).toBe(true);
     expect(isGranted(refused, "embeds")).toBe(false);
-    expect(isGranted(null, "embeds")).toBe(true);
+    expect(isGranted(null, "embeds")).toBe(false);
   });
 
   it("reads the stored decision when there is one", () => {

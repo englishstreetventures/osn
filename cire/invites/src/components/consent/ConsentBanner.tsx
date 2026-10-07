@@ -49,30 +49,25 @@ interface ConsentBannerProps {
  * to their invite. The trade is that a first-time guest sees it appear a tick
  * after paint rather than in the server-rendered HTML — acceptable, because
  * nothing third-party loads in that tick either: gates sit at the
- * required-only floor until the same hydration completes, whatever the
- * opt-out defaults say.
+ * required-only floor until the same hydration completes.
  *
  * A page the browser brings back from its back/forward cache reads the cookie
  * again, because the guest may have answered on the page they are coming back
  * from — the privacy notice, most likely, which the prompt links to.
  *
- * ## The prompt has to be honest that things are already on
+ * ## The prompt says what is off, and what turns it on
  *
- * The optional categories are opt-out (see `lib/consent/categories.ts`), so by
- * the time a guest reads this prompt the venue map and the moodboard are
- * already allowed to load. The copy therefore states that plainly and names the
- * two companies, rather than asking a question whose answer has been assumed.
- * A prompt that said "may we?" while the request had already gone would be the
- * worst of both postures: no prior consent AND a misleading account of it.
+ * Third-party content waits for the guest's yes (see
+ * `lib/consent/categories.ts`): nothing of Google's or Pinterest's loads before
+ * an answer. The copy names the two companies and what they would see, says
+ * the content stays off until allowed, and names the answer that allows it.
  *
  * ## The three actions
  *
  * "Accept necessary" — required storage only, everything optional off — is
  * the highlighted answer and comes first; "Accept all" and "Choose" sit beside
  * it, plainer. Refusing is never harder or quieter than accepting here: it is
- * the easiest thing on the prompt. Under opt-out that matters more, not less —
- * the off switch is the only thing a guest who disagrees with the default
- * actually has.
+ * the easiest thing on the prompt.
  */
 export function ConsentBanner(props: ConsentBannerProps) {
   onMount(hydrateConsent);
@@ -233,9 +228,9 @@ function PromptCopy(props: { id?: string }) {
   return (
     <p id={props.id} class="font-body text-text-muted text-ui-sm leading-relaxed">
       We use a little storage to keep you signed in to your invite. Some parts — the venue map and
-      the Pinterest moodboard — are loaded from Google and Pinterest, who can see your IP address
-      and browser. That's switched on. To turn it off, choose “Accept necessary”; you can change it
-      any time from the footer.{" "}
+      the Pinterest moodboard — load from Google and Pinterest, who can see your IP address and
+      browser, so they stay off until you allow them. “Accept all” turns them on; you can change
+      this any time from the footer.{" "}
       <a href="/privacy" class="text-gold-ink underline underline-offset-2">
         Privacy notice
       </a>

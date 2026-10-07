@@ -36,11 +36,11 @@ import { vendorById } from "./vendors";
  * produce different HTML on server and client and risk Solid mis-patching the
  * hydrated tree.
  *
- * Note the floor — not the opt-out defaults — is what applies during that tick,
- * even though optional categories are on by default. `record() === null` means
- * two different things depending on whether hydration has run ("we haven't
- * looked yet" vs "we looked, and there's nothing"), and only the second may
- * resolve to the permissive defaults. {@link isCategoryGranted} is where that
+ * Note the floor — not the pre-decision defaults — is what applies during that
+ * tick, even though first-party preferences are on by default. `record() ===
+ * null` means two different things depending on whether hydration has run ("we
+ * haven't looked yet" vs "we looked, and there's nothing"), and only the second
+ * may resolve to the pre-decision defaults. {@link isCategoryGranted} is where that
  * distinction is enforced.
  */
 
@@ -108,10 +108,10 @@ export const consentHydrated = hydrated;
 /**
  * Is `category` granted right now?
  *
- * Before hydration this is the FLOOR (required only) — not the opt-out
- * defaults. The optional categories are on by default for a guest who hasn't
- * decided, but we do not know whether this guest is that guest until the cookie
- * has been read: they may have refused. Holding at the floor for that one tick
+ * Before hydration this is the FLOOR (required only) — not the pre-decision
+ * defaults. First-party preferences are on by default for a guest who hasn't
+ * decided, but we do not know whether this guest is that guest until the
+ * cookie has been read: they may have refused. Holding at the floor for that one tick
  * is what stops a refusal being briefly ignored on every page load. After
  * hydration, a `null` record resolves through `isGranted` to
  * {@link preDecisionGrants}.
@@ -234,10 +234,9 @@ export function noteGatedContentLoaded(category: ConsentCategory, vendorId: stri
  * an embed that runs inside its own iframe that is a full teardown. For one
  * whose script ran in this page, it only stops FURTHER requests: the globals
  * it set, the listeners it attached and the timers it started stay live for
- * the rest of the visit. Under the opt-out defaults that is what a guest who
- * opened an event's details sheet and later switches a category off from the
- * preferences dialog has: the embeds loaded by default, so a third-party
- * context is already running when they refuse.
+ * the rest of the visit. That is what a guest who allowed third-party content,
+ * opened an event's details sheet and later switches it off has: a third-party
+ * context is already running when they withdraw.
  *
  * The only clean teardown for that is a reload. It stops the vendor's code; it
  * does not clear storage the vendor already wrote. It is gated on three
@@ -254,7 +253,8 @@ export function noteGatedContentLoaded(category: ConsentCategory, vendorId: stri
  *     reload on an unpersisted refusal would throw the choice away on the very
  *     reload meant to enforce it, which is worse than the bug being fixed:
  *     the guest would watch the page reload believing they had just refused,
- *     and land back on the opt-out defaults with no record of having tried.
+ *     and land back on the pre-decision defaults with no record of having
+ *     tried.
  */
 export function saveConsent(grants: ConsentGrants): void {
   const previous = currentGrants();
@@ -287,13 +287,12 @@ export function rejectAllConsent(): void {
 
 /**
  * The grants to seed the preferences dialog's toggles with: the guest's stored
- * choice if they have one, the opt-out defaults if they don't.
+ * choice if they have one, the pre-decision defaults if they don't.
  *
  * Seeding an undecided guest's dialog from {@link preDecisionGrants} rather
  * than the floor is what makes the toggles TRUE — they show what is actually
- * loading right now, which is the only reading of a checkbox that isn't
- * misleading. A dialog that showed `embeds` unticked while the map was on
- * screen would be describing a state the site is not in.
+ * in effect right now, which is the only reading of a checkbox that isn't
+ * misleading: first-party preferences ticked, third-party content not.
  */
 export function currentGrants(): ConsentGrants {
   return record()?.grants ?? preDecisionGrants();

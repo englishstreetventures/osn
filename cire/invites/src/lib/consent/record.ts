@@ -37,9 +37,9 @@ export type ConsentGrants = Record<ConsentCategory, boolean>;
  * `null` (no record) means unasked; a record with every optional grant `false`
  * means refused, and is a decision we are obliged to keep honouring.
  *
- * Under the opt-out defaults those two states also differ in what they ALLOW —
- * unasked permits `embeds`, refused does not — which makes conflating them a
- * privacy bug rather than merely a UX one. Three distinct grant maps exist for
+ * The two states also differ in what they ALLOW — unasked permits first-party
+ * preferences, refused does not — which is one more reason they must never be
+ * conflated. Three distinct grant maps exist for
  * that reason: {@link defaultGrants} (the floor), {@link preDecisionGrants}
  * (unasked), and {@link allGrants} (accept-all).
  */
@@ -57,7 +57,7 @@ export interface ConsentRecord {
  * THE FLOOR: required categories on, everything else off.
  *
  * Two distinct jobs, both of which must stay at the floor no matter what the
- * opt-out defaults say:
+ * pre-decision defaults say:
  *
  *  1. What "Accept necessary" writes. A refusal means required-only,
  *     always.
@@ -67,8 +67,8 @@ export interface ConsentRecord {
  *     state is the floor, not {@link preDecisionGrants}.
  *
  * This used to double as the no-decision state too. It no longer does — see
- * {@link preDecisionGrants}. Conflating them is what would turn "we default
- * embeds on" into "we also ignore refusals for a few milliseconds".
+ * {@link preDecisionGrants}. Conflating them is what would turn "preferences
+ * are on by default" into "we also ignore refusals for a few milliseconds".
  */
 export function defaultGrants(): ConsentGrants {
   return Object.fromEntries(
@@ -77,12 +77,12 @@ export function defaultGrants(): ConsentGrants {
 }
 
 /**
- * What applies to a guest who has been shown the banner but has not decided.
+ * What applies to a guest who has been shown the prompt but has not decided.
  *
- * Opt-out: `embeds` and `functional` are on here, `analytics` is not (see the
- * `defaultGranted` discussion in `categories.ts`). Distinct from
+ * First-party `functional` is on here; `embeds` and `analytics` are not (see
+ * the `defaultGranted` discussion in `categories.ts`). Distinct from
  * {@link defaultGrants} in both directions — it is more permissive than the
- * reject-all floor, and it must never be substituted for the pre-hydration
+ * refusal floor, and it must never be substituted for the pre-hydration
  * state, where we do not yet know whether a refusal is on file.
  */
 export function preDecisionGrants(): ConsentGrants {
@@ -195,7 +195,7 @@ export function decodeConsentRecord(raw: string | null | undefined): ConsentReco
  * Is `category` granted by this record?
  *
  * A `null` record — never asked, or one we refused to trust — falls back to
- * {@link preDecisionGrants}, i.e. the opt-out defaults. Callers that have not
+ * {@link preDecisionGrants}, the pre-decision defaults. Callers that have not
  * yet READ the stored record must not use this path; see `store.ts`, which
  * holds the pre-hydration state at the floor instead.
  */

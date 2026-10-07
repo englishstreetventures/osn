@@ -52,9 +52,26 @@ describe("ConsentGate", () => {
     expect(queryByTestId("gated")).toBeNull();
   });
 
-  it("DOES construct its children for a category that is on by default", () => {
-    // `embeds` is opt-OUT: an undecided guest gets the content, and the banner
-    // tells them so. This is the behaviour the whole posture rests on.
+  it("does NOT construct its children for an undecided guest: embeds wait to be allowed", () => {
+    // Third-party content is off until the guest allows it. An undecided guest
+    // gets the fallback, and no vendor request can escape before they choose.
+    const { Child, mounted } = makeSpyChild();
+    const { queryByTestId } = render(() => (
+      <ConsentGate category="embeds" vendor="pinterest">
+        <Child />
+      </ConsentGate>
+    ));
+
+    expect(mounted).not.toHaveBeenCalled();
+    expect(queryByTestId("gated")).toBeNull();
+    // ...and the default applies WITHOUT fabricating a decision. If rendering
+    // wrote a record the prompt would stop appearing and the guest would lose
+    // the chance to choose.
+    expect(readConsentFromDocument()).toBeNull();
+  });
+
+  it("DOES construct its children once the guest has allowed the category", () => {
+    seedConsentForTest({ embeds: true });
     const { Child, mounted } = makeSpyChild();
     const { getByTestId } = render(() => (
       <ConsentGate category="embeds" vendor="pinterest">
@@ -64,10 +81,6 @@ describe("ConsentGate", () => {
 
     expect(mounted).toHaveBeenCalledTimes(1);
     expect(getByTestId("gated")).toBeTruthy();
-    // ...and the default applies WITHOUT fabricating a decision. If rendering
-    // wrote a record the banner would stop appearing and the guest would lose
-    // the chance to refuse.
-    expect(readConsentFromDocument()).toBeNull();
   });
 
   it("does not construct its children when the guest refused", () => {
@@ -271,8 +284,8 @@ describe("ConsentGate", () => {
     expect(queryByTestId("gated")).toBeNull();
   });
 
-  it("holds at the FLOOR before hydration, even for an opt-out category", () => {
-    // The subtle one. `embeds` is on by default, but "on by default" only
+  it("holds at the FLOOR before hydration, even for a category on by default", () => {
+    // The subtle one. `functional` is on by default, but "on by default" only
     // applies once we have READ the cookie and found no decision. Before that
     // we do not know whether this guest refused, so the gate must deny — a
     // refusal that were ignored for one tick on every page load would be a
@@ -281,10 +294,11 @@ describe("ConsentGate", () => {
     // A render() can't observe this directly (onMount hydrates immediately), so
     // this asserts the store contract the gate depends on.
     resetConsentStoreForTest();
-    expect(isCategoryGranted("embeds")).toBe(false);
+    expect(isCategoryGranted("functional")).toBe(false);
     expect(isCategoryGranted("necessary")).toBe(true);
 
     hydrateConsent();
-    expect(isCategoryGranted("embeds")).toBe(true);
+    expect(isCategoryGranted("functional")).toBe(true);
+    expect(isCategoryGranted("embeds")).toBe(false);
   });
 });

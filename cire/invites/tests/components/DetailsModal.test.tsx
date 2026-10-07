@@ -159,7 +159,7 @@ describe("DetailsModal", () => {
  * shared store. If the defaults, the gate and the hydration order ever disagree,
  * this is where it shows up.
  */
-describe("DetailsModal — third-party embeds are on by default", () => {
+describe("DetailsModal — third-party embeds wait for the guest's yes", () => {
   const MAPS_KEY = "test-embed-key";
   const PINTEREST_URL =
     "https://www.pinterest.com.au/pcvmpasupati/catholic-wedding-guest-moodboard/";
@@ -188,7 +188,23 @@ describe("DetailsModal — third-party embeds are on by default", () => {
     resetConsentForTest();
   });
 
-  it("renders BOTH the Google map and the Pinterest board for a guest with no consent cookie", () => {
+  it("loads NEITHER the Google map nor the Pinterest board for a guest with no consent cookie", () => {
+    const { container, getByText } = renderModal(richEvent);
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(trackerScript()).toBeNull();
+    // What stands in for them: the CSS map card naming the venue, and the
+    // moodboard's own placeholder and link-out.
+    expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
+    expect(container.textContent ?? "").toContain("Allow third-party content");
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[href="' + PINTEREST_URL + '"]'),
+    ).not.toBeNull();
+  });
+
+  it("renders BOTH once the guest has allowed third-party content", () => {
+    seedConsentForTest({ embeds: true });
     const { container } = renderModal(richEvent);
 
     // The venue map: a live Google Maps Embed iframe, not the CSS fallback card.

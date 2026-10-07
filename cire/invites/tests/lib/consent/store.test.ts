@@ -65,19 +65,16 @@ describe("saveConsent — reload on granted → revoked", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("reloads on the FIRST-EVER decision, when the embeds already ran", () => {
-    // A guest who opened an event's details sheet — mounting the moodboard or
-    // the map under the opt-out default — and only then pressed "Accept
-    // necessary". Third-party code really did run, so there really is
-    // something to clear.
+  it("does not reload on a FIRST-EVER refusal: no embed can have run before it", () => {
+    // Third-party content is off until the guest allows it, so an undecided
+    // guest's gates never rendered an embed and there is nothing to clear.
     resetConsentForTest();
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
     setReloadPageForTest(reload);
 
     rejectAllConsent();
 
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
   });
 
   // The reload exists to tear down code that already ran, and on the COMMON

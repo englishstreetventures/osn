@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-07
+last-reviewed: 2026-10-08
 ---
 # Site-wide consent framework
 
@@ -27,10 +27,9 @@ un-gated by default.
 The framework fixes the structural problem rather than the Pinterest-shaped
 symptom: every third party is governed by one wrapper and declared in one
 registry, so a new embed either goes through the gate or is a visible, deliberate
-omission. Note this is about *control*, not about the answer — the defaults are
-opt-out (below), so a wrapped embed does load for an undecided guest. What the
-wrapper guarantees is that the guest can see it listed and switch it off, which
-the old arrangement could not offer for anything but Pinterest.
+omission. A wrapped embed waits for the guest's yes (see the defaults below),
+and stays listed where the guest can switch it off again — which the old
+arrangement could not offer for anything but Pinterest.
 
 ## The model
 
@@ -51,46 +50,47 @@ preferences dialog and so could never be withdrawn.
 There is deliberately **no `marketing` / `advertising` category**. We don't do
 it, and an unused toggle is a claim we'd have to keep true.
 
-## Defaults: opt-out, except analytics
+## Defaults: first-party only until the guest decides
 
 | Category | Applies before a decision? |
 |---|---|
 | `necessary` | yes (locked) |
 | `functional` | **yes** |
-| `embeds` | **yes** |
+| `embeds` | no |
 | `analytics` | no |
 
-`embeds` and `functional` are **opt-out**: they apply to a guest who hasn't
-decided, and the first-layer prompt's job is to say so and offer the off switch. That is a
-product decision for a private wedding invite — the venue map and the moodboard
-are content the couple put there for their guests — and it sits within the
-Australian framing the privacy notice sets out. It is **not** the ePrivacy
-posture for EU/UK visitors, who are entitled to prior consent. A known, accepted
-trade, recorded here so nobody later mistakes it for an oversight. Reversing it
-is one `defaultGranted` field in `categories.ts` plus two paragraphs of copy.
+Only first-party storage applies to a guest who hasn't decided: `functional`,
+whose data never leaves the browser. **`embeds` is off until the guest allows
+it.** The venue map and the moodboard load from Google's and Pinterest's
+servers, which see the guest's IP address and browser the moment they load, so
+nothing of theirs loads before the guest's yes — prior consent, the ePrivacy
+posture for EU and UK visitors, applied to every guest. The prompt holds the
+invite's pages until it is answered, so in practice the guest decides on the
+first visit. Before then, and after a refusal, the map's place is taken by the
+CSS map card (venue named, maps link out) and the moodboard's by the standard
+placeholder and the outbound "View moodboard on Pinterest" link.
 
-`analytics` stays opt-in regardless, and the asymmetry is the point: nothing
-uses that category today, so a default couldn't be *informed* about anything. An
-analytics tag added later must not inherit consent from guests who were never
-told it existed.
+`analytics` is off as well: nothing uses that category today, so a default
+couldn't be *informed* about anything. An analytics tag added later must not
+inherit consent from guests who were never told it existed.
 
 ### Three grant maps, and why they can't be collapsed
 
 | Function | Meaning |
 |---|---|
 | `defaultGrants()` | **The floor.** Required only. What "Accept necessary" writes, AND what applies before the cookie has been read. |
-| `preDecisionGrants()` | **Unasked.** The opt-out defaults above. |
+| `preDecisionGrants()` | **Unasked.** The defaults above: `functional` on, everything third-party off. |
 | `allGrants()` | Everything. What "Accept all" writes. |
 
 Two traps this separation exists to avoid:
 
-1. **Refused ≠ unasked.** Under opt-in these were the same effective state, so
-   one function served both. Under opt-out they differ in what they *allow*, so
-   collapsing them would silently re-enable embeds for a guest who switched them
-   off.
+1. **Refused ≠ unasked.** They differ in what they *allow* — unasked keeps
+   first-party preferences on, a refusal switches them off — so collapsing them
+   would silently re-enable preferences for a guest who switched them off, and
+   would break again the day another category's default changed.
 2. **Pre-hydration ≠ unasked.** `record() === null` means "we haven't looked
    yet" before hydration and "we looked, there's nothing" after. Only the second
-   may resolve to the permissive defaults; the first must hold at the floor, or
+   may resolve to the pre-decision defaults; the first must hold at the floor, or
    every page load would ignore a refusal for one tick. Enforced in
    `store.ts`'s `isCategoryGranted`.
 
@@ -124,9 +124,9 @@ undeclared transfer (silent, and the one that matters).
    also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
-3. Wrap the component in `<ConsentGate category="…" vendor="…">`. If it lands in
-   a category that is on by default, it starts loading for everyone — check that
-   is what you want, and that the prompt's copy still names it.
+3. Wrap the component in `<ConsentGate category="…" vendor="…">`. A third
+   party belongs in a category that is off until allowed (`embeds`, today);
+   check the prompt's copy still names it.
 4. Bump `CONSENT_POLICY_VERSION` in `record.ts` (this re-prompts everyone — see
    below).
 5. Add a row to the root `[[compliance/subprocessors]]` register.
@@ -140,8 +140,8 @@ voice.
 - `"gated"` — the guest's choice genuinely controls it: no request is made while
   the category is switched off. Pinterest and Google Maps both mount inside the
   click-opened details sheet, so they never appear in server-rendered HTML and a
-  client-side gate is sufficient. (With `embeds` on by default, "gated" means
-  *switchable*, not *withheld by default*.)
+  client-side gate is sufficient. With `embeds` off until allowed, "gated"
+  means *withheld until the guest's yes*, and switchable off again after.
 - `"always"` — loads regardless. **Google Fonts only**, because the font
   `<link>` sits in the `<head>` of the server-rendered document. The right fix
   is to delete the vendor (self-host the two woff2 families), not to put the
@@ -203,10 +203,9 @@ Switching a category off unmounts its gated embeds immediately — `ConsentGate`
 doesn't render children, it disposes them, so no further request escapes. For
 an embed that runs in its own iframe, that is a full teardown. For one whose
 script ran in the invite page, it is not: the globals it set, the listeners it
-attached and the timers it started stay live after the DOM node is gone. Under
-the opt-out defaults the embeds load for a guest who has not refused, so a
-guest who opened an event's details sheet and later switches a category off
-from the preferences dialog does so with a third-party context already live.
+attached and the timers it started stay live after the DOM node is gone. A
+guest who allowed third-party content, opened an event's details sheet and
+later switches it off does so with a third-party context already live.
 
 `saveConsent` (`store.ts`) reloads the page — `location.reload()`, via an
 injectable module-level `reloadPage` reference so tests can substitute a spy.
@@ -234,7 +233,7 @@ already written. Three conditions gate it, all load-bearing:
    failures by design (see "Storage" above). Reloading on an unpersisted
    refusal would discard the very refusal the reload exists to enforce: the
    guest would watch the page reload believing they'd just refused, and land
-   back on the opt-out defaults with no record of having tried.
+   back on the pre-decision defaults with no record of having tried.
 
 The preferences dialog states this plainly rather than leaving it implicit — a
 silent reload the guest didn't expect is its own kind of surprising — and says
@@ -300,9 +299,10 @@ mounted first.
   end of the page it rests below the footer instead of over it, and while it
   is up the page keeps a bottom scroll padding of its height, so whatever Tab
   moves to is scrolled clear of it.
-- **The prompt states that things are already on.** It names Google and
-  Pinterest and says the content is switched on with an offer to turn it off,
-  rather than posing a question whose answer has been assumed. Asserted by test.
+- **The prompt says what is off, and what turns it on.** It names Google and
+  Pinterest and what they would see, says their content stays off until the
+  guest allows it, and names "Accept all" as the answer that does. Asserted by
+  test.
 - **Refusing is never harder than accepting.** "Accept necessary" — required
   storage only, everything optional off — is the refusal's one name, in the
   prompt and in the preferences dialog alike. On the prompt it is the
@@ -314,9 +314,7 @@ mounted first.
   and `ConsentBanner.browser.test.tsx` that the dialog paints them that way at
   320, 390 and 1440px. Neither style fills with gold at rest: the palette
   derivation holds the gold fill at only 3:1 against the page ground, too
-  little for small text, while the ink of both styles is held at 4.5:1. This
-  matters *more* under opt-out, not less: the off switch is the only thing a
-  guest who disagrees with the default actually has.
+  little for small text, while the ink of both styles is held at 4.5:1.
 - **Rendering never writes a record.** The defaults apply without fabricating a
   decision, so the prompt keeps appearing until the guest genuinely makes one.
   An implied consent silently promoted to a stored, timestamped one would cost

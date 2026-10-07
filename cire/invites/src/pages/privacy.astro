@@ -226,8 +226,9 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     There are no advertising or tracking cookies here, and no analytics. The storage
     that is used falls into a few groups, and you control all but the first.
-    <strong>Third-party content and preferences are on by default</strong> — you can
-    switch them off at any time, and analytics stays off unless you turn it on.
+    <strong>Preferences are on by default; content from other companies stays off until
+    you allow it</strong> — you can change either at any time, and analytics stays off
+    unless you turn it on.
   </p>
   <ul>
     {Object.values(CATEGORY_META).map((category) => (
@@ -250,7 +251,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
         <strong>{vendor.name}</strong> — {vendor.purpose}
         {vendor.transfer ? <> Data goes to {vendor.transfer}.</> : null}
         {vendor.enforcement === 'gated' ? (
-          <> <em>On by default; stops loading if you switch off third-party content.</em></>
+          <> <em>Off until you allow third-party content; stops loading again if you switch it off.</em></>
         ) : (
           <> <em>Loads on every visit, whatever you choose — the site cannot do its job
           without it.</em></>
@@ -272,10 +273,10 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   </p>
   <p>
     Turning something off stops it loading from then on. Anything already sent while it
-    was switched on has already left your browser and cannot be recalled. Because
-    third-party content is on by default, the venue map and the moodboard may already have
-    loaded if you opened an event’s details before coming here — they sit inside that
-    sheet and load only when it opens, so if you haven’t opened one, nothing has gone.
+    was switched on has already left your browser and cannot be recalled. Third-party
+    content stays off until you allow it, and the venue map and the moodboard load only
+    when you open an event’s details after that — so unless you have done both, nothing
+    has gone to those companies.
   </p>
 
   <h2>How long it is kept</h2>

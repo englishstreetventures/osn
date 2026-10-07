@@ -19,25 +19,22 @@
  * session cookie, the bot check that protects it, and the record of this very
  * decision.
  *
- * ## `defaultGranted` — the opt-out posture
+ * ## `defaultGranted` — what applies before the guest decides
  *
- * The optional categories are OPT-OUT: `embeds` and `functional` apply to a
- * guest who has not yet decided, and the banner's job is to tell them so and
- * offer the off switch. This is a deliberate product decision for a private
- * wedding invite — the venue map and the moodboard are content the couple put
- * there for their guests, and making every guest click twice to see them costs
- * more than it protects. It sits within the Australian framing the site's
- * privacy notice sets out (a personal, family or household event, likely
- * outside the strict reach of the Privacy Act's APP entity rules). It is NOT
- * the standard ePrivacy posture for EU/UK visitors, who are entitled to prior
- * consent — a known, accepted trade rather than an oversight. Flipping back is
- * one field per category.
+ * Only first-party storage applies to a guest who has not yet decided:
+ * `functional`, whose data never leaves the browser. Everything that sends the
+ * guest's details to another company waits for their yes. `embeds` is OFF
+ * until allowed — the venue map and the moodboard load from Google's and
+ * Pinterest's servers, which see the guest's IP address and browser the moment
+ * they load — and that is prior consent, the ePrivacy posture for EU and UK
+ * visitors, applied to every guest. The prompt asks on the first visit, and a
+ * guest who never answers it simply never loads either.
  *
- * `analytics` stays OFF by default even so, and the difference is the point.
- * Nothing uses that category today, so defaulting it on would mean any
- * analytics tag added later silently inherits consent from guests who were
- * never told it existed — the exact thing `CONSENT_POLICY_VERSION` exists to
- * prevent. A default may only cover things the guest was actually shown.
+ * `analytics` is OFF by default too. Nothing uses that category today, so
+ * defaulting it on would mean any analytics tag added later silently inherits
+ * consent from guests who were never told it existed — the exact thing
+ * `CONSENT_POLICY_VERSION` exists to prevent. A default may only cover things
+ * the guest was actually shown.
  */
 
 /**
@@ -61,8 +58,8 @@ export interface ConsentCategoryMeta {
   readonly required: boolean;
   /**
    * Does this category apply to a guest who has NOT yet made a decision? See
-   * the module doc — this is the opt-out switch, and it is per-category on
-   * purpose so `analytics` can stay off while content categories are on.
+   * the module doc. Per-category on purpose: first-party `functional` is on,
+   * while `embeds` and `analytics` wait for the guest.
    *
    * Note this governs only the no-decision state. It has no bearing on what
    * "Accept necessary" writes (required categories only, always) or on what
@@ -96,10 +93,10 @@ export const CATEGORY_META = {
     summary:
       "Lets us show content hosted by other companies — the Pinterest moodboard and the Google map of each venue. These load from the other company's servers, which means they can see your IP address and browser.",
     required: false,
-    // On by default: this is content the couple put in the invite for their
-    // guests, and the banner names the companies involved up front. See the
-    // module doc for the trade this accepts.
-    defaultGranted: true,
+    // OFF until the guest allows it: each of these loads from another
+    // company's servers, which then see the guest's IP address and browser.
+    // See the module doc.
+    defaultGranted: false,
   },
   analytics: {
     id: "analytics",
@@ -107,9 +104,8 @@ export const CATEGORY_META = {
     summary:
       "Anonymous statistics about how the invite is used, so we can fix what's broken. We don't use any analytics today — this switch exists so that if we ever add some, it starts switched off.",
     required: false,
-    // OFF even though the other optional categories are on: there is nothing
-    // here to disclose yet, so there is nothing a default could be informed
-    // about. See the module doc.
+    // OFF: there is nothing here to disclose yet, so there is nothing a default
+    // could be informed about. See the module doc.
     defaultGranted: false,
   },
 } satisfies Record<ConsentCategory, ConsentCategoryMeta>;
