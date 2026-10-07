@@ -26,6 +26,14 @@
  * `xxxx-xxxx-xxxx-xxxx` — 16 lowercase hex characters in 4 groups of 4,
  * separated by ASCII hyphens. Users can type the dashes or omit them; we
  * normalise on compare.
+ *
+ * # Other users
+ *
+ * cire's unlock codes use the same format and hash, so a code is typed and
+ * stored exactly as a recovery code is. cire-api runs on Workers and imports
+ * this file through the `@shared/crypto/recovery` subpath: the package index
+ * pulls in `@osn/db`, which a Worker cannot load. This module needs only
+ * `node:crypto`, which Workers provide under `nodejs_compat`.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -38,8 +46,11 @@ export const RECOVERY_CODE_COUNT = 10;
 
 /** Generates one recovery code with 64 bits of entropy. */
 export function generateRecoveryCode(): string {
-  const bytes = randomBytes(CODE_HEX_LENGTH / 2);
-  const hex = bytes.toString("hex");
+  // Hex from the bytes themselves: a Worker type-checks this file with
+  // `@cloudflare/workers-types`, where `Buffer#toString` takes no encoding.
+  const hex = Array.from(randomBytes(CODE_HEX_LENGTH / 2), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
   return `${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`;
 }
 

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, unlockCodes, weddingHosts } from "@cire/db";
+import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -25,6 +26,7 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
 const CREATOR = DEV_OWNER_PROFILE_ID;
 const SECOND = "usr_second_owner";
 const EDITOR = "usr_editor";
+const UNLOCK_CODE = "3f9a-0c1e-b7d2-48aa";
 
 let auth: OsnTestAuth;
 beforeAll(async () => {
@@ -79,6 +81,17 @@ function buildApp() {
   }
   // Gold reaches the budget and the registry; Crimson is still for sale.
   setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+  // And a Crimson code would lift it.
+  db.insert(unlockCodes)
+    .values({
+      id: "ulc_second",
+      codeHash: hashRecoveryCode(UNLOCK_CODE),
+      tier: "crimson",
+      maxRedemptions: 1,
+      createdBy: "script:ops",
+      createdAt: now,
+    })
+    .run();
   const limiter = () => createRateLimiter({ maxRequests: 1000, windowMs: 60_000 });
   const app = createApp(db, {
     osnTestKey: auth.key,
@@ -86,6 +99,7 @@ function buildApp() {
     stripe,
     upgradePrices: { crimsonFromGold: "price_cg" },
     upgradeLimiter: limiter(),
+    unlockCodeLimiter: limiter(),
     resolveOsnProfileByHandle: async (handle) => ({
       ok: true,
       profileId: `usr_${handle}`,
@@ -176,6 +190,13 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     method: "POST",
     path: () => "/upgrade/session",
     body: { tier: "crimson" },
+    ok: 200,
+  },
+  {
+    name: "redeem an unlock code",
+    method: "POST",
+    path: () => "/unlock-code",
+    body: { unlockCode: UNLOCK_CODE },
     ok: 200,
   },
   {

@@ -106,6 +106,14 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
     }
     // The record of money cire took has no foreign key and outlives the purge.
     expect(totalRows(db, "platform_sales")).toBe(2);
+    // So do unlock codes: the redemption went with the wedding, and the use it
+    // spent stays spent.
+    expect(totalRows(db, "unlock_codes")).toBe(2);
+    expect(
+      db.all<{ n: number }>(
+        sql.raw("SELECT redeemed_count AS n FROM unlock_codes WHERE id = 'ulc_wed_gone'"),
+      )[0]?.n,
+    ).toBe(1);
     // The shared listing an enquiry named is not the wedding's.
     expect(totalRows(db, "directory_vendors")).toBe(2);
 

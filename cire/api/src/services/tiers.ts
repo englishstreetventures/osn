@@ -49,6 +49,16 @@ export function tiersBelow(tier: Tier): Tier[] {
   return TIERS.slice(0, TIERS.indexOf(tier));
 }
 
+/**
+ * A stored tier's place in {@link TIERS}, as a SQL value, so a statement can
+ * compare two tiers the way {@link tierAtLeast} does. A value that is not a
+ * known tier ranks as `ivory`, as {@link normaliseTier} reads it.
+ */
+export function tierRankSql(tier: Column | SQL): SQL<number> {
+  const ranks = TIERS.map((name, rank) => sql`WHEN ${name} THEN ${rank}`);
+  return sql<number>`(CASE ${tier} ${sql.join(ranks, sql` `)} ELSE ${TIERS.indexOf("ivory")} END)`;
+}
+
 /** The guest ceiling each tier gives a wedding. Real guests only: the
  *  host-preview household never counts, and a plus-one always does. */
 export const TIER_GUEST_CAP = {

@@ -31,6 +31,7 @@ export const WEDDING_CHILD_TABLES = [
   "registry_claims",
   "registry_contributions",
   "wedding_upgrade_purchases",
+  "unlock_code_redemptions",
 ] as const;
 
 /** The household's claim code {@link fullWeddingStatements} writes. Upper
@@ -59,7 +60,8 @@ export function fullWeddingKeys(id: string): { sheets: string[]; assets: string[
 /**
  * Insert statements for a wedding with one row in every one of
  * {@link WEDDING_CHILD_TABLES}, an R2 key in every key column, a settled
- * upgrade's `platform_sales` row (which has no foreign key), and the shared
+ * upgrade's `platform_sales` row (which has no foreign key), the unlock code
+ * its redemption spent (outside the cascade, like the sale), and the shared
  * directory listing its enquiry names. Statements, not writes, so the same
  * fixture serves bun:sqlite (`db.run` returns at once) and D1 (`await
  * db.run`). `deletedAt` soft-deletes it; `owner` is the deleting owner.
@@ -113,5 +115,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO registry_contributions (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at) VALUES (${`rcon_${id}`}, ${id}, ${fam}, 'succeeded', 5000, 'AUD', ${s - 30 * 86_400}, ${s})`,
     sql`INSERT INTO wedding_upgrade_purchases (id, wedding_id, entitlement, status, created_by_osn_profile_id, created_at, updated_at) VALUES (${purchase}, ${id}, 'vendors', 'succeeded', ${owner}, ${s - 30 * 86_400}, ${s})`,
     sql`INSERT INTO platform_sales (id, purchase_id, entitlement, amount_minor, currency, settled_at) VALUES (${`sale_${id}`}, ${purchase}, 'vendors', 4900, 'AUD', ${s})`,
+    sql`INSERT INTO unlock_codes (id, code_hash, tier, max_redemptions, redeemed_count, created_by, created_at) VALUES (${`ulc_${id}`}, ${`hash_${id}`}, 'crimson', 1, 1, 'script:ops', ${s})`,
+    sql`INSERT INTO unlock_code_redemptions (id, code_id, wedding_id, redeemed_by_osn_profile_id, redeemed_at) VALUES (${`ulr_${id}`}, ${`ulc_${id}`}, ${id}, ${owner}, ${s})`,
   ];
 }

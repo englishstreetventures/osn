@@ -83,6 +83,7 @@ import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
+import { createUnlockCodeRoutes } from "./routes/unlock-code";
 import { createUpgradeRoutes } from "./routes/upgrade";
 import {
   createVendorDirectoryReadRoutes,
@@ -296,6 +297,10 @@ const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, window
 // probes an existing session — against the PLATFORM's quota, so one tenant's
 // credentials must not be able to exhaust it for everyone.
 const defaultUpgradeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+// Per-organiser, behind the owner gate. A code is typed by hand, so five
+// tries a minute covers every typo; what keeps a code from being guessed is its
+// 64 bits, and this keeps an attempt's D1 batch from being spent in a loop.
+const defaultUnlockCodeLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
 // Per-IP, like the claim limiter, and sized the same way for the same reason:
 // a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
 // budget has to cover the room rather than a household. Five would have
@@ -600,6 +605,8 @@ export interface AppOptions {
   upgradePrices?: UpgradePriceConfig;
   /** Override the upgrade purchase limiter (useful for testing). */
   upgradeLimiter?: RateLimiterBackend;
+  /** Override the unlock-code redemption limiter (useful for testing). */
+  unlockCodeLimiter?: RateLimiterBackend;
   /** Override the Stripe onboarding limiter (useful for testing). */
   registryStripeLimiter?: RateLimiterBackend;
   /**
@@ -697,6 +704,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     stripeAccountCountry,
     registryStripeLimiter = defaultRegistryStripeLimiter,
     upgradeLimiter = defaultUpgradeLimiter,
+    unlockCodeLimiter = defaultUnlockCodeLimiter,
     upgradePrices = {},
     registryLinkPreviewOptions,
     // Key-optional default: an inert provider that serves registry defaults with
@@ -1179,14 +1187,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const withInviteImages: AnyElysia = rootApp.use(
     createInviteImageServeRoutes(db, osnAuthOptions, { assets, images }),
   );
-  // An owner's wedding delete and restore. Mounted past the widening for the
-  // same reason as the upgrade routes below, and before the no-Stripe early
-  // return so they exist in every deployment.
+  // An owner's wedding delete and restore, and redeeming an unlock code.
+  // Mounted past the widening for the same reason as the upgrade routes below,
+  // and before the no-Stripe early return so they exist in every deployment: a
+  // code needs no Stripe.
   const withLifecycle: AnyElysia = withInviteImages
     .use(
       createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter, ownerNotices),
     )
-    .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter));
+    .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+    .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter));
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
   const withStripeWebhook: AnyElysia = stripeWebhookSecret

@@ -20,6 +20,8 @@ import {
   rsvpChanges,
   rsvps,
   tasks,
+  unlockCodeRedemptions,
+  unlockCodes,
   vendorClaims,
   vendors,
   weddingFaqs,
@@ -31,6 +33,7 @@ import {
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
+import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
 import { asc, eq, inArray, sql } from "drizzle-orm";
@@ -87,6 +90,7 @@ import {
 import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
+import { unlockCodeService } from "../../src/services/unlock-codes";
 import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
@@ -323,6 +327,10 @@ beforeEach(async () => {
     registrySettings,
     weddingFaqs,
     platformSales,
+    unlockCodeRedemptions,
+    // Outside the wedding cascade, so a code left here would carry its hash
+    // and its spent uses into the next test.
+    unlockCodes,
     weddings,
   ]) {
     await db.delete(table);
@@ -1595,6 +1603,75 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+
+  describe("unlock codes over D1", () => {
+    const CODE = "3f9a-0c1e-b7d2-48aa";
+
+    async function mintCode(opts: { max: number; used: number }): Promise<void> {
+      await db.insert(unlockCodes).values({
+        id: "ulc_d1",
+        codeHash: hashRecoveryCode(CODE),
+        tier: "gold",
+        maxRedemptions: opts.max,
+        redeemedCount: opts.used,
+        createdBy: "script:ops",
+        createdAt: new Date(),
+      });
+    }
+
+    const redeemAs = (weddingId: string) =>
+      run(
+        unlockCodeService
+          .redeem({ weddingId, osnProfileId: "usr_test", unlockCode: CODE })
+          .pipe(Effect.match({ onFailure: (e) => e._tag, onSuccess: (r) => r.tier })),
+      );
+
+    it(
+      "raises the wedding in one batch and reads the outcome back from it",
+      async () => {
+        await mintCode({ max: 1, used: 0 });
+        expect(await redeemAs(BOOTSTRAP_WEDDING_ID)).toBe("gold");
+        const [wedding] = await db
+          .select({ tier: weddings.tier, by: weddings.tierGrantedBy })
+          .from(weddings)
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+        expect(wedding).toEqual({ tier: "gold", by: "code:ulc_d1" });
+        const [code] = await db.select({ n: unlockCodes.redeemedCount }).from(unlockCodes);
+        expect(code?.n).toBe(1);
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    it(
+      "two weddings racing for a code's last use: one is raised, the other refused",
+      async () => {
+        const now = new Date();
+        await db
+          .insert(weddings)
+          .values({
+            id: "wed_race",
+            slug: "race",
+            displayName: "R",
+            createdAt: now,
+            updatedAt: now,
+          });
+        await mintCode({ max: 2, used: 1 });
+
+        const outcomes = await Promise.all([BOOTSTRAP_WEDDING_ID, "wed_race"].map(redeemAs));
+
+        expect(outcomes.toSorted()).toEqual(["UnlockCodeRefused", "gold"]);
+        const [code] = await db.select({ n: unlockCodes.redeemedCount }).from(unlockCodes);
+        expect(code?.n).toBe(2);
+        expect(await db.select().from(unlockCodeRedemptions)).toHaveLength(1);
+        const raised = await db
+          .select({ id: weddings.id })
+          .from(weddings)
+          .where(eq(weddings.tier, "gold"));
+        expect(raised).toHaveLength(1);
+      },
+      MF_TIMEOUT_MS,
+    );
+  });
 
   it(
     "a plus-one's attested reply reads back current over D1, and a household rename clears it",
