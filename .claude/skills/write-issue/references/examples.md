@@ -15,10 +15,10 @@ Filed as `--type Bug`, `product:osn-core`, rated through `rate-complexity`, adde
 
 **Fix** — freeze the clock before issuing: `vi.useFakeTimers({ toFake: ["Date"] })` and `vi.setSystemTime(base)` before `issueRecoverySession`, then `vi.setSystemTime(base + (RECOVERY_SESSION_TTL_SEC - remaining) * 1000)` before `refreshTokens`. Check the neighbouring test for the same pattern.
 
-**Done when** — the test reads the clock only under fake timers, and `bun run --cwd osn/api test:run -- -t "rotation late in the window" --repeat 200` passes.
+**Done when** — the test reads the clock only under fake timers, and `bun run --cwd osn/api test:run -- -t "rotation late in the window"` passes 200 runs in a row.
 ```
 
-What makes it work: the error is quoted, the cause is explained down to the second boundary, the fix names the calls, and **Done when** is a command that fails today.
+What makes it work: the error is quoted, the cause is explained down to the second boundary, the fix names the calls, and **Done when** is a check that fails today.
 
 ## A feature body, rewritten
 

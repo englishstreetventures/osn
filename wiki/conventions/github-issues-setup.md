@@ -70,7 +70,7 @@ letter in its ID. The migration enforced that with a gate over its manifest;
 now that issues are filed by hand, the `write-issue` skill carries the rule.
 
 A `complexity:` rating — `1`, `2`, `3`, `5` or `8` — is declared **before**
-work starts, by `/new-feat` through the `rate-complexity` skill, which proposes
+work starts, by the `write-issue` skill when the issue is filed (or by `/new-feat` for an unrated issue it picks up), through the `rate-complexity` skill, which proposes
 a number from the issue body alone and asks the owner to confirm or amend it.
 The timing carries the whole value: the rating is the denominator every
 session-metrics query divides spend by, and one made at pull-request time, with

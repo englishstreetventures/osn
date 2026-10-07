@@ -23,10 +23,10 @@ Two things this skill does not own, and links to instead:
 
 Route by kind, never by severity. A finding names an unpatched route, so filing it in the public repository publishes it, and a public issue never links to a tracker issue either.
 
-Search before writing, open and closed both:
+Search the repository the table chose, open and closed both. A finding is searched in the tracker by its ID as well:
 
 ```bash
-gh issue list --repo englishstreetventures/osn --state all --limit 20 --search "<two or three words from the title>"
+gh issue list --repo <repository from the table> --state all --limit 20 --search "<two or three words from the title>"
 ```
 
 An open issue that already covers the work gets a comment with the new evidence, not a twin. A closed one that the work reopens is named in the new body by number.
@@ -77,7 +77,7 @@ The epic's **What** and **Why** describe the whole outcome; its **Done when** na
 
 ### A finding
 
-The four fields in `wiki/conventions/review-findings.md`. In the public repository a fixed finding is referred to by number and ID only.
+The four fields in `wiki/conventions/review-findings.md`, filed in the tracker only. A public issue body never names a finding, not even by number or ID; only a public pull-request body may cite a fixed one, by number and ID, as `prep-pr` Step 8 describes.
 
 ### A `needs:decision` proposal
 
@@ -116,13 +116,23 @@ Each of these has shipped in this repository's backlog.
 
 ## Step 6 — File it
 
-Write the body to a scratch file outside the repository with the Write tool, then pass the file. Never put a heredoc inside `$(…)` or `<(…)`: the local shell is fish, which has neither, and AGENTS.md forbids the first.
+Write the body to a scratch file outside the repository with the Write tool, then pass the file. The local shell is fish, which has no heredocs and no `<(…)`, and AGENTS.md forbids a heredoc inside `$(…)` in any shell.
 
 ```bash
 gh issue create --repo englishstreetventures/osn \
   --title "<title>" \
   --type Feature \
   --label "product:<one>" \
+  --body-file <path to the body file>
+```
+
+A finding takes the tracker instead, its ID leading the title and its `area:` and `severity:` labels from `wiki/conventions/review-findings.md`:
+
+```bash
+gh issue create --repo englishstreetventures/osn-tracker \
+  --title "S-M1 — <title>" \
+  --type Bug \
+  --label "area:security" --label "severity:medium" --label "product:<one>" \
   --body-file <path to the body file>
 ```
 
@@ -138,13 +148,13 @@ Before running it, check:
 After it is filed:
 
 1. **Rate it.** Invoke `rate-complexity` with the new number, now, before anyone starts the work. Rate once: when `new-feat` calls this skill, this is the rating, and `new-feat` does not rate again.
-2. **Put it on the Project.** Only the tracker adds issues to the board by itself:
+2. **Put it on the Project.** The tracker adds its own issues to the board; a public issue needs adding:
 
    ```bash
    gh project item-add 1 --owner englishstreetventures --url <issue url> --format json --jq .id
    ```
 
-   An added item has no status, so it shows in no column until one is set. Set `Backlog` with the item id that printed:
+   Either way the item arrives with no status and shows in no column until one is set. Set `Backlog` with the item id (the one `item-add` printed, or from `gh project item-list 1 --owner englishstreetventures` for a tracker issue):
 
    ```bash
    gh project field-list 1 --owner englishstreetventures --format json \

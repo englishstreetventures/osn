@@ -29,7 +29,7 @@ Found reviewing `<branch-name>`.
 The command:
 
 ```bash
-gh issue create --repo englishstventures/osn-tracker \
+gh issue create --repo englishstreetventures/osn-tracker \
   --title "S-M1 — No rate limit on POST /events/:id/rsvp" \
   --type Bug \
   --label "area:security" --label "severity:medium" --label "product:cire" \
