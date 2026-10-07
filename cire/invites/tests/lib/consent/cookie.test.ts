@@ -4,7 +4,6 @@ import {
   CONSENT_COOKIE_MAX_AGE_SECONDS,
   CONSENT_COOKIE_NAME,
   PREFIXED_CONSENT_COOKIE_NAME,
-  migrateBareConsentCookie,
   readConsentCookieValue,
   readConsentFromDocument,
   readConsentRecord,
@@ -17,13 +16,14 @@ import {
   encodeConsentRecord,
   makeConsentRecord,
 } from "../../../src/lib/consent/record";
+import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 const NOW = new Date("2026-07-29T10:00:00.000Z");
-const record = makeConsentRecord({ ...defaultGrants(), embeds: true }, NOW);
+const record = makeConsentRecord({ ...defaultGrants(), pinterest: true }, NOW);
 const encoded = encodeConsentRecord(record);
 
 const OTHER_NOW = new Date("2026-07-30T10:00:00.000Z");
-const otherRecord = makeConsentRecord({ ...defaultGrants(), embeds: false }, OTHER_NOW);
+const otherRecord = makeConsentRecord({ ...defaultGrants(), pinterest: false }, OTHER_NOW);
 const otherEncoded = encodeConsentRecord(otherRecord);
 
 function readNamed(cookieString: string, name: string): string | null {
@@ -44,67 +44,74 @@ function clearBothCookies(): void {
 describe("readConsentCookieValue", () => {
   it("finds the value among other cookies", () => {
     const header = `cire_session=abc123; ${CONSENT_COOKIE_NAME}=${encoded}; other=1`;
-    expect(readConsentCookieValue(header)).toBe(encoded);
+    expect(readConsentCookieValue(header, false)).toBe(encoded);
   });
 
   it("finds the value when it is first or last in the string", () => {
-    expect(readConsentCookieValue(`${CONSENT_COOKIE_NAME}=${encoded}; x=1`)).toBe(encoded);
-    expect(readConsentCookieValue(`x=1; ${CONSENT_COOKIE_NAME}=${encoded}`)).toBe(encoded);
+    expect(readConsentCookieValue(`${CONSENT_COOKIE_NAME}=${encoded}; x=1`, false)).toBe(encoded);
+    expect(readConsentCookieValue(`x=1; ${CONSENT_COOKIE_NAME}=${encoded}`, false)).toBe(encoded);
   });
 
   it("returns null when the cookie is absent, empty, or the header is missing", () => {
-    expect(readConsentCookieValue("cire_session=abc123")).toBeNull();
-    expect(readConsentCookieValue("")).toBeNull();
-    expect(readConsentCookieValue(null)).toBeNull();
-    expect(readConsentCookieValue(undefined)).toBeNull();
+    expect(readConsentCookieValue("cire_session=abc123", false)).toBeNull();
+    expect(readConsentCookieValue("", false)).toBeNull();
+    expect(readConsentCookieValue(null, false)).toBeNull();
+    expect(readConsentCookieValue(undefined, false)).toBeNull();
   });
 
   it("does not match a cookie whose name merely CONTAINS the consent name", () => {
     // `not_cire_consent` and `cire_consent_backup` are different cookies; a
     // substring match would let an unrelated value be read as the decision.
     const header = `not_${CONSENT_COOKIE_NAME}=tampered; ${CONSENT_COOKIE_NAME}_backup=stale`;
-    expect(readConsentCookieValue(header)).toBeNull();
+    expect(readConsentCookieValue(header, false)).toBeNull();
   });
 
   it("tolerates malformed segments without throwing", () => {
-    expect(readConsentCookieValue(`novalue; ; ${CONSENT_COOKIE_NAME}=${encoded}`)).toBe(encoded);
+    expect(readConsentCookieValue(`novalue; ; ${CONSENT_COOKIE_NAME}=${encoded}`, false)).toBe(
+      encoded,
+    );
   });
 
-  // Precedence between the `__Host-` and bare names. The prefixed name must
-  // win whenever it's present — that is what stops a domain cookie planted by
-  // a sibling *.cireweddings.com origin under the bare name from overriding a
-  // refusal this site actually recorded under the prefixed one.
-  describe("prefix precedence", () => {
-    it("reads the bare name when it is the only one present", () => {
-      const header = `${CONSENT_COOKIE_NAME}=${encoded}`;
-      expect(readConsentCookieValue(header)).toBe(encoded);
-    });
-
-    it("reads the prefixed name when it is the only one present", () => {
+  // Which name is read depends on the origin, and only one ever is. On https
+  // the consent cookie is the `__Host-` one, which a sibling
+  // *.cireweddings.com origin cannot set; a bare `cire_consent` there may have
+  // been planted by one, so it is never read, however it got there. On http
+  // (local dev) `__Host-` cannot be set at all, so the bare name is the cookie.
+  describe("which name is read", () => {
+    it("reads only the __Host- name on https", () => {
       const header = `${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`;
-      expect(readConsentCookieValue(header)).toBe(encoded);
+      expect(readConsentCookieValue(header, true)).toBe(encoded);
     });
 
-    it("prefers the prefixed value when both names are present", () => {
-      const header = `${CONSENT_COOKIE_NAME}=${otherEncoded}; ${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`;
-      expect(readConsentCookieValue(header)).toBe(encoded);
+    it("ignores a bare cookie on https, alone or beside the __Host- one", () => {
+      expect(readConsentCookieValue(`${CONSENT_COOKIE_NAME}=${otherEncoded}`, true)).toBeNull();
+      const both = `${CONSENT_COOKIE_NAME}=${otherEncoded}; ${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`;
+      expect(readConsentCookieValue(both, true)).toBe(encoded);
+    });
+
+    it("reads only the bare name on http", () => {
+      expect(readConsentCookieValue(`${CONSENT_COOKIE_NAME}=${encoded}`, false)).toBe(encoded);
+      expect(
+        readConsentCookieValue(`${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`, false),
+      ).toBeNull();
     });
 
     it("returns null when neither name is present", () => {
       const header = "cire_session=abc123; other=1";
-      expect(readConsentCookieValue(header)).toBeNull();
+      expect(readConsentCookieValue(header, true)).toBeNull();
+      expect(readConsentCookieValue(header, false)).toBeNull();
     });
   });
 });
 
 describe("readConsentRecord", () => {
   it("parses a record straight out of a cookie header", () => {
-    const parsed = readConsentRecord(`a=1; ${CONSENT_COOKIE_NAME}=${encoded}`);
-    expect(parsed?.grants.embeds).toBe(true);
+    const parsed = readConsentRecord(`a=1; ${CONSENT_COOKIE_NAME}=${encoded}`, false);
+    expect(parsed?.grants.pinterest).toBe(true);
   });
 
   it("returns null for a header carrying a corrupted value", () => {
-    expect(readConsentRecord(`${CONSENT_COOKIE_NAME}=garbage`)).toBeNull();
+    expect(readConsentRecord(`${CONSENT_COOKIE_NAME}=garbage`, false)).toBeNull();
   });
 });
 
@@ -133,7 +140,7 @@ describe("serialiseConsentCookie", () => {
   it("round-trips through a cookie header", () => {
     const serialised = serialiseConsentCookie(makeConsentRecord(allGrants(), NOW), false);
     const header = serialised.split(";")[0]!;
-    expect(readConsentRecord(header)?.grants).toEqual(allGrants());
+    expect(readConsentRecord(header, false)?.grants).toEqual(allGrants());
   });
 
   // Written as `__Host-cire_consent` when secure so a script on a sibling
@@ -192,113 +199,23 @@ describe("writeConsentToDocumentAndVerify read-back", () => {
 });
 
 /**
- * Drive the module's `isSecureContext()` — it reads `location.protocol`, and
- * jsdom serves the suite over http, so the `__Host-` half of every path below
- * is unreachable without this. Also swaps in a cookie jar we control, because
- * jsdom on http refuses a `Secure` cookie outright and the migration's whole
- * point is what it writes on https.
+ * On https a bare `cire_consent` may have been planted by a sibling
+ * *.cireweddings.com origin as a `Domain=.cireweddings.com` cookie, so it is
+ * never honoured and never carried over onto the `__Host-` name. A guest whose
+ * choice exists only under the bare name is asked again.
  */
-function onSecureOriginWithJar(initial: string, body: (jar: () => string) => void): void {
-  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
-  const originalCookie = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
-  const jar = new Map<string, string>();
-  for (const part of initial.split(";")) {
-    const separator = part.indexOf("=");
-    if (separator === -1) continue;
-    jar.set(part.slice(0, separator).trim(), part.slice(separator + 1).trim());
-  }
-  Object.defineProperty(globalThis, "location", {
-    configurable: true,
-    get: () => ({ protocol: "https:" }),
-  });
-  Object.defineProperty(document, "cookie", {
-    configurable: true,
-    get: () => [...jar.entries()].map(([name, value]) => `${name}=${value}`).join("; "),
-    set: (assignment: string) => {
-      const [pair, ...attributes] = assignment.split(";");
-      const separator = pair!.indexOf("=");
-      const name = pair!.slice(0, separator).trim();
-      const value = pair!.slice(separator + 1).trim();
-      // A browser deletes on Max-Age=0 rather than storing an empty value.
-      if (attributes.some((a) => a.trim().toLowerCase() === "max-age=0")) jar.delete(name);
-      else jar.set(name, value);
-    },
-  });
-  try {
-    body(() => document.cookie);
-  } finally {
-    if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation);
-    if (originalCookie) Object.defineProperty(document, "cookie", originalCookie);
-  }
-}
-
-/**
- * Preferring the prefixed name on read only helps once this origin has
- * WRITTEN the prefixed name — and for an already-decided guest that write
- * never happens, because their choice reads back fine, the banner stays
- * away, and `saveConsent` is never called again. Without a read-path
- * migration their refusal stays shadowable for the cookie's whole 182 days.
- */
-describe("migrateBareConsentCookie (S-M1)", () => {
-  it("moves an already-decided guest onto the prefixed name, and drops the bare one", () => {
-    onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=${encoded}`, (jar) => {
-      migrateBareConsentCookie();
-      expect(jar()).toContain(`${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`);
-      expect(readConsentCookieValue(jar())).toBe(encoded);
-      // The shadowable name is gone, not merely out-ranked.
-      expect(readNamed(jar(), CONSENT_COOKIE_NAME)).toBeNull();
+describe("on a secure origin", () => {
+  it("ignores a planted bare cookie: no decision is read", () => {
+    onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=${encoded}`, () => {
+      expect(readConsentFromDocument()).toBeNull();
     });
   });
 
-  it("preserves the decision itself, not just the name", () => {
-    onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=${encoded}`, (jar) => {
-      migrateBareConsentCookie();
-      expect(readConsentRecord(jar())?.grants).toEqual(record.grants);
-    });
-  });
-
-  it("leaves a guest already on the prefixed name alone", () => {
-    onSecureOriginWithJar(`${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`, (jar) => {
-      migrateBareConsentCookie();
-      expect(jar()).toBe(`${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`);
-    });
-  });
-
-  it("prefers the prefixed value and still clears the bare one when both exist", () => {
-    // The planted-cookie case: a sibling origin's bare cookie sitting beside
-    // ours. The prefixed one already exists, so nothing is rewritten — the read
-    // precedence is what defends here, and it does.
-    onSecureOriginWithJar(
-      `${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}; ${CONSENT_COOKIE_NAME}=${otherEncoded}`,
-      (jar) => {
-        migrateBareConsentCookie();
-        expect(readConsentCookieValue(jar())).toBe(encoded);
-      },
-    );
-  });
-
-  it("does nothing when there is no decision to move", () => {
-    onSecureOriginWithJar("", (jar) => {
-      migrateBareConsentCookie();
-      expect(jar()).toBe("");
-    });
-  });
-
-  it("does nothing when the bare cookie holds something unparseable", () => {
-    onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=not-a-record`, (jar) => {
-      migrateBareConsentCookie();
-      // Left exactly as found rather than replaced with a fabricated record.
-      expect(jar()).toBe(`${CONSENT_COOKIE_NAME}=not-a-record`);
-    });
-  });
-});
-
-describe("a secure write expires the bare name (S-M1)", () => {
-  it("clears a stale bare cookie as a side effect of saving", () => {
+  it("writes and reads back the __Host- name, leaving any bare cookie unread", () => {
     onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=${otherEncoded}`, (jar) => {
       expect(writeConsentToDocumentAndVerify(record)).toBe(true);
-      expect(readNamed(jar(), CONSENT_COOKIE_NAME)).toBeNull();
       expect(readNamed(jar(), PREFIXED_CONSENT_COOKIE_NAME)).toBe(encoded);
+      expect(readConsentFromDocument()?.grants).toEqual(record.grants);
     });
   });
 });

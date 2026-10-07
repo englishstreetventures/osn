@@ -22,7 +22,7 @@ export const CONSENT_RECORD_VERSION = 1;
  * guest's decision was taken against which disclosure. Bumping re-prompts
  * everyone exactly once, which is the intended cost.
  */
-export const CONSENT_POLICY_VERSION = "2026-07-29";
+export const CONSENT_POLICY_VERSION = "2026-10-08";
 
 export type ConsentGrants = Record<ConsentCategory, boolean>;
 
@@ -37,11 +37,10 @@ export type ConsentGrants = Record<ConsentCategory, boolean>;
  * `null` (no record) means unasked; a record with every optional grant `false`
  * means refused, and is a decision we are obliged to keep honouring.
  *
- * Under the opt-out defaults those two states also differ in what they ALLOW —
- * unasked permits `embeds`, refused does not — which makes conflating them a
- * privacy bug rather than merely a UX one. Three distinct grant maps exist for
- * that reason: {@link defaultGrants} (the floor), {@link preDecisionGrants}
- * (unasked), and {@link allGrants} (accept-all).
+ * Three distinct grant maps exist so the states are never conflated:
+ * {@link defaultGrants} (the floor), {@link preDecisionGrants} (unasked — the
+ * categories' own defaults, today equal to the floor), and {@link allGrants}
+ * (accept-all).
  */
 export interface ConsentRecord {
   /** {@link CONSENT_RECORD_VERSION} at the time of writing. */
@@ -57,7 +56,7 @@ export interface ConsentRecord {
  * THE FLOOR: required categories on, everything else off.
  *
  * Two distinct jobs, both of which must stay at the floor no matter what the
- * opt-out defaults say:
+ * pre-decision defaults say:
  *
  *  1. What "Reject all" writes. A refusal means required-only, always.
  *  2. What applies BEFORE the stored decision has been read. A guest who
@@ -66,8 +65,8 @@ export interface ConsentRecord {
  *     state is the floor, not {@link preDecisionGrants}.
  *
  * This used to double as the no-decision state too. It no longer does — see
- * {@link preDecisionGrants}. Conflating them is what would turn "we default
- * embeds on" into "we also ignore refusals for a few milliseconds".
+ * {@link preDecisionGrants}. Conflating them is what would turn "preferences
+ * are on by default" into "we also ignore refusals for a few milliseconds".
  */
 export function defaultGrants(): ConsentGrants {
   return Object.fromEntries(
@@ -76,13 +75,11 @@ export function defaultGrants(): ConsentGrants {
 }
 
 /**
- * What applies to a guest who has been shown the banner but has not decided.
- *
- * Opt-out: `embeds` and `functional` are on here, `analytics` is not (see the
- * `defaultGranted` discussion in `categories.ts`). Distinct from
- * {@link defaultGrants} in both directions — it is more permissive than the
- * reject-all floor, and it must never be substituted for the pre-hydration
- * state, where we do not yet know whether a refusal is on file.
+ * What applies to a guest who has been shown the prompt but has not decided:
+ * each category's `defaultGranted` (see `categories.ts`). Today that is the
+ * floor — no switch is on before the guest's yes — but it is read from the
+ * categories rather than assumed, and it must never be substituted for the
+ * pre-hydration state, where we do not yet know whether a refusal is on file.
  */
 export function preDecisionGrants(): ConsentGrants {
   return Object.fromEntries(
@@ -194,7 +191,7 @@ export function decodeConsentRecord(raw: string | null | undefined): ConsentReco
  * Is `category` granted by this record?
  *
  * A `null` record — never asked, or one we refused to trust — falls back to
- * {@link preDecisionGrants}, i.e. the opt-out defaults. Callers that have not
+ * {@link preDecisionGrants}, the pre-decision defaults. Callers that have not
  * yet READ the stored record must not use this path; see `store.ts`, which
  * holds the pre-hydration state at the floor instead.
  */

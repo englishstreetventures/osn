@@ -40,12 +40,11 @@ function captureScripts() {
 }
 
 /**
- * Put the store into the "guest switched third-party content off" state. Under
- * the opt-out defaults this — not the absence of a decision — is what produces
- * the blocked-embed placeholder.
+ * Put the store into the "guest switched Pinterest moodboards off" state. An
+ * undecided guest gets the same placeholder; this one is a stored refusal.
  */
 function refuseThirdPartyContent() {
-  seedConsentForTest({ embeds: false });
+  seedConsentForTest({ pinterest: false });
 }
 
 /**
@@ -60,7 +59,7 @@ function fallbackLink(container: HTMLElement): HTMLAnchorElement | undefined {
 }
 
 /**
- * Click the "Allow third-party content" button on the blocked-embed
+ * Click the "Allow Pinterest moodboards" button on the blocked-embed
  * placeholder. It is the first button in the placeholder ("Privacy choices",
  * which opens the dialog rather than granting, is the second).
  */
@@ -117,16 +116,28 @@ describe("PinterestBoard", () => {
     expect(scriptHandle.all()).toHaveLength(0);
   });
 
-  it("loads the embed by default — third-party content is opt-out", () => {
-    // No consent cookie. The moodboard is content the couple put in the invite,
-    // and the banner's job is to say it is loading and offer the off switch.
+  it("injects nothing before the guest allows it, and offers the placeholder and the link", () => {
+    // No consent cookie. Pinterest's script sees the guest's IP address,
+    // browser and behaviour, so it waits for the guest's yes; meanwhile the
+    // moodboard is still one tap away through the outbound link.
+    const { container } = render(() => (
+      <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />
+    ));
+
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(fallbackLink(container)).toBeDefined();
+  });
+
+  it("loads the embed, and holds the link back, once the guest has allowed it", () => {
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => (
       <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />
     ));
 
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(scriptHandle.all()).toHaveLength(1);
-
     // The board is on its way, so the fallback link is held back.
     expect(fallbackLink(container)).toBeUndefined();
   });
@@ -140,7 +151,7 @@ describe("PinterestBoard", () => {
     // The placeholder names Pinterest and what it would do; the embed anchor is
     // NOT mounted and the tracker is never requested.
     expect(container.textContent ?? "").toContain("Pinterest");
-    expect(container.textContent ?? "").toContain("Allow third-party content");
+    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);
 
@@ -191,14 +202,14 @@ describe("PinterestBoard", () => {
 
     const record = readConsentFromDocument();
     expect(record).not.toBeNull();
-    expect(record!.grants.embeds).toBe(true);
-    // Granting one category must not quietly enable the others.
-    expect(record!.grants.analytics).toBe(false);
+    expect(record!.grants.pinterest).toBe(true);
+    // Allowing the moodboard must not quietly allow the map.
+    expect(record!.grants.maps).toBe(false);
     expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 
   it("shows an immediate 'Loading board…' affordance the instant consent is granted (no dead blank slot)", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
     // The embed anchor mounted AND the loading status is shown synchronously —
@@ -210,7 +221,7 @@ describe("PinterestBoard", () => {
   });
 
   it("clears the 'Loading board…' affordance once the embed transform is observed", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector('[role="status"]')).not.toBeNull();
 
@@ -224,7 +235,7 @@ describe("PinterestBoard", () => {
   });
 
   it("clears the 'Loading board…' affordance when the script errors (falls back to link)", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector('[role="status"]')).not.toBeNull();
 
@@ -237,7 +248,7 @@ describe("PinterestBoard", () => {
   });
 
   it("does NOT re-ask for consent after a Pinterest-side failure", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     // Consent was given; the embed failing is Pinterest's problem, not a
     // withdrawal. Re-showing the permission prompt would misrepresent a broken
     // third party as the guest's own decision, and invite a pointless re-grant
@@ -247,11 +258,11 @@ describe("PinterestBoard", () => {
 
     await waitFor(() => expect(container.querySelector("a[data-pin-do]")).toBeNull());
     expect(container.querySelector("button")).toBeNull();
-    expect(readConsentFromDocument()!.grants.embeds).toBe(true);
+    expect(readConsentFromDocument()!.grants.pinterest).toBe(true);
   });
 
   it("wraps the fixed-width embed in an overflow-contained box so it can't pan the page sideways on mobile", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
     const anchor = container.querySelector<HTMLAnchorElement>('a[data-pin-do="embedBoard"]');
@@ -267,10 +278,10 @@ describe("PinterestBoard", () => {
     const first = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     allowThirdPartyContent(first.container);
     // A real cookie (not just an in-memory signal) so the choice survives the visit.
-    expect(readConsentFromDocument()?.grants.embeds).toBe(true);
+    expect(readConsentFromDocument()?.grants.pinterest).toBe(true);
     cleanup();
     // Simulate a brand-new page load: drop the in-memory store, keep the cookie.
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
 
     // A later visit reads the persisted consent, injects the script, no prompt.
     const second = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
@@ -280,7 +291,7 @@ describe("PinterestBoard", () => {
   });
 
   it("mounts already-consented (no placeholder) when consent was persisted in a previous visit", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(container.querySelector("button")).toBeNull();
@@ -288,16 +299,16 @@ describe("PinterestBoard", () => {
   });
 
   it("stays blocked for a guest who explicitly refused", () => {
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);
   });
 
   it("clears the legacy Pinterest-only localStorage key without turning it into a decision", () => {
-    // A guest who once accepted the old Pinterest-specific gate consented to
-    // Pinterest, not to the `embeds` category that now also covers Google Maps.
-    // The key is therefore wiped rather than migrated, and — the part that
+    // A guest who once accepted the old Pinterest-specific gate did so against
+    // an older disclosure, so that is not consent to the current one. The key
+    // is therefore wiped rather than migrated, and — the part that
     // matters — it does NOT fabricate a stored decision: the guest is still
     // "undecided", so they see the banner and can refuse.
     localStorage.setItem(LEGACY_KEY, "granted");
@@ -337,7 +348,7 @@ describe("PinterestBoard", () => {
   });
 
   it("falls back to the link when the script errors after consent", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { container, findByText } = render(() => (
       <PinterestBoard url={VALID_URL} eventName="Catholic" />
     ));
@@ -350,7 +361,7 @@ describe("PinterestBoard", () => {
   });
 
   it("does NOT fall back if the anchor was transformed before the timeout elapses", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     vi.useFakeTimers();
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
@@ -368,7 +379,7 @@ describe("PinterestBoard", () => {
   // at 2.5s and hid it; the new success-observer keeps it shown as long as the
   // transform arrives before the (much longer) cutoff.
   it("keeps the embed when Pinterest transforms the anchor AFTER the old 2.5s window but before the new cutoff (mobile-slow)", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     vi.useFakeTimers();
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
@@ -402,7 +413,7 @@ describe("PinterestBoard", () => {
   // No transformation by the cutoff (a downstream pidgets/CDN block that emits no
   // script `error` event) → fall back to the link.
   it("falls back to the link when no transformation is observed by the cutoff", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     vi.useFakeTimers();
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector("a[data-pin-do]")).not.toBeNull();
@@ -423,8 +434,8 @@ describe("PinterestBoard", () => {
     // PinterestEmbed, whose onCleanup must disconnect the MutationObserver,
     // clear the cutoff timer and remove the <script>. A <Show> that failed to
     // dispose would leave Pinterest's tag in the document after the guest
-    // switched third-party content off — a revocation that revoked nothing.
-    seedConsentForTest({ embeds: true });
+    // switched Pinterest moodboards off — a revocation that revoked nothing.
+    seedConsentForTest({ pinterest: true });
     const clearSpy = vi.spyOn(window, "clearTimeout");
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
@@ -434,7 +445,7 @@ describe("PinterestBoard", () => {
     // on the node itself rather than via the document.
     const removeSpy = vi.spyOn(script, "remove");
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), pinterest: false });
 
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(removeSpy).toHaveBeenCalled();
@@ -444,14 +455,14 @@ describe("PinterestBoard", () => {
   it("reloads the page when the guest withdraws consent after the board mounted", () => {
     // Removing the tag does not unload what `pinit_main.js` already set up in
     // this page — its globals, listeners and timers. Only a reload does.
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     // After the seed: seeding resets the store, which puts the no-op back.
     const reload = vi.fn();
     setReloadPageForTest(reload);
     render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(scriptHandle.last()).toBeDefined();
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), pinterest: false });
 
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -468,14 +479,14 @@ describe("PinterestBoard", () => {
     });
 
     it("hides the link while the embed is loading", () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       expect(container.querySelector('[role="status"]')).not.toBeNull();
       expect(fallbackLink(container)).toBeUndefined();
     });
 
     it("keeps the link hidden once the board has rendered", async () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       vi.useFakeTimers();
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
@@ -491,7 +502,7 @@ describe("PinterestBoard", () => {
     });
 
     it("shows the link when the script errors", async () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       expect(fallbackLink(container)).toBeUndefined();
       scriptHandle.last().dispatchEvent(new Event("error"));
@@ -499,7 +510,7 @@ describe("PinterestBoard", () => {
     });
 
     it("shows the link when nothing renders by the cutoff", async () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       vi.useFakeTimers();
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       await vi.advanceTimersByTimeAsync(5000);
@@ -509,7 +520,7 @@ describe("PinterestBoard", () => {
     });
 
     it("announces the failure where a screen reader is already listening", async () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       scriptHandle.last().dispatchEvent(new Event("error"));
       await waitFor(() => expect(fallbackLink(container)).toBeDefined());
@@ -520,7 +531,7 @@ describe("PinterestBoard", () => {
     // The observer normally sees the transform first; this pins the cutoff's own
     // re-check, which must also count a late render as a success.
     it("keeps the link hidden when the cutoff's re-check finds a rendered board", async () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       vi.useFakeTimers();
       vi.stubGlobal(
         "MutationObserver",
@@ -545,20 +556,20 @@ describe("PinterestBoard", () => {
     // Tests swap the post-revoke page reload for a no-op, so this proves the
     // in-tree path: the gate unmounting the embed hands the board back to the link.
     it("shows the link again when the gate unmounts a rendered embed", () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ pinterest: true });
       const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
       const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
       anchor.removeAttribute("data-pin-do");
       expect(fallbackLink(container)).toBeUndefined();
 
-      saveConsent({ ...defaultGrants(), embeds: false });
+      saveConsent({ ...defaultGrants(), pinterest: false });
 
       expect(fallbackLink(container)).toBeDefined();
     });
   });
 
   it("clears the fallback timer when the component unmounts", async () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     vi.useFakeTimers();
     const clearSpy = vi.spyOn(window, "clearTimeout");
     const { unmount } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
@@ -620,10 +631,11 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
     expect(fallbackLink(container)).toBeDefined();
   });
 
-  it("loads the embed by default on touch too (opt-out applies on every device)", () => {
+  it("injects nothing before the guest allows it on touch too", () => {
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(scriptHandle.all()).toHaveLength(1);
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+    expect(fallbackLink(container)).toBeDefined();
   });
 
   it("injects the tracker + mounts the embed anchor on consent (touch)", () => {
@@ -638,7 +650,7 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
   });
 
   it("auto-loads the embed on touch when consent was already persisted", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
 
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 

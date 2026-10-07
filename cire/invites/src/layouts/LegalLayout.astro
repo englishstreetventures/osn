@@ -25,8 +25,11 @@ const { title } = Astro.props
     <SiteFooter />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates
-        anyway, since every ConsentGate defaults to denied until then. */}
-    <ConsentBanner client:idle />
+        anyway, since every ConsentGate defaults to denied until then.
+        `prompt="banner"`: elsewhere the prompt is a dialog the guest must
+        answer, but the prompt links here, and a dialog on this page would stand
+        between the guest and the notice they came to read before deciding. */}
+    <ConsentBanner client:idle prompt="banner" />
     <style is:global>
       .legal {
         max-width: 46rem;

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Site-wide consent framework
 
@@ -27,70 +27,66 @@ un-gated by default.
 The framework fixes the structural problem rather than the Pinterest-shaped
 symptom: every third party is governed by one wrapper and declared in one
 registry, so a new embed either goes through the gate or is a visible, deliberate
-omission. Note this is about *control*, not about the answer — the defaults are
-opt-out (below), so a wrapped embed does load for an undecided guest. What the
-wrapper guarantees is that the guest can see it listed and switch it off, which
-the old arrangement could not offer for anything but Pinterest.
+omission. A wrapped embed waits for the guest's yes (see the defaults below),
+and stays listed where the guest can switch it off again — which the old
+arrangement could not offer for anything but Pinterest.
 
 ## The model
 
-**Categories are the unit of consent** — a guest allows "third-party content",
-not "Pinterest" and "Google Maps" separately. Vendors declare which category
-they belong to; the dialog toggles categories and lists the vendors under each.
-Granting from a blocked embed's in-place button grants the whole category, and
-the button says so, because a hidden per-vendor grant would not appear in the
-preferences dialog and so could never be withdrawn.
+**The site does no personal tracking, and consent is asked for exactly two
+things.** What the invite stores or loads to work at all — the claim-code
+session cookie, the record of these choices, the Turnstile bot check — is
+strictly necessary, needs no consent under ePrivacy, and is described in the
+privacy notice instead of being switched. The two things that need consent are
+the two third parties that see a guest's IP address and browser the moment
+they load, and each has its own switch, so a guest can allow one without the
+other.
 
 | Category | Required? | Covers |
 |---|---|---|
-| `necessary` | yes, locked | `cire_session` claim cookie, Turnstile, the consent record itself |
-| `functional` | no | Remembered UI preferences |
-| `embeds` | no | Pinterest moodboard, Google Maps venue embed, Google Fonts (see below) |
-| `analytics` | no | Nothing today — the slot exists so adding analytics later is a config line, not a new framework |
+| `necessary` | yes, never a switch | `cire_session` claim cookie, Turnstile, the consent record itself |
+| `pinterest` | no — "Pinterest moodboards" | The Pinterest moodboard in an event's details |
+| `maps` | no — "Google Maps" | The Google Maps venue embed in an event's details |
 
-There is deliberately **no `marketing` / `advertising` category**. We don't do
-it, and an unused toggle is a claim we'd have to keep true.
+Vendors declare which category they belong to; the preferences sheet shows one
+switch per optional category, naming its company and linking its privacy
+policy. Granting from a blocked embed's in-place button ("Allow Pinterest
+moodboards") grants that switch and nothing else. There is deliberately **no
+`marketing`, `advertising`, `analytics` or preferences category**: the site
+does none of those, and an unused switch is a claim we would have to keep true.
 
-## Defaults: opt-out, except analytics
+## Defaults: nothing optional until the guest decides
 
 | Category | Applies before a decision? |
 |---|---|
-| `necessary` | yes (locked) |
-| `functional` | **yes** |
-| `embeds` | **yes** |
-| `analytics` | no |
+| `necessary` | yes |
+| `pinterest` | no |
+| `maps` | no |
 
-`embeds` and `functional` are **opt-out**: they apply to a guest who hasn't
-decided, and the banner's job is to say so and offer the off switch. That is a
-product decision for a private wedding invite — the venue map and the moodboard
-are content the couple put there for their guests — and it sits within the
-Australian framing the privacy notice sets out. It is **not** the ePrivacy
-posture for EU/UK visitors, who are entitled to prior consent. A known, accepted
-trade, recorded here so nobody later mistakes it for an oversight. Reversing it
-is one `defaultGranted` field in `categories.ts` plus two paragraphs of copy.
-
-`analytics` stays opt-in regardless, and the asymmetry is the point: nothing
-uses that category today, so a default couldn't be *informed* about anything. An
-analytics tag added later must not inherit consent from guests who were never
-told it existed.
+Both switches are off until the guest allows them — prior consent, the
+ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
+holds the invite's pages until it is answered, so in practice the guest
+decides on the first visit. Before then, and after a refusal, the map's place
+is taken by the CSS map card (venue named, maps link out) and the moodboard's
+by the standard placeholder and the outbound "View moodboard on Pinterest"
+link.
 
 ### Three grant maps, and why they can't be collapsed
 
 | Function | Meaning |
 |---|---|
 | `defaultGrants()` | **The floor.** Required only. What "Reject all" writes, AND what applies before the cookie has been read. |
-| `preDecisionGrants()` | **Unasked.** The opt-out defaults above. |
+| `preDecisionGrants()` | **Unasked.** Each category's `defaultGranted` — today equal to the floor. |
 | `allGrants()` | Everything. What "Accept all" writes. |
 
 Two traps this separation exists to avoid:
 
-1. **Refused ≠ unasked.** Under opt-in these were the same effective state, so
-   one function served both. Under opt-out they differ in what they *allow*, so
-   collapsing them would silently re-enable embeds for a guest who switched them
-   off.
+1. **Refused ≠ unasked.** Today they allow the same things, but only a refusal
+   is a decision: unasked re-prompts, refused never does. Collapsing the two
+   maps would also break the day a category's default changed.
 2. **Pre-hydration ≠ unasked.** `record() === null` means "we haven't looked
    yet" before hydration and "we looked, there's nothing" after. Only the second
-   may resolve to the permissive defaults; the first must hold at the floor, or
+   may resolve to the pre-decision defaults; the first must hold at the floor, or
    every page load would ignore a refusal for one tick. Enforced in
    `store.ts`'s `isCategoryGranted`.
 
@@ -98,15 +94,14 @@ Two traps this separation exists to avoid:
 
 | File | Responsibility |
 |---|---|
-| `lib/consent/categories.ts` | The category enum + display metadata. `necessary` is the only required one. |
+| `lib/consent/categories.ts` | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
 | `lib/consent/vendors.ts` | **The vendor registry** — one source of truth (see below). |
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
 | `lib/consent/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
 | `components/consent/ConsentGate.tsx` | The wrapper + the default blocked-content placeholder. |
-| `components/consent/ConsentBanner.tsx` | First-layer banner + the standing `ConsentPreferencesLink`. |
-| `components/consent/banner-height.ts` | Publishes the banner's height on `<html>` while it is up (see below). |
+| `components/consent/ConsentBanner.tsx` | The first-layer prompt — a dialog on the invite's pages, a bottom banner on the legal pages — and the standing `ConsentPreferencesLink`. |
 | `components/consent/ConsentPreferences.tsx` | The "Choose" dialog. |
 
 ## The vendor registry is the source of truth
@@ -125,9 +120,10 @@ undeclared transfer (silent, and the one that matters).
    also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
-3. Wrap the component in `<ConsentGate category="…" vendor="…">`. If it lands in
-   a category that is on by default, it starts loading for everyone — check that
-   is what you want, and that the banner copy still names it.
+3. Give it its own switch: a category in `categories.ts`, off by default, with
+   a title the placeholder's "Allow" button and the preferences sheet use.
+   Wrap the component in `<ConsentGate category="…" vendor="…">`, and check the
+   prompt's copy still names it.
 4. Bump `CONSENT_POLICY_VERSION` in `record.ts` (this re-prompts everyone — see
    below).
 5. Add a row to the root `[[compliance/subprocessors]]` register.
@@ -141,8 +137,8 @@ voice.
 - `"gated"` — the guest's choice genuinely controls it: no request is made while
   the category is switched off. Pinterest and Google Maps both mount inside the
   click-opened details sheet, so they never appear in server-rendered HTML and a
-  client-side gate is sufficient. (With `embeds` on by default, "gated" means
-  *switchable*, not *withheld by default*.)
+  client-side gate is sufficient. "Gated" means *withheld until the guest's
+  yes*, and switchable off again after.
 - `"always"` — loads regardless. **Google Fonts only**, because the font
   `<link>` sits in the `<head>` of the server-rendered document. The right fix
   is to delete the vendor (self-host the two woff2 families), not to put the
@@ -171,41 +167,20 @@ only in its own frame is still `false`.
 A cookie, `Path=/`, `Max-Age` 182 days, `SameSite=Lax`. Not `HttpOnly` — client
 code rewrites it.
 
-**Two names, chosen by `secure`.** On https the cookie is written as
-`__Host-cire_consent`; on http (local dev) it falls back to the bare
-`cire_consent`, because `__Host-` cookies are rejected outright without
-`Secure`, which http can never set. A read accepts BOTH names and prefers the
-prefixed one when both are present. This is osn-tracker#163 (S-L1): without the
-prefix, a script on a sibling `*.cireweddings.com` origin could set its own
-`Domain=.cireweddings.com` cookie of the same bare name, and which of the two
-same-named cookies a browser returns first is unspecified — so a guest's
-stored REFUSAL could be silently overridden back to "allowed". `__Host-` is a
-browser-enforced promise (rejected without `Secure`, `Path=/`, and no
-`Domain`), which the cookie's existing attributes already satisfy.
+**One name per origin.** On https the cookie is `__Host-cire_consent`; on http
+(local dev) it is the bare `cire_consent`, because `__Host-` cookies are
+rejected outright without `Secure`, which http can never set. `cookie.ts`
+chooses the name once (`consentCookieName`) for both writing and reading, and
+**a secure origin never reads the bare name** — not as a fallback, and not to
+carry it over onto the `__Host-` name. A script on a sibling
+`*.cireweddings.com` origin can set a `Domain=.cireweddings.com` cookie of the
+bare name, and honouring it would let that origin decide for the guest — turn a
+stored refusal back into "allowed", or answer the prompt on a first visit.
+`__Host-` is a browser-enforced promise (rejected without `Secure`, `Path=/`,
+and no `Domain`), so only this origin can have set it.
 
-**The bare name is removed, not merely out-ranked.** Preferring the prefixed
-name on read only defends this origin, and only once the prefixed cookie
-actually exists — so two writes end the ambiguity rather than out-running it:
-
-- a secure write also expires the bare name, so saving clears the old cookie;
-- `hydrateConsent` calls `migrateBareConsentCookie` on the way in, which on a
-  secure origin moves a bare-name record onto the prefixed name and expires the
-  bare one.
-
-The second is the one that matters, and it is not belt-and-braces. `saveConsent`
-runs only when a guest touches the consent UI, and a guest who has already
-decided is exactly the one the banner never shows again — their stored choice
-reads back fine through the bare-name fallback, so `needsConsentDecision()`
-stays false and nothing would ever perform the secure write. Without a migration
-on the READ path, their refusal would stay shadowable for the cookie's full 182
-days. Migrating on read moves them silently on their next visit. On http dev
-there is nothing to migrate: `__Host-` needs `Secure`, so the bare name is the
-correct and only form there.
-
-A page cannot delete a `Domain=.cireweddings.com` cookie another origin set, and
-does not try — the read precedence is what defends against that one. The expiry
-is host-only, `Path=/`, no `Domain`, so it clears our own old cookie and nothing
-else.
+The cost is one question: a guest whose choice exists only under the bare name
+on https is asked again. Nothing migrates it.
 
 **Why a cookie and not `localStorage`** (which the old Pinterest gate used): a
 cookie is the only store the server can read. Both currently-gated embeds mount
@@ -225,10 +200,9 @@ Switching a category off unmounts its gated embeds immediately — `ConsentGate`
 doesn't render children, it disposes them, so no further request escapes. For
 an embed that runs in its own iframe, that is a full teardown. For one whose
 script ran in the invite page, it is not: the globals it set, the listeners it
-attached and the timers it started stay live after the DOM node is gone. Under
-the opt-out defaults this is not an edge case: where a gated embed HAS loaded,
-the banner appeared after it, so "Reject all" is clicked with a third-party
-context already live.
+attached and the timers it started stay live after the DOM node is gone. A
+guest who allowed the moodboard, opened an event's details sheet and
+later switches it off does so with a third-party context already live.
 
 `saveConsent` (`store.ts`) reloads the page — `location.reload()`, via an
 injectable module-level `reloadPage` reference so tests can substitute a spy.
@@ -244,8 +218,8 @@ already written. Three conditions gate it, all load-bearing:
    category, the one whose revoke unmounts the embed. Two cases skip the reload.
    A guest who saw only the map loses nothing to a plain unmount. And both gated
    vendors mount only inside a click-opened event details sheet, while the
-   banner appears immediately, so a guest who lands and presses "Reject all"
-   has usually opened neither. A reload in either case would spend a full
+   first-layer prompt holds the invite until it is answered, so a guest who
+   answers it has almost never opened either. A reload in either case would spend a full
    document load, every island's hydration and a re-fetch of the invite to
    clear nothing. The record is a plain module-level `Map`, not a signal:
    nothing renders from it, and it resets on reload, which is exactly right,
@@ -256,7 +230,7 @@ already written. Three conditions gate it, all load-bearing:
    failures by design (see "Storage" above). Reloading on an unpersisted
    refusal would discard the very refusal the reload exists to enforce: the
    guest would watch the page reload believing they'd just refused, and land
-   back on the opt-out defaults with no record of having tried.
+   back on the pre-decision defaults with no record of having tried.
 
 The preferences dialog states this plainly rather than leaving it implicit — a
 silent reload the guest didn't expect is its own kind of surprising — and says
@@ -280,8 +254,8 @@ reload takes back what a vendor received or stored. That is the short form;
 ### `null` vs "refused everything"
 
 The distinction the design turns on. `null` (no record) means **never asked** →
-show the banner. A record with every optional grant `false` means **refused** →
-never re-ask. A banner that reappeared after a refusal would be nagging the
+show the prompt. A record with every optional grant `false` means **refused** →
+never re-ask. A prompt that reappeared after a refusal would be nagging the
 guest towards consent.
 
 ## Hydration rule
@@ -290,74 +264,105 @@ guest towards consent.
 from `onMount`. This keeps the server-rendered markup and the first client
 render identical (both show the un-consented state), and nothing third-party can
 load in the gap because gates deny until the same hydration completes. Every
-gate calls `hydrateConsent` itself rather than depending on a banner having
+gate calls `hydrateConsent` itself rather than depending on a prompt having
 mounted first.
 
 ## UI rules that are not negotiable
 
-- **The banner states that things are already on.** It names Google and
-  Pinterest and says the content is switched on with an offer to turn it off,
-  rather than posing a question whose answer has been assumed. Asserted by test.
-- **Reject is as easy as accept.** All three banner actions render through one
-  `BannerButton` component, so they carry identical styling by construction —
-  making accept "primary" would mean deliberately breaking them apart.
-  `ConsentBanner.test.tsx` asserts the classNames match. This matters *more*
-  under opt-out, not less: the off switch is the only thing a guest who
-  disagrees with the default actually has.
+- **On the invite's pages the prompt is a dialog the guest must answer.**
+  The first-layer prompt is an `@shared/ui` `Modal` sheet at every width on
+  both designs' pages, the gift registry and the 404 page. Nothing but an
+  answer closes it, so once answered nothing is left over the invite's hero.
+  - `closedby="none"` keeps Escape and the back gesture away from it in
+    browsers that support the attribute, where the back gesture then goes
+    back a page, as it does anywhere else. Elsewhere Escape and the back
+    gesture fire a `cancel`, which is refused, and where the browser will not
+    allow that (it does only after the guest has interacted), the dialog
+    closes and a fresh one opens at once — so in those browsers the back
+    gesture does nothing until the guest answers. A tap on the backdrop does
+    nothing (`dismissable={false}`). There is no close button.
+  - **It opens on its heading.** Focus never starts on an answer, which would
+    be a nudge, nor on a link, where a stray Enter would leave the page.
+  - **It links to both legal pages,** because it blocks the footer that
+    otherwise carries them. The legal pages show the banner, never the
+    dialog, so the guest can read the notice before deciding.
+  - **A page restored from the back/forward cache reads the cookie again**
+    (`refreshConsentFromDocument` on `pageshow`), so a guest who answered on
+    the privacy notice and pressed back is not asked a second time.
+- **On the legal pages the prompt is a banner.** `LegalLayout.astro` passes
+  `prompt="banner"`: the prompt links there, and a dialog would stand between
+  the guest and the notice they came to read. The banner rides the bottom of
+  the screen at every width (`sticky`, the last box on the page), so at the
+  end of the page it rests below the footer instead of over it, and while it
+  is up the page keeps a bottom scroll padding of its height, so whatever Tab
+  moves to is scrolled clear of it.
+- **The prompt says what is off, and what turns it on.** It names Google and
+  Pinterest and what they would see, says their content stays off until the
+  guest allows it, and names "Accept all" as the answer that does. Asserted by
+  test.
+- **Refusing is exactly as easy as accepting.** The prompt's three answers are
+  "Accept all", "Reject all" and "Choose", in that order, all drawn by one
+  component (`BannerButton`, `cta` style) at the same size and weight: no
+  answer is highlighted. "Reject all" is the refusal's one name, everywhere.
+  Both forms render the same three buttons. `ConsentBanner.test.tsx` asserts
+  the order and that the classes match, and `ConsentBanner.browser.test.tsx`
+  that the dialog paints all three alike at 320, 390 and 1440px. `cta` ink is
+  gold-ink, which the palette derivation holds at 4.5:1; a gold fill at rest is
+  avoided because the derivation holds it at only 3:1 against the page ground.
+- **"Choose" opens a small sheet with the two switches and Save** — nothing
+  else. Each switch names its company and links its privacy policy, and each
+  saves independently.
 - **Rendering never writes a record.** The defaults apply without fabricating a
-  decision, so the banner keeps appearing until the guest genuinely makes one.
+  decision, so the prompt keeps appearing until the guest genuinely makes one.
   An implied consent silently promoted to a stored, timestamped one would cost
   them the chance to refuse.
-- **The dialog's toggles show what is actually loading** — ticked for `embeds`
-  and `functional` on a first visit. A dialog showing `embeds` unticked while
-  the map was on screen would describe a state the site is not in.
-- **The dialog's toggles are a local draft** until Save. A guest who flicks a
+- **The sheet's switches show what is actually loading** — both off on a
+  first visit, matching a page that loads neither.
+- **The sheet's switches are a local draft** until Save. A guest who flicks a
   switch to see what it covers and then closes the dialog has granted nothing.
 - **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
-- **The dialog reaches above the details sheet. The banner does not.** The sheet
-  is a `showModal()` dialog, so it renders in the **top layer**, which no
-  `z-index` reaches — see [[wiki/shared/component-library]] §What has to
-  sit above a modal, and [[top-layer-over-z-index-stack]] for why the guest
-  site's scale ranks nothing against a sheet.
-  - The **dialog** is a `showModal()` dialog too, so opening it from a blocked
-    embed inside the sheet makes it the blocking dialog and the sheet goes inert
-    beneath it. It carries no `z-index` because it has nothing to rank against.
-  - The **banner** is not a dialog and carries `Z_LAYER.CONSENT` (200), so while
-    a sheet is open it is painted underneath and is `inert`: not clickable, not
-    announced. It returns the moment the sheet closes. The guest is not locked
-    out — Escape or the sheet's own close reaches it — but an undecided guest
-    looking at a third-party embed *inside* the sheet has no consent affordance
-    in front of them unless the category is already off, which is what puts a
-    `<ConsentGate>` placeholder there. Tracked in `englishstventures/osn#1061`.
-
-- **The banner publishes its height.** While the first-layer banner is on
-  screen it keeps `--consent-banner-height` on `<html>` equal to its own
-  height, through a `ResizeObserver` (its copy wraps differently at every
-  width and again once the fonts land), and removes it the moment it goes: on
-  a decision, or when the dialog replaces it. Anything that must not sit under
-  the banner reads that property. The hero's scroll cue rises by it
-  ([[cire-invite-designs#The hero scroll cue]]). The islands share nothing else
-  for this: the property is the whole contract.
+- **The consent dialogs reach above the details sheet.** The sheet is a
+  `showModal()` dialog, so it renders in the **top layer**, which no `z-index`
+  reaches — see [[wiki/shared/component-library]] §What has to sit above a
+  modal, and [[top-layer-over-z-index-stack]] for why the guest site's scale
+  ranks nothing against a sheet. The first-layer prompt and the preferences
+  dialog are `showModal()` dialogs too, and carry no `z-index` because they
+  have nothing to rank against. An undecided guest cannot open a sheet: the
+  prompt holds the page until it is answered, and if it arrives while a sheet
+  is already open it opens above it. Opening the preferences dialog from a
+  blocked embed inside the sheet makes it the blocking dialog and the sheet
+  goes inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
+  appears only on the legal pages, which have no sheets.
 
 Only one mounted component renders the dialog at a time
-(`claimConsentDialogHost`), or a page with both a banner and a footer link would
+(`claimConsentDialogHost`), or a page with both a prompt and a footer link would
 open two stacked copies with two independent drafts.
 
 ## Legacy migration
 
-The old `cire:pinterest-consent` key is **deleted on hydration, not migrated**.
-That click consented to Pinterest specifically; the `embeds` category now also
-covers the Google Maps embed, so importing it would silently widen a narrow
-consent into a broader one the guest was never shown. Those guests are asked
-once more — the honest cost of consolidating the gates.
+The old `cire:pinterest-consent` key is **deleted on hydration, not migrated**:
+that click was given against an older disclosure, so it is not consent to the
+current one. Those guests are asked once more.
+
+**`CONSENT_POLICY_VERSION` is `2026-10-08`.** Records made under `2026-07-29`
+held a single `embeds` grant for both third parties together; reading it as a
+yes or a no to the two separate switches would answer a question the guest was
+never asked, so those records decode to `null` and the guest is asked again.
+`CONSENT_RECORD_VERSION` is unchanged: a current record that still carries the
+keys of removed categories (`functional`, `analytics`, `embeds`) parses, and
+`normaliseGrants` ignores the extra keys.
 
 ## Where it's mounted
 
-`<ConsentBanner client:idle />` in all five document shells:
+`<ConsentBanner client:idle />`, the dialog, in four document shells:
 `designs/classic/Document.astro`, `designs/gala/Document.astro`,
-`components/gift-registry/GiftRegistryDocument.astro`,
-`layouts/LegalLayout.astro`, `components/NotFoundDocument.astro`.
+`components/gift-registry/GiftRegistryDocument.astro` and
+`components/NotFoundDocument.astro`. The fifth, `layouts/LegalLayout.astro`,
+mounts the banner, `<ConsentBanner client:idle prompt="banner" />` (see the UI
+rules above).
+`tests/layouts/legal-layout.test.ts` reads the five shells as text and fails
+if either form moves.
 
 ## Not covered
 

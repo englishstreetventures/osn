@@ -11,7 +11,7 @@ related:
   - "[[native-dialog-over-kobalte]]"
   - "[[component-library]]"
   - "[[decisions/README]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-07
 ---
 
 # Nothing ranks against a sheet: the top layer, not a bigger number
@@ -88,8 +88,12 @@ freely-given choice they had no practical way to change.
 
 *Every other numbered layer* is the exact claim, and the qualifier is the
 important half: while a sheet is open the banner is painted beneath it and inert,
-and comes back when the sheet closes. [[cire-consent]] §UI rules that are not
-negotiable has the consequences for the consent surface itself.
+and comes back when the sheet closes. On the invite's pages the first-visit
+prompt is not the banner but a `showModal()` dialog, which ranks against
+nothing: if it arrives while a sheet is open it opens above it. The banner
+appears only on the legal pages, which have no sheets. [[cire-consent]] §UI
+rules that are not negotiable has the consequences for the consent surface
+itself.
 
 ### Why the scale is centralised at all
 

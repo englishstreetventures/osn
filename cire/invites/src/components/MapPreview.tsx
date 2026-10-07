@@ -14,8 +14,8 @@ interface MapPreviewProps {
  * Two render paths share one footer (venue line + an "Open in Maps" icon):
  *
  *  - **Real map** — when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build
- *    time AND the event has a venue address AND the guest has allowed
- *    third-party content, the top of the card is a Google Maps Embed API
+ *    time AND the event has a venue address AND the guest has switched on
+ *    Google Maps, the top of the card is a Google Maps Embed API
  *    `place` iframe keyed on the free-text address (no lat/lng, no geocoding,
  *    no schema change). The key is referrer-restricted at the Maps Platform
  *    console, which is what makes baking it into static HTML safe. The iframe
@@ -23,7 +23,7 @@ interface MapPreviewProps {
  *    path is never leaked to Google (see S-L1 / S-L2).
  *
  *  - **CSS card (fallback)** — when no key is configured, when there is no
- *    address to query, OR when the guest has not allowed third-party content,
+ *    address to query, OR when the guest has not switched on Google Maps,
  *    the top is a self-contained CSS-drawn "cartographic" card (gold contour
  *    rings + street grid + marker pin) that ships no image, needs no secret,
  *    and makes no network request. This keeps the page working before any key
@@ -67,7 +67,7 @@ export function MapPreview(props: MapPreviewProps) {
         <Show when={embedSrc()} fallback={<MapCard href={href()} venue={venue()} />}>
           {(src) => (
             <ConsentGate
-              category="embeds"
+              category="maps"
               vendor="google-maps"
               fallback={<MapCard href={href()} venue={venue()} />}
             >

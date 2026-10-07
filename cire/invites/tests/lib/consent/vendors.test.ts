@@ -7,8 +7,6 @@ import { CONSENT_CATEGORIES, isConsentCategory } from "../../../src/lib/consent/
 import {
   CONSENT_VENDORS,
   gatedVendorsInCategory,
-  thirdPartyVendors,
-  ungatedVendorsInCategory,
   vendorById,
   vendorsInCategory,
 } from "../../../src/lib/consent/vendors";
@@ -54,8 +52,8 @@ describe("vendor registry ↔ CSP consistency", () => {
     // The REVERSE direction, and the one that fails silently. A missing CSP
     // entry breaks the embed in the browser; a missing REGISTRY entry leaves an
     // origin that is contactable, CSP-permitted, and absent from the published
-    // privacy notice, the preferences dialog and the subprocessor register —
-    // because `privacy.astro` generates its disclosure from `thirdPartyVendors()`.
+    // privacy notice, the preferences sheet and the subprocessor register —
+    // because `privacy.astro` generates its disclosure from this registry.
     //
     // Anything exempted below is FIRST-PARTY and therefore owes no third-party
     // disclosure. Adding to this list is the one place that has to be justified
@@ -118,7 +116,10 @@ describe("vendor registry shape", () => {
   // inside its own iframe, which unmounting destroys.
   it("records which gated vendors run code in the page itself", () => {
     const runsInPage = Object.fromEntries(
-      gatedVendorsInCategory("embeds").map((vendor) => [vendor.id, vendor.runsInPage]),
+      CONSENT_VENDORS.filter((vendor) => vendor.enforcement === "gated").map((vendor) => [
+        vendor.id,
+        vendor.runsInPage,
+      ]),
     );
     expect(runsInPage).toEqual({ "google-maps": false, pinterest: true });
   });
@@ -135,7 +136,7 @@ describe("vendor registry shape", () => {
   it("gives every third party a privacy policy link and a named transfer destination", () => {
     // The privacy notice is generated from these fields, so a missing one is a
     // gap in the published disclosure rather than a cosmetic omission.
-    for (const vendor of thirdPartyVendors()) {
+    for (const vendor of CONSENT_VENDORS.filter((v) => v.origins.length > 0)) {
       expect(vendor.privacyUrl, `${vendor.name} has no privacy URL`).toBeTruthy();
       expect(vendor.transfer, `${vendor.name} has no transfer destination`).toBeTruthy();
     }
@@ -173,39 +174,29 @@ describe("vendor registry shape", () => {
 });
 
 describe("category partitioning", () => {
-  it("puts both consent-gated embeds under `embeds`", () => {
-    const ids = gatedVendorsInCategory("embeds").map((vendor) => vendor.id);
-    expect(ids).toContain("pinterest");
-    expect(ids).toContain("google-maps");
+  it("gives each consent switch exactly its own vendor", () => {
+    // Two switches, one third party each, so a guest can allow the moodboard
+    // without the map, or the map without the moodboard.
+    expect(gatedVendorsInCategory("pinterest").map((vendor) => vendor.id)).toEqual(["pinterest"]);
+    expect(gatedVendorsInCategory("maps").map((vendor) => vendor.id)).toEqual(["google-maps"]);
   });
 
-  it("has no ungated embeds — Google Fonts is self-hosted, not in the registry", () => {
-    // Honesty check, inverted. Fonts used to load from the document <head>
-    // before any consent could apply, so `embeds` carried one "always" vendor.
-    // Self-hosting removed the vendor entirely rather than gating it, so
-    // `embeds` should now be gated-only. If this list is ever non-empty again,
-    // that is the prompt to update the privacy-page note that used to explain
-    // the exception.
-    const ids = ungatedVendorsInCategory("embeds").map((vendor) => vendor.id);
-    expect(ids).toEqual([]);
-  });
-
-  it("splits every category's vendors into exactly gated + ungated", () => {
+  it("gates every vendor that is not strictly necessary", () => {
     for (const category of CONSENT_CATEGORIES) {
-      const all = vendorsInCategory(category);
-      const partitioned =
-        gatedVendorsInCategory(category).length + ungatedVendorsInCategory(category).length;
-      // First-party entries (no origins) belong to neither list — they are not
-      // third parties and have nothing to disclose beyond the category summary.
-      const firstParty = all.filter((vendor) => vendor.origins.length === 0).length;
-      expect(partitioned + firstParty).toBe(all.length);
+      if (category === "necessary") continue;
+      expect(vendorsInCategory(category).every((vendor) => vendor.enforcement === "gated")).toBe(
+        true,
+      );
     }
   });
 
-  it("defines no advertising or marketing category", () => {
-    // Deliberate: we don't do it, and an unused toggle is a claim we would have
-    // to keep true.
-    expect(CONSENT_CATEGORIES as readonly string[]).not.toContain("marketing");
+  it("defines no advertising, marketing, analytics or preferences category", () => {
+    // Deliberate: the site does no personal tracking, and everything else it
+    // stores is necessary. An unused switch is a claim we would have to keep
+    // true.
+    for (const absent of ["marketing", "analytics", "functional", "embeds"]) {
+      expect(CONSENT_CATEGORIES as readonly string[]).not.toContain(absent);
+    }
     expect(CONSENT_VENDORS.every((vendor) => (vendor.category as string) !== "marketing")).toBe(
       true,
     );

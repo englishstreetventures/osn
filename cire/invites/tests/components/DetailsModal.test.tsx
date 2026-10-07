@@ -159,7 +159,7 @@ describe("DetailsModal", () => {
  * shared store. If the defaults, the gate and the hydration order ever disagree,
  * this is where it shows up.
  */
-describe("DetailsModal — third-party embeds are on by default", () => {
+describe("DetailsModal — each embed waits for its own switch", () => {
   const MAPS_KEY = "test-embed-key";
   const PINTEREST_URL =
     "https://www.pinterest.com.au/pcvmpasupati/catholic-wedding-guest-moodboard/";
@@ -188,7 +188,23 @@ describe("DetailsModal — third-party embeds are on by default", () => {
     resetConsentForTest();
   });
 
-  it("renders BOTH the Google map and the Pinterest board for a guest with no consent cookie", () => {
+  it("loads NEITHER the Google map nor the Pinterest board for a guest with no consent cookie", () => {
+    const { container, getByText } = renderModal(richEvent);
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(trackerScript()).toBeNull();
+    // What stands in for them: the CSS map card naming the venue, and the
+    // moodboard's own placeholder and link-out.
+    expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
+    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[href="' + PINTEREST_URL + '"]'),
+    ).not.toBeNull();
+  });
+
+  it("renders BOTH once the guest has allowed both", () => {
+    seedConsentForTest({ pinterest: true, maps: true });
     const { container } = renderModal(richEvent);
 
     // The venue map: a live Google Maps Embed iframe, not the CSS fallback card.
@@ -203,11 +219,30 @@ describe("DetailsModal — third-party embeds are on by default", () => {
     expect(trackerScript()).not.toBeNull();
 
     // And no permission notice standing in for either of them.
-    expect(container.textContent ?? "").not.toContain("Allow third-party content");
+    expect(container.textContent ?? "").not.toContain("Allow Pinterest moodboards");
   });
 
-  it("blocks BOTH once the guest switches third-party content off", () => {
-    seedConsentForTest({ embeds: false });
+  it("renders only the map when only Google Maps is allowed", () => {
+    seedConsentForTest({ maps: true });
+    const { container } = renderModal(richEvent);
+
+    expect(container.querySelector("iframe")).not.toBeNull();
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(trackerScript()).toBeNull();
+  });
+
+  it("renders only the moodboard when only Pinterest is allowed", () => {
+    seedConsentForTest({ pinterest: true });
+    const { container, getByText } = renderModal(richEvent);
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
+    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    expect(trackerScript()).not.toBeNull();
+  });
+
+  it('blocks BOTH after "Reject all"', () => {
+    seedConsentForTest({ pinterest: false, maps: false });
     const { container } = renderModal(richEvent);
 
     expect(container.querySelector("iframe")).toBeNull();
@@ -218,7 +253,7 @@ describe("DetailsModal — third-party embeds are on by default", () => {
   it("keeps the venue and the moodboard reachable even when both embeds are off", () => {
     // Refusing costs the rich embeds and nothing else: the CSS map card still
     // names the venue and links out, and the moodboard link-out is still there.
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false, maps: false });
     const { container, getByText } = renderModal(richEvent);
 
     expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
