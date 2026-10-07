@@ -1,43 +1,25 @@
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
-import {
-  CATEGORY_LIST,
-  type ConsentCategory,
-  isRequiredCategory,
-} from "../../lib/consent/categories";
+import { CATEGORY_LIST, type ConsentCategory } from "../../lib/consent/categories";
 import type { ConsentGrants } from "../../lib/consent/record";
-import {
-  acceptAllConsent,
-  closeConsentPreferences,
-  currentGrants,
-  rejectAllConsent,
-  saveConsent,
-} from "../../lib/consent/store";
-import {
-  type ConsentVendor,
-  gatedVendorsInCategory,
-  ungatedVendorsInCategory,
-} from "../../lib/consent/vendors";
+import { closeConsentPreferences, currentGrants, saveConsent } from "../../lib/consent/store";
+import { gatedVendorsInCategory } from "../../lib/consent/vendors";
+
+/** The switches the sheet offers: every category but the required one. */
+const SWITCHES = CATEGORY_LIST.filter((category) => !category.required);
 
 /**
- * The "Choose" layer — per-category toggles, with the vendors each one governs
- * listed underneath so the choice is made against the actual disclosure rather
- * than against a category name.
+ * The "Choose" sheet — one switch per third party that needs consent (the
+ * Pinterest moodboard, the Google venue map) and Save. Nothing else: what the
+ * site stores to work at all is necessary, needs no switch, and is described
+ * in the privacy notice.
  *
- * Toggles are seeded from the guest's stored decision and edited LOCALLY until
- * they press Save. Writing each flip straight through to the cookie would mean
- * a guest who opened the dialog to read it, flicked a switch to see what it
- * covered, and then closed the dialog had silently granted consent they never
- * confirmed. Nothing here persists without the explicit Save (or one of the two
- * one-click actions, which are unambiguous by construction).
- *
- * Vendors that the toggle does NOT govern (`enforcement: "always"` — today
- * Cloudflare Turnstile, which the claim form can't function without) are
- * listed separately under an explicit "loads on every visit" heading. Hiding
- * them would leave the dialog quietly overstating what the switch controls;
- * listing them under the switch as though it applied would do the same thing
- * more loudly.
+ * Switches are seeded from the guest's stored decision and edited LOCALLY
+ * until they press Save. Writing each flip straight through to the cookie
+ * would mean a guest who opened the sheet to read it, flicked a switch to see
+ * what it covered, and then closed it had silently granted consent they never
+ * confirmed. Nothing here persists without the explicit Save.
  */
 export function ConsentPreferences() {
   const titleId = createUniqueId();
@@ -46,17 +28,16 @@ export function ConsentPreferences() {
   const [draft, setDraft] = createSignal<ConsentGrants>({ ...currentGrants() });
 
   function toggle(category: ConsentCategory, next: boolean) {
-    if (isRequiredCategory(category)) return;
     setDraft((current) => ({ ...current, [category]: next }));
   }
 
   return (
     // `Modal` rather than `AnimatedModal`: that one applies the invite's
-    // per-section theme variables, and this dialog also renders on `/privacy`
+    // per-section theme variables, and this sheet also renders on `/privacy`
     // and `/terms`, which have no invite theme at all.
     //
     // A dismissal is not a decision. Escape and a backdrop click both discard
-    // the draft and leave the banner up, and `onClose` is wired to nothing but
+    // the draft and leave the prompt up, and `onClose` is wired to nothing but
     // `closeConsentPreferences` so there is no path where one writes a record.
     //
     // Plain utilities in `class`, never `base:` ones: `Modal`'s own defaults
@@ -69,7 +50,7 @@ export function ConsentPreferences() {
       aria-describedby={descriptionId}
       presentation="sheet"
       // The page ground, not the raised surface a dialog normally floats on:
-      // this panel's own category rows ARE raised surfaces, and a panel painted
+      // this panel's own switch rows ARE raised surfaces, and a panel painted
       // the same colour stops them reading as rows.
       surface="ground"
       class="max-w-lg"
@@ -78,35 +59,30 @@ export function ConsentPreferences() {
         Your privacy choices
       </h2>
       <p id={descriptionId} class="font-body text-text-muted text-ui-sm mt-2 leading-relaxed">
-        Choose what this invite is allowed to load. You can change this at any time from the link in
+        Choose which of these the invite may load. You can change this at any time from the link in
         the footer of any page.
       </p>
-      {/* Turning off a category removes its embeds at once, and reloads
-            the page when an embed that already ran left code running in the
-            page itself — see `saveConsent` in `lib/consent/store.ts` — so
-            that company's code is stopped, not just kept from loading again.
-            Stated here rather than left implicit, because a silent reload the
-            guest didn't expect is its own kind of surprising. Hedged on
-            "may", because the reload only happens when there is something
-            the removal could not stop: a guest who never opened an event's
-            details sheet loaded no embed, and an embed that runs in its own
-            frame (the map) stops with the frame. Neither the removal nor the
-            reload takes back what the company already received or stored.
-            The second sentence is the short form of that; `/privacy` states
-            it in full, naming the company and when the data left. */}
+      {/* Turning a switch off removes its embeds at once, and reloads the
+          page when an embed that already ran left code running in the page
+          itself — see `saveConsent` in `lib/consent/store.ts` — so that
+          company's code is stopped, not just kept from loading again. Stated
+          here because a silent reload the guest didn't expect is its own kind
+          of surprising, and hedged on "may" because the reload only happens
+          when there is something the removal could not stop. Neither the
+          removal nor the reload takes back what the company already received
+          or stored; `/privacy` states that in full. */}
       <p class="font-body text-text-muted/80 text-ui-sm mt-1.5 leading-relaxed">
         Turning something off takes effect at once; the page may reload. Data already sent to that
         company can't be recalled.
       </p>
 
       <div class="mt-5 flex flex-col gap-4">
-        <For each={CATEGORY_LIST}>
+        <For each={SWITCHES}>
           {(category) => (
-            <CategoryRow
+            <SwitchRow
               id={category.id}
               title={category.title}
               summary={category.summary}
-              required={category.required}
               checked={draft()[category.id]}
               onChange={(next) => toggle(category.id, next)}
             />
@@ -114,34 +90,28 @@ export function ConsentPreferences() {
         </For>
       </div>
 
-      <div class="border-border/70 mt-6 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:justify-between">
-        {/* Reject and Accept are rendered as siblings with identical weight.
-              A refusal that is visually harder to reach than an acceptance is
-              not a free choice, and is the specific dark pattern the "reject
-              must be as easy as accept" rule targets. */}
-        <div class="flex gap-2">
-          <ChoiceButton onClick={rejectAllConsent}>Reject all</ChoiceButton>
-          <ChoiceButton onClick={acceptAllConsent}>Accept all</ChoiceButton>
-        </div>
-        <ChoiceButton primary onClick={() => saveConsent(draft())}>
+      <div class="border-border/70 mt-6 flex justify-end border-t pt-5">
+        <button
+          type="button"
+          onClick={() => saveConsent(draft())}
+          class="border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
+        >
           Save choices
-        </ChoiceButton>
+        </button>
       </div>
     </Modal>
   );
 }
 
-function CategoryRow(props: {
+function SwitchRow(props: {
   id: ConsentCategory;
   title: string;
   summary: string;
-  required: boolean;
   checked: boolean;
   onChange: (next: boolean) => void;
-}) {
+}): JSX.Element {
   const inputId = createUniqueId();
-  const gated = () => gatedVendorsInCategory(props.id);
-  const ungated = () => ungatedVendorsInCategory(props.id);
+  const vendor = () => gatedVendorsInCategory(props.id)[0];
 
   return (
     <div class="border-border/60 bg-surface-raised/40 rounded-md border px-4 py-3.5">
@@ -150,87 +120,31 @@ function CategoryRow(props: {
           id={inputId}
           type="checkbox"
           checked={props.checked}
-          disabled={props.required}
           onChange={(event) => props.onChange(event.currentTarget.checked)}
-          class="accent-gold mt-0.5 h-4 w-4 shrink-0 disabled:opacity-60"
+          class="accent-gold mt-0.5 h-4 w-4 shrink-0"
         />
         <div class="min-w-0 flex-1">
-          <label
-            for={inputId}
-            class="font-body text-text text-ui-base flex items-center gap-2 font-normal"
-          >
+          <label for={inputId} class="font-body text-text text-ui-base font-normal">
             {props.title}
-            <Show when={props.required}>
-              {/* The alpha is dropped along with the token swap: 0.62rem is
-                  well inside normal-size text, and an alpha-modified colour
-                  over a surface has no single ratio for the derivation to
-                  enforce — `text-gold-ink/80` would have looked fixed without
-                  being fixed. */}
-              <span class="text-gold-ink text-ui-xs tracking-ui-widest uppercase">Always on</span>
-            </Show>
           </label>
           <p class="font-body text-text-muted text-ui-sm mt-1 leading-relaxed">{props.summary}</p>
-
-          <Show when={gated().length > 0}>
-            <VendorList label="This switch controls" vendors={gated()} />
-          </Show>
-          <Show when={ungated().length > 0}>
-            {/* Named plainly rather than omitted — see the module doc. */}
-            <VendorList label="Loads on every visit, whatever you choose" vendors={ungated()} />
+          <Show when={vendor()?.privacyUrl}>
+            {(url) => (
+              <p class="font-body text-text-muted text-ui-xs mt-1.5 leading-snug">
+                <Show when={vendor()?.transfer}>{(transfer) => <>{transfer()} · </>}</Show>
+                <a
+                  href={url()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-gold-ink underline underline-offset-2"
+                >
+                  privacy policy ↗
+                </a>
+              </p>
+            )}
           </Show>
         </div>
       </div>
     </div>
-  );
-}
-
-function VendorList(props: { label: string; vendors: readonly ConsentVendor[] }) {
-  return (
-    <div class="mt-2.5">
-      <p class="font-body text-text-muted/70 text-ui-xs tracking-ui-wider uppercase">
-        {props.label}
-      </p>
-      <ul class="mt-1 flex flex-col gap-1">
-        <For each={props.vendors}>
-          {(vendor) => (
-            <li class="font-body text-text-muted text-ui-xs leading-snug">
-              <span class="text-text/90">{vendor.name}</span>
-              <Show when={vendor.transfer}>{(transfer) => <> — {transfer()}</>}</Show>
-              <Show when={vendor.privacyUrl}>
-                {(url) => (
-                  <>
-                    {" "}
-                    <a
-                      href={url()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-gold-ink underline underline-offset-2"
-                    >
-                      privacy policy ↗
-                    </a>
-                  </>
-                )}
-              </Show>
-            </li>
-          )}
-        </For>
-      </ul>
-    </div>
-  );
-}
-
-function ChoiceButton(props: { primary?: boolean; onClick: () => void; children: JSX.Element }) {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      class={
-        props.primary
-          ? "border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
-          : "border-border font-body text-text hover:border-gold hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
-      }
-    >
-      {props.children}
-    </button>
   );
 }

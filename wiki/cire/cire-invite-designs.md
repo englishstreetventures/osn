@@ -10,7 +10,7 @@ related:
   - "[[cire-consent]]"
   - "[[browser-tests]]"
   - "[[frontend-patterns]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-07
 ---
 # Invite design selector
 
@@ -232,22 +232,15 @@ the guest the page carries on. A pack renders it as the last child of its hero
   grow the hero still stops above the cue. The cue's offset carries no
   `env()` inset: an inset can only widen that padding, never move the cue
   into the title.
-- **It rises above the consent banner.** On a first visit the banner
-  ([[cire-consent]]) is fixed to the bottom of the screen until the guest
-  answers it. While it is up it publishes its height as
-  `--consent-banner-height` on `<html>`, and the cue moves up by that much
-  (`-translate-y-[var(--consent-banner-height,0px)]`), so it sits 1rem above
-  the banner's top edge; once the guest answers, the property goes and the cue
-  slides back over 500ms. A `translate`, not a change to `bottom`, so the move
-  adds no layout shift, and the browser test fails on any shift it records.
-  The cue moves; the title does not. On a narrow screen a title that reaches
-  the cue's lifted spot sits under it until the banner is answered: a wide
-  gala title at 390px, or classic's at 320x568, where the title ends 2px
-  above the banner. The banner itself covers the bottom of gala's title there
-  too. Both wait on an owner decision, `englishstventures/osn#1368`.
+- **Nothing of the consent prompt's sits over it.** The first-visit consent
+  prompt ([[cire-consent]]) is a modal dialog at every width on the invite's
+  pages. It covers the hero, cue and title alike while it waits for an
+  answer, and once answered nothing is left over the hero; nothing it does
+  moves the cue or shifts the page's layout.
 
 `tests/designs/InviteHeader.browser.test.tsx` measures all of this in both
-packs, at phone and desktop width ([[browser-tests]]).
+packs, at phone and desktop width, and the consent prompt over a two-name title
+at 320x568, 375x667, 390x844, 844x390 and 1440x900 ([[browser-tests]]).
 `tests/designs/InviteHeader.ssr.test.tsx` checks the cue is in each pack's
 server HTML, and fails when the catalog gains a pack it does not list.
 

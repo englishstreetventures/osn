@@ -38,7 +38,7 @@ import { RsvpDeadlineNotice } from "../../components/RsvpDeadlineNotice";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 import { Z_CLASS } from "../../lib/z-index";
 
-// Post-claim UI, split out of the page's initial chunk (P-W1). Nothing here
+// Post-claim UI, split out of the page's initial chunk. Nothing here
 // renders before the guest claims their code — every one of these sits inside a
 // `Show` below — yet a static import collected them into the page's initial
 // shared chunk, where they were ~44% of its gzipped bytes: downloaded and
@@ -168,7 +168,7 @@ export default function InvitePage(props: InvitePageProps) {
       // runs no choreography, so nothing would ever flip it, and the claim form
       // would sit on top of the household's own invite.
       //
-      // `batch` so the three commit as one (S-L1). Solid runs style bindings
+      // `batch` so the three commit as one. Solid runs style bindings
       // synchronously on write, so unbatched there is a window — one statement
       // wide today — where `revealed` is true and `claimResult` is still null:
       // the form hidden, the welcome banner rendering from nothing. Nothing
@@ -229,7 +229,7 @@ export default function InvitePage(props: InvitePageProps) {
   // date line, the notice on top of the cards, every card's Respond button and
   // the RSVP sheet — and it re-derives itself as the deadline draws near and
   // then passes while the invite is open.
-  // Memoised, not a plain accessor (P-I2) — see the note in classic's
+  // Memoised, not a plain accessor — see the note in classic's
   // InvitePage: the post-save `setClaimResult` spread keeps `rsvpDeadline` at
   // the same object reference, so `===` equality stops the propagation dead.
   const rsvpDeadline = createMemo(() => claimResult()?.rsvpDeadline ?? null);
@@ -260,7 +260,7 @@ export default function InvitePage(props: InvitePageProps) {
     // step. `onMount` warms it at idle, but the whole reason this wait exists is
     // the guest whose phone never ran that idle callback — and for them the
     // sequence would not ask for the chunk until the form had finished fading
-    // out, spending ~350ms of the cap before the request was even sent (P-W1).
+    // out, spending ~350ms of the cap before the request was even sent.
     // `awaitEventCards` then joins a fetch already in flight.
     const cardsReady = EventCard.preload().then(() => undefined);
     // A failed chunk is handled where it matters, in `awaitEventCards` — but
@@ -464,7 +464,7 @@ export default function InvitePage(props: InvitePageProps) {
       {/* The couple's sign-off — their motif and closing note, the invite's last
           section. Its content arrives IN THE CLAIM RESPONSE, not the public
           invite payload: it is addressed to the invited household, so the API
-          redacts it from `GET /api/invite/:slug` (S-H1). Reading it off
+          redacts it from `GET /api/invite/:slug`. Reading it off
           `claimResult()` is therefore both the render gate and the only place
           the data exists — the two cannot drift apart. Deliberately NOT
           `opacity-0`: the unlock choreography animates the events section, and a
@@ -565,7 +565,7 @@ export default function InvitePage(props: InvitePageProps) {
         // confirms. See `ToasterProps.topLayer`.
         topLayer
         // The layer still goes on as a CLASS, for everything that is NOT in the
-        // top layer — the consent banner above it, the page below.
+        // top layer — the page below it.
         // `@shared/toast` sets no `z-index` of its own, precisely so this
         // works. (`solid-toast` spread a hardcoded `z-index: 9999` onto the
         // same div's inline style, which beat any class and parked the toast

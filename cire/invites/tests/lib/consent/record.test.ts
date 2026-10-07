@@ -16,34 +16,21 @@ import {
 const NOW = new Date("2026-07-29T10:00:00.000Z");
 
 describe("defaultGrants — the floor", () => {
-  it("switches every optional category OFF and the required one ON", () => {
+  it("switches both consent switches OFF and the required category ON", () => {
     // What "Reject all" writes, and what applies before the stored decision has
-    // been read. NOT the no-decision state — see preDecisionGrants.
-    expect(defaultGrants()).toEqual({
-      necessary: true,
-      functional: false,
-      embeds: false,
-      analytics: false,
-    });
+    // been read.
+    expect(defaultGrants()).toEqual({ necessary: true, pinterest: false, maps: false });
   });
 });
 
-describe("preDecisionGrants — the opt-out defaults", () => {
-  it("switches third-party content and preferences ON for an undecided guest", () => {
-    expect(preDecisionGrants().embeds).toBe(true);
-    expect(preDecisionGrants().functional).toBe(true);
-    expect(preDecisionGrants().necessary).toBe(true);
+describe("preDecisionGrants — what applies before the guest decides", () => {
+  it("keeps both switches OFF for an undecided guest: nothing loads before a yes", () => {
+    // Pinterest and Google see the guest's IP address and browser the moment
+    // their embed loads, so nothing of theirs loads until the guest allows it.
+    expect(preDecisionGrants()).toEqual({ necessary: true, pinterest: false, maps: false });
   });
 
-  it("leaves analytics OFF even though the other optional categories are on", () => {
-    // Nothing uses that category yet, so there is nothing a default could be
-    // informed about — an analytics tag added later must not inherit consent
-    // from guests who were never told it existed.
-    expect(preDecisionGrants().analytics).toBe(false);
-  });
-
-  it("is strictly more permissive than the floor, and strictly less than accept-all", () => {
-    expect(preDecisionGrants()).not.toEqual(defaultGrants());
+  it("is less than accept-all", () => {
     expect(preDecisionGrants()).not.toEqual(allGrants());
   });
 });
@@ -52,60 +39,59 @@ describe("normaliseGrants", () => {
   it("forces required categories on regardless of the input", () => {
     // Nothing — not a stale cookie, not a caller mistake — may switch off the
     // storage the invite needs to function at all.
-    expect(normaliseGrants({ necessary: false, embeds: true }).necessary).toBe(true);
+    expect(normaliseGrants({ necessary: false, pinterest: true }).necessary).toBe(true);
   });
 
   it("drops unknown keys instead of carrying them into the record", () => {
-    const grants = normaliseGrants({ embeds: true, marketing: true });
-    expect(grants).toEqual({
-      necessary: true,
-      functional: false,
-      embeds: true,
-      analytics: false,
-    });
+    const grants = normaliseGrants({ maps: true, marketing: true });
+    expect(grants).toEqual({ necessary: true, pinterest: false, maps: true });
     expect("marketing" in grants).toBe(false);
+  });
+
+  it("ignores the keys of categories the site no longer has", () => {
+    // `functional`, `analytics` and the single `embeds` switch are gone. A
+    // record carrying them still parses; the keys are simply not read.
+    const grants = normaliseGrants({ functional: true, analytics: true, embeds: true, maps: true });
+    expect(grants).toEqual({ necessary: true, pinterest: false, maps: true });
   });
 
   it("does not pollute Object.prototype from a JSON-parsed __proto__ key", () => {
     // Must go through JSON.parse, not an object literal: in a literal
     // `__proto__:` is a prototype SETTER, so the key never becomes an own
-    // property and `Object.entries` never sees it — a test written that way
-    // passes even against unsafe code. `JSON.parse` produces a real own
-    // property, which is the shape a tampered cookie actually delivers.
-    const hostile = JSON.parse('{"__proto__": {"polluted": true}, "embeds": true}') as unknown;
+    // property and the test would pass without exercising anything.
+    const hostile = JSON.parse('{"__proto__": {"polluted": true}, "pinterest": true}') as unknown;
     const grants = normaliseGrants(hostile);
-
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    expect((grants as Record<string, unknown>).polluted).toBeUndefined();
-    expect(grants.embeds).toBe(true);
+    expect(Object.getPrototypeOf(grants)).toBe(Object.prototype);
+    expect(grants.pinterest).toBe(true);
   });
 
   it("treats any non-`true` value as a refusal", () => {
-    // A truthy-but-not-true value ("yes", 1) must never be read as consent.
-    const grants = normaliseGrants({ embeds: "yes", analytics: 1, functional: null });
-    expect(grants.embeds).toBe(false);
-    expect(grants.analytics).toBe(false);
-    expect(grants.functional).toBe(false);
+    // A tampered or corrupted cookie must fail closed, never open.
+    const grants = normaliseGrants({ pinterest: "yes", maps: 1 });
+    expect(grants.pinterest).toBe(false);
+    expect(grants.maps).toBe(false);
   });
 
   it("fills in missing categories as refused", () => {
-    expect(normaliseGrants({}).embeds).toBe(false);
+    expect(normaliseGrants({}).pinterest).toBe(false);
+    expect(normaliseGrants({}).maps).toBe(false);
   });
 
   it("returns the safe default for non-object input", () => {
     expect(normaliseGrants(null)).toEqual(defaultGrants());
-    expect(normaliseGrants("embeds")).toEqual(defaultGrants());
+    expect(normaliseGrants("pinterest")).toEqual(defaultGrants());
   });
 });
 
 describe("encode/decode round trip", () => {
   it("preserves the grants, the timestamp and both versions", () => {
-    const record = makeConsentRecord({ ...defaultGrants(), embeds: true }, NOW);
+    const record = makeConsentRecord({ ...defaultGrants(), pinterest: true }, NOW);
     const decoded = decodeConsentRecord(encodeConsentRecord(record));
 
     expect(decoded).not.toBeNull();
-    expect(decoded!.grants.embeds).toBe(true);
-    expect(decoded!.grants.analytics).toBe(false);
+    expect(decoded!.grants.pinterest).toBe(true);
+    expect(decoded!.grants.maps).toBe(false);
     expect(decoded!.decidedAt).toBe(NOW.toISOString());
     expect(decoded!.v).toBe(CONSENT_RECORD_VERSION);
     expect(decoded!.policy).toBe(CONSENT_POLICY_VERSION);
@@ -118,13 +104,29 @@ describe("encode/decode round trip", () => {
 
   it("round-trips a reject-all record as a real decision, not an absence", () => {
     // The distinction the whole design turns on: "refused everything" must
-    // decode to a record (so we stop asking AND stop loading), not to null —
-    // which under opt-out would both re-prompt and silently re-enable embeds.
+    // decode to a record (so we stop asking), not to null, which would
+    // re-prompt a guest who already answered.
     const decoded = decodeConsentRecord(
       encodeConsentRecord(makeConsentRecord(defaultGrants(), NOW)),
     );
     expect(decoded).not.toBeNull();
-    expect(decoded!.grants.embeds).toBe(false);
+    expect(decoded!.grants.pinterest).toBe(false);
+    expect(decoded!.grants.maps).toBe(false);
+  });
+
+  it("loads a current record that still carries keys of removed categories", () => {
+    // A stored record with `functional`, `analytics` or `embeds` among its
+    // grants still parses: the extra keys are ignored, the switches read.
+    const raw = encodeURIComponent(
+      JSON.stringify({
+        v: CONSENT_RECORD_VERSION,
+        policy: CONSENT_POLICY_VERSION,
+        decidedAt: NOW.toISOString(),
+        grants: { necessary: true, functional: true, analytics: false, embeds: true, maps: true },
+      }),
+    );
+    const decoded = decodeConsentRecord(raw);
+    expect(decoded?.grants).toEqual({ necessary: true, pinterest: false, maps: true });
   });
 });
 
@@ -208,12 +210,12 @@ describe("decodeConsentRecord — inputs it must refuse to trust", () => {
         CONSENT_POLICY_VERSION +
         '","decidedAt":"' +
         NOW.toISOString() +
-        '","grants":{"__proto__":{"polluted":true},"embeds":true}}',
+        '","grants":{"__proto__":{"polluted":true},"pinterest":true}}',
     );
     const decoded = decodeConsentRecord(raw);
 
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    expect(decoded!.grants.embeds).toBe(true);
+    expect(decoded!.grants.pinterest).toBe(true);
   });
 
   it("sanitises a tampered record instead of honouring it", () => {
@@ -224,35 +226,44 @@ describe("decodeConsentRecord — inputs it must refuse to trust", () => {
         v: CONSENT_RECORD_VERSION,
         policy: CONSENT_POLICY_VERSION,
         decidedAt: NOW.toISOString(),
-        grants: { necessary: false, embeds: "yes", marketing: true },
+        grants: { necessary: false, pinterest: "yes", marketing: true },
       }),
     );
     const decoded = decodeConsentRecord(tampered)!;
     expect(decoded.grants.necessary).toBe(true);
-    expect(decoded.grants.embeds).toBe(false);
+    expect(decoded.grants.pinterest).toBe(false);
     expect("marketing" in decoded.grants).toBe(false);
   });
 });
 
+describe("a record made under the previous disclosure", () => {
+  it("is not reused: one switch for all third-party content is not consent to either new switch", () => {
+    // The 2026-07-29 policy asked once for Pinterest and Google Maps together.
+    // Reading its `embeds` grant as a yes or a no to the separate switches
+    // would answer a question the guest was never asked, so they are asked
+    // again.
+    const raw = encodeURIComponent(
+      JSON.stringify({
+        v: CONSENT_RECORD_VERSION,
+        policy: "2026-07-29",
+        decidedAt: NOW.toISOString(),
+        grants: { necessary: true, functional: true, embeds: true, analytics: false },
+      }),
+    );
+    expect(decodeConsentRecord(raw)).toBeNull();
+  });
+});
+
 describe("isGranted", () => {
-  it("falls back to the opt-out defaults for a null record", () => {
-    expect(isGranted(null, "embeds")).toBe(true);
-    expect(isGranted(null, "functional")).toBe(true);
+  it("falls back to the pre-decision defaults for a null record", () => {
+    expect(isGranted(null, "pinterest")).toBe(false);
+    expect(isGranted(null, "maps")).toBe(false);
     expect(isGranted(null, "necessary")).toBe(true);
-    expect(isGranted(null, "analytics")).toBe(false);
   });
 
-  it("honours an explicit refusal over the permissive default", () => {
-    // The distinction the opt-out posture turns on: "never asked" allows
-    // embeds, "asked and refused" does not, and the two must never collapse.
-    const refused = makeConsentRecord(defaultGrants(), NOW);
-    expect(isGranted(refused, "embeds")).toBe(false);
-    expect(isGranted(null, "embeds")).toBe(true);
-  });
-
-  it("reads the stored decision when there is one", () => {
-    const record = makeConsentRecord({ ...defaultGrants(), embeds: true }, NOW);
-    expect(isGranted(record, "embeds")).toBe(true);
-    expect(isGranted(record, "functional")).toBe(false);
+  it("reads each switch of the stored decision on its own", () => {
+    const record = makeConsentRecord({ ...defaultGrants(), maps: true }, NOW);
+    expect(isGranted(record, "maps")).toBe(true);
+    expect(isGranted(record, "pinterest")).toBe(false);
   });
 });

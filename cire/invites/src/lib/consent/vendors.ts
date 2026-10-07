@@ -10,7 +10,7 @@ import type { ConsentCategory } from "./categories";
  * and the `wiki/compliance/subprocessors.md` table. Adding a vendor meant four
  * edits, and forgetting one produced either a CSP block (loud) or an undeclared
  * data transfer (silent, and the one that matters). Now the registry drives the
- * preferences dialog and the privacy page directly, and `vendors.test.ts`
+ * preferences sheet and the privacy page directly, and `vendors.test.ts`
  * asserts that every declared origin is actually present in the CSP — so a
  * vendor added here without a matching CSP entry fails the build's test run
  * rather than failing in a guest's browser.
@@ -33,9 +33,9 @@ import type { ConsentCategory } from "./categories";
  *    leave the prerendered legal pages inconsistent with the SSR'd invite.
  *    Self-host it instead of adding it here.
  *
- * The preferences dialog surfaces this distinction rather than hiding it: an
- * `"always"` vendor is listed with a plain "loads on every visit" note instead
- * of being tucked under a toggle that doesn't govern it.
+ * The privacy notice keeps the two apart: `"always"` vendors are listed as
+ * strictly necessary, and each `"gated"` one has its own switch in the
+ * preferences sheet.
  *
  * ## `runsInPage` — what withdrawing consent has to clear
  *
@@ -134,7 +134,7 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
   {
     id: "google-maps",
     name: "Google Maps",
-    category: "embeds",
+    category: "maps",
     purpose: "Shows an interactive map of each venue inside the event details.",
     origins: ["https://www.google.com", "https://maps.gstatic.com", "https://maps.googleapis.com"],
     enforcement: "gated",
@@ -145,7 +145,7 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
   {
     id: "pinterest",
     name: "Pinterest",
-    category: "embeds",
+    category: "pinterest",
     purpose: "Shows the couple's inspiration moodboard for an event's dress code.",
     origins: [
       "https://assets.pinterest.com",
@@ -171,7 +171,7 @@ export function vendorsInCategory(category: ConsentCategory): readonly ConsentVe
 
 /**
  * Vendors in a category whose loading the consent choice actually controls —
- * what the dialog lists under the toggle itself.
+ * what the preferences sheet names under the switch.
  */
 export function gatedVendorsInCategory(category: ConsentCategory): readonly GatedConsentVendor[] {
   return vendorsInCategory(category).filter(isGated);
@@ -179,20 +179,4 @@ export function gatedVendorsInCategory(category: ConsentCategory): readonly Gate
 
 function isGated(vendor: ConsentVendor): vendor is GatedConsentVendor {
   return vendor.enforcement === "gated";
-}
-
-/**
- * Vendors in a category that load regardless of the toggle — listed separately
- * and labelled, so the dialog never implies a switch governs something it
- * doesn't.
- */
-export function ungatedVendorsInCategory(category: ConsentCategory): readonly ConsentVendor[] {
-  return vendorsInCategory(category).filter(
-    (vendor) => vendor.enforcement === "always" && vendor.origins.length > 0,
-  );
-}
-
-/** Third parties (i.e. vendors that contact an external origin), for the privacy page. */
-export function thirdPartyVendors(): readonly ConsentVendor[] {
-  return CONSENT_VENDORS.filter((vendor) => vendor.origins.length > 0);
 }

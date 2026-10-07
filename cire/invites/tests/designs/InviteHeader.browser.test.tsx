@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
 import "../../src/styles/global.css";
-import { CONSENT_BANNER_HEIGHT_VAR } from "../../src/components/consent/banner-height";
 import { ConsentBanner } from "../../src/components/consent/ConsentBanner";
 import { setReturningHousehold } from "../../src/components/returning-household";
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
@@ -20,8 +19,8 @@ import { resetConsentForTest } from "../../src/lib/consent/testing";
  * entry has played, on screen, inside the hero; that its drift really moves,
  * and the motion lasts under five seconds; that the first scroll fades it out and
  * scrolling back does not bring it back; that it keeps clear of a title tall
- * enough to grow the hero; that it rises above the consent banner while the
- * banner is up; and that reduced motion leaves it there and still.
+ * enough to grow the hero; that the first-visit consent prompt leaves the hero
+ * uncovered once answered; and that reduced motion leaves it there and still.
  * Each is a fact of the compiled stylesheet, layout or the animation
  * timeline, none of which jsdom computes.
  *
@@ -105,7 +104,7 @@ async function mountWelcomeBack(InviteHeader: Header) {
 /** A `layout-shift` performance entry; TypeScript's DOM types do not carry it. */
 type LayoutShift = PerformanceEntry & { value: number };
 
-/** The consent banner's panel, once its island has read the (absent) cookie. */
+/** The consent banner's panel — which must never appear over an invite. */
 const consentPanel = () =>
   document.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
 
@@ -228,71 +227,6 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
       expect(getComputedStyle(cue).opacity).toBe("0");
     });
 
-    it("rises above the consent banner while it is up, and settles once it is answered", async () => {
-      await page.viewport(...size);
-      const { hero, cue, glyph, titleBlock } = await mount(InviteHeader, invite());
-      // The banner is its own island and hydrates when the page is idle, so it
-      // can arrive after the cue has faded in. Nothing the cue does about it
-      // may shift the layout.
-      const { entry, drift } = animationsOf(glyph);
-      entry!.finish();
-      await nextFrame();
-      await nextFrame();
-      const shifts: LayoutShift[] = [];
-      const shiftObserver = new PerformanceObserver((list) => {
-        shifts.push(...(list.getEntries() as LayoutShift[]));
-      });
-      shiftObserver.observe({ type: "layout-shift" });
-      render(() => <ConsentBanner />);
-      const panel = await vi.waitFor(() => {
-        const found = consentPanel();
-        if (!found) throw new Error("the consent banner has not appeared");
-        return found;
-      });
-      await vi.waitFor(() =>
-        expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe(
-          `${panel.getBoundingClientRect().height}px`,
-        ),
-      );
-      await nextFrame();
-      await nextFrame();
-      shifts.push(...(shiftObserver.takeRecords() as LayoutShift[]));
-      shiftObserver.disconnect();
-      expect(shifts.map((s) => s.value)).toEqual([]);
-
-      // Play the drift and the rise out, then measure at rest.
-      drift!.finish();
-      transitionOf(cue, "translate")?.finish();
-
-      const banner = panel.getBoundingClientRect();
-      const box = glyph.getBoundingClientRect();
-      expect(banner.top).toBeLessThan(window.innerHeight);
-      expect(box.top).toBeGreaterThanOrEqual(0);
-      // The drift moves the glyph 6px further down; that too stays clear.
-      expect(box.bottom + 6).toBeLessThanOrEqual(banner.top);
-      expect(glyph.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })).toBe(true);
-      // Nothing of the banner's is painted where the glyph is.
-      const centre = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
-      const atCentre = document.elementsFromPoint(centre.x, centre.y);
-      expect(atCentre.some((el) => panel.contains(el))).toBe(false);
-      // And the fixture's title is not under it either.
-      const title = titleBlock.getBoundingClientRect();
-      expect(
-        box.bottom <= title.top ||
-          box.top >= title.bottom ||
-          box.right <= title.left ||
-          box.left >= title.right,
-      ).toBe(true);
-
-      // Answered: the banner goes, the height goes, the cue settles back.
-      within(panel).getByText("Reject all").click();
-      await vi.waitFor(() => expect(consentPanel()).toBeNull());
-      expect(document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR)).toBe("");
-      transitionOf(cue, "translate")?.finish();
-      const settled = glyph.getBoundingClientRect();
-      expect(settled.bottom).toBeCloseTo(hero.getBoundingClientRect().bottom - rootPx(), 0);
-    });
-
     it("sits below the title block, even when a long title grows the hero", async () => {
       await page.viewport(...size);
       const long = invite({
@@ -376,5 +310,92 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
 
     scrollPageTo(200);
     await vi.waitFor(() => expect(getComputedStyle(cue).opacity).toBe("0"));
+  });
+});
+
+/**
+ * The first-visit consent prompt over the hero, at the sizes where the old
+ * bottom banner covered the couple's name or put the cue on it — gala's
+ * two-name title at 375x667 and 390x844, classic's at 320x568 — plus a
+ * landscape phone and a desktop, where it covered gala's title too.
+ *
+ * The prompt is a modal dialog at every width, so it publishes nothing into
+ * the page: the cue rests on the hero's foot, and once the guest answers
+ * nothing sits over the hero at all.
+ */
+describe.each(PACKS)("%s hero under the consent prompt", (_pack, InviteHeader) => {
+  const twoNames = () => invite({ title: "Alexandra Konstantinou & Maximilian Featherstone" });
+
+  const overlaps = (a: DOMRect, b: DOMRect) =>
+    !(a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right);
+
+  /** The centre of the part of `rect` on screen, or null when none of it is. */
+  const visibleCentre = (rect: DOMRect) => {
+    const left = Math.max(rect.left, 0);
+    const right = Math.min(rect.right, window.innerWidth);
+    const top = Math.max(rect.top, 0);
+    const bottom = Math.min(rect.bottom, window.innerHeight);
+    return left < right && top < bottom ? { x: (left + right) / 2, y: (top + bottom) / 2 } : null;
+  };
+
+  describe.each([
+    { name: "320x568 phone", size: [320, 568] as Viewport },
+    { name: "375x667 phone", size: [375, 667] as Viewport },
+    { name: "390x844 phone", size: PHONE },
+    { name: "844x390 landscape phone", size: [844, 390] as Viewport },
+    { name: "1440x900 desktop", size: DESKTOP },
+  ])("on a $name", ({ size }) => {
+    it("asks in a dialog that leaves the cue at rest, and nothing over the hero once answered", async () => {
+      await page.viewport(...size);
+      const { hero, cue, glyph, titleBlock } = await mount(InviteHeader, twoNames());
+      const { entry, drift } = animationsOf(glyph);
+      entry!.finish();
+      await nextFrame();
+      await nextFrame();
+
+      // The prompt's island hydrates after the hero has painted. Nothing in
+      // the page's flow may move as it arrives: the dialog is in the top
+      // layer, and this fails if it is ever rendered in flow or reserves
+      // space in the page.
+      const shifts: LayoutShift[] = [];
+      const shiftObserver = new PerformanceObserver((list) => {
+        shifts.push(...(list.getEntries() as LayoutShift[]));
+      });
+      shiftObserver.observe({ type: "layout-shift" });
+      render(() => <ConsentBanner />);
+      const prompt = await vi.waitFor(() => {
+        const found = document.querySelector("dialog");
+        if (!found?.matches(":modal")) throw new Error("the consent prompt has not opened");
+        return found;
+      });
+      await nextFrame();
+      await nextFrame();
+      shifts.push(...(shiftObserver.takeRecords() as LayoutShift[]));
+      shiftObserver.disconnect();
+      expect(shifts.map((s) => s.value)).toEqual([]);
+      expect(consentPanel()).toBeNull();
+
+      // The cue rests on the hero's foot, clear of the title.
+      drift!.finish();
+      const resting = glyph.getBoundingClientRect();
+      expect(resting.bottom).toBeCloseTo(hero.getBoundingClientRect().bottom - rootPx(), 0);
+      expect(overlaps(resting, titleBlock.getBoundingClientRect())).toBe(false);
+
+      // Answered: the dialog goes, and whatever is painted over the title and
+      // the cue — the parts of them on screen; a tall title can push the cue
+      // below the fold of a landscape phone — is the hero's own.
+      within(prompt).getByText("Reject all").click();
+      await vi.waitFor(() => expect(document.querySelector("dialog")).toBeNull());
+      expect(consentPanel()).toBeNull();
+      const title = visibleCentre(titleBlock.getBoundingClientRect());
+      expect(title).not.toBeNull();
+      const onScreen = [title, visibleCentre(glyph.getBoundingClientRect())].filter(
+        (point) => point !== null,
+      );
+      for (const point of onScreen) {
+        expect(hero.contains(document.elementFromPoint(point.x, point.y))).toBe(true);
+      }
+      expect(cue.dataset.scrollCue).toBe("shown");
+    });
   });
 });

@@ -1,7 +1,6 @@
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CONSENT_BANNER_HEIGHT_VAR } from "../../src/components/consent/banner-height";
 import { HeroScrollCue } from "../../src/components/HeroScrollCue";
 
 /** jsdom has no scrolling; set the offset and fire the event the browser would. */
@@ -77,17 +76,6 @@ describe("HeroScrollCue", () => {
     for (const cls of ["absolute", "bottom-4", "inset-x-0", "justify-center"]) {
       expect(cue.classList.contains(cls)).toBe(true);
     }
-  });
-
-  it("rises by the height the consent banner publishes", () => {
-    // The banner and the cue are separate islands; this custom property is the
-    // whole contract between them, so the cue must name the one the banner
-    // writes. `InviteHeader.browser.test.tsx` checks the lift in a real engine.
-    const { container } = render(() => <HeroScrollCue />);
-    const cue = cueOf(container);
-    expect(cue.classList.contains(`-translate-y-[var(${CONSENT_BANNER_HEIGHT_VAR},0px)]`)).toBe(
-      true,
-    );
   });
 
   it("sits on the inline end when asked, on the hero's gutter", () => {
