@@ -5,7 +5,12 @@ import {
   PREFIXED_CONSENT_COOKIE_NAME,
   writeConsentToDocument,
 } from "../../../src/lib/consent/cookie";
-import { allGrants, defaultGrants, makeConsentRecord } from "../../../src/lib/consent/record";
+import {
+  allGrants,
+  defaultGrants,
+  encodeConsentRecord,
+  makeConsentRecord,
+} from "../../../src/lib/consent/record";
 import {
   acceptAllConsent,
   consentRecord,
@@ -19,6 +24,7 @@ import {
   setReloadPageForTest,
 } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
+import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 /**
  * `saveConsent` reloads the page on a granted → revoked transition when a
@@ -61,8 +67,9 @@ describe("saveConsent — reload on granted → revoked", () => {
 
   it("reloads on the FIRST-EVER decision, when the embeds already ran", () => {
     // A guest who opened an event's details sheet — mounting the moodboard or
-    // the map under the opt-out default — and only then pressed "Reject all".
-    // Third-party code really did run, so there really is something to clear.
+    // the map under the opt-out default — and only then pressed "Accept
+    // necessary". Third-party code really did run, so there really is
+    // something to clear.
     resetConsentForTest();
     hydrateConsent();
     noteGatedContentLoaded("embeds", "pinterest");
@@ -75,10 +82,10 @@ describe("saveConsent — reload on granted → revoked", () => {
 
   // The reload exists to tear down code that already ran, and on the COMMON
   // path none has. Both gated vendors mount only inside a click-opened details
-  // sheet, while the banner appears immediately — so a guest who lands and
-  // presses "Reject all" has almost never opened one, and reloading them would
-  // spend a whole document load, every island's hydration and a re-fetch of
-  // the invite to clear nothing.
+  // sheet, while the prompt appears at once and holds the page until it is
+  // answered — so a guest who presses "Accept necessary" has almost never
+  // opened one, and reloading them would spend a whole document load, every
+  // island's hydration and a re-fetch of the invite to clear nothing.
   it("does NOT reload when no gated content ever rendered this visit", () => {
     resetConsentForTest();
     hydrateConsent();
@@ -336,3 +343,34 @@ function resetConsentCookieOnly(): void {
   document.cookie = `${CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0`;
   document.cookie = `${PREFIXED_CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0; Secure`;
 }
+
+/**
+ * On https the only consent cookie is the `__Host-` one. A bare `cire_consent`
+ * there may have been planted by a sibling origin, and must neither decide for
+ * the guest nor be carried over onto the `__Host-` name.
+ */
+describe("hydrateConsent on a secure origin", () => {
+  beforeEach(resetConsentForTest);
+  afterEach(resetConsentForTest);
+
+  it("ignores a planted bare cookie, so the guest is still asked", () => {
+    const planted = encodeConsentRecord(makeConsentRecord(allGrants(), new Date()));
+    onSecureOriginWithJar(`${CONSENT_COOKIE_NAME}=${planted}`, (jar) => {
+      hydrateConsent();
+
+      expect(needsConsentDecision()).toBe(true);
+      // Not promoted: the jar holds exactly what was planted.
+      expect(jar()).toBe(`${CONSENT_COOKIE_NAME}=${planted}`);
+    });
+  });
+
+  it("reads the guest's own __Host- cookie", () => {
+    const own = encodeConsentRecord(makeConsentRecord(defaultGrants(), new Date()));
+    onSecureOriginWithJar(`${PREFIXED_CONSENT_COOKIE_NAME}=${own}`, () => {
+      hydrateConsent();
+
+      expect(needsConsentDecision()).toBe(false);
+      expect(isCategoryGranted("embeds")).toBe(false);
+    });
+  });
+});

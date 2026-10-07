@@ -1,11 +1,7 @@
 import { createSignal } from "solid-js";
 
 import { CONSENT_CATEGORIES, type ConsentCategory } from "./categories";
-import {
-  migrateBareConsentCookie,
-  readConsentFromDocument,
-  writeConsentToDocumentAndVerify,
-} from "./cookie";
+import { readConsentFromDocument, writeConsentToDocumentAndVerify } from "./cookie";
 import {
   allGrants,
   type ConsentGrants,
@@ -80,15 +76,6 @@ function clearLegacyPinterestConsent(): void {
 export function hydrateConsent(): void {
   if (hydrated()) return;
   clearLegacyPinterestConsent();
-  // Move an already-decided guest onto the `__Host-` name before reading. It
-  // has to happen here, on the read path, because the write path never runs
-  // again for them: their stored choice reads back fine, so the prompt stays
-  // away and nothing would ever perform the migration write. Without that
-  // move, a script on a sibling *.cireweddings.com origin could set a
-  // same-named Domain-scoped cookie and silently override a guest's stored
-  // refusal — the `__Host-` prefix (falling back to the bare name only on
-  // insecure http dev) is what rules that out. See `migrateBareConsentCookie`.
-  migrateBareConsentCookie();
   setRecord(readConsentFromDocument());
   setHydrated(true);
 }
@@ -287,8 +274,8 @@ export function acceptAllConsent(): void {
 }
 
 /**
- * "Accept necessary" in the first-layer prompt, "Reject all" in the
- * preferences dialog — required categories only. Note this still writes a
+ * "Accept necessary", in the first-layer prompt and the preferences dialog
+ * alike — required categories only. Note this still writes a
  * record: refusing is a decision, and persisting it is what stops us asking
  * again. A prompt that reappeared after a refusal would be nagging the guest
  * into consent, which is the behaviour the "refusing is never harder than

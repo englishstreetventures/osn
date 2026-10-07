@@ -115,12 +115,14 @@ export function ConsentPreferences() {
       </div>
 
       <div class="border-border/70 mt-6 flex flex-col gap-2 border-t pt-5 sm:flex-row sm:justify-between">
-        {/* Reject and Accept are rendered as siblings with identical weight.
-              A refusal that is visually harder to reach than an acceptance is
-              not a free choice, and is the specific dark pattern the "reject
-              must be as easy as accept" rule targets. */}
+        {/* The refusal and the acceptance are siblings of identical weight. A
+              refusal that is visually harder to reach than an acceptance is
+              not a free choice, and is the specific dark pattern the
+              "refusing is never harder than accepting" rule targets. The
+              refusal is named "Accept necessary", as on the first-layer
+              prompt, so one action has one name everywhere. */}
         <div class="flex gap-2">
-          <ChoiceButton onClick={rejectAllConsent}>Reject all</ChoiceButton>
+          <ChoiceButton onClick={rejectAllConsent}>Accept necessary</ChoiceButton>
           <ChoiceButton onClick={acceptAllConsent}>Accept all</ChoiceButton>
         </div>
         <ChoiceButton primary onClick={() => saveConsent(draft())}>

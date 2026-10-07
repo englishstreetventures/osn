@@ -78,7 +78,7 @@ told it existed.
 
 | Function | Meaning |
 |---|---|
-| `defaultGrants()` | **The floor.** Required only. What "Accept necessary" (the preferences dialog's "Reject all") writes, AND what applies before the cookie has been read. |
+| `defaultGrants()` | **The floor.** Required only. What "Accept necessary" writes, AND what applies before the cookie has been read. |
 | `preDecisionGrants()` | **Unasked.** The opt-out defaults above. |
 | `allGrants()` | Everything. What "Accept all" writes. |
 
@@ -170,41 +170,20 @@ only in its own frame is still `false`.
 A cookie, `Path=/`, `Max-Age` 182 days, `SameSite=Lax`. Not `HttpOnly` — client
 code rewrites it.
 
-**Two names, chosen by `secure`.** On https the cookie is written as
-`__Host-cire_consent`; on http (local dev) it falls back to the bare
-`cire_consent`, because `__Host-` cookies are rejected outright without
-`Secure`, which http can never set. A read accepts BOTH names and prefers the
-prefixed one when both are present. This is osn-tracker#163 (S-L1): without the
-prefix, a script on a sibling `*.cireweddings.com` origin could set its own
-`Domain=.cireweddings.com` cookie of the same bare name, and which of the two
-same-named cookies a browser returns first is unspecified — so a guest's
-stored REFUSAL could be silently overridden back to "allowed". `__Host-` is a
-browser-enforced promise (rejected without `Secure`, `Path=/`, and no
-`Domain`), which the cookie's existing attributes already satisfy.
+**One name per origin.** On https the cookie is `__Host-cire_consent`; on http
+(local dev) it is the bare `cire_consent`, because `__Host-` cookies are
+rejected outright without `Secure`, which http can never set. `cookie.ts`
+chooses the name once (`consentCookieName`) for both writing and reading, and
+**a secure origin never reads the bare name** — not as a fallback, and not to
+carry it over onto the `__Host-` name. A script on a sibling
+`*.cireweddings.com` origin can set a `Domain=.cireweddings.com` cookie of the
+bare name, and honouring it would let that origin decide for the guest — turn a
+stored refusal back into "allowed", or answer the prompt on a first visit.
+`__Host-` is a browser-enforced promise (rejected without `Secure`, `Path=/`,
+and no `Domain`), so only this origin can have set it.
 
-**The bare name is removed, not merely out-ranked.** Preferring the prefixed
-name on read only defends this origin, and only once the prefixed cookie
-actually exists — so two writes end the ambiguity rather than out-running it:
-
-- a secure write also expires the bare name, so saving clears the old cookie;
-- `hydrateConsent` calls `migrateBareConsentCookie` on the way in, which on a
-  secure origin moves a bare-name record onto the prefixed name and expires the
-  bare one.
-
-The second is the one that matters, and it is not belt-and-braces. `saveConsent`
-runs only when a guest touches the consent UI, and a guest who has already
-decided is exactly the one the prompt never shows again — their stored choice
-reads back fine through the bare-name fallback, so `needsConsentDecision()`
-stays false and nothing would ever perform the secure write. Without a migration
-on the READ path, their refusal would stay shadowable for the cookie's full 182
-days. Migrating on read moves them silently on their next visit. On http dev
-there is nothing to migrate: `__Host-` needs `Secure`, so the bare name is the
-correct and only form there.
-
-A page cannot delete a `Domain=.cireweddings.com` cookie another origin set, and
-does not try — the read precedence is what defends against that one. The expiry
-is host-only, `Path=/`, no `Domain`, so it clears our own old cookie and nothing
-else.
+The cost is one question: a guest whose choice exists only under the bare name
+on https is asked again. Nothing migrates it.
 
 **Why a cookie and not `localStorage`** (which the old Pinterest gate used): a
 cookie is the only store the server can read. Both currently-gated embeds mount
@@ -325,8 +304,10 @@ mounted first.
   Pinterest and says the content is switched on with an offer to turn it off,
   rather than posing a question whose answer has been assumed. Asserted by test.
 - **Refusing is never harder than accepting.** "Accept necessary" — required
-  storage only, everything optional off — is the highlighted answer and comes
-  first, in the guest site's call-to-action style (`cta`). "Accept all" and
+  storage only, everything optional off — is the refusal's one name, in the
+  prompt and in the preferences dialog alike. On the prompt it is the
+  highlighted answer and comes first, in the guest site's call-to-action style
+  (`cta`). "Accept all" and
   "Choose" follow in one plainer style (`quiet`), so accepting can never be
   promoted above refusing by a tweak to one button. Both forms render the same
   three buttons. `ConsentBanner.test.tsx` asserts the order and the classes,

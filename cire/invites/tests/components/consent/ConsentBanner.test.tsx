@@ -8,11 +8,14 @@ import {
 import { readConsentFromDocument, writeConsentToDocument } from "../../../src/lib/consent/cookie";
 import {
   CONSENT_POLICY_VERSION,
+  allGrants,
   defaultGrants,
+  encodeConsentRecord,
   makeConsentRecord,
 } from "../../../src/lib/consent/record";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
+import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
@@ -192,6 +195,16 @@ describe("ConsentBanner as a dialog (every invite page)", () => {
     expect(bannerOf(container)).toBeNull();
   });
 
+  it("asks on https even when a bare cookie says the guest decided", () => {
+    // A sibling *.cireweddings.com origin can plant a bare `cire_consent`; on
+    // https only the guest's own `__Host-` cookie counts.
+    const planted = encodeConsentRecord(makeConsentRecord(allGrants(), new Date()));
+    onSecureOriginWithJar(`cire_consent=${planted}`, () => {
+      render(() => <ConsentBanner />);
+      expect(prompt()).not.toBeNull();
+    });
+  });
+
   it("goes away on a page restored from the back/forward cache if the guest answered elsewhere", () => {
     // The guest follows the prompt's privacy link, answers on that page and
     // comes back: the browser shows this page as it was, dialog and all, and
@@ -360,10 +373,13 @@ describe("ConsentPreferences dialog", () => {
     expect(text).toContain("Cloudflare Turnstile");
   });
 
-  it("offers accept-all and reject-all from inside the dialog too", () => {
+  it("offers 'Accept necessary' and 'Accept all' from inside the dialog too", () => {
+    // One action, one name: the refusal is "Accept necessary" here as on the
+    // prompt that opened this dialog.
     const labels = buttonLabels(dialog()!);
+    expect(labels).toContain("Accept necessary");
     expect(labels).toContain("Accept all");
-    expect(labels).toContain("Reject all");
+    expect(labels).not.toContain("Reject all");
   });
 
   it("treats a dismissal as no decision at all, whatever dismissed it", () => {

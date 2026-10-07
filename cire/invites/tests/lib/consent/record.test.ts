@@ -17,7 +17,7 @@ const NOW = new Date("2026-07-29T10:00:00.000Z");
 
 describe("defaultGrants — the floor", () => {
   it("switches every optional category OFF and the required one ON", () => {
-    // What "Reject all" writes, and what applies before the stored decision has
+    // What "Accept necessary" writes, and what applies before the stored decision has
     // been read. NOT the no-decision state — see preDecisionGrants.
     expect(defaultGrants()).toEqual({
       necessary: true,

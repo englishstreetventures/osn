@@ -59,8 +59,8 @@ export interface ConsentRecord {
  * Two distinct jobs, both of which must stay at the floor no matter what the
  * opt-out defaults say:
  *
- *  1. What "Accept necessary" (and "Reject all") writes. A refusal means
- *     required-only, always.
+ *  1. What "Accept necessary" writes. A refusal means required-only,
+ *     always.
  *  2. What applies BEFORE the stored decision has been read. A guest who
  *     previously refused must not get one third-party load in the window
  *     between first paint and the cookie being parsed — so the pre-hydration
