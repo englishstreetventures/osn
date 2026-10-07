@@ -1,9 +1,11 @@
 import { families, registryClaims, registryContributions, registryItems } from "@cire/db";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import type { Db } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { minorToDecimal } from "../lib/money";
 import { giftNoteView } from "./registry";
@@ -35,6 +37,23 @@ import { giftNoteView } from "./registry";
 export const MAX_GIFT_EXPORT_ROWS = 2000;
 
 type GiftKind = "Gift list" | "Cash gift";
+
+/**
+ * How many rows `giftsCsv` prints before its ceiling, as an SQL expression a
+ * caller can select beside other counts: every claim, and every cash gift that
+ * did not fail. The joins `giftsCsv` makes cannot drop a row — a claim's item
+ * and household, and a cash gift's household, are required references that
+ * cascade — so the counts read the filters alone. The portal asks for it
+ * before it offers the file from a locked Registry card.
+ */
+export function giftCountSql(db: Db, weddingId: string): SQL<number> {
+  const claims = db.$count(registryClaims, eq(registryClaims.weddingId, weddingId));
+  const cash = db.$count(
+    registryContributions,
+    and(eq(registryContributions.weddingId, weddingId), ne(registryContributions.status, "failed")),
+  );
+  return sql<number>`(${claims} + ${cash})`;
+}
 
 const iso = (at: Date | null): string => (at ? at.toISOString() : "");
 

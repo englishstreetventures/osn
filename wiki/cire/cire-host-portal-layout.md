@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 # Host Portal Layout System
 
@@ -150,8 +150,16 @@ component was previously reading a container it did not live in.
   "Included with Gold", in `gold-ink` because it is small text that has to be
   read — with an **Upgrade to Gold** button. The row's accessible name carries
   the same words, so the lock is heard while tabbing. The popover portals out
-  on both surfaces, because the sheet's nav scrolls and would clip it. See
-  [[cire-entitlements]] and [[cire-upgrades]].
+  on both surfaces, because the sheet's nav scrolls and would clip it. For an
+  owner, the Budget, Checklist and Registry popovers add a **Download as CSV** button
+  under the upgrade (`LockedExport.tsx`) when the wedding holds rows there,
+  saying how many ("Your 12 budget lines are still here."). The popover's
+  content mounts only while it is open, so the row count is asked for on the
+  first open and kept per wedding (`module-rows-store.ts`, dropped with the
+  other caches). Kobalte's hover card moves no focus into its portalled
+  content, so a keyboard cannot reach that button; Settings → Profile lists the
+  same downloads for an owner (`LockedModuleDownloads.tsx`), in the page's own
+  tab order. See [[cire-entitlements]] and [[cire-upgrades]].
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is

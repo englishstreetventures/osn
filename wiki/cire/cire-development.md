@@ -21,7 +21,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Cire development guide
@@ -114,6 +114,21 @@ Mount new routes that need the widened app — the lifecycle and upgrade routes 
 past the `AnyElysia` widening in `app.ts`: the organiser chain is at
 TypeScript's instantiation-depth limit, and one more `.use()` there fails
 `check` with TS2589.
+
+### CSV exports
+
+Every organiser CSV export (`createOrganiserExportRoutes` in
+`cire/api/src/routes/organiser-weddings.ts`) is owner-only, rate-limited per
+user, and built with `serialiseCsv` (`cire/api/src/lib/csv.ts`). A new one
+also needs a **row ceiling enforced in the read**, not after it: order in SQL
+and `LIMIT` at the ceiling plus one, then cut and log a warning when that extra
+row arrives. Workers Free allows 10 ms of CPU, and a ceiling applied to rows
+already read, sorted and built bounds the file but not the Worker. A display
+order that is not the stored key's text order goes into the `ORDER BY` with
+`displayRank` (`cire/api/src/lib/display-rank.ts`). `giftsCsv`
+(`services/gift-export.ts`) and `budgetCsv`/`tasksCsv`
+(`services/planning-export.ts`) are the patterns, and their tests read the
+statements back to pin the row count each read returns.
 
 ## Tests
 

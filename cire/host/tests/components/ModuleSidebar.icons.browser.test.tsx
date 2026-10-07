@@ -23,7 +23,14 @@ import ModuleSidebar from "../../src/components/ModuleSidebar";
 function mountAt(width: number) {
   return render(() => (
     <div class="@container/shell" style={{ width: `${width}px` }}>
-      <ModuleSidebar weddingId="wed_test" active="overview" tier="gold" onSelect={() => {}} />
+      <ModuleSidebar
+        weddingId="wed_test"
+        weddingSlug="test-wedding"
+        canManage={false}
+        active="overview"
+        tier="gold"
+        onSelect={() => {}}
+      />
     </div>
   ));
 }

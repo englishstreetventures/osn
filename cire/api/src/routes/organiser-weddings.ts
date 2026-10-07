@@ -18,6 +18,7 @@ import { familyDeactivateService } from "../services/family-deactivate";
 import { giftExportService } from "../services/gift-export";
 import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
+import { planningExportService } from "../services/planning-export";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
@@ -32,10 +33,10 @@ import { weddingsService } from "../services/weddings";
 const manualParse = { parse: () => ({}) };
 
 /**
- * Wrap a server-built CSV in a browser-download response. Shared by the four
- * exports (rsvps / guests / events / gifts): Content-Disposition: attachment so the
- * browser downloads it directly; guest PII (names, dietary, codes) — never let
- * an intermediary cache it; nosniff as belt-and-braces against content sniffing.
+ * Wrap a server-built CSV in a browser-download response. Shared by every export
+ * below: Content-Disposition: attachment so the browser downloads it directly;
+ * guest PII (names, dietary, codes) and the couple's own figures — never let
+ * an intermediary cache them; nosniff as belt-and-braces against content sniffing.
  */
 const csvAttachment = (csv: string, filename: string) =>
   new Response(csv, {
@@ -48,9 +49,9 @@ const csvAttachment = (csv: string, filename: string) =>
   });
 
 /**
- * Shared defect recovery for the CSV export routes: log the failure (S-L2 —
- * a silent run of 500s on a PII-bearing export leaves no incident signal;
- * weddingId only, never guest data) and answer a generic 500.
+ * Shared defect recovery for the CSV export routes: log the failure (a silent
+ * run of 500s on a PII-bearing export leaves no incident signal; weddingId
+ * only, never guest data) and answer a generic 500.
  */
 const exportDefect = (set: { status?: number | string }, exportName: string, weddingId: string) =>
   Effect.gen(function* () {
@@ -274,7 +275,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingOwner(db))
-        // C2: rotate a family's claim code + revoke its sessions, atomically.
+        // Rotate a family's claim code + revoke its sessions, atomically.
         // weddingOwner() already proved the caller owns :weddingId; the service
         // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an
         // owner of wedding A can't rotate a family under wedding B.
@@ -320,8 +321,9 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  *
  * Two gates. Every CSV download is `weddingOwner()`: a file leaves the portal
  * and goes wherever its holder sends it, so taking the wedding's data away is
- * an owner's call, and editors and viewers read it on screen instead. The
- * dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
+ * an owner's call, and editors and viewers read it on screen instead. The row
+ * counts behind the budget, checklist and gift downloads (`/module-rows`) sit
+ * with them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
  * `weddingMember()`.
  *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
@@ -428,6 +430,70 @@ export const createOrganiserExportRoutes = (
             ),
           );
         })
+        // The budget and checklist exports — the couple's budget lines (each
+        // followed by its payments) and their tasks, in the portal's order.
+        // Same owner gate + attachment/no-store contract as the exports above.
+        //
+        // No `weddingTier(db, "gold")` gate, though both modules are Gold,
+        // reads included, for the reason `gifts.csv` has none: these are rows
+        // the couple entered, a wedding keeps them when its tier no longer
+        // opens the module, and refusing to hand back data we hold is the
+        // worse failure. Each file is capped (`MAX_PLANNING_EXPORT_ROWS`) and
+        // the group is rate-limited.
+        .get("/budget.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* planningExportService.budgetCsv(weddingId);
+              return csvAttachment(csv, `cire-budget-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "budget.csv", weddingId)),
+            ),
+          );
+        })
+        .get("/tasks.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* planningExportService.tasksCsv(weddingId);
+              return csvAttachment(csv, `cire-tasks-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "tasks.csv", weddingId)),
+            ),
+          );
+        })
+        // How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry.
+        // The portal asks when an owner opens a locked Budget, Checklist or
+        // Registry card, and offers that module's file only when there is
+        // something in it. Owner only, like the files it describes, and
+        // ungated for the same reason.
+        .get("/module-rows", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          noStore(set);
+          return runCire(
+            planningExportService.moduleRows(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() =>
+                Effect.gen(function* () {
+                  yield* Effect.logError("module rows read failed", { weddingId });
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
         // Round-trip exports — the wedding's CURRENT events/guests serialised
         // in the IMPORT template schema, so the download can be edited in a
         // spreadsheet tool and re-uploaded through the import (unlike the
@@ -505,7 +571,7 @@ export const createOrganiserExportRoutes = (
 
 /**
  * Create a new wedding owned by the caller, split into its own instance so the
- * per-IP rate limiter (S-L1) gates only this mutating insert and not the
+ * per-IP rate limiter gates only this mutating insert and not the
  * `GET /weddings` list above. osnAuth() supplies the owner — the body carries
  * only the display name (slug + id are server-generated). Same sibling-instance
  * pattern as the preview + account-link POSTs.
@@ -567,7 +633,7 @@ export const createOrganiserWeddingCreateRoute = (
 /**
  * Host preview-code provisioning, split into its own instance so the per-IP
  * rate limiter gates only this mutating route (the find-or-create + event-relink
- * amplifier — S-M2) and not the dashboard's read endpoints above. Gated
+ * amplifier) and not the dashboard's read endpoints above. Gated
  * osnAuth + weddingMember (any role): previewing the invite is the read
  * experience — it's the only way a co-host, including a read-only viewer, sees
  * the invite as a guest would — and the minted code is the wedding's synthetic
@@ -635,7 +701,7 @@ export const createOrganiserRemintRoutes = (
       group
         .use(weddingOwner(db))
         .use(rateLimitMiddleware(limiter))
-        // C3: flip the wedding's code style + rotate EVERY guest family's code
+        // Flip the wedding's code style + rotate EVERY guest family's code
         // onto it, clearing each family's shared marker + revoking its sessions,
         // atomically. Destructive: any already-shared code is invalidated.
         // weddingOwner() proved ownership; the service only touches rows scoped

@@ -15,6 +15,7 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { minorToDecimal } from "../../src/lib/money";
 import { MAX_GIFT_EXPORT_ROWS, giftExportService } from "../../src/services/gift-export";
+import { planningExportService } from "../../src/services/planning-export";
 import { registryService } from "../../src/services/registry";
 import type { GiftLogEntryDto } from "../../src/services/registry";
 import { TestDbLayer } from "../db/test-layer";
@@ -774,4 +775,33 @@ describe("giftExportService.giftsCsv", () => {
     expect(exported.join("\n")).not.toContain("For the honeymoon");
     expect(exported.join("\n")).not.toContain("Changed my mind");
   }, 30_000);
+});
+
+describe("giftCountSql", () => {
+  // The portal offers the file from a locked Registry card only when this is
+  // above zero, so it must count what the file prints: released claims and
+  // refunded gifts included, failed payments and other weddings' gifts not.
+  it("counts exactly the rows giftsCsv prints", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedParity(db);
+    const provide = <A>(eff: Effect.Effect<A, never, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+    const printed = lines(await provide(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID))).slice(1);
+    const counts = await provide(planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID));
+    expect(counts.gifts).toBe(printed.length);
+    expect(printed).toHaveLength(10);
+  });
+
+  it("is zero for a wedding that has had no gifts", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const counts = await Effect.runPromise(
+      planningExportService
+        .moduleRows(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(counts.gifts).toBe(0);
+  });
 });

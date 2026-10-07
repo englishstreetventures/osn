@@ -26,7 +26,13 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+const downloadBlob = vi.fn();
+vi.mock("../../src/lib/download", () => ({
+  downloadBlob: (name: string, blob: Blob) => downloadBlob(name, blob),
+}));
+
 import SettingsPanel from "../../src/components/SettingsPanel";
+import { __resetModuleRowsStore } from "../../src/lib/module-rows-store";
 import {
   authFetchMock,
   resetOrganiserMocks,
@@ -66,11 +72,13 @@ describe("SettingsPanel", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    downloadBlob.mockReset();
+    __resetModuleRowsStore();
   });
 
   it("loads and seeds the form from the profile", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy();
@@ -88,7 +96,9 @@ describe("SettingsPanel", () => {
   it("PUTs the parsed form and reports the rename up", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
     const onWeddingUpdated = vi.fn();
-    render(() => <SettingsPanel weddingId="wed_1" canManage onWeddingUpdated={onWeddingUpdated} />);
+    render(() => (
+      <SettingsPanel weddingId="wed_1" tier="gold" canManage onWeddingUpdated={onWeddingUpdated} />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.input(screen.getByDisplayValue("Aisha & Ben"), {
@@ -116,7 +126,7 @@ describe("SettingsPanel", () => {
 
   it("saves a date picked through the DatePicker", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     // Open the DatePicker (its trigger shows the current formatted date) and pick
@@ -138,7 +148,7 @@ describe("SettingsPanel", () => {
 
   it("sends nulls for cleared optional fields", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
@@ -153,7 +163,7 @@ describe("SettingsPanel", () => {
 
   it("seeds the RSVP deadline and explains what guests get", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.getByText("RSVP by")).toBeTruthy();
@@ -165,7 +175,7 @@ describe("SettingsPanel", () => {
 
   it("offers to leave RSVPs open when no deadline is set", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.getByText(/Leave this empty to keep RSVPs open/)).toBeTruthy();
@@ -176,7 +186,7 @@ describe("SettingsPanel", () => {
     // A wedding with no deadline yet: picking one must send BOTH halves, or the
     // server has a date whose day it can only measure in UTC.
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /RSVP by, no date set/ }));
@@ -207,7 +217,7 @@ describe("SettingsPanel", () => {
 
   it("sends both halves of the deadline as null when it is cleared", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
@@ -223,7 +233,7 @@ describe("SettingsPanel", () => {
 
   it("rejects a bad currency client-side without a request", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.input(screen.getByDisplayValue("AUD"), { target: { value: "$$" } });
@@ -237,14 +247,14 @@ describe("SettingsPanel", () => {
 
   it("no longer renders a budget field (moved to the Budget tab)", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
     expect(screen.queryByText(/total budget/i)).not.toBeInTheDocument();
   });
 
   it("renders read-only for a viewer co-host", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage={false} />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.queryByText("Save settings")).toBeNull();
@@ -257,7 +267,9 @@ describe("SettingsPanel", () => {
 
   it("lets an editor co-host change the RSVP-by date and nothing else", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage={false} canEditRsvpDeadline />);
+    render(() => (
+      <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} canEditRsvpDeadline />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     // The rest of the profile stays owner-only.
@@ -297,7 +309,9 @@ describe("SettingsPanel", () => {
     // owner already set, which is a different render branch (the "invite locks"
     // hint, not the "leave this empty" fallback) and a different save.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage={false} canEditRsvpDeadline />);
+    render(() => (
+      <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} canEditRsvpDeadline />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     // Seeded and live, not the static read-only rendering a viewer gets.
@@ -320,7 +334,7 @@ describe("SettingsPanel", () => {
     // saves, so the server refuses it (400 rsvp_deadline_in_past) — mirrored
     // here so the mistake never round-trips.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /20 February 2027/ }));
@@ -344,7 +358,7 @@ describe("SettingsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ wedding: { ...PROFILE, rsvpDeadline: "2020-01-01" } }),
     );
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(
@@ -363,7 +377,7 @@ describe("SettingsPanel", () => {
     // owner_only_fields / read_only_role. "Check the fields and try again"
     // would send them hunting for a validation error that isn't there.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(
@@ -379,7 +393,9 @@ describe("SettingsPanel", () => {
   describe("the danger zone", () => {
     it("is offered to an owner", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-      render(() => <SettingsPanel weddingId="wed_1" canManage onWeddingDeleted={vi.fn()} />);
+      render(() => (
+        <SettingsPanel weddingId="wed_1" tier="gold" canManage onWeddingDeleted={vi.fn()} />
+      ));
       expect(await screen.findByRole("button", { name: "Delete wedding…" })).toBeInTheDocument();
     });
 
@@ -388,6 +404,7 @@ describe("SettingsPanel", () => {
       render(() => (
         <SettingsPanel
           weddingId="wed_1"
+          tier="gold"
           canManage={false}
           canEditRsvpDeadline
           onWeddingDeleted={vi.fn()}
@@ -395,6 +412,74 @@ describe("SettingsPanel", () => {
       ));
       await screen.findByDisplayValue("Aisha & Ben");
       expect(screen.queryByRole("button", { name: "Delete wedding…" })).toBeNull();
+    });
+  });
+  /**
+   * An owner's downloads of the rows held in modules the plan locks. The
+   * locked nav cards offer them too, but a keyboard cannot reach a button in
+   * a hover card; this list sits in the panel's own tab order.
+   */
+  describe("downloads from locked modules", () => {
+    /** Profile for the settings read, the given counts for `/module-rows`,
+     *  and a small file for any CSV. */
+    function answer(counts: { budgetLines: number; tasks: number; gifts: number }) {
+      authFetchMock.mockImplementation(async (url: string) => {
+        if (url.endsWith("/module-rows")) return json(counts);
+        if (url.endsWith(".csv")) return new Response("Header\r\n");
+        return json({ wedding: PROFILE });
+      });
+    }
+    const probes = () =>
+      authFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/module-rows"));
+
+    it("lists each locked module that holds rows, in the page's tab order", async () => {
+      answer({ budgetLines: 2, tasks: 0, gifts: 1 });
+      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+
+      const section = await screen.findByRole("region", { name: "Download what you entered" });
+      expect(screen.getByText("Your 2 budget lines are still here.")).toBeInTheDocument();
+      expect(screen.getByText("Your 1 gift is still here.")).toBeInTheDocument();
+      expect(screen.queryByText(/tasks? (is|are) still here/)).toBeNull();
+
+      const buttons = section.querySelectorAll("button");
+      expect(buttons).toHaveLength(2);
+      // In the panel, not portalled away from it, and focusable.
+      buttons[0]!.focus();
+      expect(document.activeElement).toBe(buttons[0]);
+      // Each button is described by the sentence that says which file it is.
+      expect(buttons[0]!).toHaveAccessibleDescription("Your 2 budget lines are still here.");
+
+      fireEvent.click(buttons[0]!);
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+      expect(downloadBlob.mock.calls[0]![0]).toBe("cire-budget-aisha-and-ben.csv");
+      expect(probes()).toHaveLength(1);
+    });
+
+    it("lists nothing when the locked modules hold no rows", async () => {
+      answer({ budgetLines: 0, tasks: 0, gifts: 0 });
+      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+      await screen.findByDisplayValue("Aisha & Ben");
+      await waitFor(() => expect(probes()).toHaveLength(1));
+      expect(screen.queryByRole("region", { name: "Download what you entered" })).toBeNull();
+    });
+
+    it("asks nothing for a wedding whose plan locks none of them", async () => {
+      answer({ budgetLines: 2, tasks: 2, gifts: 2 });
+      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      await screen.findByDisplayValue("Aisha & Ben");
+      expect(probes()).toHaveLength(0);
+      expect(screen.queryByText("Download what you entered")).toBeNull();
+    });
+
+    // Every export is owner-only.
+    it("asks nothing and lists nothing for a co-host", async () => {
+      answer({ budgetLines: 2, tasks: 2, gifts: 2 });
+      render(() => (
+        <SettingsPanel weddingId="wed_1" tier="ivory" canManage={false} canEditRsvpDeadline />
+      ));
+      await screen.findByDisplayValue("Aisha & Ben");
+      expect(probes()).toHaveLength(0);
+      expect(screen.queryByText("Download what you entered")).toBeNull();
     });
   });
 });

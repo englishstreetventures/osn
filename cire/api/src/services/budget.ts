@@ -34,7 +34,9 @@ import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { DbService, commitGroupedBatches, dbQuery } from "../db";
+import { displayRank } from "../lib/display-rank";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
+import { SERVICE_CATEGORY_KEYS } from "../lib/service-categories";
 import type { ServiceCategory } from "../lib/service-categories";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
@@ -103,6 +105,16 @@ export interface BudgetRollup {
   }[];
   totals: { estimateMinor: number; quotedMinor: number; actualMinor: number };
   spentSoFarMinor: number;
+}
+
+/** The budget as the CSV export prints it. */
+export interface BudgetExportSnapshot {
+  /** Lines in the portal's order: category, then `sortOrder`. */
+  items: BudgetItemDto[];
+  /** Payments in the order of their lines, then oldest first. */
+  payments: PaymentDto[];
+  currency: string;
+  rsvpsClosed: boolean;
 }
 
 export interface BudgetSnapshot {
@@ -343,6 +355,27 @@ function loadEvents(weddingId: string): Effect.Effect<BudgetEventDto[], never, D
   });
 }
 
+/** The wedding's budget facts: its total, its currency, and the RSVP deadline
+ *  that decides whether a per-head line prices expected or confirmed guests. */
+function loadBudgetWedding(weddingId: string) {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [wedding] = yield* dbQuery(() =>
+      db
+        .select({
+          budgetTotalMinor: weddings.budgetTotalMinor,
+          currency: weddings.currency,
+          rsvpDeadline: weddings.rsvpDeadline,
+          rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+        })
+        .from(weddings)
+        .where(eq(weddings.id, weddingId))
+        .all(),
+    );
+    return wedding;
+  });
+}
+
 /** Fail unless every picked id is one of the wedding's events, checked against
  *  the event list the write reads anyway, so the check costs no query. */
 function requirePickedEvents(
@@ -433,7 +466,7 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Four independently wedding-scoped reads, so they go out together.
-      const [itemRows, paymentRows, weddingRows, weddingEvents] = yield* Effect.all(
+      const [itemRows, paymentRows, wedding, weddingEvents] = yield* Effect.all(
         [
           dbQuery(() =>
             db
@@ -460,18 +493,7 @@ export const budgetService = {
               .where(eq(budgetItems.weddingId, weddingId))
               .all(),
           ),
-          dbQuery(() =>
-            db
-              .select({
-                budgetTotalMinor: weddings.budgetTotalMinor,
-                currency: weddings.currency,
-                rsvpDeadline: weddings.rsvpDeadline,
-                rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
-              })
-              .from(weddings)
-              .where(eq(weddings.id, weddingId))
-              .all(),
-          ),
+          loadBudgetWedding(weddingId),
           loadEvents(weddingId),
         ],
         { concurrency: 4 },
@@ -483,7 +505,6 @@ export const budgetService = {
         : [];
       const weddingEventIds = new Set(weddingEvents.map((e) => e.id));
       const items = rows.map((r) => toItemDto(r, perHeadFields(r, weddingEventIds, invitations)));
-      const [wedding] = weddingRows;
       const rsvpsClosed = isRsvpClosed(
         wedding?.rsvpDeadline,
         wedding?.rsvpDeadlineTimezone,
@@ -507,6 +528,75 @@ export const budgetService = {
         rsvpsClosed,
       };
     }).pipe(Effect.withSpan("cire.budget.get"));
+  },
+
+  /**
+   * The budget for the CSV export: at most `limit` lines and at most `limit`
+   * payments, ordered and cut in the database, so the Worker never receives a
+   * row past what the file can print however large the budget is. Lines come
+   * in the portal's order (category in `SERVICE_CATEGORIES` order, then
+   * `sortOrder`), and payments in the order of their lines, so the first
+   * `limit` rows of lines-then-their-payments are all here. Per-head lines are
+   * priced exactly as `get` prices them.
+   */
+  exportSnapshot(
+    weddingId: string,
+    limit: number,
+  ): Effect.Effect<BudgetExportSnapshot, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const lineOrder = [
+        displayRank(budgetItems.category, SERVICE_CATEGORY_KEYS),
+        asc(budgetItems.sortOrder),
+        asc(budgetItems.createdAt),
+        asc(budgetItems.id),
+      ];
+      const [itemRows, paymentRows, wedding, weddingEvents] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select()
+              .from(budgetItems)
+              .where(eq(budgetItems.weddingId, weddingId))
+              .orderBy(...lineOrder)
+              .limit(limit)
+              .all(),
+          ),
+          dbQuery(() =>
+            db
+              .select({
+                id: payments.id,
+                budgetItemId: payments.budgetItemId,
+                label: payments.label,
+                amountMinor: payments.amountMinor,
+                dueAt: payments.dueAt,
+                paidAt: payments.paidAt,
+                createdAt: payments.createdAt,
+              })
+              .from(payments)
+              .innerJoin(budgetItems, eq(payments.budgetItemId, budgetItems.id))
+              .where(eq(budgetItems.weddingId, weddingId))
+              .orderBy(...lineOrder, asc(payments.createdAt), asc(payments.id))
+              .limit(limit)
+              .all(),
+          ),
+          loadBudgetWedding(weddingId),
+          loadEvents(weddingId),
+        ],
+        { concurrency: 4 },
+      );
+      const rows = itemRows as ItemRow[];
+      const invitations = rows.some((r) => r.unitPriceMinor !== null)
+        ? yield* loadInvitations(weddingId)
+        : [];
+      const weddingEventIds = new Set(weddingEvents.map((e) => e.id));
+      return {
+        items: rows.map((r) => toItemDto(r, perHeadFields(r, weddingEventIds, invitations))),
+        payments: (paymentRows as PaymentRow[]).map(toPaymentDto),
+        currency: wedding?.currency ?? "AUD",
+        rsvpsClosed: isRsvpClosed(wedding?.rsvpDeadline, wedding?.rsvpDeadlineTimezone, new Date()),
+      };
+    }).pipe(Effect.withSpan("cire.budget.exportSnapshot"));
   },
 
   createItem(

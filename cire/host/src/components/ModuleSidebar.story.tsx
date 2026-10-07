@@ -113,6 +113,8 @@ export const Rail = {
         <Shell width="60rem" wide>
           <ModuleSidebar
             weddingId="wed_test"
+            weddingSlug="test-wedding"
+            canManage={false}
             active={active()}
             tier={args.tier}
             onSelect={setActive}
@@ -151,6 +153,8 @@ export const Sheet = {
         <Shell width="22rem">
           <ModuleSidebar
             weddingId="wed_test"
+            weddingSlug="test-wedding"
+            canManage={false}
             active={active()}
             tier={args.tier}
             onSelect={setActive}

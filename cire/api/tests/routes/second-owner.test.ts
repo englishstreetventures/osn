@@ -94,6 +94,9 @@ function buildApp() {
     registryStripeLimiter: limiter(),
     hostLimiter: limiter(),
     remintLimiter: limiter(),
+    // The default export limiter is one module-level 10/min bucket per caller,
+    // and this file calls every export as the same second owner.
+    exportLimiter: limiter(),
   });
   const [family] = db.select({ id: families.id }).from(families).limit(1).all();
   return { app, db, familyId: family!.id };
@@ -202,11 +205,14 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
       "/guests.csv",
       "/events.csv",
       "/gifts.csv",
+      "/budget.csv",
+      "/tasks.csv",
+      "/module-rows",
       "/export/events.csv",
       "/export/guests.csv",
     ] as const
   ).map((path) => ({
-    name: `download ${path.slice(1)}`,
+    name: `${path.endsWith(".csv") ? "download" : "read"} ${path.slice(1)}`,
     method: "GET",
     path: () => path,
     ok: 200,
