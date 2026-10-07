@@ -98,10 +98,18 @@ export function hydrateConsent(): void {
  * its back/forward cache: the guest may have answered on another page since
  * this one was last shown, and a restored page runs no hydration of its own.
  * Does nothing before {@link hydrateConsent} has run.
+ *
+ * A restored page keeps every script it was running, so a withdrawal made on
+ * the other page is held to the same rule as one made here: when it revokes a
+ * category whose in-page vendor code already ran, the page reloads (see
+ * {@link saveConsent}). The cookie is already written, so there is no write
+ * to verify first.
  */
 export function refreshConsentFromDocument(): void {
   if (!hydrated()) return;
+  const previous = currentGrants();
   setRecord(readConsentFromDocument());
+  if (revokeNeedsReload(previous, currentGrants())) reloadPage();
 }
 
 /** The stored decision, or `null` if the guest hasn't made one. */

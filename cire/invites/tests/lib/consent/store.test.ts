@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CONSENT_COOKIE_NAME, writeConsentToDocument } from "../../../src/lib/consent/cookie";
+import {
+  CONSENT_COOKIE_NAME,
+  PREFIXED_CONSENT_COOKIE_NAME,
+  writeConsentToDocument,
+} from "../../../src/lib/consent/cookie";
 import { allGrants, defaultGrants, makeConsentRecord } from "../../../src/lib/consent/record";
 import {
   acceptAllConsent,
   consentRecord,
   hydrateConsent,
+  isCategoryGranted,
   needsConsentDecision,
   noteGatedContentLoaded,
   refreshConsentFromDocument,
@@ -275,6 +280,48 @@ describe("refreshConsentFromDocument", () => {
     expect(consentRecord()?.grants.embeds).toBe(false);
   });
 
+  it("reloads when the restored page learns of a withdrawal after the Pinterest board ran", () => {
+    // The guest accepted, opened a details sheet (the board's script ran in
+    // this page), switched third-party content off on the privacy notice and
+    // pressed back. The unmount alone would leave Pinterest's code running.
+    const reload = vi.fn();
+    seedConsentForTest({ embeds: true });
+    hydrateConsent();
+    noteGatedContentLoaded("embeds", "pinterest");
+    setReloadPageForTest(reload);
+
+    writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
+    refreshConsentFromDocument();
+
+    expect(isCategoryGranted("embeds")).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload for a withdrawal when only the map ran, which its frame took with it", () => {
+    const reload = vi.fn();
+    seedConsentForTest({ embeds: true });
+    hydrateConsent();
+    noteGatedContentLoaded("embeds", "google-maps");
+    setReloadPageForTest(reload);
+
+    writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
+    refreshConsentFromDocument();
+
+    expect(isCategoryGranted("embeds")).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("asks again when the stored decision has gone", () => {
+    seedConsentForTest({ embeds: false });
+    hydrateConsent();
+    expect(needsConsentDecision()).toBe(false);
+
+    resetConsentCookieOnly();
+    refreshConsentFromDocument();
+
+    expect(needsConsentDecision()).toBe(true);
+  });
+
   it("does nothing before the first hydration, which still holds the floor", () => {
     writeConsentToDocument(makeConsentRecord(allGrants(), new Date()));
     refreshConsentFromDocument();
@@ -283,3 +330,9 @@ describe("refreshConsentFromDocument", () => {
     expect(needsConsentDecision()).toBe(false);
   });
 });
+
+/** Expire the consent cookie, both names, without touching the store. */
+function resetConsentCookieOnly(): void {
+  document.cookie = `${CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0`;
+  document.cookie = `${PREFIXED_CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0; Secure`;
+}

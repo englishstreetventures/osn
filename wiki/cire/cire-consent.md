@@ -299,12 +299,13 @@ mounted first.
   both designs' pages, the gift registry and the 404 page. Nothing but an
   answer closes it, so once answered nothing is left over the invite's hero.
   - `closedby="none"` keeps Escape and the back gesture away from it in
-    browsers that support the attribute — the back gesture goes back a page,
-    as it does anywhere else. Elsewhere the `cancel` that Escape fires is
-    refused, and where the browser will not allow that (it does only after
-    the guest has interacted), the dialog closes and a fresh one opens at
-    once. A tap on the backdrop does nothing (`dismissable={false}`). There is
-    no close button.
+    browsers that support the attribute, where the back gesture then goes
+    back a page, as it does anywhere else. Elsewhere Escape and the back
+    gesture fire a `cancel`, which is refused, and where the browser will not
+    allow that (it does only after the guest has interacted), the dialog
+    closes and a fresh one opens at once — so in those browsers the back
+    gesture does nothing until the guest answers. A tap on the backdrop does
+    nothing (`dismissable={false}`). There is no close button.
   - **It opens on its heading.** Focus never starts on an answer, which would
     be a nudge, nor on a link, where a stray Enter would leave the page.
   - **It links to both legal pages,** because it blocks the footer that
@@ -315,8 +316,11 @@ mounted first.
     the privacy notice and pressed back is not asked a second time.
 - **On the legal pages the prompt is a banner.** `LegalLayout.astro` passes
   `prompt="banner"`: the prompt links there, and a dialog would stand between
-  the guest and the notice they came to read. The banner is fixed to the
-  bottom of the screen at every width and leaves the page readable.
+  the guest and the notice they came to read. The banner rides the bottom of
+  the screen at every width (`sticky`, the last box on the page), so at the
+  end of the page it rests below the footer instead of over it, and while it
+  is up the page keeps a bottom scroll padding of its height, so whatever Tab
+  moves to is scrolled clear of it.
 - **The prompt states that things are already on.** It names Google and
   Pinterest and says the content is switched on with an offer to turn it off,
   rather than posing a question whose answer has been assumed. Asserted by test.

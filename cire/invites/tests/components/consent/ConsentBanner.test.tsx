@@ -6,7 +6,11 @@ import {
   ConsentPreferencesLink,
 } from "../../../src/components/consent/ConsentBanner";
 import { readConsentFromDocument, writeConsentToDocument } from "../../../src/lib/consent/cookie";
-import { defaultGrants, makeConsentRecord } from "../../../src/lib/consent/record";
+import {
+  CONSENT_POLICY_VERSION,
+  defaultGrants,
+  makeConsentRecord,
+} from "../../../src/lib/consent/record";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
 
@@ -46,6 +50,12 @@ function sharedPromptContract(mount: () => HTMLElement) {
     expect(text).toContain("Pinterest");
     expect(text.toLowerCase()).toContain("switched on");
     expect(text.toLowerCase()).toContain("turn it off");
+  });
+
+  it("names the answer that turns it off, since that answer's label says 'Accept'", () => {
+    // The copy promises an off switch; the control that is one reads "Accept
+    // necessary". Naming it in the sentence leaves no working-out to the guest.
+    expect(mount().querySelector("p")?.textContent).toContain("“Accept necessary”");
   });
 
   it("links to both legal pages from the prompt itself", () => {
@@ -96,7 +106,7 @@ function sharedPromptContract(mount: () => HTMLElement) {
 
     const record = readConsentFromDocument()!;
     expect(Number.isNaN(Date.parse(record.decidedAt))).toBe(false);
-    expect(record.policy).toBeTruthy();
+    expect(record.policy).toBe(CONSENT_POLICY_VERSION);
   });
 
   it("hands over to the preferences dialog on 'Choose', leaving one dialog", () => {

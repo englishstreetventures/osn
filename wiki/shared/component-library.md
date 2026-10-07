@@ -569,8 +569,8 @@ covers every browser:
 | --- | --- |
 | `dismissable={false}` | The backdrop click, which `Modal` handles itself |
 | `closedby="none"` | Escape and the back gesture, in browsers that support the attribute; the request never reaches the dialog, so the back gesture goes back a page instead |
-| `onCancel={(e) => e.preventDefault()}` | Escape where `closedby` is unsupported, by refusing the `cancel` it fires |
-| `onClose` that mounts a fresh `Modal` | The case a browser will not let a page refuse: it allows a refused `cancel` only after the user has interacted, and otherwise closes the dialog regardless |
+| `onCancel={(e) => e.preventDefault()}` | Escape and the back gesture where `closedby` is unsupported, by refusing the `cancel` they fire |
+| `onClose` that mounts a fresh `Modal` | The case a browser will not let a page refuse: it allows a refused `cancel` only after the user has interacted, and otherwise closes the dialog regardless. Where `closedby` is unsupported, the back gesture therefore does nothing until the dialog is answered |
 
 An unmount never fires `onClose` (the listener is removed first), so closing
 the dialog by answering it cannot trigger the reopen.

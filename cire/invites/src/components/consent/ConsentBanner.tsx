@@ -115,12 +115,26 @@ export function ConsentBanner(props: ConsentBannerProps) {
   );
 }
 
-/** The prompt as a bar along the bottom of the screen, for the legal pages. */
+/**
+ * The prompt as a bar along the bottom of the screen, for the legal pages —
+ * which a guest reads to decide, so the bar must not hide any of them.
+ *
+ * `sticky`, not `fixed`: it is the last box on the page, so it rides the
+ * bottom of the screen while the page scrolls under it and comes to rest
+ * below the footer at the end, where a fixed bar would cover the last of the
+ * notice and the footer's own "Privacy choices" control. And while it is up
+ * the page keeps a bottom scroll padding of its height, so whatever Tab moves
+ * to is scrolled clear of it rather than under it (WCAG 2.4.11).
+ */
 function BannerPanel() {
+  let panel!: HTMLElement;
+  onMount(() => keepScrollPaddingFor(panel));
+
   return (
     <section
+      ref={panel}
       aria-label="Privacy choices"
-      class={`fixed inset-x-0 bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
+      class={`sticky bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
     >
       <div class="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <PromptCopy />
@@ -131,14 +145,35 @@ function BannerPanel() {
 }
 
 /**
+ * Keep `<html>`'s bottom scroll padding equal to `el`'s height for as long as
+ * the calling owner lives, then remove it. A `ResizeObserver`, because the
+ * banner's copy wraps differently at every width and again once the web fonts
+ * land. Does nothing where there is no `ResizeObserver` (jsdom).
+ */
+function keepScrollPaddingFor(el: HTMLElement): void {
+  if (typeof ResizeObserver === "undefined") return;
+  const root = document.documentElement;
+  const observer = new ResizeObserver(() => {
+    root.style.scrollPaddingBottom = `${el.getBoundingClientRect().height}px`;
+  });
+  observer.observe(el);
+  onCleanup(() => {
+    observer.disconnect();
+    root.style.removeProperty("scroll-padding-bottom");
+  });
+}
+
+/**
  * The prompt as a modal dialog the guest has to answer.
  *
  * Nothing but an answer closes it. `closedby="none"` tells the browser that
- * Escape and the back gesture do not close it — the back gesture goes back a
- * page, as it does anywhere else. Where `closedby` is not supported, the
- * `cancel` that Escape fires is refused instead, and where the browser will
- * not let it be refused (it allows that only after the guest has interacted
- * with the page), the dialog closes and `onClose` mounts a fresh one at once.
+ * Escape and the back gesture do not close it, and in a browser that supports
+ * the attribute the back gesture then goes back a page, as it does anywhere
+ * else. Where `closedby` is not supported, Escape and the back gesture fire a
+ * `cancel`, which is refused; where the browser will not let it be refused
+ * (it allows that only after the guest has interacted with the page), the
+ * dialog closes and `onClose` mounts a fresh one at once. In such a browser
+ * the back gesture therefore does nothing until the guest answers.
  * `dismissable={false}` makes a tap on the backdrop do nothing.
  *
  * Mounted and unmounted by a `Show`, with `open` always true — the form
@@ -199,7 +234,8 @@ function PromptCopy(props: { id?: string }) {
     <p id={props.id} class="font-body text-text-muted text-ui-sm leading-relaxed">
       We use a little storage to keep you signed in to your invite. Some parts — the venue map and
       the Pinterest moodboard — are loaded from Google and Pinterest, who can see your IP address
-      and browser. That's switched on; you can turn it off here, or any time from the footer.{" "}
+      and browser. That's switched on. To turn it off, choose “Accept necessary”; you can change it
+      any time from the footer.{" "}
       <a href="/privacy" class="text-gold-ink underline underline-offset-2">
         Privacy notice
       </a>
