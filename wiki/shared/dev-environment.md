@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Dev environment (cire + OSN identity)
@@ -256,7 +256,7 @@ second zone, second D1 set and second Upstash, and the cost maths changes.
 A workflow-level `concurrency` group would make the whole run the unit of
 exclusion — and since prod jobs park waiting for a human, the *next* merge's dev
 deploy would queue behind that click. Each job takes a group named for its own
-surface **and** tier (`deploy-dev-cire-api`, `deploy-production-cire-api`), so two
+surface **and** tier (`deploy-dev-cire-api`, `deploy-prod-cire-api`), so two
 runs never deploy the same thing at once while unrelated surfaces stay parallel.
 
 The dev cire job also sets **`cancel-in-progress: true`**. A burst of merges

@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -674,7 +674,7 @@ concurrency group.
 > not run `db:migrate:prod` from an old checkout instead — that applies the
 > migrations under the Worker already serving, and a migration such as `0076`
 > drops a column that Worker still reads. Approve the old run before re-running
-> the new one: both wait in the `deploy-production-cire-api` concurrency group,
+> the new one: both wait in the `deploy-prod-cire-api` concurrency group,
 > and a newer pending job cancels an older one.
 
 The `database_id` is already wired
