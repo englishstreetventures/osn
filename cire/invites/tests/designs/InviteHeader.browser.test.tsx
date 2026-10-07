@@ -6,6 +6,7 @@ import { commands, page } from "vitest/browser";
 import "../../src/styles/global.css";
 import { CONSENT_BANNER_HEIGHT_VAR } from "../../src/components/consent/banner-height";
 import { ConsentBanner } from "../../src/components/consent/ConsentBanner";
+import { setReturningHousehold } from "../../src/components/returning-household";
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
 import GalaInviteHeader from "../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../src/designs/types";
@@ -79,6 +80,28 @@ async function mount(InviteHeader: Header, initial: InviteCustomisation) {
   return { hero, cue, glyph, titleBlock };
 }
 
+/** The smallest phone the invite is laid out for. */
+const NARROWEST: Viewport = [320, 568];
+
+/**
+ * A hero with no couple title draws its fallback, which reads "Welcome back to
+ * your invite" for a household that has replied before: about twice the
+ * length of "You're Invited", so more lines at the same size.
+ */
+async function mountWelcomeBack(InviteHeader: Header) {
+  setReturningHousehold(true);
+  const initial = invite({ subtitle: "Saturday 18 September" });
+  const { hero, glyph, titleBlock } = await mount(InviteHeader, {
+    ...initial,
+    hero: { ...initial.hero, title: null },
+  });
+  return {
+    title: within(hero).queryByText("Welcome back to your invite"),
+    glyphTop: glyph.getBoundingClientRect().top,
+    titleBottom: titleBlock.getBoundingClientRect().bottom,
+  };
+}
+
 /** A `layout-shift` performance entry; TypeScript's DOM types do not carry it. */
 type LayoutShift = PerformanceEntry & { value: number };
 
@@ -118,6 +141,7 @@ const rootPx = () => Number.parseFloat(getComputedStyle(document.documentElement
 // out hidden.
 afterEach(async () => {
   cleanup();
+  setReturningHousehold(false);
   resetConsentForTest();
   scrollPageTo(0);
   await vi.waitFor(() => {
@@ -290,6 +314,20 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
         short.titleBlock.getBoundingClientRect().bottom,
       );
     });
+
+    it("sits below the longer welcome-back title a returning household gets", async () => {
+      await page.viewport(...size);
+      const { title, glyphTop, titleBottom } = await mountWelcomeBack(InviteHeader);
+      expect(title).not.toBeNull();
+      expect(glyphTop).toBeGreaterThanOrEqual(titleBottom);
+    });
+  });
+
+  it("sits below the welcome-back title on the narrowest phone", async () => {
+    await page.viewport(...NARROWEST);
+    const { title, glyphTop, titleBottom } = await mountWelcomeBack(InviteHeader);
+    expect(title).not.toBeNull();
+    expect(glyphTop).toBeGreaterThanOrEqual(titleBottom);
   });
 
   it("drifts 6px down and back twice, all within five seconds, then rests in view", async () => {

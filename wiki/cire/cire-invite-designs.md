@@ -9,6 +9,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-consent]]"
   - "[[browser-tests]]"
+  - "[[frontend-patterns]]"
 last-reviewed: 2026-10-02
 ---
 # Invite design selector
@@ -65,8 +66,9 @@ is large text (`band`, 2rem × 0.85 = 27.2px at the smallest heading scale),
 `text-gold-ink` elsewhere. Headings follow the organiser's heading typography
 in every layout.
 
-Before a claim the panel shows the code entry. After it, the greeting, the
-RSVP-by line, and the household's controls in this order:
+Before a claim the panel shows the code entry. After it, the greeting (see
+[Returning households](#returning-households)), the RSVP-by line, and the
+household's controls in this order:
 
 1. **Plus-one prompt** — `PlusOnePrompt`, for a household with a member the
    couple lets bring a guest or a plus-one already named: name, rename or
@@ -109,6 +111,89 @@ request on mount would hold it back one request. Only its chunk can delay it,
 and that download starts as the claim or restore begins.
 `tests/components/LoginSection.link-state.test.tsx` renders the real panel with
 every request held unanswered and fails if the box waits on one.
+
+## Returning households
+
+A household that has replied before, fully or in part, is greeted as returning.
+The copy is the owner's, word for word:
+
+| Where | First visit | Returning |
+|---|---|---|
+| Panel heading | "Welcome, the {familyName} Family" or "Dear {name}" | "Welcome back to your invite, the {familyName} Family" or "Welcome back to your invite, {name}" |
+| Line under the heading | none | "You still have replies to give", while replies are owed |
+| Hero title, only when the organiser set none | "You're Invited" | "Welcome back to your invite" |
+
+The organiser's own hero title is never replaced, and neither is their welcome
+message, which still follows the heading. The tab `<title>`
+(`lib/invite-title.ts`) does not change: the server renders it and never knows
+the household.
+
+**Returning means the household replied itself.** The claim payload, from
+both the code entry and the session restore, carries one flag for the
+household, `householdReplied`: true when any of its reply rows has a
+`consent_source` other than `organiser_attested`
+([`claim.ts`](../../cire/api/src/services/claim.ts)). So a reply the couple
+recorded by phone or on paper does not make a first visit a return. That
+covers a household reply, the household's reply for its plus-one, and a host's
+status change over a household reply that holds a dietary answer, since that
+save keeps the household's consent basis. The flag is a total for the
+household, not a field on each row, though with one reply on file, or only a
+host's, it does show their source; the household those replies are about is
+its only recipient, and no organiser id leaves the API.
+
+The rows keep only their latest writer. When a host saves a full reply over a
+household's, or changes the status of a household reply that has no dietary
+answer, the row becomes the organiser's and nothing stored says the household
+answered it first. A household whose every reply a host has saved over in that
+way is greeted as a first visit. The guest site reads only `true`: an API that
+does not send the flag, or a value this build does not know, gives the
+first-visit greeting and never costs the invite.
+
+**The replies line comes from the rows.**
+[`inviteProgress(members, rsvps)`](../../cire/invites/src/components/invite-progress.ts)
+counts every row, whoever wrote it, since a host's phone reply does answer the
+event:
+
+- `not-started` — no reply on file at all.
+- `partial` — an invited member still owes a reply for an event they are
+  invited to now.
+- `complete` — every invited member has replied to every such event. A
+  plus-one is not waited for, as with the tick on each event card
+  (`hasHouseholdResponded`), and a "maybe" counts as a reply.
+
+**`LoginSection` decides, once per household.** It takes `householdReplied`
+from the claim result the invite opened with — a typed code, the `?code=` link
+or a restored session — and keeps it while the same household (by `publicId`)
+stays signed in, so a first visit stays one whatever the guest sends during
+it. Sign-out clears it. Host preview always gets the first-visit copy. The
+replies line, by contrast, is live: it shows while `inviteProgress` reads
+`partial`, goes once the last reply is in, and never shows once RSVPs have
+closed, when nothing more can be given.
+
+**The hero hears it through a shared signal.** The hero is a separate island,
+so the panel publishes its verdict in
+[`returning-household.ts`](../../cire/invites/src/components/returning-household.ts),
+which both islands import. How the signal stays out of the server render and
+out of hydration is in [[frontend-patterns#Sharing state between islands]].
+Both surfaces change on page load when the session restores and at the moment
+a code is accepted. For a typed code the hero is above the guest's scroll
+position by then.
+
+The swap has a cost on a hero with no couple title. Once the restore lands, the
+longer title wraps to one more line, which moves the title block within the
+hero: a layout shift inside it, with nothing below the hero moving, since the
+hero is at least the screen's height. Whether it also moves Largest Contentful
+Paint on a hero with no image is unmeasured. A hero with a couple title, the
+usual case, does not change.
+
+Tests: in `@cire/api`, `tests/services/claim.test.ts` ("householdReplied in the
+claim payload"). In `@cire/invites`, `tests/components/invite-progress.test.ts`,
+`tests/components/LoginSection.test.tsx` ("returning household"), both packs'
+`InvitePage.test.tsx` (a first-time guest's greeting survives their first
+reply), `tests/components/returning-household.test.ts` and its `.ssr` twin,
+and `tests/designs/InviteHeader.ssr.test.tsx`. In real Chromium,
+`InviteHeader.browser.test.tsx` checks that the welcome-back title still stops
+above the scroll cue at 320px and at both test widths.
 
 ## The hero scroll cue
 
