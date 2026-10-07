@@ -37,11 +37,10 @@ import { vendorById } from "./vendors";
  * hydrated tree.
  *
  * Note the floor — not the pre-decision defaults — is what applies during that
- * tick, even though first-party preferences are on by default. `record() ===
- * null` means two different things depending on whether hydration has run ("we
- * haven't looked yet" vs "we looked, and there's nothing"), and only the second
- * may resolve to the pre-decision defaults. {@link isCategoryGranted} is where that
- * distinction is enforced.
+ * tick. `record() === null` means two different things depending on whether
+ * hydration has run ("we haven't looked yet" vs "we looked, and there's
+ * nothing"), and only the second may resolve to the pre-decision defaults.
+ * {@link isCategoryGranted} is where that distinction is enforced.
  */
 
 const [record, setRecord] = createSignal<ConsentRecord | null>(null);
@@ -52,11 +51,9 @@ const [preferencesOpen, setPreferencesOpen] = createSignal(false);
  * The bespoke key the Pinterest-only gate used before this framework existed.
  *
  * It is deleted on hydration, NOT migrated into a grant. A guest who once
- * clicked "Load Pinterest content" consented to Pinterest specifically; the
- * `embeds` category now also covers the Google Maps venue embed, so importing
- * that click would silently widen a narrow consent into a broader one the guest
- * was never shown. Those guests are asked once more instead — the honest cost
- * of consolidating the gates, and the reason `CONSENT_POLICY_VERSION` exists.
+ * clicked "Load Pinterest content" did so against a disclosure older than the
+ * current one (`CONSENT_POLICY_VERSION`), so that click is not consent to it.
+ * Those guests are asked once more instead.
  */
 const LEGACY_PINTEREST_KEY = "cire:pinterest-consent";
 
@@ -109,11 +106,11 @@ export const consentHydrated = hydrated;
  * Is `category` granted right now?
  *
  * Before hydration this is the FLOOR (required only) — not the pre-decision
- * defaults. First-party preferences are on by default for a guest who hasn't
- * decided, but we do not know whether this guest is that guest until the
- * cookie has been read: they may have refused. Holding at the floor for that one tick
- * is what stops a refusal being briefly ignored on every page load. After
- * hydration, a `null` record resolves through `isGranted` to
+ * defaults. Today the two agree, but a category whose default is on would
+ * apply to an undecided guest, and we do not know whether this guest is one
+ * until the cookie has been read: they may have refused. Holding at the floor
+ * for that one tick is what stops a refusal being briefly ignored on every
+ * page load. After hydration, a `null` record resolves through `isGranted` to
  * {@link preDecisionGrants}.
  */
 export function isCategoryGranted(category: ConsentCategory): boolean {
@@ -274,12 +271,11 @@ export function acceptAllConsent(): void {
 }
 
 /**
- * "Accept necessary", in the first-layer prompt and the preferences dialog
- * alike — required categories only. Note this still writes a
- * record: refusing is a decision, and persisting it is what stops us asking
- * again. A prompt that reappeared after a refusal would be nagging the guest
- * into consent, which is the behaviour the "refusing is never harder than
- * accepting" rule exists to prevent.
+ * "Reject all" — required categories only, both switches off. Note this
+ * still writes a record: refusing is a decision, and persisting it is what
+ * stops us asking again. A prompt that reappeared after a refusal would be
+ * nagging the guest into consent, which is the behaviour the "refusing is as
+ * easy as accepting" rule exists to prevent.
  */
 export function rejectAllConsent(): void {
   saveConsent(defaultGrants());
@@ -292,7 +288,7 @@ export function rejectAllConsent(): void {
  * Seeding an undecided guest's dialog from {@link preDecisionGrants} rather
  * than the floor is what makes the toggles TRUE — they show what is actually
  * in effect right now, which is the only reading of a checkbox that isn't
- * misleading: first-party preferences ticked, third-party content not.
+ * misleading: both switches off until the guest allows them.
  */
 export function currentGrants(): ConsentGrants {
   return record()?.grants ?? preDecisionGrants();
@@ -300,14 +296,11 @@ export function currentGrants(): ConsentGrants {
 
 /**
  * Grant a single category, leaving the others as they are. This is what the
- * in-place "allow this content" button on a blocked embed calls.
+ * in-place "Allow" button on a blocked embed calls.
  *
- * Consent is granted at CATEGORY granularity even from a vendor-specific
- * placeholder, because the category is the unit the guest was shown and the
- * unit the preferences dialog can later withdraw. A hidden per-vendor grant
- * would not appear in that dialog, leaving the guest with a permission they
- * could see the effects of but not revoke — so the placeholder copy names the
- * category ("third-party content"), not just the vendor that prompted it.
+ * It grants the switch the preferences sheet shows — one per third party — so
+ * a permission given from a placeholder is always one the guest can see and
+ * withdraw there, and the placeholder's button names that switch.
  */
 export function grantCategory(category: ConsentCategory): void {
   saveConsent({ ...currentGrants(), [category]: true });

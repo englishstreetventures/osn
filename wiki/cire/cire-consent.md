@@ -33,61 +33,57 @@ arrangement could not offer for anything but Pinterest.
 
 ## The model
 
-**Categories are the unit of consent** — a guest allows "third-party content",
-not "Pinterest" and "Google Maps" separately. Vendors declare which category
-they belong to; the dialog toggles categories and lists the vendors under each.
-Granting from a blocked embed's in-place button grants the whole category, and
-the button says so, because a hidden per-vendor grant would not appear in the
-preferences dialog and so could never be withdrawn.
+**The site does no personal tracking, and consent is asked for exactly two
+things.** What the invite stores or loads to work at all — the claim-code
+session cookie, the record of these choices, the Turnstile bot check — is
+strictly necessary, needs no consent under ePrivacy, and is described in the
+privacy notice instead of being switched. The two things that need consent are
+the two third parties that see a guest's IP address and browser the moment
+they load, and each has its own switch, so a guest can allow one without the
+other.
 
 | Category | Required? | Covers |
 |---|---|---|
-| `necessary` | yes, locked | `cire_session` claim cookie, Turnstile, the consent record itself |
-| `functional` | no | Remembered UI preferences |
-| `embeds` | no | Pinterest moodboard, Google Maps venue embed, Google Fonts (see below) |
-| `analytics` | no | Nothing today — the slot exists so adding analytics later is a config line, not a new framework |
+| `necessary` | yes, never a switch | `cire_session` claim cookie, Turnstile, the consent record itself |
+| `pinterest` | no — "Pinterest moodboards" | The Pinterest moodboard in an event's details |
+| `maps` | no — "Google Maps" | The Google Maps venue embed in an event's details |
 
-There is deliberately **no `marketing` / `advertising` category**. We don't do
-it, and an unused toggle is a claim we'd have to keep true.
+Vendors declare which category they belong to; the preferences sheet shows one
+switch per optional category, naming its company and linking its privacy
+policy. Granting from a blocked embed's in-place button ("Allow Pinterest
+moodboards") grants that switch and nothing else. There is deliberately **no
+`marketing`, `advertising`, `analytics` or preferences category**: the site
+does none of those, and an unused switch is a claim we would have to keep true.
 
-## Defaults: first-party only until the guest decides
+## Defaults: nothing optional until the guest decides
 
 | Category | Applies before a decision? |
 |---|---|
-| `necessary` | yes (locked) |
-| `functional` | **yes** |
-| `embeds` | no |
-| `analytics` | no |
+| `necessary` | yes |
+| `pinterest` | no |
+| `maps` | no |
 
-Only first-party storage applies to a guest who hasn't decided: `functional`,
-whose data never leaves the browser. **`embeds` is off until the guest allows
-it.** The venue map and the moodboard load from Google's and Pinterest's
-servers, which see the guest's IP address and browser the moment they load, so
-nothing of theirs loads before the guest's yes — prior consent, the ePrivacy
-posture for EU and UK visitors, applied to every guest. The prompt holds the
-invite's pages until it is answered, so in practice the guest decides on the
-first visit. Before then, and after a refusal, the map's place is taken by the
-CSS map card (venue named, maps link out) and the moodboard's by the standard
-placeholder and the outbound "View moodboard on Pinterest" link.
-
-`analytics` is off as well: nothing uses that category today, so a default
-couldn't be *informed* about anything. An analytics tag added later must not
-inherit consent from guests who were never told it existed.
+Both switches are off until the guest allows them — prior consent, the
+ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
+holds the invite's pages until it is answered, so in practice the guest
+decides on the first visit. Before then, and after a refusal, the map's place
+is taken by the CSS map card (venue named, maps link out) and the moodboard's
+by the standard placeholder and the outbound "View moodboard on Pinterest"
+link.
 
 ### Three grant maps, and why they can't be collapsed
 
 | Function | Meaning |
 |---|---|
-| `defaultGrants()` | **The floor.** Required only. What "Accept necessary" writes, AND what applies before the cookie has been read. |
-| `preDecisionGrants()` | **Unasked.** The defaults above: `functional` on, everything third-party off. |
+| `defaultGrants()` | **The floor.** Required only. What "Reject all" writes, AND what applies before the cookie has been read. |
+| `preDecisionGrants()` | **Unasked.** Each category's `defaultGranted` — today equal to the floor. |
 | `allGrants()` | Everything. What "Accept all" writes. |
 
 Two traps this separation exists to avoid:
 
-1. **Refused ≠ unasked.** They differ in what they *allow* — unasked keeps
-   first-party preferences on, a refusal switches them off — so collapsing them
-   would silently re-enable preferences for a guest who switched them off, and
-   would break again the day another category's default changed.
+1. **Refused ≠ unasked.** Today they allow the same things, but only a refusal
+   is a decision: unasked re-prompts, refused never does. Collapsing the two
+   maps would also break the day a category's default changed.
 2. **Pre-hydration ≠ unasked.** `record() === null` means "we haven't looked
    yet" before hydration and "we looked, there's nothing" after. Only the second
    may resolve to the pre-decision defaults; the first must hold at the floor, or
@@ -98,7 +94,7 @@ Two traps this separation exists to avoid:
 
 | File | Responsibility |
 |---|---|
-| `lib/consent/categories.ts` | The category enum + display metadata. `necessary` is the only required one. |
+| `lib/consent/categories.ts` | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
 | `lib/consent/vendors.ts` | **The vendor registry** — one source of truth (see below). |
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
@@ -124,9 +120,10 @@ undeclared transfer (silent, and the one that matters).
    also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
-3. Wrap the component in `<ConsentGate category="…" vendor="…">`. A third
-   party belongs in a category that is off until allowed (`embeds`, today);
-   check the prompt's copy still names it.
+3. Give it its own switch: a category in `categories.ts`, off by default, with
+   a title the placeholder's "Allow" button and the preferences sheet use.
+   Wrap the component in `<ConsentGate category="…" vendor="…">`, and check the
+   prompt's copy still names it.
 4. Bump `CONSENT_POLICY_VERSION` in `record.ts` (this re-prompts everyone — see
    below).
 5. Add a row to the root `[[compliance/subprocessors]]` register.
@@ -140,8 +137,8 @@ voice.
 - `"gated"` — the guest's choice genuinely controls it: no request is made while
   the category is switched off. Pinterest and Google Maps both mount inside the
   click-opened details sheet, so they never appear in server-rendered HTML and a
-  client-side gate is sufficient. With `embeds` off until allowed, "gated"
-  means *withheld until the guest's yes*, and switchable off again after.
+  client-side gate is sufficient. "Gated" means *withheld until the guest's
+  yes*, and switchable off again after.
 - `"always"` — loads regardless. **Google Fonts only**, because the font
   `<link>` sits in the `<head>` of the server-rendered document. The right fix
   is to delete the vendor (self-host the two woff2 families), not to put the
@@ -204,7 +201,7 @@ doesn't render children, it disposes them, so no further request escapes. For
 an embed that runs in its own iframe, that is a full teardown. For one whose
 script ran in the invite page, it is not: the globals it set, the listeners it
 attached and the timers it started stay live after the DOM node is gone. A
-guest who allowed third-party content, opened an event's details sheet and
+guest who allowed the moodboard, opened an event's details sheet and
 later switches it off does so with a third-party context already live.
 
 `saveConsent` (`store.ts`) reloads the page — `location.reload()`, via an
@@ -303,26 +300,25 @@ mounted first.
   Pinterest and what they would see, says their content stays off until the
   guest allows it, and names "Accept all" as the answer that does. Asserted by
   test.
-- **Refusing is never harder than accepting.** "Accept necessary" — required
-  storage only, everything optional off — is the refusal's one name, in the
-  prompt and in the preferences dialog alike. On the prompt it is the
-  highlighted answer and comes first, in the guest site's call-to-action style
-  (`cta`). "Accept all" and
-  "Choose" follow in one plainer style (`quiet`), so accepting can never be
-  promoted above refusing by a tweak to one button. Both forms render the same
-  three buttons. `ConsentBanner.test.tsx` asserts the order and the classes,
-  and `ConsentBanner.browser.test.tsx` that the dialog paints them that way at
-  320, 390 and 1440px. Neither style fills with gold at rest: the palette
-  derivation holds the gold fill at only 3:1 against the page ground, too
-  little for small text, while the ink of both styles is held at 4.5:1.
+- **Refusing is exactly as easy as accepting.** The prompt's three answers are
+  "Accept all", "Reject all" and "Choose", in that order, all drawn by one
+  component (`BannerButton`, `cta` style) at the same size and weight: no
+  answer is highlighted. "Reject all" is the refusal's one name, everywhere.
+  Both forms render the same three buttons. `ConsentBanner.test.tsx` asserts
+  the order and that the classes match, and `ConsentBanner.browser.test.tsx`
+  that the dialog paints all three alike at 320, 390 and 1440px. `cta` ink is
+  gold-ink, which the palette derivation holds at 4.5:1; a gold fill at rest is
+  avoided because the derivation holds it at only 3:1 against the page ground.
+- **"Choose" opens a small sheet with the two switches and Save** — nothing
+  else. Each switch names its company and links its privacy policy, and each
+  saves independently.
 - **Rendering never writes a record.** The defaults apply without fabricating a
   decision, so the prompt keeps appearing until the guest genuinely makes one.
   An implied consent silently promoted to a stored, timestamped one would cost
   them the chance to refuse.
-- **The dialog's toggles show what is actually loading** — ticked for `embeds`
-  and `functional` on a first visit. A dialog showing `embeds` unticked while
-  the map was on screen would describe a state the site is not in.
-- **The dialog's toggles are a local draft** until Save. A guest who flicks a
+- **The sheet's switches show what is actually loading** — both off on a
+  first visit, matching a page that loads neither.
+- **The sheet's switches are a local draft** until Save. A guest who flicks a
   switch to see what it covers and then closes the dialog has granted nothing.
 - **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
@@ -345,11 +341,17 @@ open two stacked copies with two independent drafts.
 
 ## Legacy migration
 
-The old `cire:pinterest-consent` key is **deleted on hydration, not migrated**.
-That click consented to Pinterest specifically; the `embeds` category now also
-covers the Google Maps embed, so importing it would silently widen a narrow
-consent into a broader one the guest was never shown. Those guests are asked
-once more — the honest cost of consolidating the gates.
+The old `cire:pinterest-consent` key is **deleted on hydration, not migrated**:
+that click was given against an older disclosure, so it is not consent to the
+current one. Those guests are asked once more.
+
+**`CONSENT_POLICY_VERSION` is `2026-10-08`.** Records made under `2026-07-29`
+held a single `embeds` grant for both third parties together; reading it as a
+yes or a no to the two separate switches would answer a question the guest was
+never asked, so those records decode to `null` and the guest is asked again.
+`CONSENT_RECORD_VERSION` is unchanged: a current record that still carries the
+keys of removed categories (`functional`, `analytics`, `embeds`) parses, and
+`normaliseGrants` ignores the extra keys.
 
 ## Where it's mounted
 

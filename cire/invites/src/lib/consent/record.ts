@@ -22,7 +22,7 @@ export const CONSENT_RECORD_VERSION = 1;
  * guest's decision was taken against which disclosure. Bumping re-prompts
  * everyone exactly once, which is the intended cost.
  */
-export const CONSENT_POLICY_VERSION = "2026-07-29";
+export const CONSENT_POLICY_VERSION = "2026-10-08";
 
 export type ConsentGrants = Record<ConsentCategory, boolean>;
 
@@ -37,11 +37,10 @@ export type ConsentGrants = Record<ConsentCategory, boolean>;
  * `null` (no record) means unasked; a record with every optional grant `false`
  * means refused, and is a decision we are obliged to keep honouring.
  *
- * The two states also differ in what they ALLOW — unasked permits first-party
- * preferences, refused does not — which is one more reason they must never be
- * conflated. Three distinct grant maps exist for
- * that reason: {@link defaultGrants} (the floor), {@link preDecisionGrants}
- * (unasked), and {@link allGrants} (accept-all).
+ * Three distinct grant maps exist so the states are never conflated:
+ * {@link defaultGrants} (the floor), {@link preDecisionGrants} (unasked — the
+ * categories' own defaults, today equal to the floor), and {@link allGrants}
+ * (accept-all).
  */
 export interface ConsentRecord {
   /** {@link CONSENT_RECORD_VERSION} at the time of writing. */
@@ -59,8 +58,7 @@ export interface ConsentRecord {
  * Two distinct jobs, both of which must stay at the floor no matter what the
  * pre-decision defaults say:
  *
- *  1. What "Accept necessary" writes. A refusal means required-only,
- *     always.
+ *  1. What "Reject all" writes. A refusal means required-only, always.
  *  2. What applies BEFORE the stored decision has been read. A guest who
  *     previously refused must not get one third-party load in the window
  *     between first paint and the cookie being parsed — so the pre-hydration
@@ -77,13 +75,11 @@ export function defaultGrants(): ConsentGrants {
 }
 
 /**
- * What applies to a guest who has been shown the prompt but has not decided.
- *
- * First-party `functional` is on here; `embeds` and `analytics` are not (see
- * the `defaultGranted` discussion in `categories.ts`). Distinct from
- * {@link defaultGrants} in both directions — it is more permissive than the
- * refusal floor, and it must never be substituted for the pre-hydration
- * state, where we do not yet know whether a refusal is on file.
+ * What applies to a guest who has been shown the prompt but has not decided:
+ * each category's `defaultGranted` (see `categories.ts`). Today that is the
+ * floor — no switch is on before the guest's yes — but it is read from the
+ * categories rather than assumed, and it must never be substituted for the
+ * pre-hydration state, where we do not yet know whether a refusal is on file.
  */
 export function preDecisionGrants(): ConsentGrants {
   return Object.fromEntries(

@@ -66,26 +66,27 @@ function sharedPromptContract(mount: () => HTMLElement) {
     expect(root.querySelector('a[href="/terms"]')).not.toBeNull();
   });
 
-  it("offers 'Accept necessary' first and highlighted, then 'Accept all' and 'Choose' alike", () => {
-    // Refusing must never be harder or quieter than accepting. Here it is the
-    // highlighted answer; the other two share one plainer style, so accepting
-    // can never be promoted above it by a tweak to one button.
+  it("offers 'Accept all', 'Reject all' and 'Choose', in that order, all three alike", () => {
+    // Refusing must be exactly as easy and as visible as accepting. One
+    // component draws all three, so no answer can be promoted above another by
+    // a tweak to one button.
     const root = mount();
-    expect(buttonLabels(root)).toEqual(["Accept necessary", "Accept all", "Choose"]);
-    const necessary = buttonOf(root, "Accept necessary");
+    expect(buttonLabels(root)).toEqual(["Accept all", "Reject all", "Choose"]);
     const all = buttonOf(root, "Accept all");
+    const reject = buttonOf(root, "Reject all");
     const choose = buttonOf(root, "Choose");
-    expect(all.className).toBe(choose.className);
-    expect(necessary.className).not.toBe(all.className);
+    expect(reject.className).toBe(all.className);
+    expect(choose.className).toBe(all.className);
+    expect(reject.tagName).toBe(all.tagName);
   });
 
-  it("records a refusal on 'Accept necessary' — writing a record, not just closing", () => {
-    fireEvent.click(buttonOf(mount(), "Accept necessary"));
+  it("records a refusal on 'Reject all' — writing a record, not just closing", () => {
+    fireEvent.click(buttonOf(mount(), "Reject all"));
 
     const record = readConsentFromDocument();
     expect(record).not.toBeNull();
-    expect(record!.grants.embeds).toBe(false);
-    expect(record!.grants.analytics).toBe(false);
+    expect(record!.grants.pinterest).toBe(false);
+    expect(record!.grants.maps).toBe(false);
     // Necessary storage stays on — it is what remembers this very refusal.
     expect(record!.grants.necessary).toBe(true);
     expect(bannerOf(document.body)).toBeNull();
@@ -96,15 +97,14 @@ function sharedPromptContract(mount: () => HTMLElement) {
     fireEvent.click(buttonOf(mount(), "Accept all"));
 
     const record = readConsentFromDocument()!;
-    expect(record.grants.embeds).toBe(true);
-    expect(record.grants.analytics).toBe(true);
-    expect(record.grants.functional).toBe(true);
+    expect(record.grants.pinterest).toBe(true);
+    expect(record.grants.maps).toBe(true);
     expect(bannerOf(document.body)).toBeNull();
     expect(prompt()).toBeNull();
   });
 
   it("stamps the decision with a timestamp and the current policy version", () => {
-    fireEvent.click(buttonOf(mount(), "Accept necessary"));
+    fireEvent.click(buttonOf(mount(), "Reject all"));
 
     const record = readConsentFromDocument()!;
     expect(Number.isNaN(Date.parse(record.decidedAt))).toBe(false);
@@ -188,7 +188,7 @@ describe("ConsentBanner as a dialog (every invite page)", () => {
   });
 
   it("shows nothing to a guest who already decided", () => {
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     const { container } = render(() => <ConsentBanner />);
     expect(prompt()).toBeNull();
     expect(bannerOf(container)).toBeNull();
@@ -245,14 +245,14 @@ describe("ConsentBanner as a banner (the legal pages)", () => {
   });
 
   it("does NOT show the banner to a guest who already accepted", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     expect(mount()).toBeNull();
   });
 
   it("does NOT show the banner to a guest who already REFUSED", () => {
     // The behaviour that separates a consent prompt from a nag: a refusal is a
     // decision and is remembered, so it is never re-asked on the next page load.
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     expect(mount()).toBeNull();
   });
 });
@@ -291,95 +291,59 @@ describe("ConsentPreferences dialog", () => {
     expect(text).not.toMatch(/\b(removed|cleared|deleted)\b/i);
   });
 
-  it("locks the strictly-necessary category on", () => {
-    const necessary = [
-      ...dialog()!.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
-    ][0]!;
-    expect(necessary.checked).toBe(true);
-    expect(necessary.disabled).toBe(true);
-  });
-
-  it("shows an undecided guest what is ACTUALLY loading", () => {
-    // Preferences are first-party and on by default, so ticked; third-party
-    // content waits for the guest to allow it, so unticked. A toggle that
-    // disagreed with what the page loads would describe a state it isn't in.
+  it("offers exactly the two switches and Save", () => {
+    // What the site stores to work at all is necessary and lives in the
+    // privacy notice; the sheet asks only about the two third parties.
     const panel = dialog()!;
-    const embeds = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Third-party content")),
-    )!;
-    const preferences = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Preferences")),
-    )!;
-    expect(embeds.checked).toBe(false);
-    expect(preferences.checked).toBe(true);
+    const labels = [...panel.querySelectorAll("label")].map((l) => (l.textContent ?? "").trim());
+    expect(labels).toEqual(["Pinterest moodboards", "Google Maps"]);
+    expect(panel.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(buttonLabels(panel)).toEqual(["Save choices"]);
   });
 
-  it("leaves analytics unticked — the one optional category that is opt-in", () => {
+  it("shows both switches off for an undecided guest, matching what loads", () => {
     const panel = dialog()!;
-    const analytics = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Analytics")),
-    )!;
-    expect(analytics.checked).toBe(false);
+    expect(switchOf(panel, "Pinterest moodboards").checked).toBe(false);
+    expect(switchOf(panel, "Google Maps").checked).toBe(false);
   });
 
-  it("does not persist a toggle until Save is pressed", () => {
+  it("does not persist a switch until Save is pressed", () => {
     // A guest who flicks a switch to see what it covers and then closes the
-    // dialog must not have changed anything — in either direction.
-    const optional = [
-      ...dialog()!.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not([disabled])'),
-    ][0]!;
-    fireEvent.click(optional);
+    // sheet must not have changed anything — in either direction.
+    fireEvent.click(switchOf(dialog()!, "Google Maps"));
 
     expect(readConsentFromDocument()).toBeNull();
   });
 
-  it("persists exactly the categories left switched on when Save is pressed", () => {
-    // Start from the defaults (preferences on, embeds and analytics off),
-    // switch embeds ON and preferences OFF, and save. Both directions must
-    // stick.
+  it("saves each switch on its own", () => {
     const panel = dialog()!;
-    const embeds = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Third-party content")),
-    )!;
-    const preferences = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Preferences")),
-    )!;
-    fireEvent.click(embeds);
-    fireEvent.click(preferences);
+    fireEvent.click(switchOf(panel, "Google Maps"));
     fireEvent.click(within(panel).getByText("Save choices"));
 
     const grants = readConsentFromDocument()!.grants;
-    expect(grants.embeds).toBe(true);
-    expect(grants.functional).toBe(false);
-    // Untouched toggles keep their default.
-    expect(grants.analytics).toBe(false);
+    expect(grants.maps).toBe(true);
+    expect(grants.pinterest).toBe(false);
   });
 
-  it("lists the vendors each switch actually governs", () => {
-    const text = dialog()!.textContent ?? "";
-    expect(text).toContain("This switch controls");
+  it("saves the other switch on its own too", () => {
+    const panel = dialog()!;
+    fireEvent.click(switchOf(panel, "Pinterest moodboards"));
+    fireEvent.click(within(panel).getByText("Save choices"));
+
+    const grants = readConsentFromDocument()!.grants;
+    expect(grants.pinterest).toBe(true);
+    expect(grants.maps).toBe(false);
+  });
+
+  it("names each switch's company and links its privacy policy", () => {
+    const panel = dialog()!;
+    const text = panel.textContent ?? "";
     expect(text).toContain("Pinterest");
-    expect(text).toContain("Google Maps");
-  });
-
-  it("names the vendors the switch does NOT govern, rather than hiding them", () => {
-    // Turnstile loads before any choice can apply — the claim form can't
-    // function without it. Listing it under the toggle would overstate what
-    // the toggle does; omitting it would understate what the site loads.
-    // (Google Fonts is not in the registry at all: it is self-hosted, so
-    // there is no third-party font request to gate.)
-    const text = dialog()!.textContent ?? "";
-    expect(text).toContain("Loads on every visit");
-    expect(text).toContain("Cloudflare Turnstile");
-  });
-
-  it("offers 'Accept necessary' and 'Accept all' from inside the dialog too", () => {
-    // One action, one name: the refusal is "Accept necessary" here as on the
-    // prompt that opened this dialog.
-    const labels = buttonLabels(dialog()!);
-    expect(labels).toContain("Accept necessary");
-    expect(labels).toContain("Accept all");
-    expect(labels).not.toContain("Reject all");
+    expect(text).toContain("Google");
+    expect(
+      panel.querySelector('a[href="https://policy.pinterest.com/privacy-policy"]'),
+    ).not.toBeNull();
+    expect(panel.querySelector('a[href="https://policies.google.com/privacy"]')).not.toBeNull();
   });
 
   it("treats a dismissal as no decision at all, whatever dismissed it", () => {
@@ -390,10 +354,7 @@ describe("ConsentPreferences dialog", () => {
     // The two gestures themselves are in the browser tier, where a real
     // `<dialog>` exists to perform them.
     const panel = dialog()!;
-    const optional = [
-      ...panel.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:not([disabled])'),
-    ][0]!;
-    fireEvent.click(optional);
+    fireEvent.click(switchOf(panel, "Pinterest moodboards"));
 
     panel.dispatchEvent(new Event("close"));
 
@@ -413,28 +374,26 @@ describe("ConsentPreferencesLink", () => {
   it("opens the dialog for a guest who already decided", () => {
     // The standing withdrawal route. Consent must be as easy to take back as it
     // was to give, and by then the banner is long gone.
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     const { getByText } = render(() => <ConsentPreferencesLink />);
 
     fireEvent.click(getByText("Privacy choices"));
     expect(dialog()).not.toBeNull();
   });
 
-  it("shows the guest's stored choices, so a granted category can be switched off", () => {
-    seedConsentForTest({ embeds: true });
+  it("shows the guest's stored choices, so an allowed switch can be switched off", () => {
+    seedConsentForTest({ pinterest: true });
     const { getByText } = render(() => <ConsentPreferencesLink />);
     fireEvent.click(getByText("Privacy choices"));
 
     const panel = dialog()!;
-    const embeds = panel.querySelector<HTMLInputElement>(
-      "#" + cssEscape(labelledInputId(panel, "Third-party content")),
-    )!;
-    expect(embeds.checked).toBe(true);
+    const pinterest = switchOf(panel, "Pinterest moodboards");
+    expect(pinterest.checked).toBe(true);
 
-    fireEvent.click(embeds);
+    fireEvent.click(pinterest);
     fireEvent.click(within(panel).getByText("Save choices"));
 
-    expect(readConsentFromDocument()!.grants.embeds).toBe(false);
+    expect(readConsentFromDocument()!.grants.pinterest).toBe(false);
   });
 
   it("renders only ONE dialog when a banner is also on the page", () => {
@@ -452,6 +411,11 @@ describe("ConsentPreferencesLink", () => {
     expect(getByText("Open my privacy choices")).toBeTruthy();
   });
 });
+
+/** The switch whose label reads `label`. */
+function switchOf(panel: HTMLElement, label: string): HTMLInputElement {
+  return panel.querySelector<HTMLInputElement>("#" + cssEscape(labelledInputId(panel, label)))!;
+}
 
 /** Find the checkbox id whose <label> text matches, so tests key on copy, not order. */
 function labelledInputId(panel: HTMLElement, labelText: string): string {

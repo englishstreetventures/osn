@@ -146,8 +146,8 @@ describe("MapPreview", () => {
     const KEY = "test-embed-key";
 
     // The iframe hands Google the guest's IP and UA, so it only mounts once the
-    // `embeds` category is granted. These tests describe the consented path.
-    beforeEach(() => seedConsentForTest({ embeds: true }));
+    // `maps` switch is on. These tests describe the consented path.
+    beforeEach(() => seedConsentForTest({ maps: true }));
 
     it("renders a Google Maps Embed iframe keyed on the encoded address", () => {
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
@@ -248,7 +248,7 @@ describe("MapPreview", () => {
     });
 
     it("renders the embed once the guest has allowed it", () => {
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ maps: true });
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
       const { container } = render(() => <MapPreview event={baseEvent} />);
 
@@ -266,7 +266,7 @@ describe("MapPreview", () => {
   describe("with PUBLIC_GOOGLE_MAPS_EMBED_KEY configured, third-party content REFUSED", () => {
     const KEY = "test-embed-key";
 
-    beforeEach(() => seedConsentForTest({ embeds: false }));
+    beforeEach(() => seedConsentForTest({ maps: false }));
 
     it("makes NO request to Google once the guest has switched it off", () => {
       // A stored "no" holds on every later visit.
@@ -299,7 +299,7 @@ describe("MapPreview", () => {
       const { container } = render(() => <MapPreview event={baseEvent} />);
       expect(container.querySelector("iframe")).toBeNull();
 
-      grantCategory("embeds");
+      grantCategory("maps");
 
       expect(container.querySelector("iframe")).not.toBeNull();
     });
@@ -307,12 +307,12 @@ describe("MapPreview", () => {
     it("tears the embed back down when consent is withdrawn from the live store", () => {
       // The withdrawal direction: the standing "Privacy choices" control has to
       // be a real revocation, not just a cookie rewrite.
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ maps: true });
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
       const { container } = render(() => <MapPreview event={baseEvent} />);
       expect(container.querySelector("iframe")).not.toBeNull();
 
-      saveConsent({ ...defaultGrants(), embeds: false });
+      saveConsent({ ...defaultGrants(), maps: false });
 
       expect(container.querySelector("iframe")).toBeNull();
     });
@@ -321,7 +321,7 @@ describe("MapPreview", () => {
       // The map runs only inside its own cross-origin iframe, and removing the
       // iframe destroys everything running in it. A reload would cost a full
       // document load and clear nothing more.
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ maps: true });
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
       // After the seed: seeding resets the store, which puts the no-op back.
       const reload = vi.fn();
@@ -329,7 +329,7 @@ describe("MapPreview", () => {
       const { container } = render(() => <MapPreview event={baseEvent} />);
       expect(container.querySelector("iframe")).not.toBeNull();
 
-      saveConsent({ ...defaultGrants(), embeds: false });
+      saveConsent({ ...defaultGrants(), maps: false });
 
       expect(container.querySelector("iframe")).toBeNull();
       expect(reload).not.toHaveBeenCalled();
@@ -378,7 +378,7 @@ describe("MapPreview", () => {
       // iframe branch is the one production guests see, and it would be the one
       // to silently diverge if the footer were ever forked per branch.
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      seedConsentForTest({ embeds: true });
+      seedConsentForTest({ maps: true });
       const { container } = render(() => <MapPreview event={baseEvent} />);
       expect(container.querySelector("iframe")).not.toBeNull();
 

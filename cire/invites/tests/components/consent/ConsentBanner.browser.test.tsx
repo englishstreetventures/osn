@@ -116,13 +116,7 @@ describe.each([
       expect(prompt.contains(document.activeElement)).toBe(true);
       visited.push((document.activeElement?.textContent ?? "").trim());
     }
-    expect(visited).toEqual([
-      "Privacy notice",
-      "Terms",
-      "Accept necessary",
-      "Accept all",
-      "Choose",
-    ]);
+    expect(visited).toEqual(["Privacy notice", "Terms", "Accept all", "Reject all", "Choose"]);
   });
 
   it("keeps both legal links on screen and reachable", async () => {
@@ -213,11 +207,11 @@ describe("nothing but an answer closes the prompt", () => {
     render(() => <ConsentBanner />);
     const prompt = await openPrompt();
 
-    within(prompt).getByText("Accept necessary").click();
+    within(prompt).getByText("Reject all").click();
     await afterTheCloseEvent();
 
     expect(dialog()).toBeNull();
-    expect(readConsentFromDocument()?.grants.embeds).toBe(false);
+    expect(readConsentFromDocument()?.grants.pinterest).toBe(false);
   });
 });
 
@@ -226,45 +220,49 @@ describe.each([
   { name: "phone", size: PHONE },
   { name: "desktop", size: DESKTOP },
 ])("the answers on a $name", ({ size }) => {
-  it("paint 'Accept necessary' first and highlighted, the other two alike", async () => {
+  it("paint all three answers alike, in the order Accept all, Reject all, Choose", async () => {
     await page.viewport(...size);
     render(() => <ConsentBanner />);
     const prompt = await openPrompt();
     const button = (label: string) => within(prompt).getByText(label).closest("button")!;
-    const necessary = button("Accept necessary");
-    const all = button("Accept all");
-    const choose = button("Choose");
+    const answers = ["Accept all", "Reject all", "Choose"].map(button);
+    const rects = answers.map((answer) => answer.getBoundingClientRect());
 
-    // First in reading order: above "Accept all", or level with it and to its
-    // left. Not "on the same row": a long label in a wide organiser font may
-    // wrap, and that is fine so long as the order holds.
-    const n = necessary.getBoundingClientRect();
-    const a = all.getBoundingClientRect();
-    expect(n.top <= a.top && (n.top < a.top || n.right <= a.left)).toBe(true);
+    // Reading order: each answer above the next, or level with it and to its
+    // left. Not "on one row": a wide organiser font may wrap them, and that is
+    // fine so long as the order holds.
+    for (let i = 1; i < rects.length; i++) {
+      const before = rects[i - 1]!;
+      const after = rects[i]!;
+      expect(
+        before.top <= after.top && (before.top < after.top || before.right <= after.left),
+      ).toBe(true);
+    }
     // One size of button for all three; nothing is shrunk to be missed.
-    expect(n.height).toBe(a.height);
-    expect(choose.getBoundingClientRect().height).toBe(a.height);
+    for (const rect of rects) expect(rect.height).toBe(rects[0]!.height);
     const panel = prompt.getBoundingClientRect();
-    for (const rect of [n, a, choose.getBoundingClientRect()]) {
+    for (const rect of rects) {
       expect(rect.left).toBeGreaterThanOrEqual(panel.left);
       expect(rect.right).toBeLessThanOrEqual(panel.right);
     }
 
+    // No answer is highlighted: the same type, box and colours for all three.
     const looks = (el: HTMLElement) => {
       const s = getComputedStyle(el);
-      return {
-        font: [s.fontFamily, s.fontSize, s.fontWeight, s.textTransform],
-        box: [s.paddingTop, s.paddingLeft, s.borderTopWidth],
-        colour: [s.color, s.borderTopColor, s.backgroundColor],
-      };
+      return [
+        s.fontFamily,
+        s.fontSize,
+        s.fontWeight,
+        s.textTransform,
+        s.paddingTop,
+        s.paddingLeft,
+        s.borderTopWidth,
+        s.color,
+        s.borderTopColor,
+        s.backgroundColor,
+      ];
     };
-    // "Accept all" and "Choose" are painted exactly alike.
-    expect(looks(choose)).toEqual(looks(all));
-    // "Accept necessary" shares their type and box, and is set apart by colour.
-    expect(looks(necessary).font).toEqual(looks(all).font);
-    expect(looks(necessary).box).toEqual(looks(all).box);
-    expect(looks(necessary).colour[0]).not.toBe(looks(all).colour[0]);
-    expect(looks(necessary).colour[1]).not.toBe(looks(all).colour[1]);
+    for (const answer of answers) expect(looks(answer)).toEqual(looks(answers[0]!));
   });
 });
 
@@ -395,7 +393,7 @@ describe("handing focus on", () => {
     const prompt = await openPrompt();
     expect(document.activeElement?.tagName).toBe("H2");
 
-    await userEvent.click(within(prompt).getByText("Accept necessary"));
+    await userEvent.click(within(prompt).getByText("Reject all"));
     await afterTheCloseEvent();
 
     expect(dialog()).toBeNull();
@@ -452,7 +450,7 @@ describe("handing focus on", () => {
     );
     expect(hit).not.toBe(inSheet);
 
-    await userEvent.click(within(prompt).getByText("Accept necessary"));
+    await userEvent.click(within(prompt).getByText("Reject all"));
     await afterTheCloseEvent();
 
     expect(dialogTitled("Privacy choices")).toBeNull();

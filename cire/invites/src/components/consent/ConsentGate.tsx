@@ -37,12 +37,11 @@ interface ConsentGateProps {
  * to an equivalent US recipient — had no gate at all, because nobody had
  * written it one. Consent lived wherever someone had remembered to put it.
  *
- * Note what the wrapper does and does not guarantee. The `embeds` category is
- * off until the guest allows it (see `lib/consent/categories.ts`), so wrapping
- * an embed keeps it from loading for an undecided guest, and makes it
- * *governed*: listed in the preferences dialog, named in the privacy notice,
- * and switchable off again for good. The old arrangement could offer that for
- * Pinterest and nothing else.
+ * Every optional category is off until the guest allows it (see
+ * `lib/consent/categories.ts`), so wrapping an embed keeps it from loading for
+ * an undecided guest, and makes it *governed*: a switch in the preferences
+ * sheet, named in the privacy notice, and switchable off again for good. The
+ * old arrangement could offer that for Pinterest and nothing else.
  *
  * Children are not rendered — not hidden — while the category is off, so a
  * gated component's `onMount`/`createEffect` never runs and no request can
@@ -87,16 +86,15 @@ export function ConsentGate(props: ConsentGateProps) {
  *
  * It shows both to a guest who refused and to one who has not answered yet,
  * so the copy says what the guest is not seeing and how to allow it, without
- * claiming which of the two they are — and it does not nag. Both
- * routes are offered on purpose: "Allow" turns just this category back on, so a
- * guest who changes their mind about the moodboard isn't sent through a settings
- * dialog to get it; "privacy choices" opens the full picture for the guest who
- * wants to see everything that switch covers before flipping it.
+ * claiming which of the two they are — and it does not nag. Both routes are
+ * offered on purpose: "Allow" turns just this switch on, so a guest who
+ * changes their mind about the moodboard isn't sent through a settings sheet
+ * to get it; "Privacy choices" opens both switches together.
  */
 export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: string }) {
   const vendor = () => vendorById(props.vendor);
   const vendorName = () => vendor()?.name ?? "This content";
-  const categoryTitle = () => CATEGORY_META[props.category].title.toLowerCase();
+  const categoryTitle = () => CATEGORY_META[props.category].title;
 
   return (
     <div class="border-border/70 bg-surface-raised/60 mt-2 rounded-md border px-4 py-4 text-center">
@@ -110,8 +108,8 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
         </Show>
       </p>
       <p class="font-body text-text-muted/80 text-ui-xs mt-1.5 leading-relaxed">
-        It's switched off until you allow {categoryTitle()}. It loads from {vendorName()}'s servers,
-        which lets them see your IP address and browser.
+        It's switched off until you allow it. It loads from {vendorName()}'s servers, which lets
+        them see your IP address and browser.
       </p>
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <Button variant="cta" size="sm" type="button" onClick={() => grantCategory(props.category)}>

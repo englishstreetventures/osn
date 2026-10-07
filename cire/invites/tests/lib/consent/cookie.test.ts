@@ -19,11 +19,11 @@ import {
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 const NOW = new Date("2026-07-29T10:00:00.000Z");
-const record = makeConsentRecord({ ...defaultGrants(), embeds: true }, NOW);
+const record = makeConsentRecord({ ...defaultGrants(), pinterest: true }, NOW);
 const encoded = encodeConsentRecord(record);
 
 const OTHER_NOW = new Date("2026-07-30T10:00:00.000Z");
-const otherRecord = makeConsentRecord({ ...defaultGrants(), embeds: false }, OTHER_NOW);
+const otherRecord = makeConsentRecord({ ...defaultGrants(), pinterest: false }, OTHER_NOW);
 const otherEncoded = encodeConsentRecord(otherRecord);
 
 function readNamed(cookieString: string, name: string): string | null {
@@ -107,7 +107,7 @@ describe("readConsentCookieValue", () => {
 describe("readConsentRecord", () => {
   it("parses a record straight out of a cookie header", () => {
     const parsed = readConsentRecord(`a=1; ${CONSENT_COOKIE_NAME}=${encoded}`, false);
-    expect(parsed?.grants.embeds).toBe(true);
+    expect(parsed?.grants.pinterest).toBe(true);
   });
 
   it("returns null for a header carrying a corrupted value", () => {

@@ -10,7 +10,7 @@ interface PinterestBoardProps {
 
 /**
  * Where the rich embed stands. `idle` means no embed is mounted at all — an
- * un-embeddable URL, or third-party content switched off — so the outbound
+ * un-embeddable URL, or Pinterest moodboards not switched on — so the outbound
  * link is the only route to the board. `failed` means the embed was tried and
  * did not render. The link shows in exactly those two states.
  */
@@ -166,7 +166,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
     <Show when={isSafePinterestLinkUrl(props.url)}>
       <>
         <Show when={embeddable()}>
-          <ConsentGate category="embeds" vendor="pinterest">
+          <ConsentGate category="pinterest" vendor="pinterest">
             <PinterestEmbed
               url={props.url}
               eventName={props.eventName}

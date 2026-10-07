@@ -64,10 +64,10 @@ interface ConsentBannerProps {
  *
  * ## The three actions
  *
- * "Accept necessary" — required storage only, everything optional off — is
- * the highlighted answer and comes first; "Accept all" and "Choose" sit beside
- * it, plainer. Refusing is never harder or quieter than accepting here: it is
- * the easiest thing on the prompt.
+ * "Accept all", "Reject all" and "Choose", in that order, and all three drawn
+ * by one component in one style: same size, same weight, same row. No answer
+ * is highlighted, so refusing is exactly as easy and as visible as accepting.
+ * "Choose" opens a small sheet with the two switches and Save.
  */
 export function ConsentBanner(props: ConsentBannerProps) {
   onMount(hydrateConsent);
@@ -149,7 +149,9 @@ function keepScrollPaddingFor(el: HTMLElement): void {
   if (typeof ResizeObserver === "undefined") return;
   const root = document.documentElement;
   const observer = new ResizeObserver(() => {
-    root.style.scrollPaddingBottom = `${el.getBoundingClientRect().height}px`;
+    // Whole pixels, rounded up: the page scrolls by whole pixels, so a
+    // fractional padding can leave a focused link a fraction under the bar.
+    root.style.scrollPaddingBottom = `${Math.ceil(el.getBoundingClientRect().height)}px`;
   });
   observer.observe(el);
   onCleanup(() => {
@@ -242,27 +244,30 @@ function PromptCopy(props: { id?: string }) {
   );
 }
 
-/**
- * The three answers, in either form. "Accept necessary" is the highlighted
- * one, in the guest site's call-to-action style (`cta`: a gold outline whose
- * ink the palette derivation holds at 4.5:1, filling on hover). The other two
- * share the plainer `quiet` style. A button filled at rest is deliberately
- * not used: the derivation only holds the gold fill at 3:1 against the page
- * ground, too little for small text in the ground's colour.
- */
+/** The three answers, in either form, in the owner's order. */
 function PromptActions() {
   return (
     <div class="flex shrink-0 flex-wrap gap-2">
-      <Button variant="cta" size="sm" onClick={rejectAllConsent}>
-        Accept necessary
-      </Button>
-      <Button variant="quiet" size="sm" onClick={acceptAllConsent}>
-        Accept all
-      </Button>
-      <Button variant="quiet" size="sm" onClick={openConsentPreferences}>
-        Choose
-      </Button>
+      <BannerButton onClick={acceptAllConsent}>Accept all</BannerButton>
+      <BannerButton onClick={rejectAllConsent}>Reject all</BannerButton>
+      <BannerButton onClick={openConsentPreferences}>Choose</BannerButton>
     </div>
+  );
+}
+
+/**
+ * All three prompt answers share one component and therefore one set of
+ * styles. That is the point: it makes it structurally awkward to give one
+ * answer a visual advantage over another in a later tweak, because doing so
+ * means deliberately breaking them apart rather than quietly passing a
+ * `variant` prop. `cta` is the guest site's call-to-action style, whose gold
+ * ink the palette derivation holds at 4.5:1 on every surface.
+ */
+function BannerButton(props: { onClick: () => void; children: string }) {
+  return (
+    <Button variant="cta" size="sm" onClick={props.onClick}>
+      {props.children}
+    </Button>
   );
 }
 

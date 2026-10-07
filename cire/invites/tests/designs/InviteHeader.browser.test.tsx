@@ -384,7 +384,7 @@ describe.each(PACKS)("%s hero under the consent prompt", (_pack, InviteHeader) =
       // Answered: the dialog goes, and whatever is painted over the title and
       // the cue — the parts of them on screen; a tall title can push the cue
       // below the fold of a landscape phone — is the hero's own.
-      within(prompt).getByText("Accept necessary").click();
+      within(prompt).getByText("Reject all").click();
       await vi.waitFor(() => expect(document.querySelector("dialog")).toBeNull());
       expect(consentPanel()).toBeNull();
       const title = visibleCentre(titleBlock.getBoundingClientRect());

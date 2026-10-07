@@ -54,13 +54,13 @@ describe("saveConsent — reload on granted → revoked", () => {
     resetConsentForTest();
   });
 
-  it("reloads when embeds goes from granted to revoked, after the Pinterest board ran", () => {
-    seedConsentForTest({ embeds: true });
+  it("reloads when the Pinterest switch goes from granted to revoked, after the board ran", () => {
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), pinterest: false });
 
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -80,7 +80,7 @@ describe("saveConsent — reload on granted → revoked", () => {
   // The reload exists to tear down code that already ran, and on the COMMON
   // path none has. Both gated vendors mount only inside a click-opened details
   // sheet, while the prompt appears at once and holds the page until it is
-  // answered — so a guest who presses "Accept necessary" has almost never
+  // answered — so a guest who presses "Reject all" has almost never
   // opened one, and reloading them would spend a whole document load, every
   // island's hydration and a re-fetch of the invite to clear nothing.
   it("does NOT reload when no gated content ever rendered this visit", () => {
@@ -93,13 +93,13 @@ describe("saveConsent — reload on granted → revoked", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("does NOT reload when the category that ran is not the one revoked", () => {
-    seedConsentForTest({ embeds: true, analytics: true });
+  it("does NOT reload when the switch that ran is not the one revoked", () => {
+    seedConsentForTest({ pinterest: true, maps: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: true });
+    saveConsent({ ...defaultGrants(), pinterest: true, maps: false });
 
     expect(reload).not.toHaveBeenCalled();
   });
@@ -109,24 +109,24 @@ describe("saveConsent — reload on granted → revoked", () => {
   // already cleared all a reload could — reloading would cost a full document
   // load for nothing.
   it("does NOT reload when only an iframe vendor (the map) rendered", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ maps: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "google-maps");
+    noteGatedContentLoaded("maps", "google-maps");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), maps: false });
 
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("reloads when the map AND the Pinterest board rendered", () => {
-    seedConsentForTest({ embeds: true });
+  it("reloads when the map AND the Pinterest board rendered and both are revoked", () => {
+    seedConsentForTest({ pinterest: true, maps: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "google-maps");
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("maps", "google-maps");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent(defaultGrants());
 
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -135,12 +135,12 @@ describe("saveConsent — reload on granted → revoked", () => {
   // is the one whose revoke unmounts the embed — not the category the vendor
   // registry files it under.
   it("reloads on the gate's own category, even where the registry files the vendor elsewhere", () => {
-    seedConsentForTest({ embeds: true, analytics: true });
+    seedConsentForTest({ pinterest: true, maps: true });
     hydrateConsent();
-    noteGatedContentLoaded("analytics", "pinterest");
+    noteGatedContentLoaded("maps", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: true, analytics: false });
+    saveConsent({ ...defaultGrants(), pinterest: true, maps: false });
 
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -149,23 +149,23 @@ describe("saveConsent — reload on granted → revoked", () => {
   // registry cannot resolve, or an `"always"` vendor the switch never blocked,
   // does not.
   it("does NOT reload for a vendor id the registry does not know", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "not-in-the-registry");
+    noteGatedContentLoaded("pinterest", "not-in-the-registry");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), pinterest: false });
 
     expect(reload).not.toHaveBeenCalled();
   });
 
   it("does NOT reload for an `always` vendor, even under a revoked category", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "turnstile");
+    noteGatedContentLoaded("pinterest", "turnstile");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: false });
+    saveConsent({ ...defaultGrants(), pinterest: false });
 
     expect(reload).not.toHaveBeenCalled();
   });
@@ -173,23 +173,23 @@ describe("saveConsent — reload on granted → revoked", () => {
   // The direction tests record the Pinterest board first, so the direction
   // check is the only thing between the save and a reload.
   it("does NOT reload on revoked → granted", () => {
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: true });
+    saveConsent({ ...defaultGrants(), pinterest: true });
 
     expect(reload).not.toHaveBeenCalled();
   });
 
   it("does NOT reload on a no-op save", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    saveConsent({ ...defaultGrants(), embeds: true });
+    saveConsent({ ...defaultGrants(), pinterest: true });
 
     expect(reload).not.toHaveBeenCalled();
   });
@@ -197,32 +197,20 @@ describe("saveConsent — reload on granted → revoked", () => {
   it("does NOT reload on a first-time grant (off → on, nothing was ever running)", () => {
     resetConsentForTest();
     hydrateConsent();
-    noteGatedContentLoaded("analytics", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
-    // Accept-all only turns `analytics` on for real (the other opt-out
-    // categories are already granted pre-decision) — an off → on move, not a
-    // revoke.
+    // Accept-all turns both switches on — an off → on move, not a revoke.
     acceptAllConsent();
 
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("does NOT reload for a revoked category with no gated vendors (functional)", () => {
-    seedConsentForTest({ functional: true });
-    hydrateConsent();
-    setReloadPageForTest(reload);
-
-    saveConsent({ ...defaultGrants(), functional: false });
-
-    expect(reload).not.toHaveBeenCalled();
-  });
-
   it("does NOT reload when the cookie write's read-back fails, even on a real revoke", () => {
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
     // The board ran, so everything but the failed write says "reload".
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
     // Simulate a blocked write: `document.cookie` accepts nothing, so the
@@ -238,7 +226,7 @@ describe("saveConsent — reload on granted → revoked", () => {
     });
 
     try {
-      saveConsent({ ...defaultGrants(), embeds: false });
+      saveConsent({ ...defaultGrants(), pinterest: false });
     } finally {
       if (originalCookieDescriptor) {
         Object.defineProperty(document, "cookie", originalCookieDescriptor);
@@ -246,15 +234,15 @@ describe("saveConsent — reload on granted → revoked", () => {
     }
 
     // The reload — which would have discarded the very refusal it was meant
-    // to enforce, landing the guest back on the opt-out defaults with no
+    // to enforce, landing the guest back on the pre-decision defaults with no
     // record of having tried — must not fire.
     expect(reload).not.toHaveBeenCalled();
   });
 
   it("round-trips through allGrants() without reloading (accept-all is never a revoke)", () => {
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
     saveConsent(allGrants());
@@ -281,42 +269,42 @@ describe("refreshConsentFromDocument", () => {
     refreshConsentFromDocument();
 
     expect(needsConsentDecision()).toBe(false);
-    expect(consentRecord()?.grants.embeds).toBe(false);
+    expect(consentRecord()?.grants.pinterest).toBe(false);
   });
 
   it("reloads when the restored page learns of a withdrawal after the Pinterest board ran", () => {
     // The guest accepted, opened a details sheet (the board's script ran in
-    // this page), switched third-party content off on the privacy notice and
+    // this page), switched the moodboard off on the privacy notice and
     // pressed back. The unmount alone would leave Pinterest's code running.
     const reload = vi.fn();
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ pinterest: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "pinterest");
+    noteGatedContentLoaded("pinterest", "pinterest");
     setReloadPageForTest(reload);
 
     writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
     refreshConsentFromDocument();
 
-    expect(isCategoryGranted("embeds")).toBe(false);
+    expect(isCategoryGranted("pinterest")).toBe(false);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("does not reload for a withdrawal when only the map ran, which its frame took with it", () => {
     const reload = vi.fn();
-    seedConsentForTest({ embeds: true });
+    seedConsentForTest({ maps: true });
     hydrateConsent();
-    noteGatedContentLoaded("embeds", "google-maps");
+    noteGatedContentLoaded("maps", "google-maps");
     setReloadPageForTest(reload);
 
     writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
     refreshConsentFromDocument();
 
-    expect(isCategoryGranted("embeds")).toBe(false);
+    expect(isCategoryGranted("maps")).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });
 
   it("asks again when the stored decision has gone", () => {
-    seedConsentForTest({ embeds: false });
+    seedConsentForTest({ pinterest: false });
     hydrateConsent();
     expect(needsConsentDecision()).toBe(false);
 
@@ -367,7 +355,7 @@ describe("hydrateConsent on a secure origin", () => {
       hydrateConsent();
 
       expect(needsConsentDecision()).toBe(false);
-      expect(isCategoryGranted("embeds")).toBe(false);
+      expect(isCategoryGranted("pinterest")).toBe(false);
     });
   });
 });

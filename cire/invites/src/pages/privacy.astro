@@ -21,7 +21,7 @@ export const prerender = true
 import LegalLayout from '../layouts/LegalLayout.astro'
 import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
 import { CATEGORY_META } from '../lib/consent/categories'
-import { thirdPartyVendors } from '../lib/consent/vendors'
+import { CONSENT_VENDORS, vendorsInCategory } from '../lib/consent/vendors'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
 // The third-party list below is GENERATED from the consent vendor registry
@@ -31,7 +31,11 @@ import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 // anyone remembering this file existed. Deriving it means the notice cannot
 // disagree with the code — a vendor added to the registry appears here on the
 // next build, and one that is removed disappears.
-const vendors = thirdPartyVendors()
+// What the site stores or loads to work at all, and the third parties a guest
+// switches on. Both lists come from the vendor registry, so the notice cannot
+// drift from what the consent framework governs.
+const necessaryVendors = vendorsInCategory('necessary')
+const switchedVendors = CONSENT_VENDORS.filter((vendor) => vendor.enforcement === 'gated')
 
 // Highlight a detail only while THAT detail is still a placeholder. A page-wide
 // flag would mark a filled field as pending the moment any other one wasn't.
@@ -224,38 +228,36 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
 
   <h2>Cookies and content from other companies</h2>
   <p>
-    There are no advertising or tracking cookies here, and no analytics. The storage
-    that is used falls into a few groups, and you control all but the first.
-    <strong>Preferences are on by default; content from other companies stays off until
-    you allow it</strong> — you can change either at any time, and analytics stays off
-    unless you turn it on.
+    There is no personal tracking here: no advertising or tracking cookies, and no
+    analytics. The only storage the invite uses is <strong>strictly necessary</strong>,
+    and it needs no choice from you:
   </p>
   <ul>
-    {Object.values(CATEGORY_META).map((category) => (
+    {necessaryVendors.map((vendor) => (
       <li>
-        <strong>{category.title}</strong>
-        {category.required ? ' (always on)' : ''} — {category.summary}
+        <strong>{vendor.name}</strong> — {vendor.purpose}
+        {vendor.transfer ? <> Data goes to {vendor.transfer}.</> : null}
+        {vendor.privacyUrl ? (
+          <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
+        ) : null}
       </li>
     ))}
   </ul>
 
   <h3>The other companies involved</h3>
   <p>
-    Some parts of the invite are served by other companies. When one of them
-    loads, that company receives your IP address and browser details, because
-    that is inherent in your browser fetching something from their servers.
+    Two parts of the invite are served by other companies, and each has its own
+    switch. When one of them loads, that company receives your IP address and
+    browser details, because that is inherent in your browser fetching something
+    from their servers. So <strong>each stays off until you allow it</strong>, and you
+    can allow one without the other.
   </p>
   <ul>
-    {vendors.map((vendor) => (
+    {switchedVendors.map((vendor) => (
       <li>
-        <strong>{vendor.name}</strong> — {vendor.purpose}
+        <strong>{CATEGORY_META[vendor.category].title}</strong> — {vendor.purpose}
         {vendor.transfer ? <> Data goes to {vendor.transfer}.</> : null}
-        {vendor.enforcement === 'gated' ? (
-          <> <em>Off until you allow third-party content; stops loading again if you switch it off.</em></>
-        ) : (
-          <> <em>Loads on every visit, whatever you choose — the site cannot do its job
-          without it.</em></>
-        )}
+        <> <em>Off until you allow it; stops loading again if you switch it off.</em></>
         {vendor.privacyUrl ? (
           <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
         ) : null}
@@ -273,10 +275,10 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   </p>
   <p>
     Turning something off stops it loading from then on. Anything already sent while it
-    was switched on has already left your browser and cannot be recalled. Third-party
-    content stays off until you allow it, and the venue map and the moodboard load only
-    when you open an event’s details after that — so unless you have done both, nothing
-    has gone to those companies.
+    was switched on has already left your browser and cannot be recalled. The venue map
+    and the moodboard stay off until you allow them, and load only when you open an
+    event’s details after that — so unless you have done both, nothing has gone to that
+    company.
   </p>
 
   <h2>How long it is kept</h2>
