@@ -327,6 +327,35 @@ the copy. A read-only reviewer should mutate a copy of the whole worktree
 instead — `cp -Rc` is a cheap clone on APFS — which also means an interrupted
 review costs nothing.
 
+## Kobalte overlays and the tests after them
+
+The Kobalte menus, dialogs and popovers behind `@shared/ui` (see
+[[component-library]]) mark everything outside themselves `aria-hidden` while
+open and clear it when they close. Both writes run from a zero-delay
+`setTimeout` that then requests an animation frame. Under happy-dom they can
+still be queued when the test that opened the overlay ends, and land in a later,
+unrelated test. `<body>` then carries `aria-hidden="true"`, and every
+`getByRole` in that test fails with "There are no accessible roles". Whether a
+test fails depends on where it sits in the file, so it shows up when someone
+adds or moves a test, far from the overlay that caused it.
+
+A suite that opens an overlay lets both writes run before the next test starts:
+
+```ts
+afterEach(async () => {
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+});
+```
+
+`cire/host/tests/components/OrganiserApp.test.tsx` does this for its
+profile-menu tests. Prove a fix like this with `--sequence.shuffle` under
+several seeds, not with one green run in file order. Without the drain, that
+suite failed in file order and under two of three seeds.
+
+*Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*
+
 ## Schema-derived test databases
 
 Every DB package exports an emitter that builds `CREATE TABLE`/`CREATE INDEX` from the live Drizzle schema:
