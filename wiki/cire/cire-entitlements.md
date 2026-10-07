@@ -4,6 +4,7 @@ aliases:
   - cire tiers
   - plan tiers
   - Ivory Gold Crimson
+  - unlock codes
 tags: [systems, cire, entitlements, tiers, phase1]
 related:
   - "[[cire-upgrades]]"
@@ -15,7 +16,7 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -56,8 +57,8 @@ configured per deployment — see [[cire-upgrades]].
 | Column | Type | Notes |
 |---|---|---|
 | `tier` | `text NOT NULL DEFAULT 'ivory'` | `ivory` \| `gold` \| `crimson` |
-| `tier_source` | `text` | How the wedding reached its tier: `purchase`, `comp` or `migration`. NULL on a wedding that has never left Ivory |
-| `tier_granted_by` | `text` | `stripe:<purchase id>` for a purchase (the buyer is on that purchase row), `script:<operator>` for a comp. NULL on a migrated wedding |
+| `tier_source` | `text` | How the wedding reached its tier: `purchase`, `comp`, `code` or `migration`. NULL on a wedding that has never left Ivory |
+| `tier_granted_by` | `text` | `stripe:<purchase id>` for a purchase (the buyer is on that purchase row), `script:<operator>` for a comp, `code:<unlock code id>` for a code (the owner who redeemed it is on the redemption row). NULL on a migrated wedding |
 
 There is no guest-cap column: the cap is derived from the tier, so the two
 cannot drift.
@@ -164,6 +165,7 @@ guest surface never tells a caller which of those it is.
 | Route | Why |
 |---|---|
 | The upgrade routes (`/upgrade/*`) | Gating the route that sells a tier on that tier is a 402 loop ([[cire-upgrades]]) |
+| `POST …/unlock-code` | The route that raises a tier with a code; a gate on it would be the same loop ([[#Unlock codes]]) |
 | `GET …/gifts.csv` | The couple's own record of gifts; they can take it away whatever tier the wedding is on ([[cire-registry]]) |
 | `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
 | `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry (`{ budgetLines, tasks, gifts }`), so a locked card offers a download only when there is something in it |
@@ -308,12 +310,125 @@ without `--lower`, prints one statement and refunds nothing.
 > from `cire/api`, naming the env as every production D1 command in
 > [[production-deploy]] does.
 
+## Unlock codes
+
+A code moves a wedding to Gold or Crimson with no payment: for friends and comps.
+The platform owner mints it; any **owner** of a wedding redeems it from Settings.
+
+### The code
+
+A code is a recovery code in form: 16 hex characters in four groups
+(`3f9a-0c1e-b7d2-48aa`), 64 bits from `generateRecoveryCode` in
+`@shared/crypto/recovery`. The owner can type it in any case, with or without
+the dashes or with spaces; `hashRecoveryCode` folds all of those before hashing.
+Only the SHA-256 is stored, so the table holds no code anyone could redeem.
+
+### Minting
+
+`cire/api/scripts/mint-unlock-code.ts`, an operator tool that prints rather than
+writes, like `grant-tier.ts`:
+
+```bash
+bun run --cwd cire/api mint-unlock-code --tier gold --by <operator> [--uses 3] [--expires 2027-06-30]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--tier` | `gold` or `crimson`. Never `ivory`: a code only raises |
+| `--by` | The operator, recorded as `created_by = 'script:<operator>'` |
+| `--uses` | How many weddings may redeem it, 1 to 1,000. Default 1 |
+| `--expires` | The last day it works, through the end of that day in UTC. Left out, it never expires |
+
+It prints two lines: `code: <code>`, to hand over, and `sql: INSERT INTO
+unlock_codes …`, to apply. The SQL carries only the hash, so the shell history
+it lands in holds nothing redeemable. The code is shown once and stored
+nowhere: keep it until it has been handed over.
+
+> [!warning]
+> A production D1 write needs explicit human authorisation naming `cire-db`.
+> Get it before applying the printed SQL with
+> `wrangler d1 execute cire-db --env production --remote --command "<printed SQL>"`
+> from `cire/api`.
+
+### Redeeming
+
+`POST /api/organiser/weddings/:weddingId/unlock-code`, body `{ "unlockCode": "…" }`.
+Behind `osnAuth()`, `weddingOwner()` and a per-organiser limiter of five tries a
+minute (`unlockCodeLimiter` in `app.ts`). No tier gate.
+
+| Answer | When | The code |
+|---|---|---|
+| 200 `{ tier }` | The wedding is on the code's tier now | Spent |
+| 404 `{ error: "unlock_code_invalid" }` | Unknown, expired, used up, or already used by this wedding | Untouched |
+| 409 `{ error: "tier_already_held", tier }` | The wedding is already on the code's tier or above; `tier` is the **wedding's** | Untouched |
+| 409 `{ error: "purchase_in_flight" }` | An upgrade checkout for the wedding can still be paid ([[cire-upgrades]]) | Untouched |
+| 400 `Missing or invalid fields` | No code, or one longer than 64 characters | — |
+
+Every unusable code gets the one 404, so a caller guessing codes learns nothing
+about which exist. The two 409s answer only for a live code with a use left,
+so they do tell someone already holding such a code that it is live, without
+spending it; finding one in the first place takes about 2^64 guesses at five a
+minute per account.
+
+**One D1 batch, one round trip** (`unlockCodeService.redeem`,
+`cire/api/src/services/unlock-codes.ts`). D1 runs a batch as one transaction,
+one batch at a time, so each rule is checked inside the statement that writes:
+
+1. The redemption row, inserted from the code's row only while the code is
+   unexpired, has a use left and has not been redeemed by this wedding, the
+   wedding is live and on a tier below the code's (`tierRankSql`), and no
+   upgrade checkout for it can still be paid (`purchaseInFlight`).
+2. The code's `redeemed_count`, raised through that row.
+3. The wedding's tier, `tier_source = 'code'` and `tier_granted_by`, also only
+   through that row.
+4. A read of the outcome, and of why nothing happened.
+
+Of two weddings racing for a code's last use, the second batch runs after the
+first, finds no use left, and writes nothing. The CHECK
+`redeemed_count <= max_redemptions` would fail any batch that overspent, and
+the whole batch with it. With the owner gate's own read, a redemption costs two
+D1 round trips. On bun:sqlite (tests and `local.ts`) the four statements run one
+at a time outside a transaction, so the atomicity holds on D1 only;
+`d1-integration.test.ts` stages the race.
+
+**An open checkout holds a code back.** The upgrade webhook grants raise-only but
+records the sale regardless ([[cire-upgrades]]), so a checkout opened before a
+code was redeemed and paid after it would take money for a tier the wedding
+already held. A code is therefore refused with `purchase_in_flight` while a
+checkout can still be paid, up to a day (`PURCHASE_SESSION_LIFETIME_S`). The
+other order is already safe: the upgrade service refuses a checkout for a tier
+the wedding holds.
+
+### Tables (migration 0082)
+
+| Table | Columns | Notes |
+|---|---|---|
+| `unlock_codes` | `id` (`ulc_<uuid>`), `code_hash` (unique), `tier` (`gold` \| `crimson`, CHECK), `max_redemptions`, `redeemed_count`, `expires_at` (seconds, NULL never), `created_by`, `created_at` | No foreign key, so outside the wedding cascade, like `platform_sales` |
+| `unlock_code_redemptions` | `id` (`ulr_<uuid>`), `code_id`, `wedding_id`, `redeemed_by_osn_profile_id` (nullable), `redeemed_at` | Unique per (`code_id`, `wedding_id`). `ON DELETE CASCADE` from both parents |
+
+**Why a counter rather than counting rows:** the daily purge deletes a
+soft-deleted wedding with every row that hangs off it, its redemptions included.
+A use counted from redemption rows would come back once the wedding that spent
+it is purged; `redeemed_count` keeps it spent.
+`cire/api/tests/services/wedding-purge.test.ts` pins that.
+
+### The portal
+
+Settings → Profile shows an owner the wedding's plan ("This wedding is on
+Gold.") and, below Crimson, a **Have a code?** link that opens
+`UnlockCodeDialog` (`cire/host/src/components/UnlockCodeDialog.tsx`). On
+success the tier is patched into the wedding list at once, so the locked
+modules open, and the list is fetched again for the guest cap
+(`handleTierRaised` in `OrganiserApp.tsx`). The dialog stands on its own so the
+onboarding tier step can place it under the tier cards.
+
 ## How a wedding reaches a tier
 
 | Path | `tier_source` | `tier_granted_by` | Who |
 |---|---|---|---|
 | Self-serve purchase | `purchase` | `stripe:<purchase id>` | Any **owner** of the wedding, from the portal — [[cire-upgrades]] |
 | Comp, or a refund lowering it | `comp` | `script:<operator>` | An operator, with `grant-tier.ts` |
+| Unlock code | `code` | `code:<unlock code id>` | Any **owner**, with a code an operator minted — [[#Unlock codes]] |
 | The tier migration | `migration` | NULL | Migration 0073, from legacy entitlement rows |
 
 The tier is one value per wedding, so it cannot hold purchase history: the money
@@ -335,10 +450,15 @@ queries are in [[production-deploy]] §5.6.
 |---|---|
 | `cire.tier.gate.payment_required` | Counter, `required_tier`: `gold` \| `crimson` |
 | `cire.tier.gate payment required` | Warning log, `{ weddingId, requiredTier, tier }` |
-| Spans | `cire.tier.tierOf`, `cire.tier.grant`, `cire.tier.hasPremiumTemplates`, `cire.tier.premiumTemplateHolders`, `cire.tier.assertGuestCapacity` |
+| `cire.tier.unlock_code.redemptions` | Counter, `outcome`: `redeemed` \| `refused` \| `already_held` \| `purchase_in_flight` |
+| `unlock code redeemed` | Info log, `{ weddingId, profileId, codeId, tier }` |
+| `unlock code refused` | Warning log, `{ weddingId, profileId }`. Never the code or its hash; `unlockCode` is on the redaction list |
+| Spans | `cire.tier.tierOf`, `cire.tier.grant`, `cire.tier.hasPremiumTemplates`, `cire.tier.premiumTemplateHolders`, `cire.tier.assertGuestCapacity`, `cire.tier.redeemUnlockCode` |
 
 A rise in `payment_required` on a tier nobody is being offered usually means a
-portal build and an API build disagree about which modules a tier opens.
+portal build and an API build disagree about which modules a tier opens. A
+sustained rise in unlock-code `refused` is someone guessing codes rather than
+owners mistyping them; the warning log names the wedding.
 
 ## Related
 
