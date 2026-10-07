@@ -1,25 +1,21 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data proof for migration 0075, which appends the household member columns
 // to `sessions`, `rsvps` and `rsvp_changes`. Rows seeded before it must
 // survive untouched, and the two new references must SET NULL on a guest
 // delete — drizzle-kit leaves `ON DELETE` out of an ADD COLUMN, so only a data
 // test sees a missing hand edit.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0075 = "0075_household_member_identity.sql";
-
-const numberOf = (file: string): number => Number(file.slice(0, 4));
-
-function chain(from: number, to: number): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()
-    .filter((f) => numberOf(f) >= from && numberOf(f) < to);
-}
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
@@ -27,9 +23,7 @@ function apply(db: Database, file: string): void {
 
 /** A household of two with a session and a reply, as 0075 finds it. */
 function beforeMigration(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 75)) apply(db, file);
+  const db = databaseBefore(MIG_0075, { foreignKeys: true });
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)
       VALUES ('wed_1', 'w1', 'W', 'usr_1', 0, 0);

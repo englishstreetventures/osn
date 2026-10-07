@@ -34,8 +34,16 @@ bun scripts/cire-dev-db-guard.ts cire/api/wrangler.toml
 # safe to use as a literal target here.
 CIRE_DEV_DB_NAME="cire-db-dev"
 
+# The wrangler cire/api installs from the lockfile, never one fetched from the
+# registry: this runs with an API token that can write to the dev database.
+WRANGLER=cire/api/node_modules/.bin/wrangler
+if [ ! -x "$WRANGLER" ]; then
+  echo "db:reset:dev: cire/api has no wrangler of its own; run \`bun install --frozen-lockfile\` first" >&2
+  exit 1
+fi
+
 echo "db:reset:dev: dropping all tables in $CIRE_DEV_DB_NAME"
-bunx wrangler --config cire/api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" \
+"$WRANGLER" --config cire/api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" \
   --env dev --remote --yes --file=cire/db/seed/dev-reset.sql
 
 echo "db:reset:dev: done — run \`bun run --cwd cire/db db:migrate:dev\` next"

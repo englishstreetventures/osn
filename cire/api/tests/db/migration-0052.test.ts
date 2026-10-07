@@ -14,11 +14,10 @@ import { join } from "node:path";
 //      families) — the landmine the migration exists to remove,
 //   4. no __new_* / __keep_* scratch tables survive.
 
-// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The 57 files this
-// replays were squashed into a single baseline on 2026-09-10 (englishstventures/osn#981)
-// and moved there; the live directory now holds only that baseline, and
-// wrangler applies nothing else. Replaying history is the whole point here, so
-// this test follows the history.
+// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The live
+// directory holds a baseline that already contains this migration; the archive
+// holds the chain as it ran. Replaying history is the whole point here, so this
+// test follows the archive.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const migrationFiles = (): string[] =>

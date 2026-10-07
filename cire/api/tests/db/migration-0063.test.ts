@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { databaseBefore } from "../test-helpers/archived-chain";
+
 // Data proof for migration 0063 (the per-section visibility switches).
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is what
 // happens to a customisation row that already existed when the columns arrived.
@@ -11,7 +13,10 @@ import { join } from "node:path";
 // the migration: content ⇒ on, no content ⇒ off. "Content" is the rule both
 // emptiness modules implement — text with something besides whitespace, or an
 // image key the API would build a URL from.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains 0063,
+// and replaying history is the point here, so this follows the archived chain.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0063 = "0063_invite_section_visibility.sql";
 
@@ -19,19 +24,8 @@ function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
-/** The chain as it stood before 0063. */
-function applyBaseline(db: Database): void {
-  for (const file of [
-    "0001_initial.sql",
-    "0058_gift_summary_and_stripe_state.sql",
-    "0059_rsvp_dietary_presets.sql",
-    "0060_helper_role_and_run_sheet_scope.sql",
-    "0061_upgrade_purchases.sql",
-    "0062_gift_note_hidden.sql",
-  ]) {
-    apply(db, file);
-  }
-}
+/** A copy of the archived chain as it stood before 0063. */
+const beforeMigration = (): Database => databaseBefore(MIG_0063, { foreignKeys: false });
 
 type Row = {
   wedding_id: string;
@@ -83,8 +77,7 @@ function switchesOf(db: Database, weddingId: string): Switches {
 }
 
 function migrated(rows: Row[]): Database {
-  const db = new Database(":memory:");
-  applyBaseline(db);
+  const db = beforeMigration();
   seed(db, rows);
   apply(db, MIG_0063);
   return db;
@@ -198,8 +191,7 @@ describe("migration 0063", () => {
       story_eyebrow: "Our Story",
       footer_image_key: "assets/w/footer-1",
     };
-    const db = new Database(":memory:");
-    applyBaseline(db);
+    const db = beforeMigration();
     seed(db, [fixture]);
     const select = `SELECT ${COLUMNS.join(", ")} FROM wedding_invite_customisations`;
     const before = db.query(select).all();

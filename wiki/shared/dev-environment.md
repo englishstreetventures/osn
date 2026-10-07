@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Dev environment (cire + OSN identity)
@@ -274,7 +274,7 @@ making.
 exactly as production does:
 
 ```
-bun run --cwd cire/db db:migrate:dev  # apply anything not in d1_migrations yet
+bun run --cwd cire/db db:migrate:dev  # check the ledger, apply anything not in it yet
 bunx wrangler deploy --env dev        # from cire/api
 ```
 
@@ -284,7 +284,7 @@ The full rebuild — **reset → migrate → seed** — moved to its own workflo
 
 ```
 bun run --cwd cire/db db:reset:dev    # drop every table INCLUDING d1_migrations
-bun run --cwd cire/db db:migrate:dev  # replay 0001.. against an empty database
+bun run --cwd cire/db db:migrate:dev  # build from the baseline, 0001_initial.sql, and on
 bun run --cwd cire/db db:seed:dev     # the sample wedding, at production scale
 ```
 

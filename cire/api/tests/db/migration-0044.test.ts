@@ -13,11 +13,10 @@ import { join } from "node:path";
 // 0044) so the "before" state is the real pre-migration schema, exactly as
 // `wrangler d1 migrations apply` sees it.
 
-// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The 57 files this
-// replays were squashed into a single baseline on 2026-09-10 (englishstventures/osn#981)
-// and moved there; the live directory now holds only that baseline, and
-// wrangler applies nothing else. Replaying history is the whole point here, so
-// this test follows the history.
+// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The live
+// directory holds a baseline that already contains this migration; the archive
+// holds the chain as it ran. Replaying history is the whole point here, so this
+// test follows the archive.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 const TARGET = "0044_invite_palette.sql";
 

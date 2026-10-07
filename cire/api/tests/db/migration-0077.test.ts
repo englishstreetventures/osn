@@ -1,33 +1,27 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data proof for migration 0077, which adds the soft-delete pair to `weddings`.
 // Structural lockstep is ddl-lockstep.test.ts's job; what this replays is what
 // a structural diff cannot see — that every wedding already in the database
 // reads as live afterwards, and that the purge's index holds deleted rows only.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0077 = "0077_wedding_soft_delete.sql";
-
-const numberOf = (file: string): number => Number(file.slice(0, 4));
-
-function chainBefore(to: number): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()
-    .filter((f) => numberOf(f) < to);
-}
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
 function migratedWithOneWedding(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chainBefore(77)) apply(db, file);
+  const db = databaseBefore(MIG_0077, { foreignKeys: true });
   db.exec(
     "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_a', 'a-1', 'A', 1, 1)",
   );

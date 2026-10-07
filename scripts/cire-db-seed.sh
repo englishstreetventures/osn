@@ -40,6 +40,15 @@ if [ -f .env ]; then
   set +a
 fi
 
+# The wrangler cire/api installs from the lockfile — the version that migrated
+# the database — never one fetched from the registry: on dev this runs with an
+# API token that can write to the database.
+WRANGLER_BIN="$REPO_ROOT/cire/api/node_modules/.bin/wrangler"
+if [ ! -x "$WRANGLER_BIN" ]; then
+  echo "db:seed: cire/api has no wrangler of its own; run \`bun install --frozen-lockfile\` first" >&2
+  exit 1
+fi
+
 if [ "$TARGET" = "dev" ]; then
   # Same guard the reset script uses: prove against wrangler.toml that [env.dev]
   # really is the disposable cire-db-dev and shares its id with nothing else.
@@ -47,9 +56,9 @@ if [ "$TARGET" = "dev" ]; then
   # The guard above just proved [env.dev]'s D1 is named exactly this, so it is
   # safe to use as a literal target here.
   CIRE_DEV_DB_NAME="cire-db-dev"
-  WRANGLER=(bunx wrangler --config ../api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" --env dev --remote --yes)
+  WRANGLER=("$WRANGLER_BIN" --config ../api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" --env dev --remote --yes)
 else
-  WRANGLER=(bunx wrangler --config ../api/wrangler.toml d1 execute cire-db --local)
+  WRANGLER=("$WRANGLER_BIN" --config ../api/wrangler.toml d1 execute cire-db --local)
 fi
 
 "${WRANGLER[@]}" --file=./seed/dev-seed.sql

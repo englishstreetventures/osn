@@ -10,17 +10,10 @@ import { DDL } from "../../src/db/setup";
 // deleted number out again, and a reused seq sits at or below a cursor that
 // already passed it, so the new change reads as seen. The lockstep test reads
 // `PRAGMA table_info`, which cannot see AUTOINCREMENT, so this pins it on both
-// surfaces the database is built from.
+// surfaces the database is built from: the baseline migration a fresh D1 runs,
+// and the test DDL mirror.
 
-const MIGRATION = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "..",
-  "db",
-  "migrations",
-  "0068_rsvp_change_digest.sql",
-);
+const MIGRATION = join(import.meta.dir, "..", "..", "..", "db", "migrations", "0001_initial.sql");
 
 function createStatementFor(sqlText: string, table: string): string {
   const match = new RegExp(`CREATE TABLE[^(]*\\b${table}\\b[^(]*\\(([\\s\\S]*?)\\n\\);`, "i").exec(

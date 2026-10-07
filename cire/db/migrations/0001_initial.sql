@@ -1,33 +1,34 @@
 -- 0001_initial.sql — the cire D1 BASELINE.
 --
--- This one file creates the whole schema. It replaces migrations 0001–0057,
--- which were squashed on 2026-09-10 (englishstventures/osn#981). Their text is in git
--- history; nothing else needs it.
+-- This one file creates the whole schema. It builds exactly what the files in
+-- ../migrations-archive/ build when replayed in name order, object for object
+-- and byte for byte; cire/api/tests/db/ddl-lockstep.test.ts holds it to that.
 --
--- WHY: building a database from the 57-file chain cost 8,007 D1 rows written
--- and about 22,630 read, almost all of it schema churn — SQLite rebuilds the
--- whole table for every `ALTER TABLE ... DROP COLUMN`, and D1 bills that even
--- against empty tables. The free tier allows 100,000 rows written a day across
--- every database on the account. See englishstventures/osn#979.
+-- WHY ONE FILE: D1 bills a from-zero build per schema statement, and the
+-- archived chain spends most of its statements rebuilding tables it later
+-- changes. This file spends one CREATE per table and per index.
+-- scripts/guard-d1-migration-cost.ts prices it against the free-tier ceiling.
 --
--- WHY IT IS SAFE FOR PRODUCTION: `wrangler d1 migrations apply` skips any file
--- already named in the database's `d1_migrations` ledger. Production's ledger
--- holds `0001_initial.sql` — this filename — so wrangler skips it and runs
--- nothing. The other 56 ledger rows name files that no longer exist, which
--- wrangler does not mind. `d1 migrations list --env production` must keep
--- saying "No migrations to apply!"; that is the check, and it is in the PR.
+-- KEEP THE FILENAME. `wrangler d1 migrations apply` skips any file already
+-- named in the database's `d1_migrations` ledger. Every deployed cire ledger
+-- holds `0001_initial.sql`, so wrangler skips this file there and applies only
+-- what comes after it. Under any other name it would run against the live
+-- wedding database, where every CREATE TABLE fails because the table exists.
 --
--- KEEP THE FILENAME. Renaming it to anything not in the production ledger
--- makes wrangler run this file against the live wedding database, where every
--- CREATE TABLE fails because the tables are already there.
+-- APPLY THROUGH `bun run --cwd cire/db db:migrate:<tier>`, never a bare
+-- `wrangler d1 migrations apply`. Skipping this file is only right on a
+-- database that applied the whole archived chain first.
+-- scripts/cire-db-migrate.ts reads the ledger before it applies anything, and
+-- refuses a database that stopped part-way through the archive instead of
+-- letting wrangler skip the rest of it.
 --
--- GENERATED from the 57-migration chain, so the column ORDER here is the order
--- production actually has (D1's ALTER TABLE ADD COLUMN can only append, so it
--- diverges from schema.ts) and index names are the real ones. Verified by
--- cire/api/tests/db/ddl-lockstep.test.ts (T-S1), which diffs this against the
--- DDL mirror in cire/api/src/db/setup.ts and the Drizzle schema.
+-- GENERATED from the archived chain: each statement is the SQL SQLite stored
+-- for that table or index once the chain had run (sqlite_master), tables first
+-- and then indexes, each in creation order. So the column ORDER is the order
+-- production has (ALTER TABLE ... ADD can only append, so it differs from
+-- schema.ts) and every index keeps its real name.
 --
--- New migrations start at 0058 and are applied incrementally, as before.
+-- New migrations start at 0082 and are applied after this file, in name order.
 
 -- ── Tables ─────────────────────────────────────────────────────────────────
 CREATE TABLE `guests` (
@@ -37,7 +38,7 @@ CREATE TABLE `guests` (
   `last_name` text DEFAULT '' NOT NULL,
   `sort_order` integer DEFAULT 0 NOT NULL,
   `created_at` integer NOT NULL,
-  `updated_at` integer NOT NULL, `external_id` text, `nickname` text, `source` text DEFAULT 'import' NOT NULL,
+  `updated_at` integer NOT NULL, `external_id` text, `nickname` text, `source` text DEFAULT 'import' NOT NULL, `plus_one_allowed` integer DEFAULT 0 NOT NULL, `plus_one_of_guest_id` text REFERENCES guests(id) ON DELETE cascade,
   FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -46,7 +47,7 @@ CREATE TABLE `sessions` (
   `family_id` text NOT NULL,
   `token` text NOT NULL,
   `expires_at` integer NOT NULL,
-  `created_at` integer NOT NULL,
+  `created_at` integer NOT NULL, `member_guest_id` text REFERENCES guests(id) ON DELETE set null,
   FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -54,10 +55,9 @@ CREATE TABLE `weddings` (
   `id` text PRIMARY KEY NOT NULL,
   `slug` text NOT NULL,
   `display_name` text NOT NULL,
-  `owner_osn_profile_id` text NOT NULL,
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
-, `code_style` text DEFAULT 'secure' NOT NULL, `wedding_date` text, `guest_count_estimate` integer, `currency` text NOT NULL DEFAULT 'AUD', `budget_total_minor` integer, `rsvp_deadline` text, `rsvp_deadline_timezone` text, `updated_by_osn_profile_id` text);
+, `code_style` text DEFAULT 'secure' NOT NULL, `wedding_date` text, `guest_count_estimate` integer, `currency` text NOT NULL DEFAULT 'AUD', `budget_total_minor` integer, `rsvp_deadline` text, `rsvp_deadline_timezone` text, `updated_by_osn_profile_id` text, `change_rev` integer DEFAULT 0 NOT NULL, `change_claim` text, `change_claimed_at` integer, `tier` text DEFAULT 'ivory' NOT NULL, `tier_source` text, `tier_granted_by` text, `deleted_at` integer, `deleted_by_osn_profile_id` text);
 --> statement-breakpoint
 CREATE TABLE "events" (
   `id` text PRIMARY KEY NOT NULL,
@@ -114,7 +114,7 @@ CREATE TABLE `wedding_invite_customisations` (
 	`story_body` text,
 	`hero_image_key` text,
 	`story_image_key` text,
-	`updated_at` integer NOT NULL, `theme_heading_font` text, `theme_body_font` text, `hero_blur` integer DEFAULT 28 NOT NULL, `hero_title_backdrop_opacity` integer DEFAULT 0 NOT NULL, `hero_title_backdrop_blur` integer DEFAULT 0 NOT NULL, `hero_image_crop` text, `story_image_crop` text, invite_message text, `details_eyebrow` text, `details_heading` text, `welcome_message` text, `images_updated_at` INTEGER, `palette_preset` text, `palette_ground` text, `palette_card` text, `palette_ink` text, `palette_gilt` text, `palette_bloom` text, `hero_tone` text, `story_tone` text, `details_tone` text, `welcome_tone` text, design_id TEXT NOT NULL DEFAULT 'classic', `hero_image_crop_mobile` text, theme_heading_size TEXT, theme_heading_weight TEXT, theme_heading_style TEXT, theme_body_weight TEXT, theme_body_style TEXT, `footer_message` text, `footer_image_key` text, `footer_image_crop` text, `registry_eyebrow` text, `registry_heading` text, `registry_body` text, `registry_tone` text,
+	`updated_at` integer NOT NULL, `theme_heading_font` text, `theme_body_font` text, `hero_blur` integer DEFAULT 28 NOT NULL, `hero_title_backdrop_opacity` integer DEFAULT 0 NOT NULL, `hero_title_backdrop_blur` integer DEFAULT 0 NOT NULL, `hero_image_crop` text, `story_image_crop` text, invite_message text, `details_eyebrow` text, `details_heading` text, `welcome_message` text, `images_updated_at` INTEGER, `palette_preset` text, `palette_ground` text, `palette_card` text, `palette_ink` text, `palette_gilt` text, `palette_bloom` text, `hero_tone` text, `story_tone` text, `details_tone` text, `welcome_tone` text, design_id TEXT NOT NULL DEFAULT 'classic', `hero_image_crop_mobile` text, theme_heading_size TEXT, theme_heading_weight TEXT, theme_heading_style TEXT, theme_body_weight TEXT, theme_body_style TEXT, `footer_message` text, `footer_image_key` text, `footer_image_crop` text, `registry_eyebrow` text, `registry_heading` text, `registry_body` text, `registry_tone` text, `hero_visible` integer DEFAULT 1 NOT NULL, `story_visible` integer DEFAULT 1 NOT NULL, `footer_visible` integer DEFAULT 1 NOT NULL, `faq_visible` integer DEFAULT 1 NOT NULL,
 	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -124,7 +124,7 @@ CREATE TABLE `wedding_hosts` (
 	`osn_profile_id` text NOT NULL,
 	`added_by_osn_profile_id` text NOT NULL,
 	`role` text DEFAULT 'host' NOT NULL,
-	`created_at` integer NOT NULL,
+	`created_at` integer NOT NULL, `run_sheet_scope` text DEFAULT 'own' NOT NULL,
 	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -167,7 +167,7 @@ CREATE TABLE `budget_items` (
   `sort_order` integer DEFAULT 0 NOT NULL,
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
-);
+, `unit_price_minor` integer, `per_head_event_ids` text);
 --> statement-breakpoint
 CREATE TABLE `payments` (
   `id` text PRIMARY KEY NOT NULL,
@@ -195,7 +195,7 @@ CREATE TABLE `directory_vendors` (
   `listed` text NOT NULL DEFAULT 'draft',
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
-, `lead_forward_email` text, `claimed_by_profile_id` text);
+, `lead_forward_email` text, `claimed_by_profile_id` text, `review_org_id` text, `review_profile_id` text, `review_requested_at` integer);
 --> statement-breakpoint
 CREATE TABLE `directory_vendor_categories` (
   `directory_vendor_id` text NOT NULL REFERENCES `directory_vendors`(`id`) ON DELETE CASCADE,
@@ -253,7 +253,7 @@ CREATE TABLE `vendor_enquiries` (
   `last_message_at` integer NOT NULL,
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
-);
+, `handoff_chat_id` text);
 --> statement-breakpoint
 CREATE TABLE `organiser_sessions` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -285,7 +285,7 @@ CREATE TABLE "rsvps" (
 	`dietary_consent_at` integer,
 	`dietary_consent_version` text,
 	`consent_source` text DEFAULT 'guest' NOT NULL,
-	`created_at` integer NOT NULL,
+	`created_at` integer NOT NULL, `dietary_presets` text DEFAULT '' NOT NULL, `submitted_by_guest_id` text REFERENCES guests(id) ON DELETE set null, `submitted_via_link` integer DEFAULT 0 NOT NULL, `recorded_by_osn_profile_id` text, `dietary_attested_by_osn_profile_id` text,
 	FOREIGN KEY (`guest_id`) REFERENCES `guests`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -304,7 +304,7 @@ CREATE TABLE `registry_settings` (
   `stripe_account_updated_at` integer,
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL
-);
+, `stripe_deauthorized_at` integer, `stripe_deauthorized_account_id` text, `gift_summary_json` text, `gift_summary_at` integer, `stripe_default_currency` text);
 --> statement-breakpoint
 CREATE TABLE `registry_items` (
   `id` text PRIMARY KEY NOT NULL,
@@ -339,31 +339,105 @@ CREATE TABLE `registry_claims` (
   `thanked_at` integer,
   `thanked_by` text,
   `created_at` integer NOT NULL,
-  `updated_at` integer NOT NULL,
+  `updated_at` integer NOT NULL, `note_hidden_at` integer, `note_hidden_by_osn_profile_id` text,
   CONSTRAINT `registry_claims_quantity_ck` CHECK (quantity >= 1 and quantity <= 99),
   CONSTRAINT `registry_claims_status_ck` CHECK (status in ('reserved','purchased','released'))
 );
 --> statement-breakpoint
-CREATE TABLE `registry_contributions` (
-  `id` text PRIMARY KEY NOT NULL,
-  `wedding_id` text NOT NULL REFERENCES `weddings`(`id`) ON DELETE CASCADE,
-  `item_id` text REFERENCES `registry_items`(`id`) ON DELETE SET NULL,
-  `family_id` text NOT NULL REFERENCES `families`(`id`) ON DELETE CASCADE,
-  `status` text DEFAULT 'pending' NOT NULL,
-  `amount_minor` integer NOT NULL,
-  `currency` text NOT NULL,
-  `primary_amount_minor` integer,
-  `primary_currency` text,
-  `fx_rate` text,
-  `fx_rate_at` integer,
-  `stripe_checkout_session_id` text NOT NULL UNIQUE,
-  `stripe_payment_intent_id` text,
-  `message` text,
-  `display_name` text,
-  `thanked_at` integer,
-  `thanked_by` text,
-  `created_at` integer NOT NULL,
-  `updated_at` integer NOT NULL
+CREATE TABLE "registry_contributions" (
+	`id` text PRIMARY KEY NOT NULL,
+	`wedding_id` text NOT NULL,
+	`item_id` text,
+	`family_id` text NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`amount_minor` integer NOT NULL,
+	`currency` text NOT NULL,
+	`primary_amount_minor` integer,
+	`primary_currency` text,
+	`fx_rate` text,
+	`fx_rate_at` integer,
+	`refunded_amount_minor` integer,
+	`stripe_checkout_session_id` text,
+	`stripe_payment_intent_id` text,
+	`message` text,
+	`display_name` text,
+	`thanked_at` integer,
+	`thanked_by` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL, `note_hidden_at` integer, `note_hidden_by_osn_profile_id` text,
+	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`item_id`) REFERENCES `registry_items`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `platform_sales` (
+	`id` text PRIMARY KEY NOT NULL,
+	`purchase_id` text NOT NULL,
+	`entitlement` text NOT NULL,
+	`amount_minor` integer NOT NULL,
+	`currency` text NOT NULL,
+	`settled_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `wedding_upgrade_purchases` (
+	`id` text PRIMARY KEY NOT NULL,
+	`wedding_id` text NOT NULL,
+	`entitlement` text NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`checkout_session_id` text,
+	`payment_intent_id` text,
+	`amount_minor` integer,
+	`currency` text,
+	`created_by_osn_profile_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL, `from_tier` text, `price_id` text, `price_amount_minor` integer, `price_currency` text,
+	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `wedding_faqs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`wedding_id` text NOT NULL,
+	`question` text NOT NULL,
+	`answer` text NOT NULL,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `host_rsvp_notices` (
+	`wedding_id` text NOT NULL,
+	`osn_profile_id` text NOT NULL,
+	`seen_seq` integer DEFAULT 0 NOT NULL,
+	`digest_seq` integer DEFAULT 0 NOT NULL,
+	`digest_enabled` integer DEFAULT 1 NOT NULL,
+	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`wedding_id`, `osn_profile_id`),
+	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `rsvp_changes` (
+	`seq` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`wedding_id` text NOT NULL,
+	`family_id` text NOT NULL,
+	`guest_id` text NOT NULL,
+	`event_id` text,
+	`kind` text NOT NULL,
+	`created_at` integer NOT NULL, `actor_guest_id` text,
+	FOREIGN KEY (`wedding_id`) REFERENCES `weddings`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`family_id`) REFERENCES `families`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `link_thumb_transforms` (
+	`period` text PRIMARY KEY NOT NULL,
+	`used` integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `owner_notice_budget` (
+	`key` text NOT NULL,
+	`day` text NOT NULL,
+	`sent` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`key`, `day`)
 );
 --> statement-breakpoint
 -- ── Indexes ────────────────────────────────────────────────────────────────
@@ -372,8 +446,6 @@ CREATE UNIQUE INDEX `sessions_token_unique` ON `sessions` (`token`);
 CREATE INDEX `guests_family_id_sort_idx` ON `guests` (`family_id`, `sort_order`);
 --> statement-breakpoint
 CREATE UNIQUE INDEX `weddings_slug_unique` ON `weddings` (`slug`);
---> statement-breakpoint
-CREATE INDEX `weddings_owner_idx` ON `weddings` (`owner_osn_profile_id`);
 --> statement-breakpoint
 CREATE INDEX `imports_wedding_uploaded_at_idx` ON `imports` (`wedding_id`,`uploaded_at`);
 --> statement-breakpoint
@@ -402,8 +474,6 @@ CREATE INDEX `tasks_wedding_bucket_sort_idx` ON `tasks` (`wedding_id`, `timefram
 CREATE INDEX `budget_items_wedding_category_sort_idx` ON `budget_items` (`wedding_id`, `category`, `sort_order`);
 --> statement-breakpoint
 CREATE INDEX `payments_item_idx` ON `payments` (`budget_item_id`);
---> statement-breakpoint
-CREATE INDEX `directory_vendors_owner_idx` ON `directory_vendors` (`owner_org_id`);
 --> statement-breakpoint
 CREATE INDEX `vendors_wedding_status_idx` ON `vendors` (`wedding_id`, `status`, `sort_order`);
 --> statement-breakpoint
@@ -451,6 +521,52 @@ CREATE INDEX `registry_claims_item_status_idx` ON `registry_claims` (`item_id`,`
 --> statement-breakpoint
 CREATE INDEX `registry_claims_wedding_item_status_idx` ON `registry_claims` (`wedding_id`,`item_id`,`status`,`quantity`);
 --> statement-breakpoint
+CREATE UNIQUE INDEX `registry_contributions_stripe_checkout_session_id_unique` ON `registry_contributions` (`stripe_checkout_session_id`);
+--> statement-breakpoint
 CREATE INDEX `registry_contributions_wedding_created_idx` ON `registry_contributions` (`wedding_id`,`created_at`);
 --> statement-breakpoint
 CREATE INDEX `registry_contributions_item_idx` ON `registry_contributions` (`item_id`);
+--> statement-breakpoint
+CREATE INDEX `registry_contributions_payment_intent_idx` ON `registry_contributions` (`stripe_payment_intent_id`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `platform_sales_purchase_id_unique` ON `platform_sales` (`purchase_id`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `wedding_upgrade_purchases_checkout_session_id_unique` ON `wedding_upgrade_purchases` (`checkout_session_id`);
+--> statement-breakpoint
+CREATE INDEX `wedding_upgrade_purchases_wedding_entitlement_idx` ON `wedding_upgrade_purchases` (`wedding_id`,`entitlement`);
+--> statement-breakpoint
+CREATE INDEX `wedding_upgrade_purchases_payment_intent_idx` ON `wedding_upgrade_purchases` (`payment_intent_id`);
+--> statement-breakpoint
+CREATE INDEX `wedding_faqs_wedding_sort_idx` ON `wedding_faqs` (`wedding_id`,`sort_order`,`id`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `guests_plus_one_of_uniq` ON `guests` (`plus_one_of_guest_id`) WHERE plus_one_of_guest_id IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX `rsvp_changes_wedding_idx` ON `rsvp_changes` (`wedding_id`);
+--> statement-breakpoint
+CREATE INDEX `rsvp_changes_created_at_idx` ON `rsvp_changes` (`created_at`);
+--> statement-breakpoint
+CREATE INDEX `rsvp_changes_family_idx` ON `rsvp_changes` (`family_id`);
+--> statement-breakpoint
+CREATE INDEX `registry_items_wedding_image_idx` ON `registry_items` (`wedding_id`,`image_key`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `directory_vendors_owner_uniq` ON `directory_vendors` (`owner_org_id`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `wedding_upgrade_purchases_one_pending_uniq` ON `wedding_upgrade_purchases` (`wedding_id`) WHERE status = 'pending';
+--> statement-breakpoint
+CREATE UNIQUE INDEX `directory_vendors_review_org_uniq` ON `directory_vendors` (`review_org_id`);
+--> statement-breakpoint
+CREATE INDEX `vendor_enquiries_buffered_idx` ON `vendor_enquiries` (`updated_at`,`id`) WHERE status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX `rsvps_submitted_by_idx` ON `rsvps` (`submitted_by_guest_id`) WHERE submitted_by_guest_id IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX `sessions_member_idx` ON `sessions` (`member_guest_id`) WHERE member_guest_id IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX `weddings_deleted_at_idx` ON `weddings` (`deleted_at`) WHERE deleted_at IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX `guest_account_links_wedding_idx` ON `guest_account_links` (`wedding_id`);
+--> statement-breakpoint
+CREATE INDEX `registry_claims_family_idx` ON `registry_claims` (`family_id`);
+--> statement-breakpoint
+CREATE INDEX `registry_contributions_family_idx` ON `registry_contributions` (`family_id`);
+--> statement-breakpoint
+CREATE INDEX `vendor_enquiries_vendor_idx` ON `vendor_enquiries` (`vendor_id`);
