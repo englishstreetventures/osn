@@ -621,7 +621,11 @@ function Dashboard() {
    * the legacy keys). The upgrade catalogue priced from the old tier goes too.
    */
   async function handleTierRaised(weddingId: string, tier: PaidTier) {
-    setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, tier } : w)));
+    setWeddings((prev) => {
+      const list = prev ?? [];
+      const at = list.findIndex((w) => w.id === weddingId);
+      return at === -1 ? list : list.with(at, { ...list[at]!, tier });
+    });
     invalidateCatalogue(weddingId);
     toast.success(`Code accepted. This wedding is now on ${TIER_LABEL[tier]}.`);
     try {
