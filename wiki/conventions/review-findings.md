@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-09-08
+last-reviewed: 2026-10-08
 ---
 
 # Review Finding IDs
@@ -91,7 +91,7 @@ Findings live in **`englishstventures/osn-tracker`**, a private repo. `englishst
 
 ### The body has to stand alone
 
-An issue is read once, months later, by someone with no branch checked out and no wiki open. It carries its own evidence or it carries nothing.
+An issue is read once, months later, by someone with no branch checked out and no wiki open. It carries its own evidence or it carries nothing. The `write-issue` skill (`.claude/skills/write-issue/SKILL.md`) holds the writing rules for every issue body; this page holds what is particular to a finding.
 
 - **Name the file and line** in **Issue**. "Missing rate limit" is not a location.
 - **State the fix** in **Solution** — the function to call, the column to add, the header to set. Not "add a limit".

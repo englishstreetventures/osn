@@ -27,7 +27,7 @@ command -v gh >/dev/null && gh auth status >/dev/null 2>&1 && echo "gh: yes" || 
 [ -d /Users/ac/.work/osn.git ] && [ "$(uname)" = "Darwin" ] && echo PERSONAL || echo REMOTE
 ```
 
-No `gh` or no network: the issue step's static form is the issue you *would* file — title, type, label, four-field body — written into the report, and the branch still gets a name derived from that title. Never describe an issue as opened, moved or labelled when the command could not run. No user to answer a question: take the conservative default the step names, record it, continue. Nothing here is a stop.
+No `gh` or no network: the issue step's static form is the issue you *would* file, written into the report as `write-issue` §No network describes, and the branch still gets a name derived from that title. Never describe an issue as opened, moved or labelled when the command could not run. No user to answer a question: take the conservative default the step names, record it, continue. Nothing here is a stop.
 
 ## Step 0 — The issue comes first
 
@@ -41,33 +41,12 @@ gh issue view 412 --repo englishstventures/osn --json number,title,body,labels
 
 **A review finding is the exception that already has an issue.** An `S-`, `P-` or `C-` ID, or an `osn-tracker#` reference, names an issue in the private `englishstventures/osn-tracker`. Take it by number there. Do not open a duplicate in the public repo, and **keep the finding's text out of the branch name** — `englishstventures/osn` is public and its branch list is visible, so `fix/timing-oracle-in-claim-compare` publishes the defect before the fix lands. Name the branch after the area or the tracker number: `fix/cire-api-claim-hardening`, `fix/tracker-601`. The same rule covers the plan file and every commit message on the branch.
 
-**Otherwise open one:**
-
-```bash
-gh issue create --repo englishstventures/osn \
-  --title "<short imperative title>" \
-  --type Feature \
-  --label "product:<osn-core|pulse|cire|zap|shared|landing>" \
-  --body-file <(cat <<'BODY'
-**What** — the change, in two or three sentences. Name the surface it lands on.
-
-**Why** — what is wrong or missing today, and who feels it.
-
-**Done when** — the observable result. Not "implemented"; the thing a reviewer can check.
-
-**Notes** — constraints, the files or systems it touches, anything already decided. Wiki pages by repo path (`wiki/shared/rate-limiting.md`), and the fact they carry restated here — a `[[wikilink]]` does not resolve on GitHub.
-BODY
-)
-```
-
-The body stands on its own: someone opening it months later with nothing checked out sees what to build and how to know it is done. Never a body that only points elsewhere — "see the TODO", "per `wiki/todo/web.md`". Pages move; the issue is the record.
-
-`--type` is an org-level field, separate from the labels: `Feature` for new capability, `Bug` for something built that behaves wrongly, `Task` for the rest — a migration, a chore, infrastructure. Exactly one `product:` label. No `area:` unless the work is a finding or is `ops`, `schema` or `docs`; there is no `area:feature`.
+**Otherwise open one** with the **`write-issue`** skill. It picks the title, type and labels, writes a body that stands on its own, files it in the public repository, rates it through `rate-complexity` and adds it to the Project. The type sets the branch prefix below, so get it right there: `Feature` for new capability, `Bug` for something built that behaves wrongly, `Task` for the rest.
 
 Then three things follow from the issue:
 
 - **The branch name** — kebab-case the title, prefix it: `feat/` for a Feature, `fix/` for a Bug, `chore/`, `refactor/` or `docs/` for a Task. Step 1 uses this name; it does not derive its own.
-- **Complexity** — invoke the **`rate-complexity`** skill. It proposes a rating from the issue body alone and asks the owner to confirm or amend it, then applies a `complexity:` label. Do this **now**, before the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
+- **Complexity** — an issue `write-issue` just opened is already rated; do not rate it again. An existing issue taken by number with no `complexity:` label gets one now: invoke the **`rate-complexity`** skill, which proposes a rating from the issue body alone and asks the owner to confirm or amend it. Do this **before** the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
 - **Status** — move the issue to **In Progress** in the **OSN Platform** project. `gh project item-edit` needs the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
 
 ## Step 1 — The branch

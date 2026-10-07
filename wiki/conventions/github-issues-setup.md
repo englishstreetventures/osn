@@ -4,7 +4,7 @@ tags: [runbooks, process, issues]
 related:
   - "[[review-findings]]"
   - "[[index]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-10-08
 ---
 
 # GitHub Issues setup
@@ -67,10 +67,10 @@ gh api repos/englishstventures/osn-tracker/contents/.github/ISSUE_TEMPLATE/revie
 or description is changed. Every issue carries exactly one `product:` and at
 most one `area:`; only a finding carries a `severity:`, taken from the tier
 letter in its ID. The migration enforced that with a gate over its manifest;
-now that issues are filed by hand, `/prep-pr` and `/new-feat` carry the rule.
+now that issues are filed by hand, the `write-issue` skill carries the rule.
 
 A `complexity:` rating — `1`, `2`, `3`, `5` or `8` — is declared **before**
-work starts, by `/new-feat` through the `rate-complexity` skill, which proposes
+work starts, by the `write-issue` skill when the issue is filed (or by `/new-feat` for an unrated issue it picks up), through the `rate-complexity` skill, which proposes
 a number from the issue body alone and asks the owner to confirm or amend it.
 The timing carries the whole value: the rating is the denominator every
 session-metrics query divides spend by, and one made at pull-request time, with
@@ -108,7 +108,7 @@ gh api orgs/englishstventures/issue-types --jq '.[] | "\(.id)  \(.name)"'
 | `Feature` | New capability, and product work generally — everything carrying no `area:` label |
 | `Task` | The rest: compliance items, ops, schema, docs, epics, and any finding at `severity:info`, which records an observation and asks for no fix |
 
-`/prep-pr` and `/new-feat` follow that mapping when they file an issue.
+The `write-issue` skill follows that mapping whenever an agent files an issue.
 
 Epics take `Task` because a custom `Epic` type would need the `admin:org`
 scope, and `gh auth refresh` cannot be run by an agent. The `epic` label is
