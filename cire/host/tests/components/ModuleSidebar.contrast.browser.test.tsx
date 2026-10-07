@@ -54,7 +54,14 @@ function ratio(label: Element, extraBackdrop: readonly string[] = []): number {
 function mountAt(width: number) {
   return render(() => (
     <div class="@container/shell" style={{ width: `${width}px` }}>
-      <ModuleSidebar weddingId="wed_test" active="guests" tier="crimson" onSelect={() => {}} />
+      <ModuleSidebar
+        weddingId="wed_test"
+        weddingSlug="test-wedding"
+        canManage={false}
+        active="guests"
+        tier="crimson"
+        onSelect={() => {}}
+      />
     </div>
   ));
 }

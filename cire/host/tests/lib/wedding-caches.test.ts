@@ -5,6 +5,7 @@ import * as enquiries from "../../src/lib/enquiries-store";
 import * as events from "../../src/lib/events-store";
 import * as guests from "../../src/lib/guests-store";
 import * as households from "../../src/lib/households-store";
+import * as moduleRows from "../../src/lib/module-rows-store";
 import * as registry from "../../src/lib/registry-store";
 import * as tasks from "../../src/lib/tasks-store";
 import * as upgrade from "../../src/lib/upgrade-store";
@@ -63,6 +64,12 @@ const stores: StoreSpec[] = [
     accessor: households.householdsAccessor,
     ensure: households.ensureHouseholdsLoaded,
     reset: households.__resetHouseholdsCache,
+  },
+  {
+    name: "module rows",
+    accessor: moduleRows.moduleRowsAccessor,
+    ensure: moduleRows.ensureModuleRowsLoaded,
+    reset: moduleRows.__resetModuleRowsStore,
   },
   {
     name: "registry",

@@ -104,7 +104,7 @@ type PanelModule = { readonly default: Component<never> };
  * The warm-up table's shape. Keyed `module:sub`, and the sub half is an open
  * string, so the key set is open — a pair with no lazy panel simply has no
  * loader. The module half is TYPED so a stale module segment fails `tsc`
- * rather than going quiet (T-U2 / P-I3). The lookup below is `?.()` over a
+ * rather than going quiet. The lookup below is `?.()` over a
  * swallowed rejection, so a key naming a module that no longer exists
  * produces no error, no warning and no failing test — the only symptom is
  * that hovering the tab stops warming the chunk and every click pays the
@@ -418,7 +418,9 @@ export default function ModuleShell(props: ModuleShellProps) {
         <ModuleSidebar
           active={module()}
           weddingId={props.weddingId}
+          weddingSlug={props.weddingSlug}
           tier={props.tier}
+          canManage={props.canManage}
           onSelect={props.onModule}
         />
 
@@ -701,6 +703,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     weddingId={props.weddingId}
                     canManage={props.canManage}
                     canEditRsvpDeadline={props.canEdit}
+                    tier={props.tier}
                     onWeddingUpdated={props.onWeddingUpdated}
                     onWeddingDeleted={props.onWeddingDeleted}
                   />

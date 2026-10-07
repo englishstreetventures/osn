@@ -6,9 +6,11 @@ import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
+import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/locked-exports";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
+import LockedExport from "./LockedExport";
 import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";
 
@@ -79,6 +81,9 @@ const DWELL_MS = 3000;
  * The lock, and the tier that lifts it, are announced in the accessible name,
  * not only in the popover, so a screen-reader user hears both while tabbing
  * rather than having to dwell.
+ *
+ * For an owner, the Budget, Checklist and Registry cards also offer the rows
+ * the wedding holds there, as a CSV download ({@link LockedExport}).
  */
 function LockedRow(props: {
   mod: ModuleDef;
@@ -87,6 +92,11 @@ function LockedRow(props: {
   /** Opens the upgrade dialog. Lifted to the sidebar so there is ONE dialog
    *  rather than one per locked row. */
   onUpgrade: () => void;
+  weddingId: string;
+  weddingSlug: string;
+  /** The module's download, when the card should offer one: an owner's
+   *  Budget, Checklist or Registry card. */
+  lockedExport?: LockedExportSpec;
   children: JSX.Element;
 }) {
   const [open, setOpen] = createSignal(false);
@@ -154,6 +164,15 @@ function LockedRow(props: {
           >
             Upgrade to {TIER_LABEL[lock().tier]}
           </Button>
+          <Show when={props.lockedExport}>
+            {(spec) => (
+              <LockedExport
+                weddingId={props.weddingId}
+                weddingSlug={props.weddingSlug}
+                spec={spec()}
+              />
+            )}
+          </Show>
         </HoverCard.Content>
       </HoverCard.Portal>
     </HoverCard>
@@ -188,8 +207,13 @@ function LockedRow(props: {
 export default function ModuleSidebar(props: {
   active: Module;
   weddingId: string;
+  /** Names the locked modules' downloads (`cire-budget-<slug>.csv`). */
+  weddingSlug: string;
   /** The wedding's plan tier — what decides which rows are locked. */
   tier: Tier;
+  /** An owner of this wedding? Only an owner's locked cards offer a download:
+   *  every export is owner-only. */
+  canManage: boolean;
   onSelect: (module: Module) => void;
 }) {
   const [sheetOpen, setSheetOpen] = createSignal(false);
@@ -199,6 +223,11 @@ export default function ModuleSidebar(props: {
   const [upgrading, setUpgrading] = createSignal<ModuleDef | null>(null);
 
   const current = () => moduleDef(props.active);
+
+  /** The download a locked module's card offers this caller, if any. Read
+   *  through a function so a role change reaches a row already rendered. */
+  const lockedExport = (module: Module): LockedExportSpec | undefined =>
+    props.canManage ? lockedExportFor(module) : undefined;
 
   // The rail's marker. One box that moves to the active row, rather than eight
   // that switch on and off. It only drives the rail: the sheet is a modal the
@@ -293,6 +322,9 @@ export default function ModuleSidebar(props: {
                   placement="right-start"
                   rowClass={`${railRow} ${rowLocked}`}
                   onUpgrade={() => setUpgrading(mod)}
+                  weddingId={props.weddingId}
+                  weddingSlug={props.weddingSlug}
+                  lockedExport={lockedExport(mod.id)}
                 >
                   <Body />
                 </LockedRow>
@@ -389,6 +421,9 @@ export default function ModuleSidebar(props: {
                           mod={mod}
                           placement="bottom-start"
                           rowClass={`${sheetRow} ${rowLocked}`}
+                          weddingId={props.weddingId}
+                          weddingSlug={props.weddingSlug}
+                          lockedExport={lockedExport(mod.id)}
                           onUpgrade={() => {
                             // The sheet is a modal; leaving it open behind the
                             // dialog would trap focus in the wrong layer.
