@@ -14,7 +14,7 @@
  * | `STICKY_RAIL`   | 20  | The gift list's sticky return rail.                     |
  * | `MODAL_POPOVER` | 110 | The Add-to-Calendar menu.                               |
  * | `TOAST`         | 150 | Confirmation toasts (`@shared/toast` `<Toaster>`).       |
- * | `CONSENT`       | 200 | Site-wide consent banner (`ConsentBanner`).             |
+ * | `CONSENT`       | 200 | Consent banner, legal pages only (`ConsentBanner`).     |
  *
  * There is no modal layer. The details and RSVP sheets are `@shared/ui`'s
  * `Modal`, a `<dialog>` opened with `showModal()`, which paints in the TOP
@@ -39,18 +39,15 @@
  * with a wide gap. It is the guest's route to granting — or later withdrawing —
  * permission for third-party content, and a consent control the guest cannot
  * reach is worse than no control at all, because the stored record would then
- * assert a freely-given choice they had no practical way to change. While a
- * sheet is open the banner is painted beneath it and inert, and comes back when
- * the sheet closes. The gap that leaves — a consent affordance beside a
- * third-party embed the guest is looking at right then — is `englishstventures/osn#1061`.
+ * assert a freely-given choice they had no practical way to change. The banner
+ * is the prompt's form on the legal pages only, which have no sheets.
  *
- * The preferences DIALOG has no layer here because it has nothing left to rank
- * against: it is an `@shared/ui` `Modal` too, so opening it from inside a sheet
- * makes it the blocking dialog and the sheet goes inert beneath it. The same
- * holds for the first-layer prompt on a phone, which is a `Modal` rather than
- * the banner: if it arrives while a sheet is already open, it opens above the
- * sheet. The banner — on a wider screen, on the legal pages, and on a phone
- * once the guest has dismissed that dialog — is what this layer ranks.
+ * The consent DIALOGS have no layer here because they have nothing left to
+ * rank against: the first-layer prompt on the invite's pages and the
+ * preferences dialog are `@shared/ui` `Modal`s too. The prompt holds the page
+ * until it is answered, and if it arrives while a sheet is already open it
+ * opens above the sheet; opening the preferences dialog from inside a sheet
+ * makes it the blocking dialog and the sheet goes inert beneath it.
  *
  * ## Tailwind v4 note
  *
@@ -100,7 +97,7 @@ export const Z_LAYER = {
    * `InvitePage.browser.test.tsx` is what keeps it honest.
    */
   TOAST: 150,
-  /** Site-wide consent banner. Above every page overlay. */
+  /** The consent banner on the legal pages. Above every page overlay. */
   CONSENT: 200,
 } as const;
 

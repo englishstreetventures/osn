@@ -1,16 +1,14 @@
 import { cleanup, fireEvent, render, within } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CONSENT_BANNER_HEIGHT_VAR } from "../../../src/components/consent/banner-height";
 import {
   ConsentBanner,
   ConsentPreferencesLink,
 } from "../../../src/components/consent/ConsentBanner";
-import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
+import { readConsentFromDocument, writeConsentToDocument } from "../../../src/lib/consent/cookie";
+import { defaultGrants, makeConsentRecord } from "../../../src/lib/consent/record";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
-import { FakeResizeObserver, installFakeResizeObserver } from "../../test-support/resize-observer";
-import { mockViewport } from "../../test-support/viewport";
 
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');
@@ -21,112 +19,28 @@ const bannerOf = (container: HTMLElement) =>
  */
 const dialog = () => document.querySelector("dialog");
 
+/** The first-layer prompt's dialog, told apart from the preferences one by its heading. */
+const prompt = () =>
+  [...document.querySelectorAll("dialog")].find(
+    (candidate) => candidate.querySelector("h2")?.textContent === "Privacy choices",
+  ) ?? null;
+
 const buttonLabels = (root: HTMLElement) =>
   [...root.querySelectorAll("button")].map((button) => (button.textContent ?? "").trim());
 
-const publishedHeight = () =>
-  document.documentElement.style.getPropertyValue(CONSENT_BANNER_HEIGHT_VAR);
+const buttonOf = (root: HTMLElement, label: string) =>
+  [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)!;
 
-// The banner observes its own size, and jsdom has no `ResizeObserver`.
-beforeEach(installFakeResizeObserver);
-afterEach(() => vi.unstubAllGlobals());
-
-describe("ConsentBanner", () => {
-  beforeEach(resetConsentForTest);
-
-  afterEach(() => {
-    cleanup();
-    resetConsentForTest();
-  });
-
-  it("shows the banner to a guest who has not decided", () => {
-    const { container } = render(() => <ConsentBanner />);
-    expect(bannerOf(container)).not.toBeNull();
-  });
-
-  it("does NOT show the banner to a guest who already accepted", () => {
-    seedConsentForTest({ embeds: true });
-    const { container } = render(() => <ConsentBanner />);
-    expect(bannerOf(container)).toBeNull();
-  });
-
-  it("does NOT show the banner to a guest who already REFUSED", () => {
-    // The behaviour that separates a consent banner from a nag: a refusal is a
-    // decision and is remembered, so it is never re-asked on the next page load.
-    seedConsentForTest({ embeds: false });
-    const { container } = render(() => <ConsentBanner />);
-    expect(bannerOf(container)).toBeNull();
-  });
-
-  it("offers accept, reject and choose — with reject as reachable as accept", () => {
-    const { container } = render(() => <ConsentBanner />);
-    const banner = bannerOf(container)!;
-    const labels = buttonLabels(banner);
-
-    expect(labels).toContain("Accept all");
-    expect(labels).toContain("Reject all");
-    expect(labels).toContain("Choose");
-
-    // Reject must not be visually demoted relative to accept. Both are rendered
-    // by the same component and therefore carry identical classes — asserting
-    // that here is what stops a later "make accept the primary CTA" tweak from
-    // quietly turning the banner into a consent funnel.
-    const buttons = [...banner.querySelectorAll("button")];
-    const accept = buttons.find((b) => b.textContent?.includes("Accept all"))!;
-    const reject = buttons.find((b) => b.textContent?.includes("Reject all"))!;
-    expect(reject.className).toBe(accept.className);
-    expect(reject.tagName).toBe(accept.tagName);
-  });
-
-  it("persists every category on 'Accept all' and dismisses the banner", () => {
-    const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(bannerOf(container)!).getByText("Accept all"));
-
-    const record = readConsentFromDocument()!;
-    expect(record.grants.embeds).toBe(true);
-    expect(record.grants.analytics).toBe(true);
-    expect(record.grants.functional).toBe(true);
-    expect(bannerOf(container)).toBeNull();
-  });
-
-  it("persists a refusal on 'Reject all' — writing a record, not just closing", () => {
-    const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(bannerOf(container)!).getByText("Reject all"));
-
-    const record = readConsentFromDocument();
-    expect(record).not.toBeNull();
-    expect(record!.grants.embeds).toBe(false);
-    expect(record!.grants.analytics).toBe(false);
-    // Necessary storage stays on — it is what remembers this very refusal.
-    expect(record!.grants.necessary).toBe(true);
-    expect(bannerOf(container)).toBeNull();
-  });
-
-  it("stamps the decision with a timestamp and the current policy version", () => {
-    const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(bannerOf(container)!).getByText("Reject all"));
-
-    const record = readConsentFromDocument()!;
-    expect(Number.isNaN(Date.parse(record.decidedAt))).toBe(false);
-    expect(record.policy).toBeTruthy();
-  });
-
-  it("opens the preferences dialog on 'Choose' and hides the banner behind it", () => {
-    const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(bannerOf(container)!).getByText("Choose"));
-
-    expect(dialog()).not.toBeNull();
-    // Two competing sets of accept/reject controls on screen at once would be
-    // ambiguous about which one governs.
-    expect(bannerOf(container)).toBeNull();
-  });
-
+/**
+ * What both forms of the prompt must say and offer. `within` is the form's
+ * root: the banner's `<section>` or the prompt's `<dialog>`.
+ */
+function sharedPromptContract(mount: () => HTMLElement) {
   it("tells the guest third-party content is ALREADY on, and names who gets the data", () => {
     // Under opt-out the map and moodboard are loading by the time this is read.
-    // A banner that asked "may we?" while the request had already gone would be
+    // A prompt that asked "may we?" while the request had already gone would be
     // the worst of both postures: no prior consent AND a misleading account of it.
-    const { container } = render(() => <ConsentBanner />);
-    const text = bannerOf(container)!.textContent ?? "";
+    const text = mount().textContent ?? "";
 
     expect(text).toContain("Google");
     expect(text).toContain("Pinterest");
@@ -134,80 +48,92 @@ describe("ConsentBanner", () => {
     expect(text.toLowerCase()).toContain("turn it off");
   });
 
-  it("links to the privacy notice from the banner itself", () => {
-    const { container } = render(() => <ConsentBanner />);
-    const link = bannerOf(container)!.querySelector<HTMLAnchorElement>('a[href="/privacy"]');
-    expect(link).not.toBeNull();
+  it("links to both legal pages from the prompt itself", () => {
+    const root = mount();
+    expect(root.querySelector('a[href="/privacy"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/terms"]')).not.toBeNull();
   });
 
-  it("publishes its height while it is up, and takes it away on a decision", () => {
-    // The hero's scroll cue rises by this height, so the banner never covers it.
-    const { container } = render(() => <ConsentBanner />);
-    const banner = bannerOf(container)!;
-    const observer = FakeResizeObserver.instances.find((o) => o.observed.has(banner));
-    expect(observer).toBeDefined();
-
-    observer!.resize(banner, 182.5);
-    expect(publishedHeight()).toBe("182.5px");
-
-    fireEvent.click(within(banner).getByText("Reject all"));
-    expect(bannerOf(container)).toBeNull();
-    expect(publishedHeight()).toBe("");
+  it("offers 'Accept necessary' first and highlighted, then 'Accept all' and 'Choose' alike", () => {
+    // Refusing must never be harder or quieter than accepting. Here it is the
+    // highlighted answer; the other two share one plainer style, so accepting
+    // can never be promoted above it by a tweak to one button.
+    const root = mount();
+    expect(buttonLabels(root)).toEqual(["Accept necessary", "Accept all", "Choose"]);
+    const necessary = buttonOf(root, "Accept necessary");
+    const all = buttonOf(root, "Accept all");
+    const choose = buttonOf(root, "Choose");
+    expect(all.className).toBe(choose.className);
+    expect(necessary.className).not.toBe(all.className);
   });
 
-  it("takes its height away while the preferences dialog replaces it", () => {
-    const { container } = render(() => <ConsentBanner />);
-    const banner = bannerOf(container)!;
-    FakeResizeObserver.instances.find((o) => o.observed.has(banner))!.resize(banner, 182.5);
+  it("records a refusal on 'Accept necessary' — writing a record, not just closing", () => {
+    fireEvent.click(buttonOf(mount(), "Accept necessary"));
 
-    fireEvent.click(within(banner).getByText("Choose"));
-    expect(publishedHeight()).toBe("");
+    const record = readConsentFromDocument();
+    expect(record).not.toBeNull();
+    expect(record!.grants.embeds).toBe(false);
+    expect(record!.grants.analytics).toBe(false);
+    // Necessary storage stays on — it is what remembers this very refusal.
+    expect(record!.grants.necessary).toBe(true);
+    expect(bannerOf(document.body)).toBeNull();
+    expect(prompt()).toBeNull();
   });
 
-  it("publishes nothing to a guest who already decided", () => {
-    seedConsentForTest({ embeds: true });
-    render(() => <ConsentBanner />);
-    expect(FakeResizeObserver.instances).toEqual([]);
-    expect(publishedHeight()).toBe("");
+  it("records every category on 'Accept all' and goes away", () => {
+    fireEvent.click(buttonOf(mount(), "Accept all"));
+
+    const record = readConsentFromDocument()!;
+    expect(record.grants.embeds).toBe(true);
+    expect(record.grants.analytics).toBe(true);
+    expect(record.grants.functional).toBe(true);
+    expect(bannerOf(document.body)).toBeNull();
+    expect(prompt()).toBeNull();
   });
-});
 
-/**
- * Below the `md` breakpoint the first-layer prompt is a modal dialog rather
- * than the bottom banner, so nothing sits over the invite's hero once the
- * guest has answered. jsdom has no `matchMedia`, which is why every test above
- * gets the banner; `mockViewport(false)` answers it as a phone. The gestures
- * themselves (Escape, a backdrop tap, focus) and the geometry are in
- * `ConsentBanner.browser.test.tsx`, where a real `<dialog>` exists.
- */
-describe("ConsentBanner on a phone", () => {
-  let restoreViewport: () => void = () => {};
+  it("stamps the decision with a timestamp and the current policy version", () => {
+    fireEvent.click(buttonOf(mount(), "Accept necessary"));
 
-  const prompt = () =>
-    [...document.querySelectorAll("dialog")].find(
-      (candidate) => candidate.querySelector("h2")?.textContent === "Privacy choices",
-    ) ?? null;
-
-  beforeEach(() => {
-    resetConsentForTest();
-    restoreViewport = mockViewport(false);
+    const record = readConsentFromDocument()!;
+    expect(Number.isNaN(Date.parse(record.decidedAt))).toBe(false);
+    expect(record.policy).toBeTruthy();
   });
+
+  it("hands over to the preferences dialog on 'Choose', leaving one dialog", () => {
+    // Two competing sets of answers on screen at once would be ambiguous about
+    // which one governs.
+    fireEvent.click(buttonOf(mount(), "Choose"));
+
+    expect(consentPreferencesOpen()).toBe(true);
+    expect(bannerOf(document.body)).toBeNull();
+    expect(prompt()).toBeNull();
+    expect(document.querySelectorAll("dialog")).toHaveLength(1);
+  });
+}
+
+describe("ConsentBanner as a dialog (every invite page)", () => {
+  beforeEach(resetConsentForTest);
 
   afterEach(() => {
     cleanup();
     resetConsentForTest();
-    restoreViewport();
   });
 
-  it("asks in a dialog, not the bottom banner", () => {
+  const mount = () => {
+    render(() => <ConsentBanner />);
+    return prompt()!;
+  };
+
+  sharedPromptContract(mount);
+
+  it("asks in a dialog, with no banner, at whatever width", () => {
     const { container } = render(() => <ConsentBanner />);
     expect(prompt()).not.toBeNull();
     expect(bannerOf(container)).toBeNull();
   });
 
   it("is named by its visible heading and described by the notice itself", () => {
-    render(() => <ConsentBanner />);
-    const panel = prompt()!;
+    const panel = mount();
     const heading = panel.querySelector(`#${cssEscape(panel.getAttribute("aria-labelledby")!)}`);
     expect(heading?.textContent).toBe("Privacy choices");
     const description = panel.querySelector(
@@ -216,77 +142,37 @@ describe("ConsentBanner on a phone", () => {
     expect(description?.textContent).toContain("Google");
   });
 
-  it("says the same thing as the banner, privacy link included", () => {
-    render(() => <ConsentBanner />);
-    const text = prompt()!.textContent ?? "";
-    expect(text).toContain("Google");
-    expect(text).toContain("Pinterest");
-    expect(text.toLowerCase()).toContain("switched on");
-    expect(text.toLowerCase()).toContain("turn it off");
-    expect(prompt()!.querySelector('a[href="/privacy"]')).not.toBeNull();
+  it("asks the browser not to close it on Escape or the back gesture", () => {
+    expect(mount().getAttribute("closedby")).toBe("none");
   });
 
-  it("offers reject first, then accept, then choose — reject styled exactly as accept", () => {
-    render(() => <ConsentBanner />);
-    const panel = prompt()!;
-    expect(buttonLabels(panel)).toEqual(["Reject all", "Accept all", "Choose"]);
-    const [reject, accept] = [...panel.querySelectorAll("button")];
-    expect(reject!.className).toBe(accept!.className);
-    expect(reject!.tagName).toBe(accept!.tagName);
+  it("refuses the cancel that Escape fires, where the browser lets it", () => {
+    const cancel = new Event("cancel", { cancelable: true });
+    mount().dispatchEvent(cancel);
+    expect(cancel.defaultPrevented).toBe(true);
   });
 
-  it("records a refusal on 'Reject all' and goes away", () => {
+  it("comes straight back if the browser closes it anyway, and records nothing", () => {
+    // A browser that allows a `cancel` to be refused only after the guest has
+    // interacted closes the dialog regardless, which `Modal` reports as
+    // `close`. Nothing but an answer may end the prompt.
     const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(prompt()!).getByText("Reject all"));
+    const first = prompt()!;
+    first.dispatchEvent(new Event("close"));
 
-    expect(readConsentFromDocument()!.grants.embeds).toBe(false);
-    expect(prompt()).toBeNull();
+    const second = prompt();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    expect(readConsentFromDocument()).toBeNull();
     expect(bannerOf(container)).toBeNull();
   });
 
-  it("records every category on 'Accept all' and goes away", () => {
-    render(() => <ConsentBanner />);
-    fireEvent.click(within(prompt()!).getByText("Accept all"));
-
-    expect(readConsentFromDocument()!.grants.embeds).toBe(true);
-    expect(prompt()).toBeNull();
-  });
-
-  it("publishes no banner height, so the hero's scroll cue stays where it rests", () => {
-    render(() => <ConsentBanner />);
-    expect(FakeResizeObserver.instances).toEqual([]);
-    expect(publishedHeight()).toBe("");
-  });
-
-  it("hands over to the preferences dialog on 'Choose', leaving one dialog", () => {
-    render(() => <ConsentBanner />);
-    fireEvent.click(within(prompt()!).getByText("Choose"));
-
-    expect(consentPreferencesOpen()).toBe(true);
-    expect(prompt()).toBeNull();
-    expect(document.querySelectorAll("dialog")).toHaveLength(1);
-  });
-
-  it("comes back as a dialog when the preferences dialog is dismissed", () => {
-    render(() => <ConsentBanner />);
-    fireEvent.click(within(prompt()!).getByText("Choose"));
-    document.querySelector("dialog")!.dispatchEvent(new Event("close"));
+  it("comes back when the preferences dialog is dismissed without saving", () => {
+    fireEvent.click(buttonOf(mount(), "Choose"));
+    dialog()!.dispatchEvent(new Event("close"));
 
     expect(consentPreferencesOpen()).toBe(false);
     expect(prompt()).not.toBeNull();
-  });
-
-  it("turns into the banner when dismissed, and records nothing", () => {
-    // Escape, Android's back gesture and a backdrop tap all reach `Modal`'s
-    // `onClose`. None of them is an answer, and under the opt-out defaults the
-    // notice is the guest's only sight of what is switched on, so it stays on
-    // screen — as the banner — until they give one.
-    const { container } = render(() => <ConsentBanner />);
-    prompt()!.dispatchEvent(new Event("close"));
-
-    expect(readConsentFromDocument()).toBeNull();
-    expect(prompt()).toBeNull();
-    expect(bannerOf(container)).not.toBeNull();
   });
 
   it("shows nothing to a guest who already decided", () => {
@@ -296,20 +182,64 @@ describe("ConsentBanner on a phone", () => {
     expect(bannerOf(container)).toBeNull();
   });
 
-  it("keeps the banner where the page asks for it", () => {
-    // The legal pages: the prompt links to `/privacy`, and a modal there would
-    // stand between the guest and the notice it links to.
-    const { container } = render(() => <ConsentBanner phone="banner" />);
-    expect(bannerOf(container)).not.toBeNull();
+  it("goes away on a page restored from the back/forward cache if the guest answered elsewhere", () => {
+    // The guest follows the prompt's privacy link, answers on that page and
+    // comes back: the browser shows this page as it was, dialog and all, and
+    // only `pageshow` says so.
+    render(() => <ConsentBanner />);
+    expect(prompt()).not.toBeNull();
+    writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
+
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+
     expect(prompt()).toBeNull();
+  });
+
+  it("does not re-read the cookie on an ordinary page show", () => {
+    render(() => <ConsentBanner />);
+    writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
+
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+
+    expect(prompt()).not.toBeNull();
+  });
+});
+
+describe("ConsentBanner as a banner (the legal pages)", () => {
+  beforeEach(resetConsentForTest);
+
+  afterEach(() => {
+    cleanup();
+    resetConsentForTest();
+  });
+
+  const mount = () => bannerOf(render(() => <ConsentBanner prompt="banner" />).container)!;
+
+  sharedPromptContract(mount);
+
+  it("shows the banner, and no dialog, to a guest who has not decided", () => {
+    expect(mount()).not.toBeNull();
+    expect(dialog()).toBeNull();
+  });
+
+  it("does NOT show the banner to a guest who already accepted", () => {
+    seedConsentForTest({ embeds: true });
+    expect(mount()).toBeNull();
+  });
+
+  it("does NOT show the banner to a guest who already REFUSED", () => {
+    // The behaviour that separates a consent prompt from a nag: a refusal is a
+    // decision and is remembered, so it is never re-asked on the next page load.
+    seedConsentForTest({ embeds: false });
+    expect(mount()).toBeNull();
   });
 });
 
 describe("ConsentPreferences dialog", () => {
   beforeEach(() => {
     resetConsentForTest();
-    const { container } = render(() => <ConsentBanner />);
-    fireEvent.click(within(bannerOf(container)!).getByText("Choose"));
+    render(() => <ConsentBanner />);
+    fireEvent.click(within(prompt()!).getByText("Choose"));
   });
 
   afterEach(() => {
@@ -484,7 +414,7 @@ describe("ConsentPreferencesLink", () => {
   it("renders only ONE dialog when a banner is also on the page", () => {
     // Two hosts each rendering their own dialog would give the guest two
     // independent drafts, and whichever was saved last would silently win.
-    render(() => <ConsentBanner />);
+    render(() => <ConsentBanner prompt="banner" />);
     const { getByText } = render(() => <ConsentPreferencesLink />);
 
     fireEvent.click(getByText("Privacy choices"));

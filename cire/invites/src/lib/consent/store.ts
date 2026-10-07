@@ -74,7 +74,7 @@ function clearLegacyPinterestConsent(): void {
 
 /**
  * Read the persisted decision into the store. Idempotent and safe to call from
- * every island that needs consent, so a gate works on a page whose banner
+ * every island that needs consent, so a gate works on a page whose prompt
  * hasn't mounted (or was never placed).
  */
 export function hydrateConsent(): void {
@@ -82,7 +82,7 @@ export function hydrateConsent(): void {
   clearLegacyPinterestConsent();
   // Move an already-decided guest onto the `__Host-` name before reading. It
   // has to happen here, on the read path, because the write path never runs
-  // again for them: their stored choice reads back fine, so the banner stays
+  // again for them: their stored choice reads back fine, so the prompt stays
   // away and nothing would ever perform the migration write. Without that
   // move, a script on a sibling *.cireweddings.com origin could set a
   // same-named Domain-scoped cookie and silently override a guest's stored
@@ -93,10 +93,21 @@ export function hydrateConsent(): void {
   setHydrated(true);
 }
 
+/**
+ * Read the persisted decision again, for a page the browser has restored from
+ * its back/forward cache: the guest may have answered on another page since
+ * this one was last shown, and a restored page runs no hydration of its own.
+ * Does nothing before {@link hydrateConsent} has run.
+ */
+export function refreshConsentFromDocument(): void {
+  if (!hydrated()) return;
+  setRecord(readConsentFromDocument());
+}
+
 /** The stored decision, or `null` if the guest hasn't made one. */
 export const consentRecord = record;
 
-/** Has the persisted decision been read yet? Gates the banner's first paint. */
+/** Has the persisted decision been read yet? Gates the prompt's first paint. */
 export const consentHydrated = hydrated;
 
 /**
@@ -116,9 +127,9 @@ export function isCategoryGranted(category: ConsentCategory): boolean {
 }
 
 /**
- * Should the first-layer banner be shown? Only once we've actually read the
+ * Should the first-layer prompt be shown? Only once we've actually read the
  * cookie and found no decision — otherwise a returning guest who already chose
- * would see the banner flash on every page load.
+ * would see the prompt flash on every page load.
  */
 export function needsConsentDecision(): boolean {
   return hydrated() && record() === null;
@@ -193,8 +204,9 @@ function revokeNeedsReload(previous: ConsentGrants, next: ConsentGrants): boolea
  * ever ran, there is nothing to tear down and the reload is pure cost — and
  * that is the COMMON path, not the rare one: both gated vendors (the Pinterest
  * board and the Google Maps preview) mount only inside a click-opened event
- * details sheet, while the banner appears immediately, so a guest who lands and
- * presses "Reject all" has almost never opened one. Reloading them would spend
+ * details sheet, while the first-layer prompt appears immediately — on the
+ * invite's pages as a dialog that holds the page until it is answered — so a
+ * guest who answers it has almost never opened one. Reloading them would spend
  * a full document load, every island's hydration and a re-fetch of the invite
  * to clear nothing at all.
  *
@@ -227,10 +239,10 @@ export function noteGatedContentLoaded(category: ConsentCategory, vendorId: stri
  * an embed that runs inside its own iframe that is a full teardown. For one
  * whose script ran in this page, it only stops FURTHER requests: the globals
  * it set, the listeners it attached and the timers it started stay live for
- * the rest of the visit. Under the opt-out defaults this is the common case,
- * not an edge one: the banner appears after the gated embeds have already
- * loaded, so "Reject all" is nearly always clicked with a third-party context
- * already running.
+ * the rest of the visit. Under the opt-out defaults that is what a guest who
+ * opened an event's details sheet and later switches a category off from the
+ * preferences dialog has: the embeds loaded by default, so a third-party
+ * context is already running when they refuse.
  *
  * The only clean teardown for that is a reload. It stops the vendor's code; it
  * does not clear storage the vendor already wrote. It is gated on three
@@ -267,11 +279,12 @@ export function acceptAllConsent(): void {
 }
 
 /**
- * "Reject all" — required categories only. Note this still writes a record:
- * refusing is a decision, and persisting it is what stops us asking again. A
- * banner that reappeared after a refusal would be nagging the guest into
- * consent, which is the behaviour the "reject must be as easy as accept" rule
- * exists to prevent.
+ * "Accept necessary" in the first-layer prompt, "Reject all" in the
+ * preferences dialog — required categories only. Note this still writes a
+ * record: refusing is a decision, and persisting it is what stops us asking
+ * again. A prompt that reappeared after a refusal would be nagging the guest
+ * into consent, which is the behaviour the "refusing is never harder than
+ * accepting" rule exists to prevent.
  */
 export function rejectAllConsent(): void {
   saveConsent(defaultGrants());
@@ -310,9 +323,9 @@ export function grantCategory(category: ConsentCategory): void {
  * Dialog-host arbitration.
  *
  * More than one component can offer a route into the preferences dialog — the
- * banner, the footer's standing "privacy choices" link, the button on a blocked
- * embed — and each of them needs the dialog to appear when its own page has no
- * banner. If each simply rendered the dialog, a page carrying two of them would
+ * first-layer prompt, the footer's standing "privacy choices" link, the button
+ * on a blocked embed — and each of them needs the dialog to appear when its own
+ * page has no prompt. If each simply rendered the dialog, a page carrying two of them would
  * open two stacked copies with two independent drafts, and whichever was saved
  * last would silently win.
  *

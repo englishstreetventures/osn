@@ -1,6 +1,6 @@
 import Button from "@cire/ui/button";
 import { Modal } from "@shared/ui/ui/modal";
-import { type Accessor, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
 import {
   acceptAllConsent,
@@ -9,69 +9,38 @@ import {
   hydrateConsent,
   needsConsentDecision,
   openConsentPreferences,
+  refreshConsentFromDocument,
   rejectAllConsent,
 } from "../../lib/consent/store";
 import { Z_CLASS } from "../../lib/z-index";
-import { publishBannerHeight } from "./banner-height";
 import { ConsentPreferences } from "./ConsentPreferences";
-
-/**
- * The width from which the first-layer prompt is the bottom banner: Tailwind's
- * `md` breakpoint, 48rem. Below it the app treats the screen as a phone — the
- * hero swaps in its phone image, and every sheet is bottom-anchored — and the
- * prompt is a modal dialog instead. `@cire/ui`'s dietary picker forks on the
- * same query. `rem` in a media query is the initial 16px, so the root's step
- * to 17px at 1024px does not move it.
- */
-const WIDE_QUERY = "(min-width: 48rem)";
-
-/**
- * Whether the window is at least {@link WIDE_QUERY} wide, kept current as it is
- * resized or rotated. Wide where `matchMedia` does not exist (jsdom, the
- * server), which is the banner — and the server renders no prompt at all,
- * since none is owed until the cookie has been read.
- */
-function createIsWide(): Accessor<boolean> {
-  const [wide, setWide] = createSignal(true);
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return wide;
-  const query = window.matchMedia(WIDE_QUERY);
-  setWide(query.matches);
-  const onChange = (event: MediaQueryListEvent) => setWide(event.matches);
-  query.addEventListener("change", onChange);
-  onCleanup(() => query.removeEventListener("change", onChange));
-  return wide;
-}
 
 interface ConsentBannerProps {
   /**
-   * How the prompt asks below the `md` breakpoint. `"modal"` (the default) is
-   * a dialog, so nothing is left over the page once the guest has answered.
-   * `"banner"` keeps the bottom banner at every width: the legal pages pass
-   * it, because the prompt links to `/privacy` and a modal there would stand
-   * between the guest and the notice it links to.
+   * The form the first-layer prompt takes. `"dialog"` (the default) is a
+   * modal the guest must answer, so nothing is left over the page once they
+   * have. `"banner"` is a bar along the bottom of the screen that leaves the
+   * page readable: the legal pages pass it, because the prompt links to them
+   * and a modal there would stand between the guest and the notice they came
+   * to read before deciding.
    */
-  phone?: "modal" | "banner";
+  prompt?: "dialog" | "banner";
 }
 
 /**
  * The site-wide consent surface: the first-layer prompt plus the preferences
  * dialog it opens. Mounted once per document shell (each design's
- * `Document.astro`, the gift registry, the legal layout, and the 404 page) as
+ * `Document.astro`, the gift registry, the 404 page, and the legal layout) as
  * a `client:idle` island, so it costs the invite's first paint nothing.
  *
  * ## Two forms of one prompt
  *
- * From the `md` breakpoint up the prompt is the banner fixed to the bottom of
- * the screen. Below it, it is a modal dialog: a banner on a phone covers the
- * bottom of the invite's hero, which is where the gala pack sets the couple's
- * name. Both say the same words through the same components, so they cannot
- * drift apart.
- *
- * A dismissal of the dialog — Escape, Android's back gesture, a tap on the
- * backdrop — is not an answer. It records nothing, and the prompt carries on
- * as the banner for the rest of the page view, at every width: the optional
- * categories are on by default, so this notice is the guest's only sight of
- * that, and it stays until they decide.
+ * On the invite's pages the prompt is a modal dialog at every width, and the
+ * guest answers it before the page is theirs: Escape, the back gesture and a
+ * tap outside it do nothing to it. Once answered it is gone, and nothing sits
+ * over the invite's hero. On the legal pages it is a banner along the bottom
+ * of the screen. Both say the same words through the same components, so
+ * they cannot drift apart.
  *
  * ## Why the prompt is not shown until the cookie has been read
  *
@@ -83,46 +52,60 @@ interface ConsentBannerProps {
  * required-only floor until the same hydration completes, whatever the
  * opt-out defaults say.
  *
+ * A page the browser brings back from its back/forward cache reads the cookie
+ * again, because the guest may have answered on the page they are coming back
+ * from — the privacy notice, most likely, which the prompt links to.
+ *
  * ## The prompt has to be honest that things are already on
  *
  * The optional categories are opt-out (see `lib/consent/categories.ts`), so by
  * the time a guest reads this prompt the venue map and the moodboard are
- * already loading. The copy therefore states that plainly and names the two
- * companies, rather than asking a question whose answer has been assumed. A
- * prompt that said "may we?" while the request had already gone would be the
+ * already allowed to load. The copy therefore states that plainly and names the
+ * two companies, rather than asking a question whose answer has been assumed.
+ * A prompt that said "may we?" while the request had already gone would be the
  * worst of both postures: no prior consent AND a misleading account of it.
  *
  * ## The three actions
  *
- * "Accept all" and "Reject all" are rendered as visual peers, and a refusal is
- * a single click from exactly the same place as an acceptance. Making refusal
- * slower, quieter or more buried than acceptance is the standard way a consent
- * prompt stops collecting consent and starts manufacturing it, and it is worth
- * being explicit that this one does not: same size, same row, same styling, in
- * both forms. That matters more under opt-out, not less — the off switch is
- * the only thing a guest who disagrees with the default actually has.
+ * "Accept necessary" — required storage only, everything optional off — is
+ * the highlighted answer and comes first; "Accept all" and "Choose" sit beside
+ * it, plainer. Refusing is never harder or quieter than accepting here: it is
+ * the easiest thing on the prompt. Under opt-out that matters more, not less —
+ * the off switch is the only thing a guest who disagrees with the default
+ * actually has.
  */
 export function ConsentBanner(props: ConsentBannerProps) {
   onMount(hydrateConsent);
+  onMount(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) refreshConsentFromDocument();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    onCleanup(() => window.removeEventListener("pageshow", onPageShow));
+  });
   const host = claimConsentDialogHost();
   onCleanup(host.release);
 
-  const wide = createIsWide();
-  const [dismissed, setDismissed] = createSignal(false);
-  const asDialog = () => props.phone !== "banner" && !wide() && !dismissed();
+  /**
+   * Bumped when the platform closes the prompt's dialog without an answer, to
+   * mount a fresh one; see {@link PromptDialog}. Starts at 1 because the
+   * keyed `Show` below reads it as its condition.
+   */
+  const [attempt, setAttempt] = createSignal(1);
   // The prompt hides while the preferences dialog is open — that dialog
-  // supersedes it and carries its own Accept/Reject actions, so showing both
-  // would leave two competing sets of controls on screen.
+  // supersedes it and carries its own answers, so showing both would leave
+  // two competing sets of controls on screen.
   const prompting = () => needsConsentDecision() && !consentPreferencesOpen();
+  const asBanner = () => props.prompt === "banner";
 
   return (
     <>
-      <Show when={prompting() && !asDialog()}>
+      <Show when={prompting() && asBanner()}>
         <BannerPanel />
       </Show>
 
-      <Show when={prompting() && asDialog()}>
-        <PromptDialog onDismiss={() => setDismissed(true)} />
+      <Show when={prompting() && !asBanner() && attempt()} keyed>
+        {(_attempt) => <PromptDialog onClosedUnanswered={() => setAttempt((n) => n + 1)} />}
       </Show>
 
       <Show when={consentPreferencesOpen() && host.owns()}>
@@ -132,20 +115,10 @@ export function ConsentBanner(props: ConsentBannerProps) {
   );
 }
 
-/**
- * The first-layer banner itself. Its own component so that its height is
- * published (`banner-height.ts`) exactly while it is mounted: the `Show` above
- * disposes it on a decision and while the preferences dialog is open, and the
- * published height goes with it. The prompt's dialog form publishes nothing,
- * so on a phone the hero's scroll cue stays where it rests.
- */
+/** The prompt as a bar along the bottom of the screen, for the legal pages. */
 function BannerPanel() {
-  let panel!: HTMLElement;
-  onMount(() => publishBannerHeight(panel));
-
   return (
     <section
-      ref={panel}
       aria-label="Privacy choices"
       class={`fixed inset-x-0 bottom-0 ${Z_CLASS.CONSENT} border-border bg-bg/95 border-t px-5 py-4 backdrop-blur-sm`}
     >
@@ -158,32 +131,38 @@ function BannerPanel() {
 }
 
 /**
- * The prompt as a modal dialog, for a phone.
+ * The prompt as a modal dialog the guest has to answer.
  *
- * Mounted and unmounted by the `Show` in {@link ConsentBanner}, with `open`
- * always true — the form `Modal`'s own notes warn loses the exit animation.
- * Chosen anyway, as `ConsentPreferences` is: "Choose" swaps this dialog for
- * the preferences one in a single update, and unmounting closes this one
- * before the other calls `showModal()`, so there is never a second modal
- * dialog in the top layer — one fading out while the guest uses the other.
- * An answer therefore closes it without the exit; the entry still plays.
+ * Nothing but an answer closes it. `closedby="none"` tells the browser that
+ * Escape and the back gesture do not close it — the back gesture goes back a
+ * page, as it does anywhere else. Where `closedby` is not supported, the
+ * `cancel` that Escape fires is refused instead, and where the browser will
+ * not let it be refused (it allows that only after the guest has interacted
+ * with the page), the dialog closes and `onClose` mounts a fresh one at once.
+ * `dismissable={false}` makes a tap on the backdrop do nothing.
  *
- * `onClose` reaches here only for a dismissal (Escape, the back gesture, a
- * backdrop tap): an unmount does not fire it.
+ * Mounted and unmounted by a `Show`, with `open` always true — the form
+ * `Modal`'s own notes warn loses the exit animation. Chosen anyway, as
+ * `ConsentPreferences` is: "Choose" swaps this dialog for the preferences one
+ * in a single update, and unmounting closes this one before the other calls
+ * `showModal()`, so there is never a second modal dialog in the top layer.
+ * An unmount does not fire `onClose`, so an answer never reopens it.
  *
- * The heading takes the initial focus. Never "Accept all" or "Reject all" —
- * focus resting on one of them is a nudge — and never the privacy link, where
- * a stray Enter would leave the page. A screen reader hears the dialog's name
- * and the notice first.
+ * The heading takes the initial focus. Never an answer — focus resting on one
+ * is a nudge — and never a link, where a stray Enter would leave the page. A
+ * screen reader hears the dialog's name and the notice first.
  */
-function PromptDialog(props: { onDismiss: () => void }) {
+function PromptDialog(props: { onClosedUnanswered: () => void }) {
   const titleId = createUniqueId();
   const copyId = createUniqueId();
 
   return (
     <Modal
       open
-      onClose={props.onDismiss}
+      onClose={props.onClosedUnanswered}
+      dismissable={false}
+      closedby="none"
+      onCancel={(event) => event.preventDefault()}
       labelledBy={titleId}
       aria-describedby={copyId}
       presentation="sheet"
@@ -210,7 +189,11 @@ function PromptDialog(props: { onDismiss: () => void }) {
   );
 }
 
-/** What the prompt says, in either form. */
+/**
+ * What the prompt says, in either form. It links to both legal pages because
+ * the dialog form blocks the footer that otherwise carries them; both pages
+ * show the banner, never the dialog.
+ */
 function PromptCopy(props: { id?: string }) {
   return (
     <p id={props.id} class="font-body text-text-muted text-ui-sm leading-relaxed">
@@ -220,32 +203,35 @@ function PromptCopy(props: { id?: string }) {
       <a href="/privacy" class="text-gold-ink underline underline-offset-2">
         Privacy notice
       </a>
+      {" · "}
+      <a href="/terms" class="text-gold-ink underline underline-offset-2">
+        Terms
+      </a>
     </p>
   );
 }
 
-/** The three answers, in either form: refusal first, beside acceptance. */
+/**
+ * The three answers, in either form. "Accept necessary" is the highlighted
+ * one, in the guest site's call-to-action style (`cta`: a gold outline whose
+ * ink the palette derivation holds at 4.5:1, filling on hover). The other two
+ * share the plainer `quiet` style. A button filled at rest is deliberately
+ * not used: the derivation only holds the gold fill at 3:1 against the page
+ * ground, too little for small text in the ground's colour.
+ */
 function PromptActions() {
   return (
     <div class="flex shrink-0 flex-wrap gap-2">
-      <BannerButton onClick={rejectAllConsent}>Reject all</BannerButton>
-      <BannerButton onClick={acceptAllConsent}>Accept all</BannerButton>
-      <BannerButton onClick={openConsentPreferences}>Choose</BannerButton>
+      <Button variant="cta" size="sm" onClick={rejectAllConsent}>
+        Accept necessary
+      </Button>
+      <Button variant="quiet" size="sm" onClick={acceptAllConsent}>
+        Accept all
+      </Button>
+      <Button variant="quiet" size="sm" onClick={openConsentPreferences}>
+        Choose
+      </Button>
     </div>
-  );
-}
-
-/**
- * All three prompt actions share one component and therefore one set of styles.
- * That is the point: it makes it structurally awkward to give "Accept all" a
- * visual advantage over "Reject all" in a later tweak, because doing so means
- * deliberately breaking them apart rather than quietly passing a `primary` prop.
- */
-function BannerButton(props: { onClick: () => void; children: string }) {
-  return (
-    <Button variant="cta" size="sm" onClick={props.onClick}>
-      {props.children}
-    </Button>
   );
 }
 

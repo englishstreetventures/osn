@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-03
+last-reviewed: 2026-10-07
 ---
 # Site-wide consent framework
 
@@ -61,7 +61,7 @@ it, and an unused toggle is a claim we'd have to keep true.
 | `analytics` | no |
 
 `embeds` and `functional` are **opt-out**: they apply to a guest who hasn't
-decided, and the banner's job is to say so and offer the off switch. That is a
+decided, and the first-layer prompt's job is to say so and offer the off switch. That is a
 product decision for a private wedding invite — the venue map and the moodboard
 are content the couple put there for their guests — and it sits within the
 Australian framing the privacy notice sets out. It is **not** the ePrivacy
@@ -78,7 +78,7 @@ told it existed.
 
 | Function | Meaning |
 |---|---|
-| `defaultGrants()` | **The floor.** Required only. What "Reject all" writes, AND what applies before the cookie has been read. |
+| `defaultGrants()` | **The floor.** Required only. What "Accept necessary" (the preferences dialog's "Reject all") writes, AND what applies before the cookie has been read. |
 | `preDecisionGrants()` | **Unasked.** The opt-out defaults above. |
 | `allGrants()` | Everything. What "Accept all" writes. |
 
@@ -105,8 +105,7 @@ Two traps this separation exists to avoid:
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
 | `lib/consent/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
 | `components/consent/ConsentGate.tsx` | The wrapper + the default blocked-content placeholder. |
-| `components/consent/ConsentBanner.tsx` | The first-layer prompt — a bottom banner, or a modal dialog on a phone — and the standing `ConsentPreferencesLink`. |
-| `components/consent/banner-height.ts` | Publishes the banner's height on `<html>` while it is up (see below). |
+| `components/consent/ConsentBanner.tsx` | The first-layer prompt — a dialog on the invite's pages, a bottom banner on the legal pages — and the standing `ConsentPreferencesLink`. |
 | `components/consent/ConsentPreferences.tsx` | The "Choose" dialog. |
 
 ## The vendor registry is the source of truth
@@ -127,7 +126,7 @@ undeclared transfer (silent, and the one that matters).
    `vendors.test.ts` fails until you do.
 3. Wrap the component in `<ConsentGate category="…" vendor="…">`. If it lands in
    a category that is on by default, it starts loading for everyone — check that
-   is what you want, and that the banner copy still names it.
+   is what you want, and that the prompt's copy still names it.
 4. Bump `CONSENT_POLICY_VERSION` in `record.ts` (this re-prompts everyone — see
    below).
 5. Add a row to the root `[[compliance/subprocessors]]` register.
@@ -194,7 +193,7 @@ actually exists — so two writes end the ambiguity rather than out-running it:
 
 The second is the one that matters, and it is not belt-and-braces. `saveConsent`
 runs only when a guest touches the consent UI, and a guest who has already
-decided is exactly the one the banner never shows again — their stored choice
+decided is exactly the one the prompt never shows again — their stored choice
 reads back fine through the bare-name fallback, so `needsConsentDecision()`
 stays false and nothing would ever perform the secure write. Without a migration
 on the READ path, their refusal would stay shadowable for the cookie's full 182
@@ -226,9 +225,9 @@ doesn't render children, it disposes them, so no further request escapes. For
 an embed that runs in its own iframe, that is a full teardown. For one whose
 script ran in the invite page, it is not: the globals it set, the listeners it
 attached and the timers it started stay live after the DOM node is gone. Under
-the opt-out defaults this is not an edge case: where a gated embed HAS loaded,
-the banner appeared after it, so "Reject all" is clicked with a third-party
-context already live.
+the opt-out defaults the embeds load for a guest who has not refused, so a
+guest who opened an event's details sheet and later switches a category off
+from the preferences dialog does so with a third-party context already live.
 
 `saveConsent` (`store.ts`) reloads the page — `location.reload()`, via an
 injectable module-level `reloadPage` reference so tests can substitute a spy.
@@ -244,8 +243,8 @@ already written. Three conditions gate it, all load-bearing:
    category, the one whose revoke unmounts the embed. Two cases skip the reload.
    A guest who saw only the map loses nothing to a plain unmount. And both gated
    vendors mount only inside a click-opened event details sheet, while the
-   banner appears immediately, so a guest who lands and presses "Reject all"
-   has usually opened neither. A reload in either case would spend a full
+   first-layer prompt holds the invite until it is answered, so a guest who
+   answers it has almost never opened either. A reload in either case would spend a full
    document load, every island's hydration and a re-fetch of the invite to
    clear nothing. The record is a plain module-level `Map`, not a signal:
    nothing renders from it, and it resets on reload, which is exactly right,
@@ -280,8 +279,8 @@ reload takes back what a vendor received or stored. That is the short form;
 ### `null` vs "refused everything"
 
 The distinction the design turns on. `null` (no record) means **never asked** →
-show the banner. A record with every optional grant `false` means **refused** →
-never re-ask. A banner that reappeared after a refusal would be nagging the
+show the prompt. A record with every optional grant `false` means **refused** →
+never re-ask. A prompt that reappeared after a refusal would be nagging the
 guest towards consent.
 
 ## Hydration rule
@@ -290,45 +289,49 @@ guest towards consent.
 from `onMount`. This keeps the server-rendered markup and the first client
 render identical (both show the un-consented state), and nothing third-party can
 load in the gap because gates deny until the same hydration completes. Every
-gate calls `hydrateConsent` itself rather than depending on a banner having
+gate calls `hydrateConsent` itself rather than depending on a prompt having
 mounted first.
 
 ## UI rules that are not negotiable
 
-- **The prompt is a banner, or on a phone a modal dialog.** From Tailwind's
-  `md` breakpoint (48rem, the width at which the invite's hero swaps its
-  phone image for the desktop one) the first-layer prompt is the banner fixed
-  to the bottom of the screen. Below it, the prompt is an `@shared/ui` `Modal`
-  sheet, so nothing is left over the invite's hero once the guest has
-  answered: a banner on a phone covers the bottom of the hero, where the gala
-  pack sets the couple's name. Both forms render the same copy, privacy link
-  and buttons through the same components. A `matchMedia` listener keeps the
-  choice current as the window is resized or rotated.
-  - **A dismissal is not an answer.** Escape, Android's back gesture or a tap
-    on the backdrop closes the dialog and records nothing. The prompt then
-    carries on as the banner for the rest of the page view, at every width,
-    so the notice and the off switch stay on screen until the guest decides.
-    The next page load opens with the dialog again. There is no close button:
-    a "×" beside the answers reads as a fourth answer.
-  - **The dialog opens on its heading.** Focus never starts on "Accept all" or
-    "Reject all", which would be a nudge, nor on the privacy link, where a
-    stray Enter would leave the page.
-  - **The legal pages keep the banner on a phone.** `LegalLayout.astro`
-    passes `phone="banner"`: the prompt's "Privacy notice" link lands there,
-    and a modal would stand between the guest and the notice they came to
-    read.
+- **On the invite's pages the prompt is a dialog the guest must answer.**
+  The first-layer prompt is an `@shared/ui` `Modal` sheet at every width on
+  both designs' pages, the gift registry and the 404 page. Nothing but an
+  answer closes it, so once answered nothing is left over the invite's hero.
+  - `closedby="none"` keeps Escape and the back gesture away from it in
+    browsers that support the attribute — the back gesture goes back a page,
+    as it does anywhere else. Elsewhere the `cancel` that Escape fires is
+    refused, and where the browser will not allow that (it does only after
+    the guest has interacted), the dialog closes and a fresh one opens at
+    once. A tap on the backdrop does nothing (`dismissable={false}`). There is
+    no close button.
+  - **It opens on its heading.** Focus never starts on an answer, which would
+    be a nudge, nor on a link, where a stray Enter would leave the page.
+  - **It links to both legal pages,** because it blocks the footer that
+    otherwise carries them. The legal pages show the banner, never the
+    dialog, so the guest can read the notice before deciding.
+  - **A page restored from the back/forward cache reads the cookie again**
+    (`refreshConsentFromDocument` on `pageshow`), so a guest who answered on
+    the privacy notice and pressed back is not asked a second time.
+- **On the legal pages the prompt is a banner.** `LegalLayout.astro` passes
+  `prompt="banner"`: the prompt links there, and a dialog would stand between
+  the guest and the notice they came to read. The banner is fixed to the
+  bottom of the screen at every width and leaves the page readable.
 - **The prompt states that things are already on.** It names Google and
   Pinterest and says the content is switched on with an offer to turn it off,
   rather than posing a question whose answer has been assumed. Asserted by test.
-- **Reject is as easy as accept.** All three prompt actions, in both forms,
-  render through one `BannerButton` component, so they carry identical styling
-  by construction — making accept "primary" would mean deliberately breaking
-  them apart. `ConsentBanner.test.tsx` asserts the classNames match, and
-  `ConsentBanner.browser.test.tsx` that the dialog paints "Reject all" first,
-  on the same row as "Accept all", at the same height and in the same colours
-  at 320 and 390px. This matters *more*
-  under opt-out, not less: the off switch is the only thing a guest who
-  disagrees with the default actually has.
+- **Refusing is never harder than accepting.** "Accept necessary" — required
+  storage only, everything optional off — is the highlighted answer and comes
+  first, in the guest site's call-to-action style (`cta`). "Accept all" and
+  "Choose" follow in one plainer style (`quiet`), so accepting can never be
+  promoted above refusing by a tweak to one button. Both forms render the same
+  three buttons. `ConsentBanner.test.tsx` asserts the order and the classes,
+  and `ConsentBanner.browser.test.tsx` that the dialog paints them that way at
+  320, 390 and 1440px. Neither style fills with gold at rest: the palette
+  derivation holds the gold fill at only 3:1 against the page ground, too
+  little for small text, while the ink of both styles is held at 4.5:1. This
+  matters *more* under opt-out, not less: the off switch is the only thing a
+  guest who disagrees with the default actually has.
 - **Rendering never writes a record.** The defaults apply without fabricating a
   decision, so the prompt keeps appearing until the guest genuinely makes one.
   An implied consent silently promoted to a stored, timestamped one would cost
@@ -340,37 +343,21 @@ mounted first.
   switch to see what it covers and then closes the dialog has granted nothing.
 - **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
-- **The dialogs reach above the details sheet. The banner does not.** The sheet
-  is a `showModal()` dialog, so it renders in the **top layer**, which no
-  `z-index` reaches — see [[wiki/shared/component-library]] §What has to
-  sit above a modal, and [[top-layer-over-z-index-stack]] for why the guest
-  site's scale ranks nothing against a sheet.
-  - The **preferences dialog** is a `showModal()` dialog too, so opening it from
-    a blocked embed inside the sheet makes it the blocking dialog and the sheet
-    goes inert beneath it. It carries no `z-index` because it has nothing to
-    rank against. The same holds for the prompt's own dialog on a phone: if it
-    arrives while a sheet is already open, it opens above the sheet.
-  - The **banner** (a wide screen, the legal pages, or a phone after a dismissed
-    dialog) is not a dialog and carries `Z_LAYER.CONSENT` (200), so while
-    a sheet is open it is painted underneath and is `inert`: not clickable, not
-    announced. It returns the moment the sheet closes. The guest is not locked
-    out — Escape or the sheet's own close reaches it — but an undecided guest
-    looking at a third-party embed *inside* the sheet has no consent affordance
-    in front of them unless the category is already off, which is what puts a
-    `<ConsentGate>` placeholder there. Tracked in `englishstventures/osn#1061`.
-
-- **The banner publishes its height.** While the first-layer banner is on
-  screen it keeps `--consent-banner-height` on `<html>` equal to its own
-  height, through a `ResizeObserver` (its copy wraps differently at every
-  width and again once the fonts land), and removes it the moment it goes: on
-  a decision, or when the preferences dialog replaces it. Anything that must
-  not sit under the banner reads that property. The hero's scroll cue rises by
-  it ([[cire-invite-designs#The hero scroll cue]]). The prompt's dialog form
-  publishes nothing, so on a phone the cue stays at rest. The islands share
-  nothing else for this: the property is the whole contract.
+- **The consent dialogs reach above the details sheet.** The sheet is a
+  `showModal()` dialog, so it renders in the **top layer**, which no `z-index`
+  reaches — see [[wiki/shared/component-library]] §What has to sit above a
+  modal, and [[top-layer-over-z-index-stack]] for why the guest site's scale
+  ranks nothing against a sheet. The first-layer prompt and the preferences
+  dialog are `showModal()` dialogs too, and carry no `z-index` because they
+  have nothing to rank against. An undecided guest cannot open a sheet: the
+  prompt holds the page until it is answered, and if it arrives while a sheet
+  is already open it opens above it. Opening the preferences dialog from a
+  blocked embed inside the sheet makes it the blocking dialog and the sheet
+  goes inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
+  appears only on the legal pages, which have no sheets.
 
 Only one mounted component renders the dialog at a time
-(`claimConsentDialogHost`), or a page with both a banner and a footer link would
+(`claimConsentDialogHost`), or a page with both a prompt and a footer link would
 open two stacked copies with two independent drafts.
 
 ## Legacy migration
@@ -383,11 +370,12 @@ once more — the honest cost of consolidating the gates.
 
 ## Where it's mounted
 
-`<ConsentBanner client:idle />` in four document shells:
+`<ConsentBanner client:idle />`, the dialog, in four document shells:
 `designs/classic/Document.astro`, `designs/gala/Document.astro`,
 `components/gift-registry/GiftRegistryDocument.astro` and
 `components/NotFoundDocument.astro`. The fifth, `layouts/LegalLayout.astro`,
-mounts `<ConsentBanner client:idle phone="banner" />` (see the UI rules above).
+mounts the banner, `<ConsentBanner client:idle prompt="banner" />` (see the UI
+rules above).
 `tests/layouts/legal-layout.test.ts` reads the five shells as text and fails
 if either form moves.
 

@@ -79,8 +79,8 @@ const VARIANT = {
   /**
    * Outline at rest, primary on hover — the guest site's call to action, at
    * nine call sites across `@cire/invites` and `@cire/landing`: the claim-code
-   * submit, the RSVP commit, both gift-registry actions, the consent banner's
-   * accept.
+   * submit, the RSVP commit, both gift-registry actions, the consent prompt's
+   * "Accept necessary".
    *
    * Not a second `outline`. An invite is restrained enough that a solid gold
    * fill at rest would be the loudest thing on a page whose job is a

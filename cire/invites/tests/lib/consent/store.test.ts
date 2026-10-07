@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CONSENT_COOKIE_NAME } from "../../../src/lib/consent/cookie";
-import { allGrants, defaultGrants } from "../../../src/lib/consent/record";
+import { CONSENT_COOKIE_NAME, writeConsentToDocument } from "../../../src/lib/consent/cookie";
+import { allGrants, defaultGrants, makeConsentRecord } from "../../../src/lib/consent/record";
 import {
   acceptAllConsent,
+  consentRecord,
   hydrateConsent,
+  needsConsentDecision,
   noteGatedContentLoaded,
+  refreshConsentFromDocument,
   rejectAllConsent,
   saveConsent,
   setReloadPageForTest,
@@ -248,5 +251,35 @@ describe("saveConsent — reload on granted → revoked", () => {
     saveConsent(allGrants());
 
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A page the browser restores from its back/forward cache runs no hydration of
+ * its own, so the store would keep the decision it read when the page was
+ * first shown — "none", for a guest who then answered on the privacy notice
+ * and came back.
+ */
+describe("refreshConsentFromDocument", () => {
+  beforeEach(resetConsentForTest);
+  afterEach(resetConsentForTest);
+
+  it("picks up a decision written since the store was hydrated", () => {
+    hydrateConsent();
+    expect(needsConsentDecision()).toBe(true);
+
+    writeConsentToDocument(makeConsentRecord(defaultGrants(), new Date()));
+    refreshConsentFromDocument();
+
+    expect(needsConsentDecision()).toBe(false);
+    expect(consentRecord()?.grants.embeds).toBe(false);
+  });
+
+  it("does nothing before the first hydration, which still holds the floor", () => {
+    writeConsentToDocument(makeConsentRecord(allGrants(), new Date()));
+    refreshConsentFromDocument();
+
+    expect(consentRecord()).toBeNull();
+    expect(needsConsentDecision()).toBe(false);
   });
 });

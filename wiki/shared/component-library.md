@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-07
 ---
 
 # Component Library (Zaidan)
@@ -555,6 +555,25 @@ has to sit _below_ them or the rows stop reading as rows, and
 is what holds that.
 
 `DialogContent` takes the same `sheet`, for the Kobalte-backed dialog.
+
+#### A dialog that only an answer closes
+
+`Modal` closes on Escape and on a backdrop click by default, and that is right
+for nearly every dialog. A dialog the user must answer — cire's first-visit
+consent prompt, in
+[`ConsentBanner.tsx`](../../cire/invites/src/components/consent/ConsentBanner.tsx),
+is the one call site — takes four things together, because no one of them
+covers every browser:
+
+| Prop on `Modal` | What it stops |
+| --- | --- |
+| `dismissable={false}` | The backdrop click, which `Modal` handles itself |
+| `closedby="none"` | Escape and the back gesture, in browsers that support the attribute; the request never reaches the dialog, so the back gesture goes back a page instead |
+| `onCancel={(e) => e.preventDefault()}` | Escape where `closedby` is unsupported, by refusing the `cancel` it fires |
+| `onClose` that mounts a fresh `Modal` | The case a browser will not let a page refuse: it allows a refused `cancel` only after the user has interacted, and otherwise closes the dialog regardless |
+
+An unmount never fires `onClose` (the listener is removed first), so closing
+the dialog by answering it cannot trigger the reopen.
 
 #### What has to sit above a modal — and why a `z-index` will not do it
 

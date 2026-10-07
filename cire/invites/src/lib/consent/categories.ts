@@ -65,9 +65,9 @@ export interface ConsentCategoryMeta {
    * purpose so `analytics` can stay off while content categories are on.
    *
    * Note this governs only the no-decision state. It has no bearing on what
-   * "Reject all" writes (required categories only, always) or on what applies
-   * before the stored decision has been read (also required only, so a guest
-   * who refused never gets one load before their cookie is parsed).
+   * "Accept necessary" writes (required categories only, always) or on what
+   * applies before the stored decision has been read (also required only, so a
+   * guest who refused never gets one load before their cookie is parsed).
    */
   readonly defaultGranted: boolean;
 }

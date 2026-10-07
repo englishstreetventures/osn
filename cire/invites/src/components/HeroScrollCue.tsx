@@ -34,14 +34,6 @@ interface HeroScrollCueProps {
  * It takes the bottom 1.875rem of the hero (a 1rem offset under a 0.875rem
  * glyph; the drift moves it down, never up). A pack's hero keeps at least
  * 2.5rem of bottom padding beneath its title, so the two never meet.
- *
- * While the consent banner is on screen the cue rises by the banner's height
- * (`--consent-banner-height`, which the banner publishes on `<html>`), so the
- * banner never covers it, and it slides back down once the guest answers. A
- * `translate`, not a change to `bottom`, so the move shifts no layout. On a
- * phone the prompt is a modal dialog instead, which publishes no height, so
- * the cue stays at rest: the dialog's backdrop covers it until the guest
- * answers, and then nothing does.
  */
 export function HeroScrollCue(props: HeroScrollCueProps) {
   const scrolled = createFirstScroll();
@@ -53,7 +45,7 @@ export function HeroScrollCue(props: HeroScrollCueProps) {
       // The hide lives here and the entry animation on the glyph: while the
       // entry applies (its delay included) it outranks a class, so on one
       // element a scroll in its first 1.6s could not fade it.
-      class={`pointer-events-none absolute bottom-4 flex -translate-y-[var(--consent-banner-height,0px)] transition-[opacity,translate] duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
+      class={`pointer-events-none absolute bottom-4 flex transition-opacity duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
     >
       <svg
         viewBox="0 0 28 14"

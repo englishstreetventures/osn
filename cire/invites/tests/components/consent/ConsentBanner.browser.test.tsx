@@ -8,16 +8,16 @@ import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
 import { resetConsentForTest } from "../../../src/lib/consent/testing";
 
 /**
- * The first-layer consent prompt in a real engine: a modal dialog below the
- * `md` breakpoint, the bottom banner from it up.
+ * The first-layer consent prompt in a real engine: on the invite's pages a
+ * modal dialog the guest has to answer, at every width; on the legal pages the
+ * bottom banner.
  *
  * `ConsentBanner.test.tsx` covers what the component decides — which form
- * shows, what each answer records, that a dismissal is not an answer — with a
- * stubbed `matchMedia` and a dispatched `close`. What it cannot see is
- * anything the platform does: the real media query and its `change` as the
- * window is resized, `showModal()`'s top layer, where focus lands and what it
- * can reach, a real Escape and a real backdrop tap, and whether the two
- * answers the guest weighs against each other are painted as equals.
+ * shows, what each answer records, that a refused `cancel` stays refused and a
+ * forced close brings the dialog straight back — with dispatched events. What
+ * it cannot see is anything the platform does: `showModal()`'s top layer,
+ * `closedby`, a real Escape, where focus lands and what it can reach, and
+ * whether the highlighted answer is painted as the highlighted one.
  */
 
 type Viewport = readonly [width: number, height: number];
@@ -33,9 +33,9 @@ const banner = () => document.querySelector<HTMLElement>('section[aria-label="Pr
 const dialog = () => document.querySelector("dialog");
 
 /**
- * `close` is fired from an element task, not a microtask, so the dismissal has
- * not reached `Modal`'s listener when the next line runs. A zero timeout is
- * the smallest thing that lands after it.
+ * `close` is fired from an element task, not a microtask, so a close has not
+ * reached `Modal`'s listener when the next line runs. A zero timeout is the
+ * smallest thing that lands after it.
  */
 const afterTheCloseEvent = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -47,7 +47,7 @@ const afterTheCloseEvent = () => new Promise((resolve) => setTimeout(resolve, 0)
 async function openPrompt(): Promise<HTMLDialogElement> {
   const found = await vi.waitFor(() => {
     const element = dialog();
-    if (!element) throw new Error("the prompt has not opened");
+    if (!element?.matches(":modal")) throw new Error("the prompt has not opened");
     return element;
   });
   await new Promise(requestAnimationFrame);
@@ -55,9 +55,10 @@ async function openPrompt(): Promise<HTMLDialogElement> {
   return found;
 }
 
-const centre = (rect: DOMRect) => ({
-  x: (rect.left + rect.right) / 2,
-  y: (rect.top + rect.bottom) / 2,
+/** The centre of the part of `rect` inside the viewport. */
+const visibleCentre = (rect: DOMRect) => ({
+  x: (Math.max(rect.left, 0) + Math.min(rect.right, window.innerWidth)) / 2,
+  y: (Math.max(rect.top, 0) + Math.min(rect.bottom, window.innerHeight)) / 2,
 });
 
 beforeEach(resetConsentForTest);
@@ -68,18 +69,20 @@ afterEach(async () => {
   await page.viewport(...DEFAULT);
 });
 
-describe("on a phone", () => {
-  it("asks in a modal dialog, with nothing at the foot of the screen", async () => {
-    await page.viewport(...PHONE);
+describe.each([
+  { name: "phone", size: PHONE },
+  { name: "desktop", size: DESKTOP },
+])("the prompt on a $name", ({ size }) => {
+  it("is a modal dialog, with nothing at the foot of the screen", async () => {
+    await page.viewport(...size);
     render(() => <ConsentBanner />);
-    const prompt = await openPrompt();
+    await openPrompt();
 
-    expect(prompt.matches(":modal")).toBe(true);
     expect(banner()).toBeNull();
   });
 
   it("opens on its heading and keeps focus inside itself", async () => {
-    await page.viewport(...PHONE);
+    await page.viewport(...size);
     const { getByText } = render(() => (
       <>
         <button type="button">Behind the prompt</button>
@@ -88,8 +91,7 @@ describe("on a phone", () => {
     ));
     const prompt = await openPrompt();
 
-    // Neither answer holds focus when it opens: a focused "Accept all" is a
-    // nudge.
+    // No answer holds focus when it opens: a focused answer is a nudge.
     expect(document.activeElement?.tagName).toBe("H2");
     expect(prompt.contains(document.activeElement)).toBe(true);
 
@@ -102,127 +104,166 @@ describe("on a phone", () => {
     // one, focus leaves the document for the browser, which no assertion
     // here can follow.
     const visited: string[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       await userEvent.keyboard("{Tab}");
       expect(prompt.contains(document.activeElement)).toBe(true);
       visited.push((document.activeElement?.textContent ?? "").trim());
     }
-    expect(visited).toEqual(["Privacy notice", "Reject all", "Accept all", "Choose"]);
+    expect(visited).toEqual([
+      "Privacy notice",
+      "Terms",
+      "Accept necessary",
+      "Accept all",
+      "Choose",
+    ]);
   });
 
-  it("turns into the banner on Escape, and records nothing", async () => {
+  it("keeps both legal links on screen and reachable", async () => {
+    await page.viewport(...size);
+    render(() => <ConsentBanner />);
+    const prompt = await openPrompt();
+
+    for (const href of ["/privacy", "/terms"]) {
+      const link = prompt.querySelector<HTMLAnchorElement>(`a[href="${href}"]`)!;
+      const rect = link.getBoundingClientRect();
+      expect(rect.top).toBeGreaterThanOrEqual(0);
+      expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
+      const point = visibleCentre(rect);
+      expect(link.contains(document.elementFromPoint(point.x, point.y))).toBe(true);
+    }
+  });
+});
+
+describe("nothing but an answer closes the prompt", () => {
+  it("ignores Escape — the close request never reaches it", async () => {
     await page.viewport(...PHONE);
     render(() => <ConsentBanner />);
-    await openPrompt();
+    const before = await openPrompt();
+    let cancels = 0;
+    before.addEventListener("cancel", () => cancels++);
 
     // A real Escape: a dispatched `KeyboardEvent` is ignored by a modal
-    // dialog, and `requestClose()` runs out of close-watcher budget once a
-    // suite has opened a few dialogs without user activation.
+    // dialog. `closedby="none"` keeps the request away from the dialog
+    // altogether, so not even a `cancel` is fired; refusing the `cancel` is the
+    // fallback for an engine without `closedby`, and the unit tier covers it.
+    await userEvent.keyboard("{Escape}");
+    await afterTheCloseEvent();
     await userEvent.keyboard("{Escape}");
     await afterTheCloseEvent();
 
+    expect(cancels).toBe(0);
+    expect(dialog()).toBe(before);
+    expect(before.matches(":modal")).toBe(true);
     expect(readConsentFromDocument()).toBeNull();
-    expect(dialog()).toBeNull();
-    await vi.waitFor(() => expect(banner()).not.toBeNull());
+    expect(banner()).toBeNull();
   });
 
-  it("turns into the banner on a tap outside it, and records nothing", async () => {
+  it("ignores a click outside it", async () => {
     await page.viewport(...PHONE);
     render(() => <ConsentBanner />);
-    const prompt = await openPrompt();
-    const box = prompt.getBoundingClientRect();
+    const before = await openPrompt();
+    const box = before.getBoundingClientRect();
     // A bottom sheet: the backdrop is everything above it.
     expect(box.top).toBeGreaterThan(20);
 
-    // The backdrop is a pseudo-element and cannot be an event target, so a
-    // tap on it arrives with the dialog as `target`, outside its own box.
-    prompt.dispatchEvent(
+    // Dispatched rather than driven: the backdrop is a pseudo-element and
+    // cannot be an event target, so a click on it arrives with the dialog as
+    // `target`, outside the panel's own box — which is what this reproduces.
+    before.dispatchEvent(
       new MouseEvent("click", { bubbles: true, clientX: box.left + 10, clientY: box.top - 20 }),
     );
     await afterTheCloseEvent();
 
+    expect(dialog()).toBe(before);
+    expect(before.matches(":modal")).toBe(true);
     expect(readConsentFromDocument()).toBeNull();
-    expect(dialog()).toBeNull();
-    await vi.waitFor(() => expect(banner()).not.toBeNull());
   });
 
-  describe.each([
-    { name: "phone", size: PHONE },
-    { name: "narrow phone", size: NARROW_PHONE },
-  ])("at $name width", ({ size }) => {
-    it("paints 'Reject all' as the equal of 'Accept all', on the same row and first", async () => {
-      await page.viewport(...size);
-      render(() => <ConsentBanner />);
-      const prompt = await openPrompt();
-      const reject = within(prompt).getByText("Reject all").closest("button")!;
-      const accept = within(prompt).getByText("Accept all").closest("button")!;
-      const r = reject.getBoundingClientRect();
-      const a = accept.getBoundingClientRect();
-
-      // Not width: each button is as wide as its own label.
-      expect(r.top).toBe(a.top);
-      expect(r.height).toBe(a.height);
-      expect(r.right).toBeLessThanOrEqual(a.left);
-
-      const looks = (el: HTMLElement) => {
-        const s = getComputedStyle(el);
-        return [
-          s.fontFamily,
-          s.fontSize,
-          s.fontWeight,
-          s.textTransform,
-          s.color,
-          s.backgroundColor,
-          s.borderTopColor,
-          s.borderTopWidth,
-          s.paddingTop,
-          s.paddingLeft,
-        ];
-      };
-      expect(looks(reject)).toEqual(looks(accept));
-    });
-
-    it("keeps its privacy notice link on screen and reachable", async () => {
-      await page.viewport(...size);
-      render(() => <ConsentBanner />);
-      const prompt = await openPrompt();
-      const link = prompt.querySelector<HTMLAnchorElement>('a[href="/privacy"]')!;
-      const rect = link.getBoundingClientRect();
-
-      expect(rect.top).toBeGreaterThanOrEqual(0);
-      expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
-      const point = centre(rect);
-      expect(link.contains(document.elementFromPoint(point.x, point.y))).toBe(true);
-    });
-  });
-
-  it("follows the window across the breakpoint, both ways", async () => {
+  it("opens again at once, on its heading, if the browser closes it anyway", async () => {
+    // Where `closedby` is not supported, a browser that will not let the
+    // `cancel` be refused closes the dialog regardless.
     await page.viewport(...PHONE);
     render(() => <ConsentBanner />);
-    await openPrompt();
+    const before = await openPrompt();
 
-    await page.viewport(...DESKTOP);
-    await vi.waitFor(() => expect(banner()).not.toBeNull());
-    expect(dialog()).toBeNull();
+    before.close();
+    await afterTheCloseEvent();
 
-    await page.viewport(...PHONE);
-    await openPrompt();
+    const after = await openPrompt();
+    expect(after).not.toBe(before);
+    expect(document.activeElement?.tagName).toBe("H2");
+    expect(after.contains(document.activeElement)).toBe(true);
+    expect(readConsentFromDocument()).toBeNull();
     expect(banner()).toBeNull();
   });
 
-  it("stays the banner where the page asks for it", async () => {
+  it("closes on an answer, and does not come back", async () => {
     await page.viewport(...PHONE);
-    render(() => <ConsentBanner phone="banner" />);
+    render(() => <ConsentBanner />);
+    const prompt = await openPrompt();
 
-    await vi.waitFor(() => expect(banner()).not.toBeNull());
+    within(prompt).getByText("Accept necessary").click();
+    await afterTheCloseEvent();
+
     expect(dialog()).toBeNull();
+    expect(readConsentFromDocument()?.grants.embeds).toBe(false);
   });
 });
 
-describe("on a desktop", () => {
-  it("is the banner, with no dialog", async () => {
-    await page.viewport(...DESKTOP);
+describe.each([
+  { name: "narrow phone", size: NARROW_PHONE },
+  { name: "phone", size: PHONE },
+  { name: "desktop", size: DESKTOP },
+])("the answers on a $name", ({ size }) => {
+  it("paint 'Accept necessary' first and highlighted, the other two alike", async () => {
+    await page.viewport(...size);
     render(() => <ConsentBanner />);
+    const prompt = await openPrompt();
+    const button = (label: string) => within(prompt).getByText(label).closest("button")!;
+    const necessary = button("Accept necessary");
+    const all = button("Accept all");
+    const choose = button("Choose");
+
+    // First in reading order: above "Accept all", or level with it and to its
+    // left. Not "on the same row": a long label in a wide organiser font may
+    // wrap, and that is fine so long as the order holds.
+    const n = necessary.getBoundingClientRect();
+    const a = all.getBoundingClientRect();
+    expect(n.top <= a.top && (n.top < a.top || n.right <= a.left)).toBe(true);
+    // One size of button for all three; nothing is shrunk to be missed.
+    expect(n.height).toBe(a.height);
+    expect(choose.getBoundingClientRect().height).toBe(a.height);
+    const panel = prompt.getBoundingClientRect();
+    for (const rect of [n, a, choose.getBoundingClientRect()]) {
+      expect(rect.left).toBeGreaterThanOrEqual(panel.left);
+      expect(rect.right).toBeLessThanOrEqual(panel.right);
+    }
+
+    const looks = (el: HTMLElement) => {
+      const s = getComputedStyle(el);
+      return {
+        font: [s.fontFamily, s.fontSize, s.fontWeight, s.textTransform],
+        box: [s.paddingTop, s.paddingLeft, s.borderTopWidth],
+        colour: [s.color, s.borderTopColor, s.backgroundColor],
+      };
+    };
+    // "Accept all" and "Choose" are painted exactly alike.
+    expect(looks(choose)).toEqual(looks(all));
+    // "Accept necessary" shares their type and box, and is set apart by colour.
+    expect(looks(necessary).font).toEqual(looks(all).font);
+    expect(looks(necessary).box).toEqual(looks(all).box);
+    expect(looks(necessary).colour[0]).not.toBe(looks(all).colour[0]);
+    expect(looks(necessary).colour[1]).not.toBe(looks(all).colour[1]);
+  });
+});
+
+describe("the legal pages' banner", () => {
+  it.each([
+    { name: "phone", size: PHONE },
+    { name: "desktop", size: DESKTOP },
+  ])("is the banner, with no dialog, on a $name", async ({ size }) => {
+    await page.viewport(...size);
+    render(() => <ConsentBanner prompt="banner" />);
 
     await vi.waitFor(() => expect(banner()).not.toBeNull());
     expect(dialog()).toBeNull();
