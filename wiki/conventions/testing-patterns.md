@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-07
 ---
 
 # Testing Patterns
@@ -474,7 +474,7 @@ How the fast tier avoids them differs by runner, and the difference is worth kno
 | Package | Fast-tier runner | Does `bun run test` load the D1 file? |
 |---|---|---|
 | `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
-| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. Pre-existing and harmless, but it means a workerd failure reddens cire's fast tier too. |
+| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. |
 
 ```bash
 bun run test:d1            # all four packages, serially
@@ -482,6 +482,19 @@ bun run --cwd zap/api test:d1
 ```
 
 Run serially. Concurrent Miniflare workerd instances contend and fail spuriously, which is why the root script pins `--concurrency=1`. Both `ci.yml` and `deploy.yml` run this lane; before 2026-08 neither did, and zap's test sat failing on a stale fixture for as long as it took someone to run it by hand.
+
+### Miniflare in cire's fast tier
+
+`@cire/api#test` boots workerd in more files than the D1 suite: `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts` and `tests/services/r2-reconcile.test.ts` as well. Two things about them are easy to miss.
+
+- **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs every package's tests at once.
+- **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it.
+
+So keep bulk reads and writes inside workerd. Give Miniflare a small Worker script that does the work against its own binding and answers with plain JSON, as [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) does. Give every Miniflare-backed test a budget well above its time in a cold run of the whole suite. A change to `bun.lock` makes every turbo task miss its cache, so the next CI run is that cold run.
+
+The R2 walk test read a thousand listed objects through the proxy and took 28–36 s against its 30 s budget in a cold run.
+
+*Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3*
 
 ## Testing an oxlint rule
 

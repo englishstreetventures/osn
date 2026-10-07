@@ -841,10 +841,65 @@ describe("r2PositionStore", () => {
   });
 });
 
+/**
+ * A Worker that runs one R2 call per request against its own binding and
+ * answers with plain JSON. `{ bucket, op, args }` names the binding, the call
+ * and its arguments; `seed` writes every key it is given, in one request.
+ */
+const R2_WORKER = `
+export default {
+  async fetch(request, env) {
+    const { bucket, op, args } = await request.json();
+    const r2 = env[bucket];
+    try {
+      switch (op) {
+        case "seed":
+          for (const key of args[0]) await r2.put(key, "x");
+          return Response.json(null);
+        case "list": {
+          const page = await r2.list(args[0]);
+          return Response.json({
+            objects: page.objects.map((o) => ({ key: o.key, uploaded: o.uploaded.toISOString() })),
+            truncated: page.truncated,
+            cursor: page.cursor,
+          });
+        }
+        case "head": {
+          const object = await r2.head(args[0]);
+          return Response.json(object && { key: object.key });
+        }
+        case "get": {
+          const object = await r2.get(args[0]);
+          return Response.json(object && { text: await object.text() });
+        }
+        case "put":
+          await r2.put(args[0], args[1]);
+          return Response.json(null);
+        case "delete":
+          await r2.delete(args[0]);
+          return Response.json(null);
+        default:
+          return new Response("unknown op " + op, { status: 400 });
+      }
+    } catch (error) {
+      return new Response(String(error), { status: 500 });
+    }
+  },
+};
+`;
+
 // The walk's safety rests on how R2 answers `list`: prefix filtering, cursor
 // paging, `startAfter`, `limit`, and the `uploaded` time it reports. The stub
 // above encodes one reading of that; this runs the same walk against workerd's
 // own R2, with the position kept in the same bucket.
+//
+// Each bucket call goes through `R2_WORKER` as one request, and the walk reads
+// plain values. `mf.getR2Bucket` would hand back proxies instead, and every
+// `key` or `uploaded` read on a listed object is then a blocking round trip to
+// workerd (`Atomics.wait` on the main thread). A thousand-object walk makes
+// thousands of them, which outlasts the test's budget on a loaded runner. A
+// timeout there is worse than a failure: bun kills workerd, and the next
+// blocking read waits on it forever, so `bun test` never exits.
 describe("reconcileOrphanObjects against workerd's R2", () => {
   type WorkerdBucket = ReconcilableBucket &
     PositionBucket & {
@@ -854,21 +909,57 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
         cursor?: string;
       }>;
     };
+  type ListedPage = {
+    objects: Array<{ key: string; uploaded: string }>;
+    truncated: boolean;
+    cursor?: string;
+  };
   let mf: Miniflare;
-  // One bucket per test, so no test has to empty a bucket for the next: a
-  // thousand deletes one at a time through Miniflare's local proxy are enough
-  // load for it to reset a socket under the whole suite.
+  // One bucket per test, so no test has to empty a bucket for the next.
   let paged: WorkerdBucket;
   let resumed: WorkerdBucket;
+
+  const call = async <T>(bucket: string, op: string, ...args: unknown[]): Promise<T> => {
+    const res = await mf.dispatchFetch("http://r2.test/", {
+      method: "POST",
+      body: JSON.stringify({ bucket, op, args }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return (await res.json()) as T;
+  };
+
+  const workerdBucket = (bucket: string): WorkerdBucket => ({
+    list: async (options) => {
+      const page = await call<ListedPage>(bucket, "list", options ?? {});
+      return {
+        ...page,
+        objects: page.objects.map((o) => ({ key: o.key, uploaded: new Date(o.uploaded) })),
+      };
+    },
+    head: (key) => call<{ key: string } | null>(bucket, "head", key),
+    get: async (key) => {
+      const object = await call<{ text: string } | null>(bucket, "get", key);
+      return object && { text: async () => object.text };
+    },
+    put: async (key, value) => {
+      await call(bucket, "put", key, value);
+    },
+    delete: async (keys) => {
+      await call(bucket, "delete", keys);
+    },
+  });
+
+  const seed = (bucket: string, keys: ReadonlyArray<string>) => call(bucket, "seed", keys);
 
   beforeAll(async () => {
     mf = new Miniflare({
       modules: true,
-      script: "export default { fetch() { return new Response('ok'); } };",
+      script: R2_WORKER,
       r2Buckets: ["PAGED", "RESUMED"],
     });
-    paged = (await mf.getR2Bucket("PAGED")) as unknown as WorkerdBucket;
-    resumed = (await mf.getR2Bucket("RESUMED")) as unknown as WorkerdBucket;
+    await mf.ready;
+    paged = workerdBucket("PAGED");
+    resumed = workerdBucket("RESUMED");
   }, 30_000);
 
   afterAll(async () => {
@@ -884,14 +975,6 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor);
     return keys.toSorted();
-  };
-
-  // Written a few at a time: a thousand concurrent puts can exhaust Miniflare's
-  // local proxy when the whole suite runs at once.
-  const putAll = async (r2: WorkerdBucket, keys: ReadonlyArray<string>) => {
-    for (let i = 0; i < keys.length; i += 25) {
-      await Promise.all(keys.slice(i, i + 25).map((key) => r2.put(key, "x")));
-    }
   };
 
   // Every object is written during the test; judge them from eight days ahead
@@ -911,7 +994,7 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
       "imports/zz-1/before/events.csv",
     ];
     const outside = ["assets/w/hero", "importsX/odd"];
-    await putAll(paged, [...live, ...orphans, ...outside]);
+    await seed("PAGED", [...live, ...orphans, ...outside]);
 
     const deleted = await run(reconcileOrphanObjects(paged, plan(live).plan, later()));
 
@@ -922,7 +1005,7 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
   it("resumes with startAfter across runs, keeping its position in the bucket, until every orphan is gone", async () => {
     const live = Array.from({ length: 25 }, (_, i) => `imports/r-${String(i).padStart(2, "0")}/e`);
     const orphans = ["imports/r-03/x", "imports/r-11/x", "imports/r-19/x", "imports/r-24/x"];
-    await putAll(resumed, [...live, ...orphans]);
+    await seed("RESUMED", [...live, ...orphans]);
     const positionKey = "reconcile/test-position.json";
     const p = plan(live, {
       budget: budget(
