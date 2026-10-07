@@ -10,10 +10,10 @@ cire/db/
 ├── drizzle.config.ts     # Drizzle Kit pointer to schema + migrations dir
 ├── migrations/           # Forward-only D1 migrations (committed)
 │   ├── 0001_initial.sql  # THE BASELINE — the whole schema in one file
-│   ├── …                 # 0058 onwards; wrangler applies in NAME order
-│   └── meta/             # drizzle-kit journal + 0057_snapshot.json (see below)
-├── migrations-archive/   # 0001–0057 as they were, squashed 2026-09-10.
-│                         # Wrangler never reads this; four tests do.
+│   ├── …                 # 0082 onwards; wrangler applies in NAME order
+│   └── meta/             # drizzle-kit journal + 0081_snapshot.json (see below)
+├── migrations-archive/   # 0001–0081, the chain the baseline stands for.
+│                         # Wrangler never reads this; the ledger check and tests do.
 └── seed/
     ├── data/             # Canonical seed data (single source of truth)
     │   ├── events.ts     # keyed-by-slug sample events
@@ -29,15 +29,19 @@ cire/db/
 ## Scripts
 
 Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
-`cire/api/wrangler.toml` via the `--config` flag baked into each script.
+`cire/api/wrangler.toml` via the `--config` flag baked into each script. The
+four scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
+which checks the target's ledger first (see the baseline section below) and
+runs the wrangler `cire/api` installs from the lockfile. Without that install
+it stops rather than fetch another version.
 
 | Script             | What it does                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | `db:generate`      | `drizzle-kit generate` — diff `schema.ts` against the latest migration, emit a new one            |
-| `db:push`          | Apply all pending migrations to the **local** D1 (Miniflare-backed)                               |
+| `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
 | `db:migrate:local` | Same as `db:push`, named to match the `:dev` / `:prod` pair                                       |
-| `db:migrate:dev`   | Apply pending migrations to the **dev** D1 (`cire-db-dev`, `--env dev`). CI runs this every merge |
-| `db:migrate:prod`  | Apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys.  |
+| `db:migrate:dev`   | Check the ledger, then apply pending migrations to the **dev** D1 (`cire-db-dev`, `--env dev`). CI runs this every merge |
+| `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
 | `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
 | `db:seed:dev`      | Same seed against `cire-db-dev`. Guarded — refuses any other remote database. Nightly, with the reset above |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
@@ -68,7 +72,7 @@ bun run --cwd cire/api dev
 **After editing `schema.ts`**
 
 ```bash
-bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql (0058+)
+bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql (0082+)
 # rename to a descriptive suffix, add a rationale header comment, review the SQL
 bun run --cwd cire/db db:push       # applies it locally
 # mirror the change in cire/api/src/db/setup.ts's DDL string — the
@@ -77,23 +81,90 @@ bun run --cwd cire/db db:push       # applies it locally
 
 ### The baseline, and why its filename matters
 
-`migrations/0001_initial.sql` is not the first migration any more — it is the
-**whole schema**, squashed out of the original 57 files on 2026-09-10
-(englishstventures/osn#981). Building a database from the chain cost 8,007 D1 rows written
-and about 22,630 read, against a free-tier ceiling of 100,000 written a day
-across the account; almost all of it was SQLite rebuilding whole tables for
-`ALTER TABLE ... DROP COLUMN`, which D1 bills even when the table is empty.
+`migrations/0001_initial.sql` is not the first migration — it is the **whole
+schema**. It builds exactly what the 81 files in `migrations-archive/` build,
+and `cire/api/tests/db/ddl-lockstep.test.ts` replays both and fails if a single
+table or index differs. D1 bills a from-zero build per schema statement, even
+against empty tables. The archived chain spends 351 of them, most on SQLite
+rebuilding whole tables for `ALTER TABLE ... DROP COLUMN`; the baseline spends
+96, one `CREATE` per table and per index. `scripts/guard-d1-migration-cost.ts`
+prices the live chain against the free tier's 100,000 rows written a day.
+
+*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all` for
+the baseline; the archive through the same script's `measureChain`.*
 
 **Do not rename it.** `wrangler d1 migrations apply` skips any file already
-named in the target database's `d1_migrations` ledger. Production's ledger holds
-`0001_initial.sql`, so wrangler skips the baseline and runs nothing. Under any
-other name it would run the whole schema against the live wedding database and
-fail on the first `CREATE TABLE`. `ddl-lockstep.test.ts` pins the name.
+named in the target database's `d1_migrations` ledger. Every deployed ledger
+holds `0001_initial.sql`, so wrangler skips the baseline there and applies
+only what follows it. Under any other name it would run the whole schema
+against the live wedding database and fail on the first `CREATE TABLE`.
+`ddl-lockstep.test.ts` pins the name.
 
-The originals live in `migrations-archive/`, outside `migrations_dir`, because
-four tests replay them to prove what they did to real rows (`migration-0033`,
-`-0041`, `-0044`, `-0052`, plus the `0031` and `0037` blocks in
-`ddl-lockstep.test.ts`). Nothing applies them. New migrations start at `0058`.
+**Apply migrations only through the scripts above.** Skipping the baseline is
+right only on a database that had applied the whole archived chain. On one
+that stopped part-way, wrangler would skip the baseline and never run the rest
+of the archive, and nothing would say so. `scripts/cire-db-migrate.ts` reads
+the target's ledger before anything is applied:
+
+| The ledger holds | Verdict |
+| --- | --- |
+| nothing, or no `d1_migrations` table | a fresh database — apply |
+| `0001_initial.sql` and live migrations, numbered after the archive | built from the baseline — apply |
+| `0001_initial.sql` alone | apply if every table and index this baseline creates is stored there as written; otherwise an older baseline built it — **refuse** |
+| archived migrations, every one from the start of their chain to the archive's newest | built from an older chain, complete — apply |
+| archived migrations with any of that run missing | **refuse**, naming the missing files |
+| a name that is not archived yet is numbered within the archive | a migration from outside this chain ran there — **refuse** |
+| no `0001_initial.sql` | **refuse** |
+
+A chain starts at one of the names in `CHAIN_STARTS` in
+`scripts/cire-db-migrate.ts`: `0002`, where the original chain began, and
+`0058`, the first migration after the previous baseline. The ledger read gives
+up after two minutes, so a stalled call fails the deploy instead of holding it.
+
+A bare `wrangler d1 migrations apply` makes no such check. A refused database
+is brought level with the code that matches it, never by applying archived
+files by hand: they can change schema the Worker serving that database still
+reads. Production: approve the deploy run of a commit from before the files
+were archived and let it finish — it applies them and deploys the matching
+Worker — then re-run the refused job. Dev: run `cire-dev-db-rebuild.yml`.
+Local: `db:reset`.
+
+The archive lives outside `migrations_dir`, so nothing applies it. The tests
+that replay it to prove what a migration did to existing rows are listed in
+`migrations-archive/README.md`. New migrations start at `0082`.
+
+### Squashing the chain again
+
+When `scripts/guard-d1-migration-cost.ts --all` nears its line, squash the
+chain rather than raise the line:
+
+1. **Every deployed database must already have applied every live migration.**
+   For production, `bun run --cwd cire/api wrangler d1 migrations list cire-db
+   --env production --remote` must say "No migrations to apply!". Running it
+   through cire/api uses the wrangler the lockfile installs, never one fetched
+   from the registry.
+   A database that has not is refused by the ledger check after the squash, and
+   every deploy to it stops until a pre-squash deploy run brings it level.
+2. Append the first live migration after the baseline to `CHAIN_STARTS` in
+   `scripts/cire-db-migrate.ts`. A database built from the current baseline
+   holds that name first; without it in the list the check refuses every such
+   database after the squash.
+3. `git mv` every live migration after the baseline into `migrations-archive/`.
+   The archive stays contiguous from `0001`.
+4. Regenerate `0001_initial.sql` from a replay of the whole archive into
+   `bun:sqlite` with `PRAGMA foreign_keys = ON`: each table's and then each
+   index's `sqlite_master.sql`, in creation (`rowid`) order, leaving out
+   `sqlite_%` objects, each statement followed by `;` and its own
+   `--> statement-breakpoint`. Keep the header comment.
+5. Trim `meta/_journal.json` to one entry: `tag: 0001_initial`, `idx` the
+   archive's highest number. Keep only the snapshot named for that index.
+   `bunx drizzle-kit generate` must print "No schema changes, nothing to
+   migrate".
+6. Set the row in `scripts/d1-migration-cost-budgets.txt` to twice the new
+   baseline, and update the figures in `migrations-archive/README.md`, this
+   file and `wiki/conventions/bundle-size-guards.md`.
+7. Run `bun run --cwd cire/api test`, `bun run --cwd cire/api test:d1` and
+   `bun run test:scripts`.
 
 ### How `meta/` relates to the hand-authored migrations
 
@@ -101,13 +172,11 @@ four tests replay them to prove what they did to real rows (`migration-0033`,
 them in D1's own `d1_migrations` table — it never reads `meta/_journal.json`.
 The journal + latest snapshot exist for **drizzle-kit only**, so `db:generate`
 can diff `schema.ts` against the current shape and number the next file
-correctly. The 2026-09-10 squash trimmed the journal to a single entry and replaced the six
-stale snapshots with one that actually matches `schema.ts`. That entry reads
-**`idx: 57`, `tag: 0001_initial`** — the tag names the baseline file, and the
-index says 57 migrations have happened, so `db:generate` numbers the next one
-`0058` rather than reusing a number the archive already spent. Its snapshot is
-`meta/0057_snapshot.json`, named for the index. Change one and you must change
-the other. `bunx drizzle-kit generate` on a clean tree prints "No schema
+correctly. The journal's first entry reads **`idx: 81`, `tag: 0001_initial`**
+— the tag names the baseline file, and the index says 81 migrations have
+happened, so `db:generate` numbers the next one `0082` rather than reusing a
+number the archive already spent. Its snapshot is `meta/0081_snapshot.json`,
+named for the index. Change one and you must change the other. `bunx drizzle-kit generate` on a clean tree prints "No schema
 changes, nothing to migrate", which is the check that the baseline and
 `schema.ts` still agree. Keep it working: `db:generate` refreshes
 the journal + snapshot itself, but a **hand-written** migration must be

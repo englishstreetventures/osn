@@ -38,6 +38,9 @@ jobs:
     name: Reset, replay and seed cire-db-dev
     runs-on: ubuntu-latest
     environment: dev
+    # A healthy run takes about a minute. The limit stops a stalled wrangler
+    # call from holding the dev deploy group for GitHub's six-hour default.
+    timeout-minutes: 15
     # Shares the dev deploy's group so a rebuild and a deploy never touch
     # cire-db-dev at once. `cancel-in-progress: false` means a rebuild queued
     # behind a deploy waits for it. The reverse — a merge landing mid-rebuild —

@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-934   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-locked-csv-export @ 2026-10-03 — seven warnings fewer after this branch. No rule was disabled and nothing was suppressed.
+931   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/cire-migration-baseline @ 2026-10-08 — this branch's comment fixes on top of main. No rule was disabled and nothing was suppressed.

@@ -223,10 +223,17 @@ bun run --cwd cire/host test:browser
 bun run test:browser                      # every package with a browser tier (turbo)
 
 # Database — wrangler.toml lives in cire/api
-cd cire/api && bunx wrangler d1 migrations apply cire-db --local
-cd cire/api && bunx wrangler d1 migrations apply cire-db
+bun run --cwd cire/db db:migrate:local    # checks the ledger, then applies
+bun run --cwd cire/db db:reset            # wipe the local D1, migrate, seed
 cd cire/api && bunx wrangler types
 ```
+
+Apply cire migrations through the `cire/db` scripts, never a bare
+`wrangler d1 migrations apply`. `0001_initial.sql` is a baseline standing for
+the archived chain in `cire/db/migrations-archive/`, and
+`scripts/cire-db-migrate.ts` refuses a database that stopped part-way through
+that chain, where wrangler would skip the rest without a word. Why, and how to
+squash the chain again: `cire/db/README.md`.
 
 Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
 `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`

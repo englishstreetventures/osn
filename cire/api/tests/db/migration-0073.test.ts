@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { databaseBefore } from "../test-helpers/archived-chain";
+
 // Data proof for migration 0073, which moves every wedding onto a plan tier.
 //
 // The backfill reads each wedding's legacy `wedding_entitlements` rows: `vendors`
@@ -11,13 +13,16 @@ import { join } from "node:path";
 // (wedding, entitlement) to (wedding), so a wedding holding two pending
 // per-module attempts must still migrate — which only works because the
 // expire sits between dropping the old index and creating the new one.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0073 = "0073_wedding_tiers.sql";
 
 const numberOf = (file: string): number => Number(file.slice(0, 4));
 
-/** The live chain's files numbered in [from, to), in the order wrangler runs them. */
+/** The archived chain's files numbered in [from, to), in the order wrangler ran them. */
 function chain(from: number, to: number): string[] {
   return readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
@@ -49,9 +54,7 @@ const PURCHASE_STAMP = 1_790_000_000;
 
 /** The database as 0073 finds it: every earlier migration, then the fixtures. */
 function beforeMigration(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 73)) apply(db, file);
+  const db = databaseBefore(MIG_0073, { foreignKeys: true });
   for (const [weddingId, { keys }] of Object.entries(FIXTURES)) {
     db.query(
       "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +

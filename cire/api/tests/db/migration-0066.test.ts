@@ -1,26 +1,21 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { databaseBefore } from "../test-helpers/archived-chain";
 
 // Data proof for migration 0066, which appends the plus-one columns to
 // `guests`. It must be two ALTER TABLE ADDs and an index, never a rebuild:
 // dropping `guests` under enforced foreign keys cascades into `rsvps`,
 // `guest_events` and `guest_account_links`. Only rows seeded BEFORE the
 // migration can tell the two apart, which the lockstep test cannot.
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+//
+// Reads cire/db/migrations-archive/: the live baseline already contains this
+// migration, and replaying history is the point here.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const MIG_0066 = "0066_plus_ones.sql";
-
-const numberOf = (file: string): number => Number(file.slice(0, 4));
-
-/** The live chain's files numbered in [from, to), in the order wrangler runs them. */
-function chain(from: number, to: number): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()
-    .filter((f) => numberOf(f) >= from && numberOf(f) < to);
-}
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
@@ -32,9 +27,7 @@ const count = (db: Database, table: string): number =>
 /** The database as 0066 finds it: a household with a guest, an invitation and
  *  a reply, under enforced foreign keys. */
 function beforeMigration(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON;");
-  for (const file of chain(1, 66)) apply(db, file);
+  const db = databaseBefore(MIG_0066, { foreignKeys: true });
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)
       VALUES ('wed_1', 'w1', 'W', 'usr_1', 0, 0);
