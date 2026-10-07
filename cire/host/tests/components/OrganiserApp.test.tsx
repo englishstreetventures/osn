@@ -129,6 +129,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
       onWeddingDeleted?: (restoreUntil: string) => void;
+      onTierRaised?: (tier: "gold" | "crimson") => void;
       onLeftWedding?: () => void;
       onOwnRoleChanged?: (role: "owner" | "editor" | "viewer" | "helper") => void;
     }) => {
@@ -165,6 +166,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           <button onClick={() => props.onWeddingDeleted?.("2026-10-08T12:00:00.000Z")}>
             delete-wedding
           </button>
+          <button onClick={() => props.onTierRaised?.("gold")}>redeem-code</button>
           <button onClick={() => props.onLeftWedding?.()}>leave</button>
           <button onClick={() => props.onOwnRoleChanged?.("editor")}>step-down</button>
         </div>
@@ -838,6 +840,27 @@ describe("OrganiserApp Dashboard", () => {
     expect(shell().getAttribute("data-can-edit")).toBe("true");
     expect(shell().getAttribute("data-mount")).toBe(mount);
     expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
+  it("raises the open wedding's tier the moment a code is redeemed, then asks for the list again", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let tier = "ivory";
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().getAttribute("data-tier")).toBe("ivory"));
+    const mount = shell().getAttribute("data-mount");
+    tier = "gold";
+
+    fireEvent.click(screen.getByText("redeem-code"));
+
+    // At once, from the patch, before the list comes back.
+    expect(shell().getAttribute("data-tier")).toBe("gold");
+    await waitFor(() => expect(listCalls()).toBe(2));
+    expect(shell().getAttribute("data-tier")).toBe("gold");
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(toastSuccess).toHaveBeenCalledWith("Code accepted. This wedding is now on Gold.");
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

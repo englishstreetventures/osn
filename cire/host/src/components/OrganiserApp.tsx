@@ -33,6 +33,7 @@ import { watchForbidden } from "../lib/forbidden-watch";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
+import type { PaidTier } from "../lib/tiers";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { fetchPurchase } from "../lib/upgrade-api";
 import {
@@ -161,6 +162,8 @@ function WeddingDashboard(props: {
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
   /** An owner deleted the wedding from Settings; restorable until the ISO date. */
   onWeddingDeleted: (restoreUntil: string) => void;
+  /** An owner redeemed an unlock code; the wedding is on `tier` now. */
+  onTierRaised: (tier: PaidTier) => void;
   /** The organiser gave up their seat on this wedding. */
   onLeft: () => void;
   /** The organiser changed their own role on this wedding (an owner stepping
@@ -191,6 +194,7 @@ function WeddingDashboard(props: {
           onSub={props.onSub}
           onWeddingUpdated={props.onWeddingUpdated}
           onWeddingDeleted={props.onWeddingDeleted}
+          onTierRaised={props.onTierRaised}
           onLeftWedding={props.onLeft}
           onOwnRoleChanged={props.onOwnRoleChanged}
           tier={tierOf(props.wedding)}
@@ -610,6 +614,29 @@ function Dashboard() {
     }
   }
 
+  /**
+   * An owner redeemed an unlock code; the API has already raised the tier.
+   * The list is what the nav locks by, so the tier is patched into it at once
+   * and the list fetched again for what the tier also decides (the guest cap,
+   * the legacy keys). The upgrade catalogue priced from the old tier goes too.
+   */
+  async function handleTierRaised(weddingId: string, tier: PaidTier) {
+    setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, tier } : w)));
+    invalidateCatalogue(weddingId);
+    toast.success(`Code accepted. This wedding is now on ${TIER_LABEL[tier]}.`);
+    try {
+      const res = await authFetch(apiUrl("/api/organiser/weddings"));
+      if (!res.ok) return;
+      const body = (await res.json()) as { weddings: WeddingSummary[] };
+      setWeddings(body.weddings.map(withKnownRole));
+      setDeletedWeddings(deletedWeddingsOf(body));
+    } catch (err) {
+      // The code was spent and the tier patched in either way; a reload shows
+      // the rest.
+      if (isAuthExpired(err)) redirectToLogin();
+    }
+  }
+
   /** A deleted wedding that can no longer be restored leaves the list. */
   function handleRestoreExpired(weddingId: string) {
     setDeletedWeddings((prev) => prev.filter((w) => w.id !== weddingId));
@@ -830,6 +857,7 @@ function Dashboard() {
                             onWeddingDeleted={(restoreUntil) =>
                               handleWeddingDeleted(weddingId, restoreUntil)
                             }
+                            onTierRaised={(tier) => void handleTierRaised(weddingId, tier)}
                             onLeft={() => handleLeftWedding(weddingId)}
                             onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
                           />
