@@ -1,7 +1,8 @@
 import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
-import { DetailsModal } from "../../src/components/DetailsModal";
+import { DetailsPanel } from "../../src/components/DetailsPanel";
 import type { EventSummary } from "../../src/components/types";
 import { resetConsentForTest, seedConsentForTest } from "../../src/lib/consent/testing";
 
@@ -27,23 +28,25 @@ const baseEvent: EventSummary = {
   imageUrl: null,
 };
 
-const renderModal = (event: EventSummary) =>
-  render(() => <DetailsModal event={event} siteUrl={SITE_URL} onClose={() => {}} />);
+const renderPanel = (event: EventSummary) =>
+  render(() => <DetailsPanel event={event} siteUrl={SITE_URL} />);
 
-describe("DetailsModal", () => {
+describe("DetailsPanel", () => {
   afterEach(() => cleanup());
 
   it("shows the event name and the timezone-aware date / time range", () => {
-    const { getByText, getByRole } = renderModal(baseEvent);
+    const { getByText, getByRole } = renderPanel(baseEvent);
 
-    expect(getByRole("heading", { name: "Mehndi" })).toBeTruthy();
+    // "Details" is part of the heading, so a guest who lands on it hears
+    // which panel this is as well as which event.
+    expect(getByRole("heading", { name: "Details, Mehndi" })).toBeTruthy();
     expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
     // Time range rendered in the event's own timezone (4pm–10pm Sydney).
     expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
   });
 
   it("hosts the Add to Calendar control inside the details view", () => {
-    const { getByRole } = renderModal(baseEvent);
+    const { getByRole } = renderPanel(baseEvent);
     const button = getByRole("button", { name: /add to calendar/i });
     expect(button).toBeTruthy();
 
@@ -54,7 +57,7 @@ describe("DetailsModal", () => {
   });
 
   it("renders a map preview that opens the venue in maps", () => {
-    const { getByLabelText } = renderModal(baseEvent);
+    const { getByLabelText } = renderPanel(baseEvent);
     const link = getByLabelText(/open .* in maps/i) as HTMLAnchorElement;
     expect(link.href).toContain("https://www.google.com/maps/search/");
     expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
@@ -62,13 +65,13 @@ describe("DetailsModal", () => {
   });
 
   it("renders the description in an About section", () => {
-    const { getByText } = renderModal(baseEvent);
+    const { getByText } = renderPanel(baseEvent);
     expect(getByText("About")).toBeTruthy();
     expect(getByText("An evening of henna")).toBeTruthy();
   });
 
   it("renders palette and dress code description when present", () => {
-    const { getByText, getByLabelText } = renderModal({
+    const { getByText, getByLabelText } = renderPanel({
       ...baseEvent,
       dressCodeDescription: "Bright, festive colours.",
       dressCodePalette: [
@@ -84,22 +87,22 @@ describe("DetailsModal", () => {
   });
 
   it("omits the dress code section entirely when there is no dress code", () => {
-    const { queryByText } = renderModal(baseEvent);
+    const { queryByText } = renderPanel(baseEvent);
     expect(queryByText("Dress Code")).toBeNull();
   });
 
   it("omits the inspiration section when there is no pinterest board", () => {
-    const { queryByText } = renderModal(baseEvent);
+    const { queryByText } = renderPanel(baseEvent);
     expect(queryByText("Inspiration")).toBeNull();
   });
 
   it("omits the inspiration section for a whitespace-only pinterest URL", () => {
-    const { queryByText } = renderModal({ ...baseEvent, pinterestUrl: "   " });
+    const { queryByText } = renderPanel({ ...baseEvent, pinterestUrl: "   " });
     expect(queryByText("Inspiration")).toBeNull();
   });
 
   it("renders the inspiration section for a real pinterest URL", () => {
-    const { getByText } = renderModal({
+    const { getByText } = renderPanel({
       ...baseEvent,
       pinterestUrl: "https://pinterest.com/board",
     });
@@ -107,7 +110,7 @@ describe("DetailsModal", () => {
   });
 
   it("omits the dress code section for a whitespace-only description and empty palette", () => {
-    const { queryByText } = renderModal({
+    const { queryByText } = renderPanel({
       ...baseEvent,
       dressCodeDescription: "   ",
       dressCodePalette: [],
@@ -116,7 +119,7 @@ describe("DetailsModal", () => {
   });
 
   it("renders only the palette when the dress code description is null", () => {
-    const { getByLabelText, queryByText } = renderModal({
+    const { getByLabelText, queryByText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Sage", color: "oklch(72.88% 0.0585 128.92)" }],
     });
@@ -126,7 +129,7 @@ describe("DetailsModal", () => {
   });
 
   it("applies the supplied colour as an inline background-color", () => {
-    const { getByLabelText } = renderModal({
+    const { getByLabelText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
     });
@@ -136,7 +139,7 @@ describe("DetailsModal", () => {
   });
 
   it("does not render swatches whose colour fails validation", () => {
-    const { queryByLabelText, getByLabelText } = renderModal({
+    const { queryByLabelText, getByLabelText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [
         { name: "Evil", color: "expression(alert(1))" },
@@ -146,6 +149,119 @@ describe("DetailsModal", () => {
 
     expect(queryByLabelText("Evil swatch")).toBeNull();
     expect(getByLabelText("Safe swatch")).toBeTruthy();
+  });
+
+  it("gives the sheet a heading it can focus and name the dialog by", () => {
+    let received: HTMLHeadingElement | undefined;
+    const { getByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        titleId="details-title"
+        headingRef={(el) => (received = el)}
+      />
+    ));
+
+    const heading = getByRole("heading", { name: "Details, Mehndi" });
+    expect(heading.id).toBe("details-title");
+    // Focusable by script only: the sheet moves focus here on a switch, and a
+    // heading has no business in the Tab order.
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+    expect(received).toBe(heading);
+  });
+});
+
+describe("DetailsPanel — the way to the RSVP form", () => {
+  afterEach(() => cleanup());
+
+  it("offers none on its own", () => {
+    const { queryByRole } = renderPanel(baseEvent);
+    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
+  });
+
+  it("makes it the call to action, with Add to Calendar beside it as the quieter one", () => {
+    // Answering is the one act that matters on the invite, so the RSVP button
+    // takes the guest site's call-to-action shape and Add to Calendar steps
+    // down to its outline — the reverse would make the calendar the thing to do.
+    const onRsvp = vi.fn();
+    const { getByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={onRsvp} />
+    ));
+
+    const rsvp = getByRole("button", { name: "RSVP for this event" });
+    expect(rsvp.className).toContain("base:border-ui-accent");
+    expect(rsvp.className).toContain("base:hover:bg-ui-accent");
+    expect(getByRole("button", { name: /add to calendar/i }).className).not.toContain("bg-gold");
+
+    fireEvent.click(rsvp);
+    expect(onRsvp).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives way to a line saying the replies have closed, once they have", () => {
+    const { queryByRole, getByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        onRsvp={() => {}}
+        rsvpClosed
+        rsvpClosedOn="Sunday 1 September 2999"
+      />
+    ));
+
+    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
+    expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+  });
+
+  it("says the replies have closed without a date when it has none", () => {
+    const { getByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
+    ));
+    expect(getByRole("status").textContent).toBe("RSVPs have closed.");
+  });
+
+  it("puts focus on its heading when the deadline removes the RSVP button from under it", () => {
+    const [closed, setClosed] = createSignal(false);
+    const { getByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed={closed()} />
+    ));
+    getByRole("button", { name: "RSVP for this event" }).focus();
+
+    setClosed(true);
+
+    expect(document.activeElement).toBe(getByRole("heading", { name: "Details, Mehndi" }));
+  });
+
+  it("leaves focus alone when it is not the panel on screen", () => {
+    // A hidden panel holds no focus the guest can see; pulling focus into it
+    // would put the guest somewhere invisible.
+    const [closed, setClosed] = createSignal(false);
+    const { getByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        onRsvp={() => {}}
+        rsvpClosed={closed()}
+        active={false}
+      />
+    ));
+    getByRole("button", { name: "RSVP for this event" }).focus();
+
+    setClosed(true);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("leaves focus where the guest put it if it was not on the RSVP button", () => {
+    const [closed, setClosed] = createSignal(false);
+    const { getByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed={closed()} />
+    ));
+    const calendar = getByRole("button", { name: /add to calendar/i });
+    calendar.focus();
+
+    setClosed(true);
+
+    expect(document.activeElement).toBe(calendar);
   });
 });
 
@@ -159,7 +275,7 @@ describe("DetailsModal", () => {
  * shared store. If the defaults, the gate and the hydration order ever disagree,
  * this is where it shows up.
  */
-describe("DetailsModal — each embed waits for its own switch", () => {
+describe("DetailsPanel — each embed waits for its own switch", () => {
   const MAPS_KEY = "test-embed-key";
   const PINTEREST_URL =
     "https://www.pinterest.com.au/pcvmpasupati/catholic-wedding-guest-moodboard/";
@@ -189,7 +305,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
   });
 
   it("loads NEITHER the Google map nor the Pinterest board for a guest with no consent cookie", () => {
-    const { container, getByText } = renderModal(richEvent);
+    const { container, getByText } = renderPanel(richEvent);
 
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
@@ -205,7 +321,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
 
   it("renders BOTH once the guest has allowed both", () => {
     seedConsentForTest({ pinterest: true, maps: true });
-    const { container } = renderModal(richEvent);
+    const { container } = renderPanel(richEvent);
 
     // The venue map: a live Google Maps Embed iframe, not the CSS fallback card.
     const iframe = container.querySelector("iframe");
@@ -224,7 +340,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
 
   it("renders only the map when only Google Maps is allowed", () => {
     seedConsentForTest({ maps: true });
-    const { container } = renderModal(richEvent);
+    const { container } = renderPanel(richEvent);
 
     expect(container.querySelector("iframe")).not.toBeNull();
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
@@ -233,7 +349,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
 
   it("renders only the moodboard when only Pinterest is allowed", () => {
     seedConsentForTest({ pinterest: true });
-    const { container, getByText } = renderModal(richEvent);
+    const { container, getByText } = renderPanel(richEvent);
 
     expect(container.querySelector("iframe")).toBeNull();
     expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
@@ -243,7 +359,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
 
   it('blocks BOTH after "Reject all"', () => {
     seedConsentForTest({ pinterest: false, maps: false });
-    const { container } = renderModal(richEvent);
+    const { container } = renderPanel(richEvent);
 
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
@@ -254,7 +370,7 @@ describe("DetailsModal — each embed waits for its own switch", () => {
     // Refusing costs the rich embeds and nothing else: the CSS map card still
     // names the venue and links out, and the moodboard link-out is still there.
     seedConsentForTest({ pinterest: false, maps: false });
-    const { container, getByText } = renderModal(richEvent);
+    const { container, getByText } = renderPanel(richEvent);
 
     expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
     const moodboardLink = container.querySelector<HTMLAnchorElement>(

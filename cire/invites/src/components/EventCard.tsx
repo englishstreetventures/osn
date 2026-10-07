@@ -58,7 +58,8 @@ interface EventCardProps {
    */
   responded?: boolean;
   /**
-   * True while THIS event's RSVP sheet is open over this card.
+   * True while THIS event's sheet is open over this card, on either of its
+   * panels — the details or the RSVP form.
    *
    * The one thing standing between `responded` and the fill. The real submit
    * path records the reply — flipping `responded` — one dwell (`savedDwellMs`)
@@ -68,13 +69,13 @@ interface EventCardProps {
    * watchable, and it covers the guest who dismisses the sheet early (Escape,
    * backdrop) just as well as the one who watches the confirmation play.
    *
-   * Optional: a caller that never opens a sheet (unit tests, the closed-RSVP
-   * card) simply never covers the button.
+   * Optional: a caller that never opens a sheet (unit tests) simply never
+   * covers the button.
    */
   covered?: boolean;
   /**
    * Pulses true for exactly one render the instant THIS event's reply is
-   * confirmed (see `RsvpModal`'s `onConfirmed`) — the transition from false
+   * confirmed (see `RsvpPanel`'s `onConfirmed`) — the transition from false
    * to true is what plays the sweep-in and the tick draw documented in
    * `rsvp-responded.ts`. An event that starts `true` on mount (it cannot, in
    * practice — the parent only ever flips this from a live confirmation —

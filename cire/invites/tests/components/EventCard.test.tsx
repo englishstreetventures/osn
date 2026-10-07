@@ -592,7 +592,7 @@ describe("EventCard", () => {
 
         // Mirrors the real wiring: the parent's `claimResult` (driving
         // `responded`) and `justResponded` both flip inside the same
-        // `RsvpModal` batch — see `onConfirmed`/`onSubmitted` there.
+        // `RsvpPanel` batch — see `onConfirmed`/`onSubmitted` there.
         batch(() => {
           setResponded(true);
           setJustResponded(true);
@@ -698,7 +698,7 @@ describe("EventCard", () => {
 
     it("clears its timers on unmount mid-celebration", async () => {
       // A surviving timer firing `onCelebrated` on a disposed instance is the
-      // same class of bug `RsvpModal`'s dwell timer guards against.
+      // same class of bug `RsvpPanel`'s dwell timer guards against.
       vi.useFakeTimers();
       try {
         const onCelebrated = vi.fn();

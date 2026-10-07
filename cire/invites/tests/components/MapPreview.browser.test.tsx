@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
-import { DetailsModal } from "../../src/components/DetailsModal";
+import { EventSheet } from "../../src/components/EventSheet";
 import type { EventSummary } from "../../src/components/types";
 
 /**
@@ -25,13 +25,13 @@ import type { EventSummary } from "../../src/components/types";
  *   - `sr-only` is a 1×1 clipped box, and `display: none` is the accessibility
  *     bug that looks identical to a DOM assertion.
  *
- * ## Why it renders `DetailsModal` rather than `MapPreview`
+ * ## Why it renders the event sheet rather than `MapPreview`
  *
  * The width the address gets is decided by a chain that starts outside the
  * component: the dialog's `max-w-[480px]`, the scrollport's `px-6`, the card's
  * border, then the footer's own `px-4` and `gap-3`. Rendering `MapPreview` bare
- * would measure a column no guest ever sees. `DetailsModal` is its only render
- * site.
+ * would measure a column no guest ever sees. `DetailsPanel`, inside
+ * `EventSheet`, is its only render site.
  *
  * ## Why only the CSS-card branch
  *
@@ -97,9 +97,12 @@ async function open(width: number, address: string = ORDINARY) {
   await page.viewport(width, 900);
 
   const view = render(() => (
-    <DetailsModal
+    <EventSheet
       event={{ ...event, address }}
+      panel="details"
       siteUrl="https://invite.test/abc-123"
+      members={[]}
+      apiUrl="https://api.test"
       onClose={() => {}}
     />
   ));

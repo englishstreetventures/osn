@@ -4,8 +4,9 @@ import { render, cleanup, fireEvent, screen, waitFor, within } from "@solidjs/te
 import { createSignal, Show } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
+import { EventSheet } from "../../src/components/EventSheet";
 import { SAVED_DWELL_MIN_MS, SAVED_DWELL_MS } from "../../src/components/rsvp-saved";
-import { RsvpModal } from "../../src/components/RsvpModal";
+import { RsvpPanel } from "../../src/components/RsvpPanel";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
 import { mockViewport } from "../test-support/viewport";
 
@@ -116,7 +117,7 @@ const sam: FamilyMember = {
   plusOneOf: "guest-bo",
 };
 
-describe("RsvpModal", () => {
+describe("RsvpPanel", () => {
   // The picker renders its checkboxes inline below the `md:` breakpoint and
   // collapses them behind a popover trigger above it. happy-dom reports 1024px,
   // so without this every `getByRole("checkbox")` here would find a closed
@@ -149,7 +150,7 @@ describe("RsvpModal", () => {
 
   it("renders one fieldset per invited member, filtering out members not invited to this event", () => {
     const { getByText, queryByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj, naina]}
         apiUrl="https://api.test"
@@ -164,7 +165,7 @@ describe("RsvpModal", () => {
 
   it("toggling Attending reveals dietary input; toggling Not attending hides it", () => {
     render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -179,7 +180,7 @@ describe("RsvpModal", () => {
 
   it("reveals the free-text box only once Other is picked", () => {
     render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -197,7 +198,7 @@ describe("RsvpModal", () => {
     // back-fills one into the other. The box has to show anyway or the guest's
     // own answer is invisible to them.
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -223,7 +224,7 @@ describe("RsvpModal", () => {
 
   it("renders the dietary input at the 16px base size on mobile to avoid iOS zoom-on-focus", () => {
     render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -245,7 +246,7 @@ describe("RsvpModal", () => {
     const onClose = vi.fn();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -288,7 +289,7 @@ describe("RsvpModal", () => {
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -349,7 +350,7 @@ describe("RsvpModal", () => {
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -402,7 +403,7 @@ describe("RsvpModal", () => {
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -502,7 +503,7 @@ describe("RsvpModal", () => {
     const onConfirmed = vi.fn();
     const onClose = vi.fn();
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={alreadyComplete}
@@ -556,7 +557,7 @@ describe("RsvpModal", () => {
     );
     const onConfirmed = vi.fn();
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={[both[0]!]}
@@ -584,7 +585,7 @@ describe("RsvpModal", () => {
     vi.useFakeTimers();
     const onConfirmed = vi.fn();
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         preview
@@ -609,7 +610,7 @@ describe("RsvpModal", () => {
   it("shows session-expired message on 401", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })));
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -619,7 +620,7 @@ describe("RsvpModal", () => {
   it("shows authorisation message on 403", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 403 })));
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -639,7 +640,7 @@ describe("RsvpModal", () => {
       ),
     );
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -651,7 +652,7 @@ describe("RsvpModal", () => {
   it("shows generic message on 400", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 400 })));
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -661,7 +662,7 @@ describe("RsvpModal", () => {
   it("shows rate-limit message on 429", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 429 })));
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -671,7 +672,7 @@ describe("RsvpModal", () => {
   it("shows connection message on network error", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("net")));
     const { findByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     await submitOnce();
@@ -691,7 +692,7 @@ describe("RsvpModal", () => {
     );
 
     const { unmount } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const priyaFs = fieldsetFor("Priya");
@@ -730,7 +731,7 @@ describe("RsvpModal", () => {
     ];
 
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={existing}
@@ -762,7 +763,7 @@ describe("RsvpModal", () => {
     ];
 
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={existing}
@@ -779,7 +780,7 @@ describe("RsvpModal", () => {
 
   it("hides the consent checkbox until there is dietary data to authorise (C-H2)", () => {
     render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -797,7 +798,7 @@ describe("RsvpModal", () => {
 
   it("asks for consent ONCE and names everyone it covers", () => {
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -826,7 +827,7 @@ describe("RsvpModal", () => {
     // survivor refuses to open ticked here — otherwise one tick nobody made for
     // Raj would stamp his first-ever Art. 9(2)(a) consent.
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={[
@@ -865,7 +866,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -899,7 +900,7 @@ describe("RsvpModal", () => {
     // Consent given against superseded wording is not consent to the wording on
     // screen, and a pre-ticked box is not consent at all.
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -924,7 +925,7 @@ describe("RsvpModal", () => {
     // before the API that serves the fields. No pill may light, and the consent
     // box must not open ticked on the strength of a verdict that never arrived.
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -955,7 +956,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -996,7 +997,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -1045,7 +1046,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -1077,7 +1078,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={[
@@ -1111,7 +1112,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -1138,7 +1139,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     // Attending, no dietary text → no consent gate.
@@ -1169,7 +1170,7 @@ describe("RsvpModal", () => {
       },
     ];
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={existing}
@@ -1198,7 +1199,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const { getByText } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
@@ -1227,7 +1228,7 @@ describe("RsvpModal", () => {
 
   it("shows the preview banner in preview mode", () => {
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -1245,7 +1246,7 @@ describe("RsvpModal", () => {
     const onSubmitted = vi.fn();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -1274,7 +1275,7 @@ describe("RsvpModal", () => {
     vi.stubGlobal("fetch", vi.fn());
 
     const { getByRole, findByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -1303,7 +1304,7 @@ describe("RsvpModal", () => {
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -1332,7 +1333,7 @@ describe("RsvpModal", () => {
     const onClose = vi.fn();
 
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="https://api.test"
@@ -1353,7 +1354,7 @@ describe("RsvpModal", () => {
 
   it("becomes a read-only view once RSVPs are closed", () => {
     const { getByText, queryByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -1400,7 +1401,7 @@ describe("RsvpModal", () => {
     const onClose = vi.fn();
 
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -1433,7 +1434,7 @@ describe("RsvpModal", () => {
     // <body> — outside an `aria-modal` dialog, with no keyboard way back in.
     const [closed, setClosed] = createSignal(false);
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         existingRsvps={[
@@ -1464,6 +1465,30 @@ describe("RsvpModal", () => {
     expect((document.activeElement as HTMLElement).textContent).toContain("Close");
   });
 
+  it("rescues nothing while it is hidden behind the details", async () => {
+    // Kept mounted but hidden, the panel holds no focus the guest can see, and
+    // a rescue here would move focus somewhere invisible. The panel on screen
+    // looks after its own focus.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        active={false}
+        onClose={() => {}}
+      />
+    ));
+    const save = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    save.focus();
+
+    setClosed(true);
+
+    await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("leaves focus alone when it was never inside the sheet", async () => {
     // The rescue must not YANK focus from wherever the guest actually is —
     // only recover it when the element being destroyed held it.
@@ -1473,7 +1498,7 @@ describe("RsvpModal", () => {
     document.body.append(outside);
 
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -1492,7 +1517,7 @@ describe("RsvpModal", () => {
 
   it("still shows the closed banner when the deadline day is unknown", () => {
     const { getByText } = render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
@@ -1536,7 +1561,7 @@ describe("RsvpModal", () => {
       vi.stubGlobal("fetch", fetchSpy);
 
       const view = render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya]}
           apiUrl="https://api.test"
@@ -1610,7 +1635,7 @@ describe("RsvpModal", () => {
       // Fake clock before the submit registers the dwell (P-I2, as above).
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya]}
           apiUrl="https://api.test"
@@ -1660,7 +1685,7 @@ describe("RsvpModal", () => {
       );
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
+        <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
       ));
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
@@ -1758,16 +1783,19 @@ describe("RsvpModal", () => {
         ),
       );
       vi.useFakeTimers();
-      // `onClose` must actually UNMOUNT, the way the parent's
-      // `() => setRsvpEvent(null)` does — that unmount is what runs the
+      // `onClose` must actually UNMOUNT, the way the page's
+      // `() => setSheet(null)` does — that unmount is what runs the
       // `onCleanup` that clears the dwell timer, and so it is the entire
       // mechanism under test. A bare spy leaves the sheet mounted and the dwell
       // lands anyway; this test failed exactly that way when first written.
+      // Through the real sheet, because the dismissal is the sheet's dialog.
       const [open, setOpen] = createSignal(true);
       render(() => (
         <Show when={open()}>
-          <RsvpModal
+          <EventSheet
             event={event}
+            panel="rsvp"
+            siteUrl="https://invite.example.com/abc"
             members={[priya]}
             apiUrl="https://api.test"
             onClose={() => setOpen(false)}
@@ -1804,7 +1832,7 @@ describe("RsvpModal", () => {
       // would sleep the full `SAVED_DWELL_MS` and sit on `waitFor`'s deadline.
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya]}
           apiUrl="https://api.test"
@@ -1862,7 +1890,7 @@ describe("RsvpModal", () => {
       );
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya, raj]}
           apiUrl="https://api.test"
@@ -1911,7 +1939,7 @@ describe("RsvpModal", () => {
       );
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya, raj]}
           apiUrl="https://api.test"
@@ -1963,7 +1991,7 @@ describe("RsvpModal", () => {
       );
       vi.useFakeTimers();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya, raj]}
           // Raj already answered on a previous visit; only Priya is missing.
@@ -2003,7 +2031,7 @@ describe("RsvpModal", () => {
       // A region that springs into existence with its content is routinely
       // missed; one that was already there and changed is not.
       const { getByRole } = render(() => (
-        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       const status = getByRole("status");
       expect(status).toBeTruthy();
@@ -2089,7 +2117,7 @@ describe("RsvpModal", () => {
       );
 
       const { getByRole, findByText } = render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya]}
           apiUrl="https://api.test"
@@ -2142,7 +2170,7 @@ describe("RsvpModal", () => {
       const onClose = vi.fn();
 
       const { getByRole, findByText } = render(() => (
-        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
+        <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
       ));
 
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
@@ -2194,7 +2222,7 @@ describe("RsvpModal", () => {
       const onClose = vi.fn();
 
       const { getByRole, findByText } = render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[priya]}
           existingRsvps={rsvps()}
@@ -2246,7 +2274,7 @@ describe("RsvpModal", () => {
         );
 
         const { getByRole } = render(() => (
-          <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
+          <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
         ));
 
         fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
@@ -2266,8 +2294,17 @@ describe("RsvpModal", () => {
   });
 
   it("seats the action bar on the sheet's bottom edge and balances the card insets", () => {
+    // Through the real sheet: the padding the bar has to line up with is the
+    // sheet's, not this panel's.
     const { getByRole } = render(() => (
-      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+      <EventSheet
+        event={event}
+        panel="rsvp"
+        siteUrl="https://invite.example.com/abc"
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
     ));
 
     const panel = document.querySelector("dialog")!;
@@ -2277,6 +2314,11 @@ describe("RsvpModal", () => {
     // The sheet hands its bottom edge to the action bar (see AnimatedModal's
     // `flushBottom`) instead of padding underneath it.
     expect(scroller.className).toContain("pb-0");
+    // Between the two sits the sheet's panels wrapper, which steps out over
+    // the scroller's padding and back in by the same amount.
+    const wrapper = scroller.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain("-mx-6");
+    expect(wrapper.className).toContain("px-6");
 
     // Anchor on the role, not on how deep the label's text node sits — a future
     // icon or <span> around "Save" would silently re-point `parentElement`.
@@ -2289,9 +2331,10 @@ describe("RsvpModal", () => {
     // keeps Cancel/Save clear of the iPhone home indicator. Losing it would be
     // invisible to every other assertion here.
     expect(bar.className).toContain("pb-[max(1rem,env(safe-area-inset-bottom))]");
-    // The bar is full-bleed only because `-mx-6` cancels the scroller's `px-6`.
-    // The number is written twice, in two components — pin both together so a
-    // change to either fails at the coupling rather than in a screenshot.
+    // The bar is full-bleed only because its `-mx-6` cancels the wrapper's
+    // `px-6`, which matches the scroller's. The number is written in three
+    // places across three components — pin them together so a change to any
+    // one fails at the coupling rather than in a screenshot.
     expect(bar.className).toContain("-mx-6");
     expect(scroller.className).toContain("px-6");
 
@@ -2324,7 +2367,7 @@ describe("RsvpModal", () => {
 
     it("says whose guest they are", () => {
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       const legend = fieldsetFor("Sam").querySelector("legend");
       expect(legend?.textContent).toContain("Sam Park");
@@ -2334,7 +2377,7 @@ describe("RsvpModal", () => {
 
     it("asks the household to confirm the plus-one agreed, apart from its own consent", () => {
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
@@ -2354,7 +2397,7 @@ describe("RsvpModal", () => {
 
     it("shows only the attestation when only the plus-one gives dietary data", () => {
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
       pickPreset(fieldsetFor("Sam"), /^nuts$/i);
@@ -2366,7 +2409,7 @@ describe("RsvpModal", () => {
       const fetchSpy = vi.fn();
       vi.stubGlobal("fetch", fetchSpy);
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
@@ -2383,7 +2426,7 @@ describe("RsvpModal", () => {
       const fetchSpy = okResponse();
       vi.stubGlobal("fetch", fetchSpy);
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
@@ -2423,7 +2466,7 @@ describe("RsvpModal", () => {
       const fetchSpy = okResponse();
       vi.stubGlobal("fetch", fetchSpy);
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Not attending"));
       fireEvent.click(screen.getByText("Save"));
@@ -2467,7 +2510,7 @@ describe("RsvpModal", () => {
       ];
 
       const first = render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[bo, sam]}
           existingRsvps={rows(true, false)}
@@ -2480,7 +2523,7 @@ describe("RsvpModal", () => {
       first.unmount();
 
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[bo, sam]}
           existingRsvps={rows(false, true)}
@@ -2496,7 +2539,7 @@ describe("RsvpModal", () => {
       const fetchSpy = vi.fn();
       vi.stubGlobal("fetch", fetchSpy);
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[bo, sam]}
           existingRsvps={[
@@ -2532,7 +2575,7 @@ describe("RsvpModal", () => {
         ),
       );
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
       pickPreset(fieldsetFor("Sam"), /^nuts$/i);
@@ -2554,7 +2597,7 @@ describe("RsvpModal", () => {
         ),
       );
       render(() => (
-        <RsvpModal event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
       ));
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
       pickPreset(fieldsetFor("Sam"), /^nuts$/i);
@@ -2573,7 +2616,7 @@ describe("RsvpModal", () => {
       vi.useFakeTimers();
       const onConfirmed = vi.fn();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[bo, sam]}
           apiUrl="https://api.test"
@@ -2592,7 +2635,7 @@ describe("RsvpModal", () => {
       vi.useFakeTimers();
       const onConfirmed = vi.fn();
       render(() => (
-        <RsvpModal
+        <RsvpPanel
           event={event}
           members={[bo, sam]}
           apiUrl="https://api.test"
@@ -2605,5 +2648,108 @@ describe("RsvpModal", () => {
       await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
       expect(onConfirmed).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("RsvpPanel — the heading and the way to the details", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("names its heading after the panel as well as the event", () => {
+    // Both of the sheet's panels are titled with the event's name. "Respond"
+    // inside the heading is what tells a guest who lands on it which one this is.
+    let received: HTMLHeadingElement | undefined;
+    const { getByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        titleId="rsvp-title"
+        headingRef={(el) => (received = el)}
+      />
+    ));
+
+    const heading = getByRole("heading", { name: "Respond, Mehndi" });
+    expect(heading.id).toBe("rsvp-title");
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+    expect(received).toBe(heading);
+  });
+
+  it("offers no way to the details on its own", () => {
+    const { queryByRole } = render(() => (
+      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+    expect(queryByRole("button", { name: "View event details" })).toBeNull();
+  });
+
+  it("offers the details as a quiet link, outside the form", () => {
+    const onShowDetails = vi.fn();
+    const { getByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onShowDetails={onShowDetails}
+      />
+    ));
+
+    const link = getByRole("button", { name: "View event details" });
+    // Not in the form: it is not part of the reply, and it must not send one.
+    expect(link.closest("form")).toBeNull();
+    fireEvent.click(link);
+    expect(onShowDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays available once RSVPs have closed — the details still are", () => {
+    const { getByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+        onShowDetails={() => {}}
+      />
+    ));
+    expect(
+      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("is withdrawn while a save is in flight and while the sheet closes on a saved reply", async () => {
+    // Nothing to come back to: the sheet closes itself one dwell after a save.
+    let resolve!: (r: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((r) => (resolve = r))),
+    );
+    const { getByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onShowDetails={() => {}}
+      />
+    ));
+    const link = () => getByRole("button", { name: "View event details" }) as HTMLButtonElement;
+    expect(link().disabled).toBe(false);
+
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+    await waitFor(() => expect(link().disabled).toBe(true));
+
+    resolve(
+      new Response(JSON.stringify({ rsvps: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
+    expect(link().disabled).toBe(true);
   });
 });

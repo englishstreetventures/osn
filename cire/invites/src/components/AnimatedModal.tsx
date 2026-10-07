@@ -29,9 +29,15 @@ interface AnimatedModalProps {
    * safe-area padding. Without this the bar would either float above the
    * panel's padding or have to cancel it with a negative margin, which
    * `position: sticky` resolves against the scrollport and so hoists the bar
-   * up over the content instead of extending it down (see RsvpModal).
+   * up over the content instead of extending it down (see RsvpPanel).
    */
   flushBottom?: boolean;
+  /**
+   * Receives the scrollport — the element that scrolls the sheet's content.
+   * For a caller that changes what the sheet shows and must put the reader
+   * back at the top of it (EventSheet, switching panels).
+   */
+  scrollRef?: (el: HTMLDivElement) => void;
   children: JSX.Element;
 }
 
@@ -166,6 +172,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
           target to the top of the scrollport, which is exactly where the chip
           sits. */}
       <div
+        ref={(el) => props.scrollRef?.(el)}
         autofocus
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
         tabindex="0"
