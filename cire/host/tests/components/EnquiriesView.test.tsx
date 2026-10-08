@@ -1,6 +1,7 @@
+import { toast } from "@shared/toast";
+import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EnquiryListItem, EnquiryMessage } from "../../src/lib/enquiries-store";
@@ -29,7 +30,7 @@ vi.mock("@shared/toast", () => ({
 
 const redirectToLogin = vi.fn();
 
-// T-U5: `isAuthExpired` comes from the REAL module, not a stand-in. A
+// `isAuthExpired` comes from the REAL module, not a stand-in. A
 // hand-written copy would only re-implement one arm, so the point of
 // consolidating on the shared helper — that `lib/api.test.ts`'s shape
 // assertions transitively protect this call site — would be lost.
@@ -70,6 +71,7 @@ const makeMessage = (over: Partial<EnquiryMessage> = {}): EnquiryMessage => ({
 
 beforeEach(() => {
   __resetEnquiriesCache();
+  vi.mocked(toast.error).mockClear();
   redirectToLogin.mockReset();
   authFetch.mockReset();
   activeProfileId.mockReturnValue("p_me");
@@ -124,6 +126,54 @@ describe("EnquiriesView", () => {
     setCachedEnquiries("wed_1", []);
     render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
     expect(await screen.findByText(/no enquiries yet/i)).toBeInTheDocument();
+  });
+
+  it("loads the next page under the first, and stops offering one after the last", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ enquiries: [makeItem({ id: "enq_new" })], nextCursor: "1784.enq_new" }),
+        { status: 200 },
+      ),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          enquiries: [makeItem({ id: "enq_old", vendorName: "Old Oak Films" })],
+          nextCursor: null,
+        }),
+        { status: 200 },
+      ),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+
+    expect(await screen.findByText("Old Oak Films")).toBeInTheDocument();
+    expect(screen.getByText("Blue Roses")).toBeInTheDocument();
+    expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/enquiries\?cursor=1784\.enq_new$/);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears the inbox and says so when the next page is refused", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ enquiries: [makeItem()], nextCursor: "1784.enq_1" }), {
+        status: 200,
+      }),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "forbidden" }), { status: 403 }),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByText("Blue Roses")).not.toBeInTheDocument();
+    expect(redirectToLogin).not.toHaveBeenCalled();
   });
 
   it("calls fetchEnquiries (authFetch GET) when the store is empty", async () => {
@@ -249,17 +299,11 @@ describe("EnquiriesView", () => {
     expect(screen.queryByText(/Enquiries aren't end-to-end encrypted/i)).not.toBeInTheDocument();
   });
 
-  // The inbox is mounted throughout a reply now, so the post-send refresh has to
-  // reach the signal it is actually subscribed to. Deleting the cache entry
-  // (what `invalidateEnquiries` does) mints a new signal and leaves the row
-  // showing its pre-reply state forever.
-  //
-  // ENQ-P-I1 changed HOW that refresh happens — an optimistic local upsert
-  // instead of refetching the whole inbox — so the observable moved from the
-  // row's status to the row's timestamp. Status was never the honest signal
-  // here anyway: the server's reply path sets only `lastMessageAt` +
-  // `updatedAt`, so the old test's "now quoted" refetch mock described a
-  // response the API does not produce.
+  // The inbox stays mounted throughout a reply, so the post-send refresh has to
+  // reach the signal it is subscribed to; a write to a fresh cache entry would
+  // leave the row showing its pre-reply state. The refresh is a local upsert,
+  // and the server's reply path sets only `lastMessageAt` + `updatedAt`, so the
+  // observable is the row's timestamp, not its status.
   it("refreshes the inbox row through the live signal after a reply", async () => {
     const EnquiriesView = await importComponent();
     // Relative to now, so "then" and "today" can never format alike.
@@ -290,8 +334,7 @@ describe("EnquiriesView", () => {
     expect(screen.queryByText(shortDate(lastYear))).not.toBeInTheDocument();
   });
 
-  // ENQ-P-I1: the row is derived locally, so replying must not cost a
-  // list-sized read. Pinned because the regression is invisible — a reinstated
+  // The row is derived locally, so replying must not cost a list-sized read. Pinned because the regression is invisible — a reinstated
   // refetch would leave every assertion above still passing.
   it("does not refetch the whole inbox to send a reply", async () => {
     const EnquiriesView = await importComponent();

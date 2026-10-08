@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { For, Show } from "solid-js";
 
 import type { EnquiryListItem } from "../lib/enquiries-store";
@@ -31,6 +32,11 @@ interface EnquiryInboxProps {
    *  by side — the row needs to say which conversation is on screen. Absent on
    *  narrow layouts, where the inbox is never visible at the same time. */
   selectedId?: string | null;
+  /** Another page follows the rows shown. */
+  hasMore?: boolean;
+  /** The next page is on its way. */
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export default function EnquiryInbox(props: EnquiryInboxProps) {
@@ -90,6 +96,17 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
             }}
           </For>
         </ul>
+        <Show when={props.hasMore}>
+          <Button
+            variant="quiet"
+            size="sm"
+            class="self-start"
+            disabled={props.loadingMore}
+            onClick={() => props.onLoadMore?.()}
+          >
+            {props.loadingMore ? "Loading…" : "Load more enquiries"}
+          </Button>
+        </Show>
       </Show>
     </div>
   );

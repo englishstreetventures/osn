@@ -94,4 +94,38 @@ describe("EnquiryInbox", () => {
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveAccessibleName(/Southbank Strings/);
   });
+
+  it("offers the next page under the list while one follows, and asks for it", () => {
+    const onLoadMore = vi.fn();
+    render(() => (
+      <EnquiryInbox
+        items={[item()]}
+        currency="AUD"
+        onOpen={() => {}}
+        hasMore
+        onLoadMore={onLoadMore}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Load more enquiries" }));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the button while the next page is on its way", () => {
+    render(() => (
+      <EnquiryInbox
+        items={[item()]}
+        currency="AUD"
+        onOpen={() => {}}
+        hasMore
+        loadingMore
+        onLoadMore={() => {}}
+      />
+    ));
+    expect(screen.getByRole("button", { name: "Loading…" })).toBeDisabled();
+  });
+
+  it("offers no next page once the last one is loaded", () => {
+    render(() => <EnquiryInbox items={[item()]} currency="AUD" onOpen={() => {}} />);
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+  });
 });

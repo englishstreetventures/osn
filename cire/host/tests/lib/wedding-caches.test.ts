@@ -42,7 +42,13 @@ const stores: StoreSpec[] = [
     name: "enquiries",
     accessor: enquiries.enquiriesAccessor,
     set: (id) => enquiries.setCachedEnquiries(id, ROW),
-    ensure: enquiries.ensureEnquiriesLoaded,
+    // The inbox loads a page — rows plus a cursor — so the shared fetcher's
+    // rows are carried as page one.
+    ensure: (id, fetcher) =>
+      enquiries.ensureEnquiriesLoaded(id, async () => ({
+        enquiries: await fetcher(),
+        nextCursor: null,
+      })),
     reset: enquiries.__resetEnquiriesCache,
   },
   {
@@ -189,4 +195,26 @@ describe.each(stores)("dropWeddingCaches — $name", (store) => {
       expect(store.accessor("wed_a")()).toBeNull();
     },
   );
+});
+
+describe("dropWeddingCaches — enquiries' next page", () => {
+  it("discards a next page that was in flight when the wedding was dropped", async () => {
+    await enquiries.ensureEnquiriesLoaded("wed_a", async () => ({
+      enquiries: ROW,
+      nextCursor: "1.row_1",
+    }));
+    const load = heldLoad();
+    const pending = enquiries.loadMoreEnquiries("wed_a", async () => ({
+      enquiries: await load.fetcher(),
+      nextCursor: null,
+    }));
+
+    dropWeddingCaches("wed_a");
+    openWeddingCaches("wed_a");
+    load.settle();
+
+    expect(await pending).toBe(false);
+    expect(enquiries.enquiriesAccessor("wed_a")()).toBeNull();
+    expect(enquiries.enquiriesNextCursor("wed_a")()).toBeNull();
+  });
 });
