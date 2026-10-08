@@ -193,6 +193,11 @@ What this does and does not catch:
   `undici-types`. So a `process.env` read at module load — empty on workerd at
   deploy-time evaluation, see [[backend-patterns]] — is still a review rule, not a
   compiler one.
+- `node:crypto` imports type-check and run (`nodejs_compat`), but `Buffer` is
+  typed by `@cloudflare/workers-types` here, where `toString` takes no
+  encoding: `buf.toString("hex")` in Worker source, or in a shared file the
+  Worker imports, fails `check` with TS2554. Build hex from the bytes instead
+  (`generateRecoveryCode` in `shared/crypto/src/recovery.ts` does).
 - An ES2023 method such as `toSorted` in `cire/invites/src` (a `.ts`, `.tsx` or
   `.astro` file) fails `check`. The same call in a workspace package the guest site
   imports (`@cire/theme`, `@cire/invite-designs`, `@cire/dietary`, `@shared/legal`,
