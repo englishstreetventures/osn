@@ -70,6 +70,15 @@ describe("redact", () => {
     expect(out.code_hash).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts a cire unlock code, the body field an owner redeems one with", () => {
+    const out = redact({ weddingId: "wed_1", unlockCode: "3f9a-0c1e-b7d2-48aa" }) as Record<
+      string,
+      unknown
+    >;
+    expect(out.weddingId).toBe("wed_1");
+    expect(out.unlockCode).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts WebAuthn assertion bodies", () => {
     const input = {
       identifier: "u_123",
@@ -431,6 +440,7 @@ describe("redact", () => {
       "recovery_codes",
       "codehash",
       "code_hash",
+      "unlockcode",
       "stepuptoken",
       "step_up_token",
       "totpsecret",

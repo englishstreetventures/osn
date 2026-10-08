@@ -111,16 +111,17 @@ export const weddings = sqliteTable(
     // refund is an operator decision made with `grant-tier.ts`, never automatic.
     //
     // `tier_source` says how the wedding reached its tier — `purchase` (a
-    // settled Stripe checkout), `comp` (an operator grant) or `migration` (lifted
-    // from its legacy `wedding_entitlements` rows by 0073) — and
-    // `tier_granted_by` what: `stripe:<purchase id>` for a purchase (the buyer
-    // is on that purchase row), `script:<operator>` for a comp. Both NULL on a
-    // wedding that has never left `ivory`, and `tier_granted_by` NULL on a
-    // migrated one.
+    // settled Stripe checkout), `comp` (an operator grant), `code` (an owner
+    // redeemed an unlock code) or `migration` (lifted from its legacy
+    // `wedding_entitlements` rows by 0073) — and `tier_granted_by` what:
+    // `stripe:<purchase id>` for a purchase (the buyer is on that purchase
+    // row), `script:<operator>` for a comp, `code:<unlock code id>` for a code
+    // (the redeeming owner is on the redemption row). Both NULL on a wedding
+    // that has never left `ivory`, and `tier_granted_by` NULL on a migrated one.
     tier: text("tier", { enum: ["ivory", "gold", "crimson"] })
       .notNull()
       .default("ivory"),
-    tierSource: text("tier_source", { enum: ["purchase", "comp", "migration"] }),
+    tierSource: text("tier_source", { enum: ["purchase", "comp", "code", "migration"] }),
     tierGrantedBy: text("tier_granted_by"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -1709,3 +1710,76 @@ export const linkThumbTransforms = sqliteTable("link_thumb_transforms", {
   period: text("period").primaryKey(), // YYYY-MM, UTC
   used: integer("used").notNull().default(0),
 });
+
+// ── Unlock codes (migration 0082) ───────────────────────────────────────────
+// A code the platform owner mints (`cire/api/scripts/mint-unlock-code.ts`) so
+// a friend or a comp can move a wedding to a paid tier with no payment. Any
+// owner of a wedding redeems it from the portal
+// (`POST /api/organiser/weddings/:weddingId/unlock-code`).
+//
+// Only the code's SHA-256 is stored (`hashRecoveryCode` from
+// `@shared/crypto/recovery`, which folds case and drops separators first), so
+// neither this table nor the SQL the mint script prints holds a code as
+// written. The hash is unsalted over 64 bits, so whoever holds a copy of the
+// table can still search for the codes offline: treat an export as you would
+// the codes.
+//
+// Deliberately OUTSIDE the wedding cascade, like `platform_sales`: the daily
+// purge deletes a soft-deleted wedding's rows, its redemptions included, and
+// `redeemed_count` is what keeps a use spent after that. Counting redemption
+// rows instead would hand a used-up code its use back once the wedding that
+// spent it is purged.
+export const unlockCodes = sqliteTable(
+  "unlock_codes",
+  {
+    id: text("id").primaryKey(), // ulc_<uuid>
+    codeHash: text("code_hash").notNull().unique(),
+    // The tier a redemption raises a wedding to. Never `ivory`: a code only
+    // ever raises.
+    tier: text("tier", { enum: ["gold", "crimson"] }).notNull(),
+    maxRedemptions: integer("max_redemptions").notNull(),
+    redeemedCount: integer("redeemed_count").notNull().default(0),
+    // The first instant the code no longer works, in seconds. NULL never expires.
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    // `script:<operator>`, as `weddings.tier_granted_by` names a comp.
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  () => [
+    check("unlock_codes_tier_ck", sql`tier in ('gold','crimson')`),
+    // The redemption batch only spends a use while one is left; this makes a
+    // statement that would overspend fail, and the whole batch with it.
+    check(
+      "unlock_codes_uses_ck",
+      sql`max_redemptions >= 1 and redeemed_count >= 0 and redeemed_count <= max_redemptions`,
+    ),
+  ],
+);
+
+// One row per wedding that redeemed a code: which code, which wedding, which
+// owner and when. Goes with the wedding (`ON DELETE CASCADE`) like every other
+// wedding row; the code's `redeemed_count` keeps the use spent afterwards.
+// `redeemed_by_osn_profile_id` is an opaque foreign-system id, like
+// `wedding_hosts.osn_profile_id`, and nullable so an erasure request from that
+// organiser can clear it without losing the record that the code was used.
+export const unlockCodeRedemptions = sqliteTable(
+  "unlock_code_redemptions",
+  {
+    id: text("id").primaryKey(), // ulr_<uuid>
+    codeId: text("code_id")
+      .notNull()
+      .references(() => unlockCodes.id, { onDelete: "cascade" }),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    redeemedByOsnProfileId: text("redeemed_by_osn_profile_id"),
+    redeemedAt: integer("redeemed_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // A wedding redeems a code once. Also the index the code-side lookups and
+    // the code's cascade read, by its leading column.
+    uniqueIndex("unlock_code_redemptions_code_wedding_uniq").on(t.codeId, t.weddingId),
+    // The purge's cascade from `weddings` finds a wedding's rows by this.
+    index("unlock_code_redemptions_wedding_idx").on(t.weddingId),
+  ],
+);

@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # DSAR Runbook
@@ -146,11 +146,13 @@ owners, each with an `owner` seat. Two consequences:
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat
-  (`wedding_hosts.added_by_osn_profile_id`), and who deleted a wedding
-  (`weddings.deleted_by_osn_profile_id`). An access answer gives the
-  requester their own seat and role, and for each wedding the fact that it has
-  other owners and how many, but not their profile ids, handles or roles, and
-  not who deleted the wedding unless that was the requester. Those identify a
+  (`wedding_hosts.added_by_osn_profile_id`), who deleted a wedding
+  (`weddings.deleted_by_osn_profile_id`), and who redeemed an unlock code for
+  it (`unlock_code_redemptions.redeemed_by_osn_profile_id`). An access answer
+  gives the requester their own seat and role, and for each wedding the fact
+  that it has other owners and how many, but not their profile ids, handles or
+  roles, and not who deleted the wedding or redeemed its code unless that was
+  the requester. Those identify a
   co-owner, whose rights Art. 15(4) protects; the co-owner can ask for their
   own. Who added the requester's seat **is** included: it is the source of
   the requester's data (Art. 15(1)(g)), and the portal already shows it to
@@ -227,6 +229,13 @@ owners, each with an `owner` seat. Two consequences:
   `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
   and the same for `dietary_attested_by_osn_profile_id`. The consent record
   itself stays, as evidence an organiser attested.
+- **Unlock-code redemptions.** `unlock_code_redemptions.redeemed_by_osn_profile_id`
+  names the owner who redeemed a code for a wedding. It is the organiser's data
+  in an organiser's access request. An erasure request from that organiser nulls
+  it, in the same pass that removes their seat:
+  `UPDATE unlock_code_redemptions SET redeemed_by_osn_profile_id = NULL WHERE redeemed_by_osn_profile_id = ?`.
+  The row stays, so the code's use and the wedding's tier keep their record; it
+  goes with the wedding when the purge deletes it ([[retention]]).
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

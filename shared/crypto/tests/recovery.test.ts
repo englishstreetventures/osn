@@ -1,4 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+/** Bytes for the next `randomBytes` call, or null for the real CSPRNG. */
+const fixedBytes = vi.hoisted(() => ({ next: null as number[] | null }));
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  return {
+    ...actual,
+    randomBytes: (size: number) => {
+      const bytes = fixedBytes.next;
+      fixedBytes.next = null;
+      return bytes ? Buffer.from(bytes) : actual.randomBytes(size);
+    },
+  };
+});
 
 import {
   RECOVERY_CODE_COUNT,
@@ -17,6 +31,11 @@ describe("generateRecoveryCode", () => {
   it("produces fresh codes on each call", () => {
     const codes = new Set(Array.from({ length: 100 }, () => generateRecoveryCode()));
     expect(codes.size).toBe(100);
+  });
+
+  it("writes every byte as two hex digits, the small ones padded", () => {
+    fixedBytes.next = [0x00, 0x0f, 0x10, 0xff, 0x01, 0x02, 0xab, 0xcd];
+    expect(generateRecoveryCode()).toBe("000f-10ff-0102-abcd");
   });
 });
 

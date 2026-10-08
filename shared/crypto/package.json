@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./jwk": "./src/jwk.ts",
+    "./recovery": "./src/recovery.ts",
     "./testing": "./src/testing.ts",
     "./timing-safe": "./src/timing-safe.ts",
     "./tokens": "./src/tokens.ts",

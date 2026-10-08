@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import * as schema from "@cire/db";
 import { families, guestAccountLinks, guests, weddingHosts } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 
@@ -350,5 +350,62 @@ describe("guest_account_links schema", () => {
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
     db.delete(guests).where(eq(guests.id, "gst-1")).run();
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
+  });
+});
+
+// The redemption batch only spends a use while one is left; these constraints
+// are the backstop that fails any statement that would get past it.
+describe("unlock_codes constraints", () => {
+  const code = (fields: Partial<typeof schema.unlockCodes.$inferInsert> = {}) => ({
+    id: "ulc_1",
+    codeHash: "hash_1",
+    tier: "gold" as const,
+    maxRedemptions: 1,
+    createdBy: "script:ops",
+    createdAt: now,
+    ...fields,
+  });
+
+  it("refuses more uses spent than the code has", () => {
+    const db = makeDb();
+    expect(() =>
+      db
+        .insert(schema.unlockCodes)
+        .values(code({ redeemedCount: 2 }))
+        .run(),
+    ).toThrow();
+  });
+
+  it("refuses a code with no uses at all", () => {
+    const db = makeDb();
+    expect(() =>
+      db
+        .insert(schema.unlockCodes)
+        .values(code({ maxRedemptions: 0 }))
+        .run(),
+    ).toThrow();
+  });
+
+  it("refuses a code for ivory, which a code cannot give", () => {
+    const db = makeDb();
+    expect(() =>
+      db
+        .insert(schema.unlockCodes)
+        .values(code({ tier: "ivory" as "gold" }))
+        .run(),
+    ).toThrow();
+  });
+
+  it("refuses to spend a use past the last one", () => {
+    const db = makeDb();
+    db.insert(schema.unlockCodes)
+      .values(code({ redeemedCount: 1 }))
+      .run();
+    expect(() =>
+      db
+        .update(schema.unlockCodes)
+        .set({ redeemedCount: sql`${schema.unlockCodes.redeemedCount} + 1` })
+        .run(),
+    ).toThrow();
   });
 });

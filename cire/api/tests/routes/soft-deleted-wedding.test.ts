@@ -100,6 +100,7 @@ const LIMITER_OPTIONS = [
   "plusOneLimiter",
   "registryContributeLimiter",
   "upgradeLimiter",
+  "unlockCodeLimiter",
   "registryStripeLimiter",
 ] as const satisfies readonly (keyof AppOptions)[];
 

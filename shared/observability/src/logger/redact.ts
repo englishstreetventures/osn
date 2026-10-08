@@ -134,6 +134,11 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "recovery_codes",
     "codeHash",
     "code_hash",
+    // A cire unlock code: the body field an owner POSTs to redeem one
+    // (cire/api/src/schemas/unlock-code.ts). A recovery code in form, stored
+    // as `unlock_codes.code_hash` (covered above); the raw code moves a
+    // wedding to a paid tier, so it never appears in operator logs.
+    "unlockCode",
 
     // --- Step-up (sudo) tokens ---
     // Short-lived bearer tokens minted by /step-up/*/complete and required

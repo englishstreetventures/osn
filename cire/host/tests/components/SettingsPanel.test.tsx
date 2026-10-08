@@ -414,6 +414,45 @@ describe("SettingsPanel", () => {
       expect(screen.queryByRole("button", { name: "Delete wedding…" })).toBeNull();
     });
   });
+
+  describe("the plan, and a code to raise it", () => {
+    it("names an owner's plan and offers a code below Crimson", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+      expect(await screen.findByText(/this wedding is on Ivory/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Have a code?" })).toBeInTheDocument();
+    });
+
+    it("offers no code on Crimson, which a code cannot raise", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => <SettingsPanel weddingId="wed_1" tier="crimson" canManage />);
+      expect(await screen.findByText(/this wedding is on Crimson/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Have a code?" })).toBeNull();
+    });
+
+    it("is not offered to a co-host", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => (
+        <SettingsPanel weddingId="wed_1" tier="ivory" canManage={false} canEditRsvpDeadline />
+      ));
+      await screen.findByDisplayValue("Aisha & Ben");
+      expect(screen.queryByText(/this wedding is on/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Have a code?" })).toBeNull();
+    });
+
+    it("reports a redeemed code's tier up", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      const onTierRaised = vi.fn();
+      render(() => (
+        <SettingsPanel weddingId="wed_1" tier="ivory" canManage onTierRaised={onTierRaised} />
+      ));
+      fireEvent.click(await screen.findByRole("button", { name: "Have a code?" }));
+      fireEvent.input(screen.getByLabelText("Code"), { target: { value: "3f9a-0c1e-b7d2-48aa" } });
+      authFetchMock.mockResolvedValueOnce(json({ tier: "gold" }));
+      fireEvent.click(screen.getByRole("button", { name: "Use code" }));
+      await waitFor(() => expect(onTierRaised).toHaveBeenCalledWith("gold"));
+    });
+  });
   /**
    * An owner's downloads of the rows held in modules the plan locks. The
    * locked nav cards offer them too, but a keyboard cannot reach a button in

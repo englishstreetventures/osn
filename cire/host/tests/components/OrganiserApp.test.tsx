@@ -129,6 +129,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onSub: (s: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
       onWeddingDeleted?: (restoreUntil: string) => void;
+      onTierRaised?: (tier: "gold" | "crimson") => void;
       onLeftWedding?: () => void;
       onOwnRoleChanged?: (role: "owner" | "editor" | "viewer" | "helper") => void;
     }) => {
@@ -165,6 +166,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           <button onClick={() => props.onWeddingDeleted?.("2026-10-08T12:00:00.000Z")}>
             delete-wedding
           </button>
+          <button onClick={() => props.onTierRaised?.("gold")}>redeem-code</button>
           <button onClick={() => props.onLeftWedding?.()}>leave</button>
           <button onClick={() => props.onOwnRoleChanged?.("editor")}>step-down</button>
         </div>
@@ -184,6 +186,7 @@ import OrganiserApp from "../../src/components/OrganiserApp";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
+import { hasCachedCatalogue, setCatalogue } from "../../src/lib/upgrade-store";
 import {
   __resetVendorsCache,
   peekCachedVendors,
@@ -838,6 +841,90 @@ describe("OrganiserApp Dashboard", () => {
     expect(shell().getAttribute("data-can-edit")).toBe("true");
     expect(shell().getAttribute("data-mount")).toBe(mount);
     expect(authFetchMock.mock.calls.length).toBe(reads);
+  });
+
+  it("raises the open wedding's tier the moment a code is redeemed, then asks for the list again", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let tier = "ivory";
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().getAttribute("data-tier")).toBe("ivory"));
+    const mount = shell().getAttribute("data-mount");
+    tier = "gold";
+
+    fireEvent.click(screen.getByText("redeem-code"));
+
+    // At once, from the patch, before the list comes back.
+    expect(shell().getAttribute("data-tier")).toBe("gold");
+    await waitFor(() => expect(listCalls()).toBe(2));
+    expect(shell().getAttribute("data-tier")).toBe("gold");
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+    expect(toastSuccess).toHaveBeenCalledWith("Code accepted. This wedding is now on Gold.");
+  });
+
+  it("drops the upgrade prices quoted from the old tier when a code is redeemed", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().getAttribute("data-tier")).toBe("ivory"));
+    setCatalogue("wed_a", {
+      tier: "ivory",
+      upgrades: [
+        {
+          tier: "gold",
+          fromTier: "ivory",
+          title: "Gold",
+          blurb: "…",
+          amountMinor: 2900,
+          currency: "AUD",
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByText("redeem-code"));
+
+    expect(hasCachedCatalogue("wed_a")).toBe(false);
+  });
+
+  it("keeps the raised tier when the list cannot be read again", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let fail = false;
+    authFetchMock.mockImplementation(async () =>
+      fail
+        ? new Response("{}", { status: 500 })
+        : listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().getAttribute("data-tier")).toBe("ivory"));
+    const mount = shell().getAttribute("data-mount");
+    fail = true;
+
+    fireEvent.click(screen.getByText("redeem-code"));
+
+    await waitFor(() => expect(listCalls()).toBe(2));
+    expect(shell().getAttribute("data-tier")).toBe("gold");
+    expect(shell().getAttribute("data-mount")).toBe(mount);
+  });
+
+  it("sends an expired session to sign-in when the list is read again", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let expired = false;
+    authFetchMock.mockImplementation(async () => {
+      if (expired) throw new Error("AuthExpiredError");
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]);
+    });
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().getAttribute("data-tier")).toBe("ivory"));
+    expired = true;
+
+    fireEvent.click(screen.getByText("redeem-code"));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(shell().getAttribute("data-tier")).toBe("gold");
   });
 
   it("keeps the same dashboard when the open wedding is renamed", async () => {

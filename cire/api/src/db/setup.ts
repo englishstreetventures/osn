@@ -561,6 +561,27 @@ CREATE TABLE IF NOT EXISTS link_thumb_transforms (
   period TEXT PRIMARY KEY NOT NULL,
   used INTEGER DEFAULT 0 NOT NULL
 );
+CREATE TABLE IF NOT EXISTS unlock_codes (
+  id TEXT PRIMARY KEY NOT NULL,
+  code_hash TEXT NOT NULL UNIQUE,
+  tier TEXT NOT NULL,
+  max_redemptions INTEGER NOT NULL,
+  redeemed_count INTEGER DEFAULT 0 NOT NULL,
+  expires_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  CONSTRAINT unlock_codes_tier_ck CHECK (tier in ('gold','crimson')),
+  CONSTRAINT unlock_codes_uses_ck CHECK (max_redemptions >= 1 and redeemed_count >= 0 and redeemed_count <= max_redemptions)
+);
+CREATE TABLE IF NOT EXISTS unlock_code_redemptions (
+  id TEXT PRIMARY KEY NOT NULL,
+  code_id TEXT NOT NULL REFERENCES unlock_codes(id) ON DELETE CASCADE,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  redeemed_by_osn_profile_id TEXT,
+  redeemed_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS unlock_code_redemptions_code_wedding_uniq ON unlock_code_redemptions(code_id, wedding_id);
+CREATE INDEX IF NOT EXISTS unlock_code_redemptions_wedding_idx ON unlock_code_redemptions(wedding_id);
 `;
 
 export function createDb(path: string = ":memory:") {

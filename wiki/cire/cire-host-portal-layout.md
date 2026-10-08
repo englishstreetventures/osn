@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Host Portal Layout System
 
@@ -159,7 +159,9 @@ component was previously reading a container it did not live in.
   other caches). Kobalte's hover card moves no focus into its portalled
   content, so a keyboard cannot reach that button; Settings → Profile lists the
   same downloads for an owner (`LockedModuleDownloads.tsx`), in the page's own
-  tab order. See [[cire-entitlements]] and [[cire-upgrades]].
+  tab order. Above them it names the wedding's plan and, below Crimson, offers
+  a **Have a code?** link (`UnlockCodeDialog.tsx`) for an unlock code. See
+  [[cire-entitlements]] and [[cire-upgrades]].
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is

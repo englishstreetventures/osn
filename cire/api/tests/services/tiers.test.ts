@@ -19,6 +19,7 @@ import {
   TIERS,
   tierAtLeast,
   tierForGuests,
+  tierRankSql,
   tierService,
   tiersBelow,
 } from "../../src/services/tiers";
@@ -105,6 +106,32 @@ describe("the tier ladder", () => {
     expect(isTier("vendors")).toBe(false);
     expect(isPaidTier("ivory")).toBe(false);
     expect(isPaidTier("gold")).toBe(true);
+  });
+
+  it("ranks a stored tier in SQL as the list does, and anything unknown as ivory", () => {
+    const db = createDb(":memory:");
+    for (const [id, tier] of [
+      ["wed_i", "ivory"],
+      ["wed_g", "gold"],
+      ["wed_c", "crimson"],
+      ["wed_x", "platinum"],
+    ] as const) {
+      seedWedding(db, id);
+      db.update(weddings)
+        .set({ tier: tier as Tier })
+        .where(eq(weddings.id, id))
+        .run();
+    }
+    const ranks = db
+      .select({ id: weddings.id, rank: tierRankSql(weddings.tier) })
+      .from(weddings)
+      .all();
+    expect(Object.fromEntries(ranks.map((r) => [r.id, Number(r.rank)]))).toEqual({
+      wed_i: TIERS.indexOf("ivory"),
+      wed_g: TIERS.indexOf("gold"),
+      wed_c: TIERS.indexOf("crimson"),
+      wed_x: TIERS.indexOf("ivory"),
+    });
   });
 });
 

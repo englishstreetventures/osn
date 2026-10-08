@@ -152,6 +152,7 @@ vi.mock("../../src/components/SettingsPanel", () => ({
     canManage: boolean;
     canEditRsvpDeadline?: boolean;
     tier: Tier;
+    onTierRaised?: (tier: "gold" | "crimson") => void;
   }) => (
     <div
       data-testid="settings"
@@ -160,6 +161,7 @@ vi.mock("../../src/components/SettingsPanel", () => ({
       data-tier={p.tier}
     >
       {p.weddingId}
+      <button onClick={() => p.onTierRaised?.("crimson")}>settings-code-redeemed</button>
     </div>
   ),
 }));
@@ -209,6 +211,7 @@ function renderShell(opts: {
   /** The caller's role; derived from the two flags when a test names none. */
   role?: WeddingRole;
   onLeftWedding?: () => void;
+  onTierRaised?: (tier: "gold" | "crimson") => void;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -249,6 +252,7 @@ function renderShell(opts: {
       entitlements={opts.entitlements ?? []}
       guestCap={opts.guestCap ?? 100}
       onLeftWedding={opts.onLeftWedding}
+      onTierRaised={opts.onTierRaised}
     />
   ));
   return { ...utils, onModule, onSub, setModule, setSub };
@@ -390,6 +394,15 @@ describe("ModuleShell", () => {
     it.each(["ivory", "gold"] as const)("hands the panel the %s tier", (tier) => {
       renderShell({ module: "settings", sub: "wedding", tier });
       expect(screen.getByTestId("settings").getAttribute("data-tier")).toBe(tier);
+    });
+
+    // The code is redeemed in the panel; the list that unlocks the nav lives
+    // two levels up, so the tier has to travel through here.
+    it("passes a redeemed code's tier up from the panel", () => {
+      const onTierRaised = vi.fn();
+      renderShell({ module: "settings", sub: "wedding", onTierRaised });
+      fireEvent.click(screen.getByText("settings-code-redeemed"));
+      expect(onTierRaised).toHaveBeenCalledWith("crimson");
     });
   });
 

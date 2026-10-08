@@ -38,7 +38,13 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import type { Db, ReturningTail } from "../db";
-import { DbService, commitBatchResults, commitGroupedBatchesReturning, dbQuery } from "../db";
+import {
+  DbService,
+  bound,
+  commitBatchResults,
+  commitGroupedBatchesReturning,
+  dbQuery,
+} from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricPlusOneBlocked, metricPlusOneChanged, metricPlusOnePermissionSet } from "../metrics";
 import type { ConfirmedPlusOne } from "../schemas/plus-one";
@@ -125,12 +131,6 @@ function toRecord(rows: readonly PlusOneRow[], inviterGuestId: string): PlusOneR
     plusOneOf: first.plusOneOf ?? inviterGuestId,
     eventIds: rows.flatMap((r) => (r.eventId === null ? [] : [r.eventId])),
   };
-}
-
-/** `value` as a bound parameter, sent through `column`'s encoder the way
- *  `.values()` sends it — for a select that feeds an insert. */
-function bound(value: unknown, column: AnySQLiteColumn) {
-  return sql`${sql.param(value, column)}`.as(column.name);
 }
 
 /**

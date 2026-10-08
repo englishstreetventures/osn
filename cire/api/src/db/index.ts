@@ -2,7 +2,7 @@ import * as schema from "@cire/db";
 import { type AnyColumn, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn, BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { Context, Effect } from "effect";
 
 import type { D1QueryClient } from "./d1-session";
@@ -66,6 +66,14 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
  * shape the outer select has.
  */
 export const outerColumn = (column: AnyColumn): SQL => sql`${column}`;
+
+/**
+ * `value` as a bound parameter, sent through `column`'s encoder the way
+ * `.values()` sends it and named for the column — for the select list of an
+ * `INSERT … SELECT`, which writes every column of the table in its order.
+ */
+export const bound = (value: unknown, column: AnySQLiteColumn) =>
+  sql`${sql.param(value, column)}`.as(column.name);
 
 /**
  * A non-empty statement list — the shape `batch()` demands (D1 rejects an empty

@@ -8,12 +8,14 @@ import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import type { Tier } from "../lib/tiers";
+import { TIER_LABEL } from "../lib/tiers";
+import type { PaidTier, Tier } from "../lib/tiers";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
 import DeleteWeddingDialog from "./DeleteWeddingDialog";
 import LockedModuleDownloads from "./LockedModuleDownloads";
 import SectionIntro from "./SectionIntro";
+import UnlockCodeDialog from "./UnlockCodeDialog";
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its free-text `address` (the sole
  *  location source, shown on the invite); the wedding holds one MAIN currency
@@ -79,6 +81,8 @@ interface SettingsPanelProps {
   /** An owner deleted the wedding; it can be restored until `restoreUntil`
    *  (ISO). Without it the danger zone is not offered. */
   onWeddingDeleted?: (restoreUntil: string) => void;
+  /** An owner redeemed an unlock code and the wedding is on `tier` now. */
+  onTierRaised?: (tier: PaidTier) => void;
 }
 
 /**
@@ -433,6 +437,26 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             </Button>
           </Show>
         </form>
+      </Show>
+
+      {/* The plan, for an owner, and a code to raise it. Crimson is the top
+          tier, so a code could add nothing there and none is offered. */}
+      <Show when={props.canManage && !loading() && !loadError()}>
+        <section
+          aria-labelledby="plan-title"
+          class="border-border flex flex-col gap-2 border-t pt-5"
+        >
+          <h3 id="plan-title" class="font-display text-text text-ui-md leading-tight font-light">
+            Plan
+          </h3>
+          <p class={hintClass}>This wedding is on {TIER_LABEL[props.tier]}.</p>
+          <Show when={props.tier !== "crimson"}>
+            <UnlockCodeDialog
+              weddingId={props.weddingId}
+              onRedeemed={(tier) => props.onTierRaised?.(tier)}
+            />
+          </Show>
+        </section>
       </Show>
 
       <Show when={props.canManage && !loading() && !loadError()}>
