@@ -164,6 +164,9 @@ async function run(
           "bun",
           "run",
           SCRIPT,
+          // First, so a test can override a default below: `flag()` reads the
+          // first occurrence of a flag.
+          ...(attempt === 0 ? extraArgs : (laterArgs ?? extraArgs)),
           "--branch",
           BRANCH,
           "--base",
@@ -176,7 +179,6 @@ async function run(
           "895",
           "--out-dir",
           join(dir, "out"),
-          ...(attempt === 0 ? extraArgs : (laterArgs ?? extraArgs)),
         ],
         { cwd: dir, stdout: "pipe", stderr: "pipe" },
       );
@@ -676,21 +678,110 @@ test("--if-absent replaces a file that parses but is not a card", async () => {
   expect(card.interaction).toBeDefined();
 });
 
-// `branchSlug` collapses `/` and `_` alike, and `.claude/metrics/` is tracked,
-// so every worktree already holds every merged branch's card. Without a branch
-// check `--if-absent` would read a colliding neighbour as this branch's card and
-// leave that other branch's spend and tool calls standing as this branch's
-// public record — and the hook discards its own output, so nothing would say so.
+// `branchSlug` maps `feat/x` and `feat-x` to one filename, and
+// `.claude/metrics/` is tracked, so every worktree already holds every merged
+// branch's card. Without a branch check `--if-absent` would read a colliding
+// neighbour as this branch's card and leave that other branch's spend and tool
+// calls standing as this branch's public record — and the hook discards its own
+// output, so nothing would say so. The neighbour here names this run's pull
+// request, so the write is allowed; the next test covers one that does not.
 test("--if-absent replaces a card whose pr.branch is another branch", async () => {
   const { card } = await run([], 2, ["--if-absent"], async ({ outPath }) => {
     const other = JSON.parse(await Bun.file(outPath).text()) as Card;
-    other.pr.branch = "feat/metrics_cli_fixture";
+    other.pr.branch = "feat-metrics-cli-fixture";
     other.spend.usd_equivalent = 999;
     require("node:fs").writeFileSync(outPath, JSON.stringify(other, null, 2));
   });
 
   expect(card.pr.branch).toBe(BRANCH);
   expect(card.spend.usd_equivalent).not.toBe(999);
+});
+
+// The `SessionEnd` fallback runs with `--if-absent`, and a neighbour's card is
+// not this branch's, so the early exit does not fire. The card still belongs to
+// another pull request, and the fallback must not write over it.
+test("--if-absent leaves a slug neighbour's card alone when it names another pull request", async () => {
+  let planted = "";
+  const { exitCode, stderr, writes } = await run([], 2, ["--if-absent"], async ({ outPath }) => {
+    const other = JSON.parse(await Bun.file(outPath).text()) as Card;
+    other.pr.branch = "feat-metrics-cli-fixture";
+    other.pr.number = 984;
+    planted = JSON.stringify(other, null, 2);
+    require("node:fs").writeFileSync(outPath, planted);
+  });
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("#984");
+  expect(writes[1]!.text).toBe(planted);
+});
+
+// One branch name, two pull requests: the first one's card is committed, and the
+// collector then runs for the second. Transcripts are joined by branch name
+// alone, so the card it would write carries both pieces of work over the first
+// one's record.
+test("the CLI refuses to write over another pull request's card", async () => {
+  const { exitCode, stderr, writes } = await run(["--pr", "1"], 2, ["--pr", "2"]);
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("#1");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+  expect(JSON.parse(writes[1]!.text).pr.number).toBe(1);
+});
+
+// `retro` renders the pull-request block from the same run. Built over the same
+// mixed transcripts, it must not reach the second pull request's body either.
+test("the CLI refuses to render the markdown block over another pull request's card", async () => {
+  const { exitCode, stdout, stderr } = await run(["--pr", "1"], 2, [
+    "--pr",
+    "2",
+    "--format",
+    "markdown",
+  ]);
+
+  expect(exitCode).toBe(1);
+  expect(stdout).not.toContain("<details>");
+  // A crash also exits 1 with nothing on stdout; the message is what tells
+  // `retro` it was refused, and why.
+  expect(stderr).toContain("is the card for pull request #1");
+});
+
+// A failed `gh` lookup, or the `SessionEnd` fallback before a pull request
+// exists, gives a run with no pull request of its own. It cannot show the card
+// on disk is its own, and the fallback's `|| true` would hide the overwrite.
+// An empty `--pr` reads as absent, the same as no flag.
+test("the CLI refuses a run that names no pull request over a card that names one", async () => {
+  const { exitCode, stderr, writes } = await run([], 2, ["--pr", ""]);
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("names no pull request");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+});
+
+// JSON that parses with a `pr` that is not an object is no card a reader could
+// use, the same as a truncated file, and is replaced rather than crashed on.
+test("the CLI replaces a file whose pr is not an object", async () => {
+  const { exitCode, card } = await run([], 2, [], ({ outPath }) => {
+    require("node:fs").writeFileSync(
+      outPath,
+      '{"schema_version":1,"pr":null,"spend":{},"interaction":{}}',
+    );
+  });
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.number).toBe(908);
+});
+
+// The fallback's identity-less card names no pull request, and is there to be
+// replaced by the one `retro` writes.
+test("the CLI replaces a card that names no pull request", async () => {
+  const { exitCode, card } = await run([], 2, [], async ({ outPath }) => {
+    const fallback = JSON.parse(await Bun.file(outPath).text()) as Card;
+    fallback.pr.number = null;
+    require("node:fs").writeFileSync(outPath, JSON.stringify(fallback, null, 2));
+  });
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.number).toBe(908);
 });
 
 // The whole point of this branch is a string in `.claude/settings.json`. Drop a

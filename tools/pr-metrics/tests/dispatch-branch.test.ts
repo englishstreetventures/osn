@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  branchSlug,
   readRecordsForBranch,
   recordsByBranch,
   resolveDispatchBranch,
@@ -707,6 +708,82 @@ test("resolveSessionBranch returns null with no worktree-cutting command", async
     expect(resolveSessionBranch(file)).toBeNull();
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The producers are the branch-cutting blocks in `new-feat` Step 1 and
+// `orchestrate` Step 2; the consumer is `resolveSessionBranch`. Each skill runs
+// a name check before its cut, and a check line that matched the cut pattern
+// would count as a second branch and leave the session's spend on no card.
+// Read from the skill files themselves, so both fail together the day either
+// changes.
+test("the branch-cutting blocks new-feat and orchestrate instruct resolve to the one branch", async () => {
+  for (const skillPath of [
+    "../../../.claude/skills/new-feat/SKILL.md",
+    "../../../.claude/skills/orchestrate/SKILL.md",
+  ]) {
+    const skill = await Bun.file(new URL(skillPath, import.meta.url).pathname).text();
+    const commands = skill
+      .split("\n")
+      .filter((line) => /^git |^gh api |^\(cd /.test(line))
+      .filter((line) =>
+        /worktree add|checkout -B|cat-file|fetch origin|pulls\?state=all/.test(line),
+      )
+      .map((line) =>
+        line
+          .replaceAll("<prefix>/<dir>", "feat/x")
+          .replaceAll("<parent-branch>", "main")
+          .replaceAll("<branch>", "feat/x")
+          .replaceAll("<dir>", "x"),
+      );
+
+    expect(commands.some((line) => line.includes("cat-file -e"))).toBe(true);
+    expect(commands.some((line) => line.includes("pulls?state=all"))).toBe(true);
+    expect(commands.some((line) => /worktree add|checkout -B/.test(line))).toBe(true);
+
+    const dir = await tree();
+    try {
+      const file = join(dir, "proj/sess-1.jsonl");
+      await writeFile(file, `${commands.map((line) => bashRecord(line)).join("\n")}\n`);
+
+      expect(resolveSessionBranch(file)).toBe("feat/x");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// The name check looks for the card `branchSlug` would write. A shell pipeline
+// that drifted from it would look for a file that never exists and report a used
+// name as free. The pipeline is read out of each skill and run as written.
+test("the name check's shell slug names the file branchSlug writes", async () => {
+  for (const skillPath of [
+    "../../../.claude/skills/new-feat/SKILL.md",
+    "../../../.claude/skills/orchestrate/SKILL.md",
+  ]) {
+    const skill = await Bun.file(new URL(skillPath, import.meta.url).pathname).text();
+    const line = skill
+      .split("\n")
+      .find((l) => l.includes("cat-file -e") && l.includes(".claude/metrics/"));
+    const pipeline = /\$\((printf .*?)\)\.json/.exec(line ?? "")?.[1];
+    const placeholder = /'(<[^']*>)'/.exec(pipeline ?? "")?.[1];
+
+    expect(pipeline).toBeDefined();
+    expect(placeholder).toBeDefined();
+
+    for (const name of [
+      "feat/a-b",
+      "fix/x_y",
+      "feat//x",
+      "/lead/trail/",
+      "feat/a.b@c",
+      "chore/it+works",
+    ]) {
+      const command = pipeline!.replace(placeholder!, name);
+      const slug = Bun.spawnSync(["sh", "-c", command]).stdout.toString();
+
+      expect(slug).toBe(branchSlug(name));
+    }
   }
 });
 

@@ -5,6 +5,7 @@ import {
   aggregateSpend,
   aggregateWindow,
   branchSlug,
+  type Card,
   classifyPath,
   type ContentBlock,
   costOf,
@@ -13,6 +14,7 @@ import {
   IDLE_CAP_SECONDS,
   isFileWritingCommand,
   isHumanTurn,
+  otherPullRequest,
   parseNumstat,
   rateKeyFor,
   readUsage,
@@ -596,6 +598,33 @@ test("branchSlug flattens a branch into one filename", () => {
   expect(branchSlug("feat/pr-session-metrics")).toBe("feat-pr-session-metrics");
   expect(branchSlug("fix/osn-api/bot~traffic")).toBe("fix-osn-api-bot-traffic");
   expect(branchSlug("///")).toBe("unknown");
+});
+
+// --- whose card is on disk --------------------------------------------------
+
+/** Only `pr.number` is read, so a card needs nothing else here. */
+function cardFor(number: unknown): Card {
+  return { pr: { number } } as unknown as Card;
+}
+
+// A card names one pull request. Transcripts join a card by branch name alone,
+// so a branch name reused from an earlier pull request would otherwise write
+// both pieces of work into one card over the earlier one's committed record.
+test("otherPullRequest names the pull request that owns a card it must not replace", () => {
+  expect(otherPullRequest(cardFor(984), 1375)).toBe(984);
+  // A run that resolved no pull request (a failed `gh` lookup, or the
+  // `SessionEnd` fallback before one exists) cannot prove the card is its own.
+  expect(otherPullRequest(cardFor(984), null)).toBe(984);
+});
+
+test("otherPullRequest lets a run replace a card that is its own or names nobody", () => {
+  expect(otherPullRequest(null, 1375)).toBeNull();
+  expect(otherPullRequest(cardFor(1375), 1375)).toBeNull();
+  // The identity-less card the fallback writes is there to be replaced.
+  expect(otherPullRequest(cardFor(null), 1375)).toBeNull();
+  expect(otherPullRequest(cardFor(null), null)).toBeNull();
+  // A card whose number is not a number names no pull request either.
+  expect(otherPullRequest(cardFor("984"), 1375)).toBeNull();
 });
 
 // --- edits made through the shell ------------------------------------------

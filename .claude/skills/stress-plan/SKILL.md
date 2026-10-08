@@ -66,10 +66,13 @@ finds missing. Each is cheap to add now and expensive to discover later:
 - **A build-config change names the directories the build writes**, and which of
   them are served publicly. "The build passes" is not the same as "the output is
   what I expected".
-- **The issue's premise, verified.** An issue written weeks ago states what was
-  true then. Check the sentence the work rests on before the plan inherits it: an
-  issue reading "only one of six apps has a guard" implied five apps of the same
-  shape, and five of the six turned out to be a different shape entirely.
+- **The issue's premise, and the wiki claims the design rests on, verified.** An
+  issue written weeks ago states what was true then. Check the sentence the work
+  rests on before the plan inherits it: an issue reading "only one of six apps has
+  a guard" implied five apps of the same shape, and five of the six turned out to
+  be a different shape entirely. A wiki page the plan quotes as fact is the same
+  kind of inherited claim, and a recently reviewed page can still be wrong about
+  the one behaviour the design needs.
 
 ## Step 2 — Dispatch the attacker
 
@@ -92,7 +95,10 @@ The prompt, adapted to the plan's path:
 >   cites that is read somewhere else as well
 > - anything the plan calls easy that is an auth, schema, binding, migration or
 >   build-config problem in disguise
-> - the premise the plan inherited from its issue, if it is no longer true
+> - the premise the plan inherited from its issue, or any wiki or documentation
+>   claim it relies on, that the code contradicts
+> - a test case the change deletes that the plan's table of deleted tests does not
+>   list, or whose named replacement does not cover the same behaviour
 >
 > Cite a file and line for every claim. Do not edit any file, do not run a build,
 > and do not write code. Return the findings as your final report; the caller

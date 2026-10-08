@@ -114,7 +114,7 @@ Four rules about that pair:
   there.
 
 ```bash
-git add ".claude/metrics/$(echo "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-').json"
+git add ".claude/metrics/$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//').json"
 git commit -m "chore: session-metrics card for $BRANCH"
 git push
 
@@ -141,9 +141,12 @@ permits exactly five top-level headings, and appending a sixth fails a body
 that is otherwise correct.
 
 **When a step here cannot run**, record which and carry on — a missing card
-never blocks anything. No `gh`: write the card with whatever identity you know
-and leave the block in a file, naming it in `RETRO.md`. No transcripts: as
-above. No network: commit the card locally; it pushes with the next push.
+never blocks anything. The exception is `card` exiting 1 because the card on
+disk names another pull request. If its message shows `gh` named the wrong pull
+request, rerun with `--pr <n>`; otherwise stop — no block, no commit — and quote
+it in `RETRO.md`. No `gh`: write the card with whatever identity you know and
+leave the block in a file, naming it in `RETRO.md`. No transcripts: as above. No
+network: commit the card locally; it pushes with the next push.
 
 **The `SessionEnd` hook is a fallback, not a second writer.** It runs
 `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has
@@ -161,7 +164,7 @@ skill exists.
 ## Step 2 — Read the card before forming any opinion
 
 ```bash
-cat ".claude/metrics/$(echo "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-').json"
+cat ".claude/metrics/$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//').json"
 bun run --cwd tools/pr-metrics report -- --coverage     # where this card sits in the corpus
 ```
 
