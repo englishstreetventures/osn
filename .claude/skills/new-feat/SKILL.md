@@ -45,9 +45,9 @@ gh issue view 412 --repo englishstventures/osn --json number,title,body,labels
 
 Then three things follow from the issue:
 
+- **Status, which is the claim** — first, because an issue another session holds ends the run here. If your brief carries `CLAIMED: <repo>#<n>` for this issue, the orchestrator that dispatched you holds it; go on. Otherwise run `next-batch` §Claim: held by another session → stop and report which; free → it moves the issue to **In Progress** in the **OSN Platform** project. The board calls need the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
 - **The branch name** — kebab-case the title, prefix it: `feat/` for a Feature, `fix/` for a Bug, `chore/`, `refactor/` or `docs/` for a Task. Step 1 uses this name; it does not derive its own.
 - **Complexity** — an issue `write-issue` just opened is already rated; do not rate it again. An existing issue taken by number with no `complexity:` label gets one now: invoke the **`rate-complexity`** skill, which proposes a rating from the issue body alone and asks the owner to confirm or amend it. Do this **before** the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
-- **Status** — move the issue to **In Progress** in the **OSN Platform** project. `gh project item-edit` needs the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
 
 ## Step 1 — The branch
 
