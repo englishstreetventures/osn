@@ -12,6 +12,15 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import {
+  atPeopleLimit,
+  peopleCountLabel,
+  peopleLimitMessage,
+  type PeopleLimit,
+  readPeopleLimit,
+  upgradeTierFor,
+} from "../lib/people-limit";
+import { type PaidTier, TIER_LABEL } from "../lib/tiers";
+import {
   type AssignableRole,
   assignableRolesFor,
   needsRoleChangeConfirmation,
@@ -23,6 +32,7 @@ import {
 } from "../lib/wedding-roles";
 import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
+import UpgradeDialog from "./UpgradeDialog";
 
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
@@ -77,13 +87,42 @@ const SEAT_REFUSALS = {
 
 type SeatRefusal = keyof typeof SEAT_REFUSALS;
 
-/** The refusal message in a 4xx body, if it names one this panel words.
- *  `Object.hasOwn`, never `in`: a body naming `constructor` is not a refusal. */
-async function refusalIn(res: Response): Promise<string | null> {
+/** What a refused seat change said: the words for it, if this panel words it,
+ *  and the people count a `people_limit_reached` refusal carries. */
+interface Refusal {
+  message: string | null;
+  peopleLimit: PeopleLimit | null;
+}
+
+/**
+ * Read a 4xx body once — a response body can be read only once — into the
+ * refusal it names. `Object.hasOwn`, never `in`: a body naming `constructor`
+ * is not a refusal.
+ */
+async function readRefusal(res: Response): Promise<Refusal> {
   const body = (await res.json().catch(() => ({}))) as { error?: unknown };
-  return typeof body.error === "string" && Object.hasOwn(SEAT_REFUSALS, body.error)
-    ? SEAT_REFUSALS[body.error as SeatRefusal]
-    : null;
+  if (body.error === "people_limit_reached") {
+    const peopleLimit = readPeopleLimit(body);
+    return {
+      message: peopleLimit
+        ? peopleLimitMessage(peopleLimit)
+        : "This wedding has reached its plan's limit of people.",
+      peopleLimit,
+    };
+  }
+  return {
+    message:
+      typeof body.error === "string" && Object.hasOwn(SEAT_REFUSALS, body.error)
+        ? SEAT_REFUSALS[body.error as SeatRefusal]
+        : null,
+    peopleLimit: null,
+  };
+}
+
+/** The people count on a successful response's body, if it carries one. */
+async function peopleLimitIn(res: Response): Promise<PeopleLimit | null> {
+  const body = (await res.json().catch(() => null)) as { peopleLimit?: unknown } | null;
+  return readPeopleLimit(body?.peopleLimit);
 }
 
 /** One autocomplete suggestion from `GET /api/organiser/handle-search`. */
@@ -165,6 +204,29 @@ export default function HostsPanel(props: HostsPanelProps) {
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
   const hasCohosts = () => hosts().some((h) => h.role !== "owner");
+
+  // The people count against the plan's limit, as the API last reported it —
+  // on the list and on every add, role change and removal. `null` from an API
+  // that sends none, which leaves the panel as it was before limits.
+  const [peopleLimit, setPeopleLimit] = createSignal<PeopleLimit | null>(null);
+  const keepPeopleLimit = (next: PeopleLimit | null) => {
+    if (next) setPeopleLimit(next);
+  };
+  const atLimit = () => {
+    const limit = peopleLimit();
+    return limit !== null && atPeopleLimit(limit);
+  };
+  // The couple's two owner seats never count, so at the limit a wedding with
+  // one owner can still seat the second — as an owner, which the add form
+  // then asks for. Read off the list, which holds every seat (the seat cap
+  // keeps it under the list ceiling); the API decides either way.
+  const canAddSecondOwner = () => atLimit() && hosts().filter((h) => h.role === "owner").length < 2;
+  // The tier the purchase dialog sells while it is open. Mounted afresh per
+  // open, like the nav's: the dialog keeps its own attempt and submit state.
+  const [offer, setOffer] = createSignal<PaidTier | null>(null);
+  // A handle waiting on a yes before it is seated as an owner.
+  const [pendingOwnerAdd, setPendingOwnerAdd] = createSignal<string | null>(null);
+  const shownOwnerAdd = heldWhileClosing(pendingOwnerAdd);
   // `Field` takes a list; this form only ever raises the one message at a time.
   const addErrors = () => {
     const message = addError();
@@ -348,8 +410,13 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
-      const body = (await res.json()) as { hosts: HostRow[]; total?: number };
+      const body = (await res.json()) as {
+        hosts: HostRow[];
+        total?: number;
+        peopleLimit?: unknown;
+      };
       setHosts(ownersFirst(body.hosts.map(withKnownRole)));
+      keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
       // who can read their guests' data is missing from it.
@@ -362,7 +429,7 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   });
 
-  async function add(e: Event) {
+  function add(e: Event) {
     e.preventDefault();
     const value = handle().trim();
     if (!value) {
@@ -370,8 +437,19 @@ export default function HostsPanel(props: HostsPanelProps) {
       return;
     }
     setAddError(null);
-    setAdding(true);
     closeSuggestions();
+    // At the limit only a second owner can join, and making someone an owner
+    // hands them every owner power, so that add asks first.
+    if (canAddSecondOwner()) {
+      setPendingOwnerAdd(value);
+      return;
+    }
+    void submitAdd(value, NEW_SEAT_ROLE);
+  }
+
+  async function submitAdd(value: string, role: AssignableRole) {
+    setAddError(null);
+    setAdding(true);
     try {
       const res = await authFetch(endpoint(), {
         method: "POST",
@@ -379,7 +457,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         // Sent rather than left to the API's own default, so the seat this
         // panel creates is the one it shows in the row's dropdown a moment
         // later whatever version of the API answered.
-        body: JSON.stringify({ handle: `@${value}`, role: NEW_SEAT_ROLE }),
+        body: JSON.stringify({ handle: `@${value}`, role }),
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 404) {
@@ -389,7 +467,10 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       if (res.status === 409) {
         haptic("reject");
-        setAddError((await refusalIn(res)) ?? "That person is already a host.");
+        const refusal = await readRefusal(res);
+        // At the limit the offer replaces the form and says why itself.
+        keepPeopleLimit(refusal.peopleLimit);
+        setAddError(refusal.message ?? "That person is already a host.");
         return;
       }
       if (res.status === 403) {
@@ -407,9 +488,10 @@ export default function HostsPanel(props: HostsPanelProps) {
         setAddError("Could not add that host. Please try again.");
         return;
       }
-      const body = (await res.json()) as { host: HostRow };
+      const body = (await res.json()) as { host: HostRow; peopleLimit?: unknown };
       const added = withKnownRole(body.host);
       setHosts((prev) => ownersFirst([...prev, added]));
+      keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       setHandle("");
       setSuggestions([]);
       // The just-added host is now an existing co-host, so the cached connection
@@ -441,9 +523,12 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         haptic("reject");
-        toast.error((await refusalIn(res)) ?? "Could not remove that host. Please try again.");
+        toast.error(
+          (await readRefusal(res)).message ?? "Could not remove that host. Please try again.",
+        );
         return;
       }
+      keepPeopleLimit(await peopleLimitIn(res));
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
       haptic("commit");
       toast.success(`Removed ${label}.`);
@@ -494,11 +579,16 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         haptic("reject");
-        toast.error(
-          (await refusalIn(res)) ?? "Could not change that host's role. Please try again.",
-        );
+        const refusal = await readRefusal(res);
+        keepPeopleLimit(refusal.peopleLimit);
+        // The select already shows the refused role in the DOM, and its value
+        // expression has not changed, so nothing would put it back. A fresh
+        // copy of the seat re-renders the row from the role it still holds.
+        setHosts((prev) => prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)));
+        toast.error(refusal.message ?? "Could not change that host's role. Please try again.");
         return;
       }
+      keepPeopleLimit(await peopleLimitIn(res));
       haptic("commit");
       setHosts((prev) =>
         ownersFirst(
@@ -539,7 +629,49 @@ export default function HostsPanel(props: HostsPanelProps) {
         }
       />
 
-      <Show when={canManage()}>
+      {/* The count every member sees, as the API reported it. */}
+      <Show when={peopleLimit()}>
+        {(limit) => (
+          <p class="font-body text-text-muted text-ui-sm">
+            <span class="text-text">{peopleCountLabel(limit())}</span> on this wedding's plan. The
+            first two owners don't count.
+          </p>
+        )}
+      </Show>
+
+      {/* At the limit an owner is told why no one more can join, and offered
+          the tier that lifts it. The add form stays only while a second owner
+          can still join. */}
+      <Show when={canManage() && atLimit() ? peopleLimit() : null}>
+        {(limit) => (
+          <Notice tone="info">
+            <div class="flex flex-col gap-3">
+              <p>
+                {peopleLimitMessage(limit())}
+                {canAddSecondOwner()
+                  ? " You can still add a second owner: the first two owners don't count."
+                  : ""}
+              </p>
+              <Show when={upgradeTierFor(limit())}>
+                {(tier) => (
+                  <div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      type="button"
+                      onClick={() => setOffer(tier())}
+                    >
+                      Upgrade to {TIER_LABEL[tier()]}
+                    </Button>
+                  </div>
+                )}
+              </Show>
+            </div>
+          </Notice>
+        )}
+      </Show>
+
+      <Show when={canManage() && (!atLimit() || canAddSecondOwner())}>
         <form class="flex flex-col gap-3" onSubmit={add}>
           {/* What each role carries, ahead of the box that names the person.
               Before the handle rather than after it because it is what the
@@ -658,7 +790,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                   </Show>
                 </div>
                 <Button type="submit" variant="primary" disabled={adding()}>
-                  {adding() ? "Adding…" : "Add host"}
+                  {adding() ? "Adding…" : canAddSecondOwner() ? "Add as owner" : "Add host"}
                 </Button>
               </div>
             )}
@@ -865,6 +997,60 @@ export default function HostsPanel(props: HostsPanelProps) {
           )}
         </Show>
       </Modal>
+
+      {/* Seating the second owner at the limit: the same question a promotion
+          to owner asks, before anything is sent. */}
+      <Modal
+        open={pendingOwnerAdd() !== null}
+        onClose={() => setPendingOwnerAdd(null)}
+        label="Confirm adding an owner"
+        class="w-full max-w-md"
+      >
+        <Show when={shownOwnerAdd()}>
+          {(name) => (
+            <div class="flex flex-col gap-4">
+              <p class="font-display text-text text-ui-md font-light">Add @{name()} as an owner?</p>
+              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                {ROLE_COPY.owner.summary} You can change it back at any time.
+              </p>
+              <div class="flex flex-wrap justify-end gap-2">
+                <Button variant="quiet" type="button" onClick={() => setPendingOwnerAdd(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={() => {
+                    // The signal, not the held copy, as for a promotion above.
+                    const confirmed = pendingOwnerAdd();
+                    setPendingOwnerAdd(null);
+                    if (confirmed) void submitAdd(confirmed, "owner");
+                  }}
+                >
+                  Yes, add them as an owner
+                </Button>
+              </div>
+            </div>
+          )}
+        </Show>
+      </Modal>
+
+      {/* Mounted afresh for each offer, as the nav mounts it: the dialog keeps
+          its own attempt and submit state, which must not outlive a close.
+          Stripe sends the owner back to Settings. */}
+      <Show when={offer()}>
+        {(tier) => (
+          <UpgradeDialog
+            open
+            weddingId={props.weddingId}
+            tier={tier()}
+            module="settings"
+            title={TIER_LABEL[tier()]}
+            blurb={`Room for more people on this wedding, and everything else ${TIER_LABEL[tier()]} includes.`}
+            onClose={() => setOffer(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 }
