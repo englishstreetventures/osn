@@ -36,7 +36,7 @@ import {
 import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -1759,6 +1759,179 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       const [guest] = await db.select().from(guests).where(eq(guests.id, samId));
       expect(guest?.firstName).toBe("Alex");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  /** Names Sam as GUEST_1's plus-one, then renames them Alex the way a second
+   *  device would: the household's open page still says Sam. */
+  async function plusOneRenamedSinceRead(): Promise<string> {
+    await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+    const named = await run(
+      plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Sam", lastName: "" }),
+    );
+    await run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Alex", lastName: "" }));
+    return named.plusOne.guestId;
+  }
+
+  /** A plus-one's reply carrying dietary data, attested for `attestedName`. */
+  const attestedReply = (guestId: string, attestedName: string, eventId = EVENT_A) => ({
+    guestId,
+    eventId,
+    status: "attending" as const,
+    dietary: "",
+    dietaryPresets: ["nuts" as const],
+    dietaryConsent: true,
+    consentSource: "inviter_attested" as const,
+    attestedName,
+  });
+
+  const memberReply = (eventId: string, status: "attending" | "declined" = "attending") => ({
+    guestId: GUEST_2,
+    eventId,
+    status,
+    dietary: "",
+    dietaryPresets: [],
+    dietaryConsent: false,
+  });
+
+  /** The change-log rows the replies wrote; the plus-one's naming logs its own. */
+  const replyChanges = () =>
+    db
+      .select({ guestId: rsvpChanges.guestId })
+      .from(rsvpChanges)
+      .where(isNotNull(rsvpChanges.eventId));
+
+  it(
+    "a plus-one renamed between the household's read and its write refuses the whole RSVP save over D1",
+    async () => {
+      const samId = await plusOneRenamedSinceRead();
+      const save = (attestedName: string, memberStatus: "attending" | "declined") => {
+        const inputs = [memberReply(EVENT_A, memberStatus), attestedReply(samId, attestedName)];
+        return rsvpService.submitRsvpsAndList(inputs, FAMILY_ID, {
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          changes: inputs.map((r) => ({
+            guestId: r.guestId,
+            eventId: r.eventId,
+            kind: "reply_new",
+          })),
+        });
+      };
+
+      // Attested for the name the page showed: the member's reply rode the same
+      // batch and goes with it, and nothing reaches the change log.
+      const refused = await run(Effect.flip(save("Sam", "attending")));
+      expect(refused._tag).toBe("PlusOneChanged");
+      expect(await db.select().from(rsvps)).toEqual([]);
+      expect(await replyChanges()).toEqual([]);
+
+      // Attested for the name the row carries now: both land, both are logged.
+      await run(save("Alex", "attending"));
+      expect(await db.select({ guestId: rsvps.guestId }).from(rsvps)).toHaveLength(2);
+      expect(await replyChanges()).toHaveLength(2);
+
+      // Renamed again. The stale save now meets stored rows — the update path —
+      // and is refused there too, leaving both rows as they were.
+      await run(plusOneService.save(FAMILY_ID, GUEST_1, { firstName: "Kit", lastName: "" }));
+      const again = await run(Effect.flip(save("Alex", "declined")));
+      expect(again._tag).toBe("PlusOneChanged");
+      const stored = await db
+        .select({ guestId: rsvps.guestId, status: rsvps.status })
+        .from(rsvps)
+        .orderBy(asc(rsvps.guestId));
+      expect(stored.map((r) => r.status)).toEqual(["attending", "attending"]);
+      expect(await replyChanges()).toHaveLength(2);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a refused RSVP save longer than one D1 batch writes nothing",
+    async () => {
+      // 50 member replies fill a batch on their own; the plus-one's reply is the
+      // 51st in the body. It is still checked in the first batch, so the
+      // refusal comes before any reply commits.
+      const eventIds = Array.from({ length: 50 }, (_, i) => `evt_long_${i}`);
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `long-${i}`,
+          name: `Long ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 30 + i,
+        });
+      }
+      const samId = await plusOneRenamedSinceRead();
+      const inputs = [...eventIds.map((id) => memberReply(id)), attestedReply(samId, "Sam")];
+
+      const refused = await run(
+        Effect.flip(
+          rsvpService.submitRsvpsAndList(inputs, FAMILY_ID, {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            changes: inputs.map((r) => ({
+              guestId: r.guestId,
+              eventId: r.eventId,
+              kind: "reply_new",
+            })),
+          }),
+        ),
+      );
+      expect(refused._tag).toBe("PlusOneChanged");
+      expect(await db.select().from(rsvps)).toEqual([]);
+      expect(await replyChanges()).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a refused RSVP save with more attested replies than one D1 batch holds writes nothing",
+    async () => {
+      // Pat's 51 attested replies come first in the body, Sam's one last. Each
+      // plus-one's name is tested in the first batch, so Sam's rename refuses
+      // the save before any of Pat's replies commit.
+      const eventIds = Array.from({ length: 51 }, (_, i) => `evt_wide_${i}`);
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `wide-${i}`,
+          name: `Wide ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 90 + i,
+        });
+      }
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_2));
+      const pat = await run(
+        plusOneService.save(FAMILY_ID, GUEST_2, { firstName: "Pat", lastName: "" }),
+      );
+      const samId = await plusOneRenamedSinceRead();
+      const inputs = [
+        ...eventIds.map((id) => attestedReply(pat.plusOne.guestId, "Pat", id)),
+        attestedReply(samId, "Sam"),
+      ];
+
+      const refused = await run(
+        Effect.flip(
+          rsvpService.submitRsvpsAndList(inputs, FAMILY_ID, {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            changes: inputs.map((r) => ({
+              guestId: r.guestId,
+              eventId: r.eventId,
+              kind: "reply_new",
+            })),
+          }),
+        ),
+      );
+      expect(refused._tag).toBe("PlusOneChanged");
+      expect(await db.select().from(rsvps)).toEqual([]);
+      expect(await replyChanges()).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

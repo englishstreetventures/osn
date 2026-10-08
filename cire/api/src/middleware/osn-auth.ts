@@ -17,8 +17,38 @@ export interface OsnAuthOptions extends SharedOsnAuthOptions {
   db?: Db;
 }
 
-/** Derive result for requests that fail verification — the handler never runs. */
-const unauthenticated = { osnProfileId: undefined as string | undefined };
+/**
+ * The OSN profile behind a request, or undefined. The `cire_org_session`
+ * cookie is tried first, then an `Authorization: Bearer` OSN access token —
+ * see {@link osnAuth} for why each exists. Both plugins below call this, so the
+ * two cannot accept different credentials.
+ */
+async function osnProfileIdOf(
+  options: OsnAuthOptions,
+  request: Request,
+  authorization: string | undefined,
+): Promise<string | undefined> {
+  const { db } = options;
+  if (db) {
+    const token = parseOrganiserSessionToken(request.headers.get("cookie"));
+    if (token) {
+      const session = await runCire(
+        organiserSessionService.validate(token).pipe(
+          Effect.provideService(DbService, db),
+          Effect.catchTag("OrganiserSessionInvalid", () => Effect.succeed(null)),
+        ),
+      );
+      if (session) return session.osnProfileId;
+    }
+  }
+
+  const claims = await extractClaims(authorization, options.jwksUrl, {
+    testKey: options._testKey,
+    audience: options.audience,
+    issuer: options.issuer,
+  });
+  return claims?.profileId;
+}
 
 /**
  * Names the OSN profile behind an organiser request. Two ways in, tried in
@@ -47,36 +77,51 @@ const unauthenticated = { osnProfileId: undefined as string | undefined };
  * the first time. `originGuard(corsOrigins)` in `app.ts` covers every
  * state-changing method and the cookie is `SameSite=Lax`; that pair is the
  * whole defence and both have to stay.
+ *
+ * The lookup is a `derive`, so it runs in the transform phase, ahead of every
+ * before-handle hook — the role gates (`weddingMember()` and the rest) are
+ * derives that read `osnProfileId` there. A per-IP limiter on such a route
+ * answers only after the lookup. A route with no derive behind the check uses
+ * {@link osnAuthResolve} instead.
  */
 export function osnAuth(options: OsnAuthOptions) {
-  const { db, ...verify } = options;
   return (
     new Elysia({ name: "cire-osn-auth" })
-      // Elysia 1.4 named plugins default hooks to "local" scope — without
-      // { as: "scoped" } the derive/onBeforeHandle never run in the parent app
-      // and every request silently passes unauthenticated.
-      .derive({ as: "scoped" }, async ({ headers, request }) => {
-        if (db) {
-          const token = parseOrganiserSessionToken(request.headers.get("cookie"));
-          if (token) {
-            const session = await runCire(
-              organiserSessionService.validate(token).pipe(
-                Effect.provideService(DbService, db),
-                Effect.catchTag("OrganiserSessionInvalid", () => Effect.succeed(null)),
-              ),
-            );
-            if (session) return { osnProfileId: session.osnProfileId as string | undefined };
-          }
+      // Elysia 1.4 hooks default to "local" scope — without { as: "scoped" }
+      // the derive/onBeforeHandle never run in the parent app and every
+      // request silently passes unauthenticated.
+      .derive({ as: "scoped" }, async ({ headers, request }) => ({
+        osnProfileId: await osnProfileIdOf(options, request, headers.authorization),
+      }))
+      .onBeforeHandle({ as: "scoped" }, ({ osnProfileId, set }) => {
+        if (!osnProfileId) {
+          set.status = 401;
+          return { error: "unauthorised" };
         }
-
-        const claims = await extractClaims(headers.authorization, verify.jwksUrl, {
-          testKey: verify._testKey,
-          audience: verify.audience,
-          issuer: verify.issuer,
-        });
-        if (!claims) return unauthenticated;
-        return { osnProfileId: claims.profileId as string | undefined };
       })
+  );
+}
+
+/**
+ * {@link osnAuth} as an Elysia `resolve`: the same credentials, the same 401,
+ * but the lookup runs in the before-handle phase, in `.use` order. A route that
+ * mounts a per-IP `rateLimitMiddleware` first therefore answers a refused
+ * request with 429 before the organiser session query or the token verify runs
+ * — the same order `sessionAuth()` keeps on the guest routes.
+ *
+ * Only for a route where nothing in the transform phase needs `osnProfileId`:
+ * every derive runs before any resolve, so a role gate mounted behind this
+ * would see no profile and refuse. Unnamed, unlike `osnAuth`: Elysia
+ * deduplicates a named plugin, and this one carries no state worth sharing.
+ */
+export function osnAuthResolve(options: OsnAuthOptions) {
+  return (
+    new Elysia()
+      // Scoped so the resolve/onBeforeHandle lift into the route instance that
+      // `.use`s this plugin (and no further).
+      .resolve({ as: "scoped" }, async ({ headers, request }) => ({
+        osnProfileId: await osnProfileIdOf(options, request, headers.authorization),
+      }))
       .onBeforeHandle({ as: "scoped" }, ({ osnProfileId, set }) => {
         if (!osnProfileId) {
           set.status = 401;

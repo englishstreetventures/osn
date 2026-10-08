@@ -54,6 +54,31 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
   Effect.promise(() => Promise.resolve(run()));
 
 /**
+ * The text of a failed query as the database gave it: the error's message and
+ * the message of every `cause` beneath it, one per line. For code that tells
+ * one constraint failure from another by its wording.
+ *
+ * The database's reason is not always on the outer error. bun:sqlite throws it
+ * directly, and so does a failed D1 `batch()`; a failed single statement on D1
+ * reaches the caller as drizzle's `DrizzleQueryError`, whose message names only
+ * the statement (`Failed query: …`) and whose `cause` carries
+ * `D1_ERROR: UNIQUE constraint failed: …`. Reading `String(error)` alone misses
+ * that case.
+ */
+export function driverErrorText(error: unknown): string {
+  const lines: string[] = [];
+  let current: unknown = error;
+  // Read by shape, not `instanceof Error`: an error built in another realm
+  // (Miniflare's workerd) is still an error. Bounded, so a cause chain that
+  // loops back on itself still ends.
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    if ("message" in current && typeof current.message === "string") lines.push(current.message);
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return lines.join("\n");
+}
+
+/**
  * A reference to `column` that always renders qualified, as `"table"."column"`,
  * for a subquery that correlates to the row of the query around it.
  *

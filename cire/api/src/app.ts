@@ -1124,7 +1124,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createInviteFaqRoutes(db, osnAuthOptions, inviteLimiter))
       // Account linking. Two sibling instances on the same prefix: DELETE needs
       // only the guest session; the POST link additionally requires an OSN
-      // token. Splitting them is what method-gates `osnAuth` to POST without
+      // token. Splitting them is what method-gates the OSN check to POST without
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.

@@ -386,6 +386,13 @@ export const createRsvpRoutes = (
               consentSource: plusOneNames.has(rsvp.guestId) ? "inviter_attested" : "guest",
               submittedByGuestId,
               submittedViaLink,
+              // The name check above read the household before this write. The
+              // write tests the name again inside its own statement, so a rename
+              // that commits in between refuses the save (`PlusOneChanged`).
+              attestedName:
+                plusOneNames.has(rsvp.guestId) && hasDietaryData(rsvp)
+                  ? rsvp.dietaryAttestedName
+                  : undefined,
             }));
 
             // What the organisers' change feed and digest will see: each pair
@@ -442,6 +449,16 @@ export const createRsvpRoutes = (
               Effect.sync(() => {
                 set.status = 400;
                 return { error: "Missing or invalid fields" };
+              }),
+            ),
+            // A plus-one renamed after the household was read, refused inside
+            // the write: the page reloads as it does for a stale name.
+            Effect.catchTag("PlusOneChanged", () =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning("rsvp refused: a plus-one was renamed during the write");
+                yield* Effect.sync(() => metricRsvpBlocked("plus_one_dietary"));
+                set.status = 409;
+                return { error: "plus_one_changed" };
               }),
             ),
           ),

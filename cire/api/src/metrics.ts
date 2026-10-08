@@ -405,12 +405,13 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  still counts as `organiser`. */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
-/** Why a guest RSVP submit was refused before reaching the write — bounded set,
- *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
- *  passed; `preview` = the organiser's host-preview family, which never writes;
+/** Why a guest RSVP submit was refused — bounded set, one label per gate on
+ *  the route. `deadline` = the wedding's RSVP-by date has passed; `preview` =
+ *  the organiser's host-preview family, which never writes;
  *  `plus_one_dietary` = dietary data on a plus-one's reply without the
  *  household's attestation in the wording this API stamps, or attested for a
- *  name the plus-one no longer has. */
+ *  name the plus-one no longer has — found by the route's read, or inside the
+ *  write when a rename lands between the two. */
 export type RsvpBlockedReason =
   | "deadline"
   | "preview"

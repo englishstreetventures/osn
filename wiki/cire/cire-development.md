@@ -59,6 +59,13 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
   the redacting logger ([[cire-workerd]]).
 - **Errors are tagged classes** extending `Data.TaggedError`. Nothing in the
   service layer throws.
+- **Tell one constraint failure from another by `driverErrorText(e)`**
+  (`cire/api/src/db/index.ts`), never `String(e)`. On D1, drizzle wraps a failed
+  single statement in `DrizzleQueryError`, whose message names only the
+  statement; the database's reason (`D1_ERROR: UNIQUE constraint failed: …`)
+  sits on its `cause`. bun:sqlite and a failed `batch()` put it on the error
+  itself, so a sniffer reading `String(e)` passes every route test and misses
+  every conflict in production.
 - **D1 access is Drizzle only** — no raw SQL string construction.
 - **The Drizzle handle is built over the session-routing shim**, never over
   `env.DB` directly, and each Worker invocation opens exactly one D1 session at

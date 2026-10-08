@@ -457,10 +457,21 @@ describe("D1 session routing at the entry points", () => {
   // The per-IP limiter on a guest route must answer before `sessionAuth` looks
   // the cookie up: a refused request costs no D1 query. Each case mounts a
   // refusing binding for the limiter that route reads, and sends an unknown
-  // `cire_session` cookie that would otherwise cost one `sessions` lookup.
+  // `cire_session` cookie that would otherwise cost one `sessions` lookup. The
+  // account-link POST also checks an OSN credential, so it is sent once more
+  // with an unknown `cire_org_session` cookie, which would otherwise cost one
+  // `organiser_sessions` lookup.
   describe("a refused guest request never reaches the session lookup", () => {
     const refusingLimiter = { limit: async () => ({ success: false }) };
-    const cases: { name: string; method: string; path: string; binding: string }[] = [
+    const GUEST_COOKIE = "cire_session=no-such-session";
+    const ORGANISER_COOKIE = "cire_org_session=no-such-organiser-session";
+    const cases: {
+      name: string;
+      method: string;
+      path: string;
+      binding: string;
+      cookie?: string;
+    }[] = [
       {
         name: "GET /api/claim/session",
         method: "GET",
@@ -480,6 +491,13 @@ describe("D1 session routing at the entry points", () => {
         binding: "CLAIM_RATE_LIMITER",
       },
       {
+        name: "POST /api/account/link with an organiser session cookie",
+        method: "POST",
+        path: "/api/account/link",
+        binding: "CLAIM_RATE_LIMITER",
+        cookie: `${GUEST_COOKIE}; ${ORGANISER_COOKIE}`,
+      },
+      {
         name: "POST /api/invite/:slug/registry/items/:itemId/claim",
         method: "POST",
         path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
@@ -493,7 +511,12 @@ describe("D1 session routing at the entry points", () => {
       },
     ];
 
-    const send = async (method: string, path: string, limiters: Record<string, unknown>) => {
+    const send = async (
+      method: string,
+      path: string,
+      limiters: Record<string, unknown>,
+      cookie = GUEST_COOKIE,
+    ) => {
       const probe = probeD1();
       const env = { ...BASE_ENV, ...limiters, DB: probe.binding } as unknown as Parameters<
         NonNullable<typeof handler.fetch>
@@ -505,7 +528,7 @@ describe("D1 session routing at the entry points", () => {
             "cf-connecting-ip": "203.0.113.7",
             // The CSRF guard refuses a write without an allowed Origin.
             origin: BASE_ENV.WEB_ORIGIN,
-            cookie: "cire_session=no-such-session",
+            cookie,
             ...(method === "GET" ? {} : { "content-type": "application/json" }),
           },
           ...(method === "GET" ? {} : { body: "{}" }),
@@ -517,11 +540,14 @@ describe("D1 session routing at the entry points", () => {
       return { res, statements, probe };
     };
 
-    for (const { name, method, path, binding } of cases) {
+    for (const { name, method, path, binding, cookie } of cases) {
       it(`${name}: 429 with no query`, async () => {
-        const { res, statements, probe } = await send(method, path, {
-          [binding]: refusingLimiter,
-        });
+        const { res, statements, probe } = await send(
+          method,
+          path,
+          { [binding]: refusingLimiter },
+          cookie,
+        );
 
         expect(res.status).toBe(429);
         expect(statements).toEqual([]);
@@ -539,6 +565,22 @@ describe("D1 session routing at the entry points", () => {
       expect(statements[0]).toMatch(
         /^select .* from "sessions" .*where .*"sessions"."token" = \?/i,
       );
+    });
+
+    it("the organiser cookie on a route that checks it first does cost the lookup", async () => {
+      // Control for the organiser cookie: an organiser route with no limiter
+      // in front looks it up, so the case above is not passing on a cookie the
+      // Worker never read.
+      const { res, statements } = await send(
+        "GET",
+        "/api/organiser/weddings",
+        {},
+        ORGANISER_COOKIE,
+      );
+
+      expect(res.status).toBe(401);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toMatch(/^select .* from "organiser_sessions" .*"token" = \?/i);
     });
   });
 
