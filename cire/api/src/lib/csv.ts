@@ -131,6 +131,8 @@ export function sanitiseCsvCell(value: string): string {
  * back as stored. A cell typed as `'=x` in a hand-made sheet imports as `=x`.
  */
 export function unguardCsvCell(value: string): string {
+  // Only a `'` is ever removed, so a cell without one comes back as it is.
+  if (!value.includes("'")) return value;
   const indexes = guardIndexes(value);
   if (indexes.length === 0) return value;
   let out = "";

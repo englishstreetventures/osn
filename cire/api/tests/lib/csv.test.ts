@@ -2,6 +2,14 @@ import { describe, it, expect } from "bun:test";
 
 import { csvField, sanitiseCsvCell, serialiseCsv, unguardCsvCell } from "../../src/lib/csv";
 
+// Invisible characters, named so the source shows which one each case uses.
+const ZWSP = String.fromCodePoint(0x200b);
+const ZWJ = String.fromCodePoint(0x200d);
+const SOFT_HYPHEN = String.fromCodePoint(0x00ad);
+const NBSP = String.fromCodePoint(0x00a0);
+const BOM = String.fromCodePoint(0xfeff);
+const E_ACUTE = String.fromCodePoint(0x00e9);
+
 describe("sanitiseCsvCell", () => {
   it("neutralises a cell that starts with a formula marker and leaves plain text alone", () => {
     expect(sanitiseCsvCell("=SUM(A1:A2)")).toBe("'=SUM(A1:A2)");
@@ -43,15 +51,15 @@ describe("sanitiseCsvCell", () => {
   });
 
   it("skips invisible and control characters before the marker", () => {
-    expect(sanitiseCsvCell("​=1")).toBe("​'=1");
+    expect(sanitiseCsvCell(`${ZWSP}=1`)).toBe(`${ZWSP}'=1`);
     expect(sanitiseCsvCell("\u0000=1")).toBe("\u0000'=1");
-    expect(sanitiseCsvCell("­-1")).toBe("­'-1");
-    expect(sanitiseCsvCell(" @x")).toBe(" '@x");
-    expect(sanitiseCsvCell("﻿+1")).toBe("﻿'+1");
+    expect(sanitiseCsvCell(`${SOFT_HYPHEN}-1`)).toBe(`${SOFT_HYPHEN}'-1`);
+    expect(sanitiseCsvCell(`${NBSP}@x`)).toBe(`${NBSP}'@x`);
+    expect(sanitiseCsvCell(`${BOM}+1`)).toBe(`${BOM}'+1`);
     expect(sanitiseCsvCell("\u0085=1")).toBe("\u0085'=1");
     // A format character outside the Basic Multilingual Plane (a tag letter).
     expect(sanitiseCsvCell("\u{E0041}=1")).toBe("\u{E0041}'=1");
-    expect(sanitiseCsvCell("x;‍=1")).toBe("x;‍'=1");
+    expect(sanitiseCsvCell(`x;${ZWJ}=1`)).toBe(`x;${ZWJ}'=1`);
     expect(sanitiseCsvCell("\u007f=1")).toBe("\u007f'=1");
     expect(sanitiseCsvCell("x;\u2028=1")).toBe("x;\u2028'=1");
     // A `"` that a `;`-separated reading may take as an empty quoted value.
@@ -70,7 +78,7 @@ describe("sanitiseCsvCell", () => {
   // run of them must be walked once, not once per break: a guest's note made
   // of line breaks would otherwise cost the whole export its CPU budget.
   it("guards a long run of line breaks and tabs in time linear in its length", () => {
-    const run = "\n\t\r".repeat(100_000);
+    const run = `\n\t\r${ZWSP}`.repeat(100_000);
     expect(sanitiseCsvCell(`${run}=x`)).toBe(`${run}'=x`);
     expect(unguardCsvCell(`${run}'=x`)).toBe(`${run}=x`);
     expect(sanitiseCsvCell(run)).toBe(run);
@@ -91,7 +99,7 @@ describe("sanitiseCsvCell", () => {
       "ada@example.com",
       "O'-Neil",
       "' =x",
-      "é=1",
+      `${E_ACUTE}=1`,
     ]) {
       expect(sanitiseCsvCell(value)).toBe(value);
     }
@@ -116,7 +124,7 @@ describe("unguardCsvCell", () => {
     "a;;=b",
     "Black tie\n- no white\n- no denim",
     "=a;+b\n-c",
-    "​=1",
+    `${ZWSP}=1`,
     "\u{E0041}=1",
     'x;"=1',
     "'=x",
@@ -127,6 +135,10 @@ describe("unguardCsvCell", () => {
     "it's -fine",
     "a-b",
     "2026-10-08",
+    "x;\n;\n=1",
+    "\n".repeat(1000),
+    `\n${ZWSP}`.repeat(500),
+    `${`\n${ZWSP}`.repeat(500)}=x`,
   ];
 
   it("gives back exactly the value the guard was given", () => {
@@ -242,7 +254,8 @@ describe("sanitiseCsvCell and unguardCsvCell over generated values", () => {
     };
   }
   const SKIPPED = /^[\s\p{Cc}\p{Cf}"]*/u;
-  const startsBare = (segment: string) => /^[=+\-@＝＋－＠]/.test(segment.replace(SKIPPED, ""));
+  const startsBare = (segment: string) =>
+    /^[=+\-@\u{ff1d}\u{ff0b}\u{ff0d}\u{ff20}]/u.test(segment.replace(SKIPPED, ""));
 
   it("leaves no segment starting with a bare marker, and round-trips", () => {
     const next = random(20261008);
