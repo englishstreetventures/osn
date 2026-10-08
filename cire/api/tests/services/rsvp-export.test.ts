@@ -525,8 +525,9 @@ describe("rsvp-export CSV serialisation", () => {
     expect(sanitiseCsvCell("+1")).toBe("'+1");
     expect(sanitiseCsvCell("-1")).toBe("'-1");
     expect(sanitiseCsvCell("@cmd")).toBe("'@cmd");
-    // Leading whitespace is a known bypass — trim first.
-    expect(sanitiseCsvCell("  =EVIL()")).toBe("'  =EVIL()");
+    // Leading whitespace is a known bypass — the quote goes past it, right
+    // before the marker.
+    expect(sanitiseCsvCell("  =EVIL()")).toBe("  '=EVIL()");
     // Ordinary values are untouched.
     expect(sanitiseCsvCell("Ada")).toBe("Ada");
     expect(sanitiseCsvCell("")).toBe("");

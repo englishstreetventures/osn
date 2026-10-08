@@ -10,7 +10,7 @@ related:
   - "[[retention]]"
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-08
 ---
 # RSVP changes
 
@@ -65,12 +65,12 @@ Each row rides the batch that makes the change, with its condition (`when`) test
 
 | Route | Gate | Does |
 |---|---|---|
-| `GET /api/organiser/weddings/:weddingId/rsvp-changes` | `weddingMember` | The card's summary: `households` (distinct households in the newest 5,001 unseen rows), `truncated` (more than 5,000 unseen, so the count is a floor), the five households with the newest change and their kinds, and `digest: { available, enabled }`. No rows and no marker. `no-store` |
+| `GET /api/organiser/weddings/:weddingId/rsvp-changes` | `weddingMember(db, { rsvpDigest: true })` | The card's summary: `households` (distinct households in the newest 5,001 unseen rows), `truncated` (more than 5,000 unseen, so the count is a floor), the five households with the newest change and their kinds, and `digest: { available, enabled }`. No rows and no marker. `no-store` |
 | `GET …/rsvp-changes/rows` | `weddingMember` | The table's badges: the oldest 5,001 unseen rows grouped by guest×event, at most 500 pairs in the order each first changed, and `markSeq`, the marker that covers exactly those pairs. `no-store` |
 | `POST …/rsvp-changes/seen` `{ seq }` | `weddingMember` | Moves the caller's `seen_seq` to `seq`, clamped to the wedding's newest change and never backwards |
 | `PUT …/rsvp-changes/digest` `{ enabled }` | `weddingEditor` | The caller's own digest switch. Turning it back on moves `digest_seq` to the newest change, so the next email covers what happens from then |
 
-`digest.available` is `decideCapability(role, "editor")` — the portal shows the switch without deciding anything from a role itself. The seen POST sits behind the read gate because it writes only the caller's own row. The read and write routes are sibling Elysia instances so the two gates never share a chain.
+`digest.available` is `decideCapability(role, "editor")` — the portal shows the switch without deciding anything from a role itself. `digest.enabled` comes from the card's gate: `rsvpDigest: true` LEFT JOINs the caller's `host_rsvp_notices` row (its primary key) into the query that finds their seat, so past sign-in (the session read, when the request carries the cookie) the card costs two statements, the gate's and the unseen households'. The card's route sits in a group of its own for that gate; `/rows` and the seen POST sit behind the plain `weddingMember` in a sibling group, and neither gate runs in front of the other group's routes. The seen POST sits behind the read gate because it writes only the caller's own row. The read and write routes are sibling Elysia instances so the read and write gates never share a chain.
 
 ## The portal
 

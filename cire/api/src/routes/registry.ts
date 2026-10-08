@@ -852,10 +852,16 @@ function registryImageErrors(set: { status?: number | string }, weddingId: strin
  * shared cache may keep a copy. The per-colo Workers cache still applies; that
  * lookup happens after the gates.
  *
+ * `lifetime: "revocable"` — each gate in front of this route can close (a
+ * sign-out, a removed seat, the wedding dropping below Gold), so the browser
+ * keeps its copy for an hour, then asks again with the weak `ETag` it was
+ * given. The 304 that answers comes from inside the handler, so the gates have
+ * already run: a caller they refuse gets their refusal, not a 304.
+ *
  * The version in the cache key is derived from the key itself (`versionFromKey`),
  * never from the client's `?v=`: every save mints a fresh uuid, so the key IS the
  * content version, and an attacker cannot loop `?v=` to mint unbounded per-call-
- * billed transforms (S-M1).
+ * billed transforms.
  *
  * A separate factory from the saves above because the gate differs — a viewer
  * co-host may LOOK at the registry (weddingMember) and may not write to it.
@@ -899,6 +905,7 @@ export const createRegistryImageServeRoutes = (
               variant,
               format,
               visibility: "private",
+              lifetime: "revocable",
               images: deps.images,
             }).pipe(
               Effect.provideService(AssetsR2Service, deps.assets as AssetsBucket),

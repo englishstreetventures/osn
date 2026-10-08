@@ -274,6 +274,18 @@ describe("GET /api/organiser/weddings", () => {
   });
 });
 
+// The list reads the caller's seats in one statement, then which of those
+// weddings hold a premium template, keyed on the first read's ids.
+describe("GET /api/organiser/weddings cost", () => {
+  it("costs two statements", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(statements).toHaveLength(2);
+  });
+});
+
 describe("POST /api/organiser/weddings", () => {
   async function createWedding(
     app: ReturnType<typeof buildApp>["app"],

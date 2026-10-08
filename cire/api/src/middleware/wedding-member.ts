@@ -23,6 +23,7 @@ const fail = (status: number, error: string) => ({
   weddingSlug: undefined as string | undefined,
   weddingTier: undefined as Tier | undefined,
   weddingInviteImages: undefined as InviteImageKeys | undefined,
+  weddingRsvpDigest: undefined as boolean | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
@@ -32,6 +33,7 @@ const pass = (
   slug: string,
   tier: Tier,
   inviteImages: InviteImageKeys | undefined,
+  rsvpDigest: boolean | undefined,
 ) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
@@ -44,8 +46,26 @@ const pass = (
   weddingTier: tier as Tier | undefined,
   // Read in the same query only when the mount asks for it (`inviteImages`).
   weddingInviteImages: inviteImages,
+  // The caller's RSVP-change digest setting, read in the same query only when
+  // the mount asks for it (`rsvpDigest`).
+  weddingRsvpDigest: rsvpDigest,
   weddingGateError: undefined as GateError | undefined,
 });
+
+/**
+ * What a mount may ask the gate's one query to read as well. At most one: each
+ * is its own query shape, written for the one route that needs it.
+ */
+export type WeddingMemberOptions =
+  | { readonly inviteImages?: true; readonly rsvpDigest?: never }
+  | { readonly rsvpDigest?: true; readonly inviteImages?: never };
+
+/** The gate's one query, as wide as the mount asked for. */
+function authorizeFor(weddingId: string, osnProfileId: string, options: WeddingMemberOptions) {
+  if (options.inviteImages) return hostsService.authorizeWithInviteImages(weddingId, osnProfileId);
+  if (options.rsvpDigest) return hostsService.authorizeWithRsvpDigest(weddingId, osnProfileId);
+  return hostsService.authorize(weddingId, osnProfileId);
+}
 
 /**
  * Authz gate for /api/organiser/weddings/:weddingId/* — admits any caller whose
@@ -72,10 +92,12 @@ const pass = (
  *
  * `inviteImages: true` joins the wedding's invite image keys into that same
  * query and derives them as `weddingInviteImages`, so the organiser image read
- * resolves its object without a second one. Every other mount leaves it off and
- * runs the narrower query.
+ * resolves its object without a second one. `rsvpDigest: true` joins the
+ * caller's `host_rsvp_notices` row and derives their digest setting as
+ * `weddingRsvpDigest`, so the RSVP-changes card's read needs no statement for
+ * it. Every other mount leaves both off and runs the narrower query.
  */
-export function weddingMember(db: Db, options: { readonly inviteImages?: boolean } = {}) {
+export function weddingMember(db: Db, options: WeddingMemberOptions = {}) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
@@ -85,17 +107,9 @@ export function weddingMember(db: Db, options: { readonly inviteImages?: boolean
       if (!weddingId) return fail(400, "wedding_id_missing");
       if (!osnProfileId) return fail(401, "unauthorised");
 
-      const result = options.inviteImages
-        ? await runCire(
-            hostsService
-              .authorizeWithInviteImages(weddingId, osnProfileId)
-              .pipe(Effect.provideService(DbService, db)),
-          )
-        : await runCire(
-            hostsService
-              .authorize(weddingId, osnProfileId)
-              .pipe(Effect.provideService(DbService, db)),
-          );
+      const result = await runCire(
+        authorizeFor(weddingId, osnProfileId, options).pipe(Effect.provideService(DbService, db)),
+      );
 
       if (!result) return fail(404, "wedding_not_found");
       if (!result.role) return fail(403, "forbidden");
@@ -107,6 +121,7 @@ export function weddingMember(db: Db, options: { readonly inviteImages?: boolean
         result.weddingSlug,
         result.weddingTier,
         result.inviteImages,
+        result.rsvpDigestEnabled,
       );
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {

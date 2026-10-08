@@ -391,10 +391,6 @@ export function summarisePairs(pairs: readonly UnseenPairRow[], pairLimit: numbe
   return { markSeq, rows: shown.map(({ guestId, eventId }) => ({ guestId, eventId })) };
 }
 
-export interface RsvpChangeFeed extends UnseenSummary {
-  digestEnabled: boolean;
-}
-
 /** `(select coalesce(max(seq), 0) …)` for one wedding — the newest change's number. */
 const newestSeq = (weddingId: string): SQL =>
   sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId})`;
@@ -407,35 +403,19 @@ const read = <A>(run: () => A | Promise<A>) =>
   });
 
 export const rsvpChangeService = {
-  /** The card's summary of the caller's unseen changes, and their digest setting. */
+  /**
+   * The card's summary of the caller's unseen changes. The caller's digest
+   * setting is not read here: the route's gate reads it in its own statement
+   * (`weddingMember(db, { rsvpDigest: true })`).
+   */
   feed(
     weddingId: string,
     osnProfileId: string,
-  ): Effect.Effect<RsvpChangeFeed, RsvpChangeError, DbService> {
+  ): Effect.Effect<UnseenSummary, RsvpChangeError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [settings, rows] = yield* Effect.all(
-        [
-          read(() =>
-            db
-              .select({ digestEnabled: hostRsvpNotices.digestEnabled })
-              .from(hostRsvpNotices)
-              .where(
-                and(
-                  eq(hostRsvpNotices.weddingId, weddingId),
-                  eq(hostRsvpNotices.osnProfileId, osnProfileId),
-                ),
-              )
-              .all(),
-          ),
-          read(() => buildUnseenHouseholdsQuery(db, weddingId, osnProfileId).all()),
-        ],
-        { concurrency: "unbounded" },
-      );
-      return {
-        ...summariseHouseholds(rows),
-        digestEnabled: settings[0]?.digestEnabled ?? true,
-      };
+      const rows = yield* read(() => buildUnseenHouseholdsQuery(db, weddingId, osnProfileId).all());
+      return summariseHouseholds(rows);
     }).pipe(Effect.withSpan("cire.rsvp_changes.feed"));
   },
 

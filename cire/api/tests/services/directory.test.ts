@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -887,16 +887,17 @@ describe("directoryService.consumeClaim", () => {
     const burn = sqls.findIndex((s) => /^update "vendor_claims"/i.test(s));
     const bind = sqls.findIndex((s) => /^update "directory_vendors"/i.test(s));
     const burnOthers = sqls.findLastIndex((s) => /^update "vendor_claims"/i.test(s));
-    expect(burn).toBeGreaterThan(0);
+    // The burn is the first statement: it carries every pre-check in its own
+    // WHERE, so nothing reads the claim before it.
+    expect(burn).toBe(0);
     expect(bind).toBeGreaterThan(burn);
     expect(burnOthers).toBeGreaterThan(bind);
-    // Claim read (carrying the owner pre-checks), burn, bind, burn of the
-    // other tokens, categories — the bound row comes back from the bind
-    // itself, not from a second read of the listing.
-    expect(sqls).toHaveLength(5);
+    // Burn, bind, burn of the other tokens, categories — the listing id comes
+    // back from the burn and the bound row from the bind, so neither is read.
+    expect(sqls).toHaveLength(4);
     expect(
       sqls.filter((s) => /^select\b/i.test(s) && s.includes('"directory_vendors"')),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
 
     expect(res.value.id).toBe(directoryVendorId);
     expect(res.value.ownerOrgId).toBeNull();
@@ -911,8 +912,8 @@ describe("directoryService.consumeClaim", () => {
   it("binds nothing when another consume burns the token first", async () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
-    // A concurrent consume wins the race: the claim row reads as unconsumed,
-    // then is consumed just before this call's burn runs.
+    // A concurrent consume wins the race: the token is spent just before this
+    // call's burn runs, and the burn's `consumed_at IS NULL` refuses it.
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     Object.defineProperty(client, "prepare", {
@@ -1023,7 +1024,7 @@ describe("directoryService.consumeClaim", () => {
     expect(listingOf(db, directoryVendorId).claimedByProfileId).toBe("usr_vendor");
   });
 
-  it("binds nothing when the listing is claimed between the pre-check and the bind", async () => {
+  it("binds nothing when the listing is claimed between the burn and the bind", async () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
     interceptBeforeBind(db, () =>
@@ -1036,6 +1037,138 @@ describe("directoryService.consumeClaim", () => {
     expect(failedWith(res, ClaimInvalid)).toBe(true);
     expect(listingOf(db, directoryVendorId).ownerOrgId).toBe("org_first");
     expect(listingOf(db, directoryVendorId).claimedByProfileId).toBeNull();
+  });
+
+  // A refusal is the burn matching no row, then one read to name the refusal.
+  it("refuses in two statements, the first the burn, spending nothing", async () => {
+    const db = db0();
+    await run(db, directoryService.upsertListingForOrg("org_has", LISTING_BODY));
+    const { claimToken } = await seedVendorAndClaim(db);
+    const statements = recordStatements(db);
+
+    const conflict = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+    expect(failedWith(conflict, OrgAlreadyHasListing)).toBe(true);
+    expect(statements.map((s) => s.sql.split(" ")[0]!.toLowerCase())).toEqual(["update", "select"]);
+    expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+
+    statements.length = 0;
+    const unknown = await run(db, directoryService.consumeClaim("no-such-token", "org_x", "usr_x"));
+    expect(failedWith(unknown, ClaimInvalid)).toBe(true);
+    expect(statements).toHaveLength(2);
+  });
+
+  // `expires_at` is stored in whole seconds; a token is live while its expiry
+  // is not before the call, to the millisecond, whichever statement decides.
+  it("refuses a token that expired a millisecond before the call, leaving it unspent", async () => {
+    const db = db0();
+    const { claimToken } = await seedVendorAndClaim(db);
+    const hash = await tokenHash(claimToken);
+    db.update(vendorClaims)
+      .set({ expiresAt: new Date(Date.now() - 1) })
+      .where(eq(vendorClaims.tokenHash, hash))
+      .run();
+
+    const res = await run(db, directoryService.consumeClaim(claimToken, "org_late", "usr_late"));
+    expect(failedWith(res, ClaimInvalid)).toBe(true);
+    expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+  });
+
+  // The refusal read names the refusal in the burn's order: anything wrong
+  // with the token or its listing is ClaimInvalid even when the org also has
+  // a listing, so a dead token never tells a vendor to pick another org.
+  describe("a refusal for an org that already has a listing", () => {
+    async function seeded() {
+      const db = db0();
+      await run(db, directoryService.upsertListingForOrg("org_has", LISTING_BODY));
+      const claim = await seedVendorAndClaim(db);
+      return { db, ...claim, hash: await tokenHash(claim.claimToken) };
+    }
+
+    it("is ClaimInvalid for a spent token", async () => {
+      const { db, claimToken, hash } = await seeded();
+      db.update(vendorClaims)
+        .set({ consumedAt: new Date() })
+        .where(eq(vendorClaims.tokenHash, hash))
+        .run();
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+      expect(failedWith(res, ClaimInvalid)).toBe(true);
+    });
+
+    it("is ClaimInvalid for an expired token", async () => {
+      const { db, claimToken, hash } = await seeded();
+      db.update(vendorClaims)
+        .set({ expiresAt: new Date(Date.now() - 60_000) })
+        .where(eq(vendorClaims.tokenHash, hash))
+        .run();
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+      expect(failedWith(res, ClaimInvalid)).toBe(true);
+      expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+    });
+
+    it("is ClaimInvalid for a listing already pending for another org", async () => {
+      const { db, claimToken, directoryVendorId } = await seeded();
+      db.update(directoryVendors)
+        .set({ reviewOrgId: "org_first" })
+        .where(eq(directoryVendors.id, directoryVendorId))
+        .run();
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+      expect(failedWith(res, ClaimInvalid)).toBe(true);
+      expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+    });
+
+    // The burn refused for the org's listing, which is gone by the time the
+    // refusal read runs: every check now passes, so the claim fails closed.
+    it("fails closed as ClaimInvalid when the state changes between burn and read", async () => {
+      const { db, claimToken } = await seeded();
+      const client = db.$client;
+      const prepare = client.prepare.bind(client);
+      Object.defineProperty(client, "prepare", {
+        configurable: true,
+        value: (sql: string) => {
+          if (/^select "vendor_claims"\."consumed_at"/i.test(sql)) {
+            prepare("DELETE FROM directory_vendors WHERE owner_org_id = 'org_has'").run();
+          }
+          return prepare(sql);
+        },
+      });
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_has", "usr_has"));
+      expect(failedWith(res, ClaimInvalid)).toBe(true);
+      expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+    });
+  });
+
+  // `expires_at` holds whole seconds, so with the clock at x.400 s a token
+  // expiring at the next whole second is live and one expiring at x.000 s is
+  // not — in the burn and in the refusal read alike.
+  describe("expiry at the whole-second boundary", () => {
+    const NOW = new Date("2026-10-08T00:00:00.400Z");
+    afterEach(() => {
+      setSystemTime();
+    });
+
+    async function withExpiry(expiresAt: Date) {
+      setSystemTime(NOW);
+      const db = db0();
+      const { claimToken } = await seedVendorAndClaim(db);
+      db.update(vendorClaims)
+        .set({ expiresAt })
+        .where(eq(vendorClaims.tokenHash, await tokenHash(claimToken)))
+        .run();
+      return { db, claimToken };
+    }
+
+    it("claims a token that expires at the next whole second", async () => {
+      const { db, claimToken } = await withExpiry(new Date("2026-10-08T00:00:01.000Z"));
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_edge", "usr_edge"));
+      expect(Exit.isSuccess(res)).toBe(true);
+    });
+
+    it("refuses a token that expired at the start of the current second, unspent", async () => {
+      const { db, claimToken } = await withExpiry(new Date("2026-10-08T00:00:00.000Z"));
+      const res = await run(db, directoryService.consumeClaim(claimToken, "org_edge", "usr_edge"));
+      expect(failedWith(res, ClaimInvalid)).toBe(true);
+      expect((await claimOf(db, claimToken))!.consumedAt).toBeNull();
+    });
   });
 
   it("fails OrgAlreadyHasListing, leaving the token live, when the org owns a listing", async () => {
@@ -1053,7 +1186,7 @@ describe("directoryService.consumeClaim", () => {
     expect(Exit.isSuccess(ok)).toBe(true);
   });
 
-  it("fails OrgAlreadyHasListing when the org gains a pending claim between the pre-check and the bind", async () => {
+  it("fails OrgAlreadyHasListing when the org gains a pending claim between the burn and the bind", async () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
     const second = await mintToken(db, directoryVendorId);

@@ -1,5 +1,6 @@
 import { Effect, Data, type Types } from "effect";
 
+import { unguardCsvCell } from "../lib/csv";
 import { isKnownTimeZone, parseWallTime, stampEventOffset } from "../lib/event-time";
 import {
   EVENT_ID_HEADER,
@@ -15,7 +16,7 @@ import { bucketParseReason, metricImportParseRejected } from "../metrics";
 import { MAX_EVENTS, MAX_ROWS } from "../schemas/import";
 import type { DesiredFamily, DesiredGuest, ParsedEvent, Provenance } from "../schemas/import";
 import {
-  FORMULA_MARKERS,
+  isFormulaCell,
   isTruthy,
   normaliseName,
   nullableString,
@@ -367,23 +368,28 @@ function detectFormulaInjection(
     const row = rows[r]!;
     for (let c = 0; c < row.length; c += 1) {
       const cell = row[c]!;
-      // Trim FIRST — leading whitespace is a known bypass (Excel/Sheets ignore
-      // surrounding whitespace when interpreting formulas, so " =SUM(...)" is
-      // still dangerous).
-      const trimmed = cell.trim();
-      if (trimmed.length === 0) continue;
-      const first = trimmed[0]!;
-      if (FORMULA_MARKERS.has(first)) {
+      if (isFormulaCell(cell)) {
         return new FormulaInjectionDetected({
           row: r + 1, // 1-indexed for human-readable coords
           column: c + 1,
-          snippet: trimmed.slice(0, 10),
+          snippet: cell.trim().slice(0, 10),
         });
       }
     }
   }
   return null;
 }
+
+/**
+ * An upload's cells with the download's formula guard taken back off
+ * (`unguardCsvCell`), header row included: a download guards header cells too,
+ * so an event named `+1 Drinks` heads its attendance column as `'+1 Drinks`.
+ * Runs after {@link detectFormulaInjection}, which reads the cells as uploaded,
+ * so a cell starting with a bare marker is still refused while a value a
+ * download wrote comes back as it was stored.
+ */
+const unguardRows = (rows: readonly string[][]): string[][] =>
+  rows.map((row) => row.map(unguardCsvCell));
 
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
@@ -434,15 +440,16 @@ export function parseEventsCsv(
     if (!result.ok) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: result.reason }));
     }
-    const rows = result.rows;
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: "empty events sheet" }));
     }
 
     if (!snapshot) {
-      const formula = detectFormulaInjection(rows, 0);
+      const formula = detectFormulaInjection(result.rows, 0);
       if (formula) return yield* Effect.fail(formula);
     }
+    // A before-image is written without the guard, so it is read as written.
+    const rows = snapshot ? result.rows : unguardRows(result.rows);
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);
@@ -686,15 +693,16 @@ export function parseGuestsCsv(
     if (!result.ok) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: result.reason }));
     }
-    const rows = result.rows;
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       return yield* Effect.fail(new MalformedSpreadsheet({ reason: "empty guests sheet" }));
     }
 
     if (!snapshot) {
-      const formula = detectFormulaInjection(rows, 0);
+      const formula = detectFormulaInjection(result.rows, 0);
       if (formula) return yield* Effect.fail(formula);
     }
+    // A before-image is written without the guard, so it is read as written.
+    const rows = snapshot ? result.rows : unguardRows(result.rows);
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);

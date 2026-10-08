@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-920   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/cire-phone-consent-modal @ 2026-10-08 — ten warnings fewer after this branch. No rule was disabled and nothing was suppressed.
+919   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-api-small-fixes @ 2026-10-08 — one warning fewer after this branch (a finding tag dropped from a comment it edits). No rule was disabled and nothing was suppressed.

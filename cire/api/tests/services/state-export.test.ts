@@ -606,3 +606,85 @@ describe("round trip with a plus-one named", () => {
     });
   }
 });
+
+/**
+ * Every download guards a value that starts a `;`, tab or line-break segment
+ * with `= + - @`, header cells included, and the upload takes exactly that
+ * guard back off — so a value the guard changes still comes back as stored.
+ */
+describe("round trip: values the formula guard changes", () => {
+  it(
+    "come back as stored at both fidelities, event header included",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const [event] = yield* dbQuery(() =>
+          db
+            .select({ id: events.id })
+            .from(events)
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
+        db.update(events)
+          .set({
+            name: "+1 Drinks",
+            address: "-12 Smith Street",
+            dressCodeDescription: "Black tie\n- no white\n- no denim",
+          })
+          .where(eq(events.id, event!.id))
+          .run();
+        const [guest] = yield* dbQuery(() =>
+          db
+            .select({ id: guests.id, familyId: guests.familyId })
+            .from(guests)
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
+        db.update(families)
+          .set({ familyName: "=Emptyhouse" })
+          .where(eq(families.id, guest!.familyId))
+          .run();
+        db.update(guests).set({ lastName: "Dash;-Smith" }).where(eq(guests.id, guest!.id)).run();
+        db.insert(guestEvents)
+          .values({ guestId: guest!.id, eventId: event!.id })
+          .onConflictDoNothing()
+          .run();
+
+        for (const fidelity of ["import", "full"] as const) {
+          const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
+          const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
+          // The download is guarded, header row included.
+          expect(lines(guestsCsv)[0]).toContain(",'+1 Drinks");
+          expect(guestsCsv).toContain(",'=Emptyhouse,");
+          expect(eventsCsv).toContain("\n'- no white\n'- no denim");
+
+          const parsedEvents = yield* parseEventsCsv(eventsCsv);
+          const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
+          const plan = yield* diffAgainstDb(
+            parsedEvents,
+            parsedFamilies as ParsedFamily[],
+            BOOTSTRAP_WEDDING_ID,
+          );
+          expect(plan.eventCreates).toHaveLength(0);
+          expect(plan.eventRemoves).toHaveLength(0);
+          expect(plan.familyCreates).toHaveLength(0);
+          expect(plan.familyRemoves).toHaveLength(0);
+          expect(plan.guestCreates).toHaveLength(0);
+          expect(plan.guestUpdates).toHaveLength(0);
+          expect(plan.guestRemoves).toHaveLength(0);
+          expect(plan.eventLinkCreates).toHaveLength(0);
+          expect(plan.eventLinkRemoves).toHaveLength(0);
+          // The diff emits an update for every matched event, so compare the
+          // values it would write with the stored row.
+          const update = plan.eventUpdates.find((eu) => eu.id === event!.id)!;
+          expect(update.event.name).toBe("+1 Drinks");
+          expect(update.event.address).toBe("-12 Smith Street");
+          expect(update.event.dressCodeDescription).toBe("Black tie\n- no white\n- no denim");
+          const family = parsedFamilies.find((f) => f.familyName === "=Emptyhouse");
+          expect(family?.guests.map((g) => g.lastName)).toContain("Dash;-Smith");
+        }
+      }),
+    ),
+  );
+});

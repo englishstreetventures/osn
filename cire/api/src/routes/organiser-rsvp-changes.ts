@@ -47,38 +47,50 @@ const invalidBody = (set: { status?: number | string }) =>
  *
  * `digest.available` is the policy table's answer to "does this caller get the
  * daily email" (the `editor` capability), so the portal shows the switch
- * without deciding anything from a role itself. The body names households, so
- * no intermediary may keep it.
+ * without deciding anything from a role itself. `digest.enabled` is the
+ * caller's own setting, which the card's gate reads in the statement that finds
+ * their seat (`weddingMember(db, { rsvpDigest: true })`). That wider gate sits
+ * in a group of its own; the table's read and the seen POST stay behind the
+ * plain member gate in a sibling group, and neither group's gate runs in front
+ * of the other's routes. The body names households, so no intermediary may
+ * keep it.
  */
 export const createOrganiserRsvpChangeReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
+        .use(weddingMember(db, { rsvpDigest: true }))
+        .get(
+          "/rsvp-changes",
+          ({ weddingId, weddingRole, weddingRsvpDigest, osnProfileId, set }) => {
+            if (!weddingId || !weddingRole || !osnProfileId || weddingRsvpDigest === undefined) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            return runCire(
+              rsvpChangeService.feed(weddingId, osnProfileId).pipe(
+                Effect.map((feed) => {
+                  set.headers["cache-control"] = "no-store";
+                  return {
+                    ...feed,
+                    digest: {
+                      available: decideCapability(weddingRole, "editor").allowed,
+                      enabled: weddingRsvpDigest,
+                    },
+                  };
+                }),
+                Effect.provideService(DbService, db),
+                Effect.catchTag("RsvpChangeError", () => internalError(set)),
+                Effect.catchDefect(() => internalError(set)),
+              ),
+            );
+          },
+        ),
+    )
+    .group("/weddings/:weddingId", (group) =>
+      group
         .use(weddingMember(db))
-        .get("/rsvp-changes", ({ weddingId, weddingRole, osnProfileId, set }) => {
-          if (!weddingId || !weddingRole || !osnProfileId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            rsvpChangeService.feed(weddingId, osnProfileId).pipe(
-              Effect.map(({ digestEnabled, ...feed }) => {
-                set.headers["cache-control"] = "no-store";
-                return {
-                  ...feed,
-                  digest: {
-                    available: decideCapability(weddingRole, "editor").allowed,
-                    enabled: digestEnabled,
-                  },
-                };
-              }),
-              Effect.provideService(DbService, db),
-              Effect.catchTag("RsvpChangeError", () => internalError(set)),
-              Effect.catchDefect(() => internalError(set)),
-            ),
-          );
-        })
         .get("/rsvp-changes/rows", ({ weddingId, osnProfileId, set }) => {
           if (!weddingId || !osnProfileId) {
             set.status = 500;

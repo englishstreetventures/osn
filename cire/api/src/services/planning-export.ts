@@ -98,8 +98,9 @@ function capRows(
  * be able to take back what they entered. The route that serves them is the
  * owner-only export group, with no tier gate.
  *
- * Every cell goes through `serialiseCsv`, which puts a `'` before a cell that
- * starts with `=`, `+`, `-` or `@`, so a spreadsheet reads it as text. Money
+ * Every cell goes through `serialiseCsv`, which puts a `'` before a `=`, `+`,
+ * `-` or `@` that starts the cell or a `;`, tab or line-break segment of it, so
+ * a spreadsheet reads it as text whatever separator it splits on. Money
  * prints as a bare decimal in the wedding's currency, which has a column of its
  * own on every row.
  */
