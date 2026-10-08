@@ -1,6 +1,6 @@
 ---
 name: stress-plan
-description: Use when an implementation plan has just been written and before any code is written — hands the plan to a second model in a fresh context to attack it, then requires every finding to be closed or rejected in writing. Invoked by new-feat at the end of its planning step and by orchestrate once per phase, and worth running on its own for any plan whose assumptions have not been checked against the code.
+description: Use when an implementation plan has just been written and before any code is written — hands the plan to a second model in a fresh context to attack it, then requires every finding to be fixed, rejected in writing, or put to the owner. Invoked by new-feat at the end of its planning step and by orchestrate once per phase, and worth running on its own for any plan whose assumptions have not been checked against the code.
 ---
 
 Attack the plan for `$ARGUMENTS` before anything is built on it. If `$ARGUMENTS`
@@ -14,11 +14,12 @@ against the plan rather than the plan against the repo.
 
 ## What this run must produce
 
-1. A findings file at the path the plan names, or `PLAN-REVIEW.md` beside the plan.
-2. Every finding **closed**: fixed in the plan, or rejected with the reason written
-   into the plan itself.
+1. A findings file at the path the plan names, or `PLAN-REVIEW.md` beside the plan,
+   written by you from the attacker's report.
+2. Every finding **closed**: fixed in the plan, rejected with the reason written
+   into the plan itself, or escalated to the owner and answered.
 3. A one-line verdict in the final message: how many findings, how many fixed, how
-   many rejected and why.
+   many rejected and why, how many escalated.
 
 **No implementation starts while a finding is open.** Silence is not a rejection.
 
@@ -94,7 +95,8 @@ The prompt, adapted to the plan's path:
 > - the premise the plan inherited from its issue, if it is no longer true
 >
 > Cite a file and line for every claim. Do not edit any file, do not run a build,
-> and do not write code. Write `<findings path>` and reply with the path only.
+> and do not write code. Return the findings as your final report; the caller
+> saves them to `<findings path>`.
 
 Open the prompt with `TASK-BRANCH: <branch>` on its own line, before anything
 else — the collector reads it back out to attribute the attacker's spend to
@@ -108,16 +110,29 @@ measurements that are not real.
 
 ## Step 3 — Close every finding
 
-Read the findings yourself and act on each one. Three outcomes and no fourth:
+The attacker is read-only and writes no file, so never wait on one: its findings
+arrive as its final report. Write that report to the findings path, replacing
+any file an earlier run left there. Then read the findings yourself and act on
+each one. Three outcomes and no fourth:
 
 - **Fix the plan.** The usual case.
-- **Reject it, in writing, in the plan.** One line: what was claimed and why it is
-  wrong. A rejection you did not write down is indistinguishable from a finding
-  you missed, three steps later when it turns out to matter.
-- **Escalate it** when it needs a decision only the repo owner can make — label the
-  issue `needs:decision`, write the body so they can decide from the issue alone
-  (the `write-issue` skill, §A `needs:decision` proposal), and carry on with the
-  rest of the plan.
+- **Reject it, in writing, in the plan** — only when you can name the fact it got
+  wrong. One line: the claim, and the file, line or output that shows it false. A
+  rejection you did not write down is indistinguishable from a finding you
+  missed, three steps later when it turns out to matter.
+- **Escalate it** when its facts stand and what is left is the owner's choice:
+  label the issue `needs:decision` and write the body so they can decide from the
+  issue alone (the `write-issue` skill, §A `needs:decision` proposal). Under
+  `orchestrate`, return `NEEDS INPUT: <question> + options + recommendation` to
+  the coordinator instead. Close the other findings and finish the plan
+  meanwhile; no code starts until the answer comes back.
+
+**A finding whose facts stand is escalated, never rejected.** Disagreeing with
+its trade-off is not a rejection: the owner overrules a rejected trade-off after
+the branch is built, and the redesign costs far more than the question would
+have. The same holds for an owner decision. When a finding conflicts with one,
+or names a case it does not mention, escalate with two options; never reject it
+by citing the decision. How far a decision reaches is the owner's to say.
 
 Reject with evidence, not with confidence. A rejected finding on this repo turned
 out to be a reviewer measuring a build directory two processes had written into at
@@ -132,8 +147,10 @@ findings it just produced.
 
 ## Finish
 
-Report the count, what was fixed, what was rejected and why, and that the plan is
-now clear to build. Then continue with the skill that called this one.
+Report the count, what was fixed, what was rejected and the fact each rejection
+names, and, as a list of its own, what was escalated and where each question
+waits. The plan is clear to build once every escalation has its answer. Then
+continue with the skill that called this one.
 
 Two things worth carrying into the run that follows, both of which this stage
 tends to surface:

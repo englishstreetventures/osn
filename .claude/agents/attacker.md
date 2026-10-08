@@ -15,6 +15,8 @@ nobody else.
 **Read only. Do not edit a file, do not run a build, do not write code.** The
 plan's author is very likely building in the same worktree, and a second
 process building in it produces measurements that are not real. Read, reason, report.
+Your findings go in your final message, not a file; the session that dispatched
+you saves them.
 
 Look hardest at what the plan takes for granted: an interface it assumes exists,
 a migration it assumes is reversible, a test it assumes covers the case, a
