@@ -24,10 +24,11 @@ export interface BackgroundSink {
 }
 
 /**
- * Drop on the floor — which is precisely today's behaviour anywhere there is
- * no `ExecutionContext`: the Bun dev server, unit tests, and any two-argument
- * caller of the Worker handler. Making that the default is what lets
- * {@link withBackgroundSink} degrade instead of throwing.
+ * Drops each completion promise, and only the promise: the forked work still
+ * runs. This is the sink anywhere there is no `ExecutionContext` — the Bun dev
+ * server, unit tests, and any two-argument caller of the Worker handler — and
+ * making it the default is what lets {@link withBackgroundSink} degrade
+ * instead of throwing.
  */
 const NOOP_SINK: BackgroundSink = { add: () => {} };
 
@@ -76,8 +77,8 @@ export interface WaitUntilCtx {
  * request's background work to another's context.
  *
  * With no `ctx` this returns `fn()` untouched — no ALS frame, no sink, the
- * default no-op reference — so behaviour off-Workers is byte-identical to
- * before this existed.
+ * default no-op reference — so off Workers, background work runs detached and
+ * nothing waits for it.
  */
 export async function withBackgroundSink<T>(
   ctx: WaitUntilCtx | undefined,
