@@ -14,7 +14,8 @@ import type {
   OsnOrgMembershipResolver,
   OsnProfileOrgsResolver,
 } from "../../src/services/osn-bridge";
-import { appRequest } from "../test-helpers";
+import { appRequest, recordStatements } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -310,6 +311,81 @@ describe("vendor portal routes", () => {
       expect(first.status).toBe(404); // burned the budget
       const second = await req(limitedApp, "GET", `/api/vendor/claims/any-token`);
       expect(second.status).toBe(429); // rate limited
+    });
+
+    // The claim consume shares the instance's per-IP limiter. A refused claim
+    // costs two statements, so a limited request must be turned away before
+    // the org check, the burn or any other statement runs.
+    it("limits the claim consume before the org check and any D1 statement", async () => {
+      const db2 = createDb(":memory:");
+      seedDb(db2);
+      const first = await seedClaimable(db2);
+      const second = await seedClaimable(db2);
+      let orgChecks = 0;
+      const countingMembership: OsnOrgMembershipResolver = async (orgId, profileId) => {
+        orgChecks++;
+        return stubOrgMembership(orgId, profileId);
+      };
+      const limitedApp = createApp(db2, {
+        osnTestKey: auth.key,
+        orgMembership: countingMembership,
+        profileOrgs: stubProfileOrgs,
+        vendorPortalLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      });
+      const consume = (token: string) =>
+        req(limitedApp, "POST", `/api/vendor/claims/${token}/consume`, MEMBER, { orgId: ORG_OK });
+
+      expect((await consume(first.token)).status).toBe(200);
+      expect(orgChecks).toBe(1);
+
+      const statements = recordStatements(db2);
+      const limited = await consume(second.token);
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("retry-after")).toBe("60");
+      expect(orgChecks).toBe(1);
+      expect(statements).toHaveLength(0);
+      const listing = db2
+        .select({ reviewOrgId: directoryVendors.reviewOrgId })
+        .from(directoryVendors)
+        .where(eq(directoryVendors.id, second.id))
+        .get();
+      expect(listing?.reviewOrgId).toBeNull();
+    });
+
+    // A browser signs in with the session cookie, which `osnAuth` reads in its
+    // derive, a phase that runs before every request gate. So a limited
+    // request still costs that one session read, and nothing more.
+    it("limits a cookie-signed consume after the session read and before anything else", async () => {
+      const db2 = createDb(":memory:");
+      seedDb(db2);
+      const first = await seedClaimable(db2);
+      const second = await seedClaimable(db2);
+      const session = await seedOrganiserSession(db2, MEMBER);
+      let orgChecks = 0;
+      const countingMembership: OsnOrgMembershipResolver = async (orgId, profileId) => {
+        orgChecks++;
+        return stubOrgMembership(orgId, profileId);
+      };
+      const limitedApp = createApp(db2, {
+        osnTestKey: auth.key,
+        orgMembership: countingMembership,
+        profileOrgs: stubProfileOrgs,
+        vendorPortalLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      });
+      const consume = (token: string) =>
+        appRequest(limitedApp, `/api/vendor/claims/${token}/consume`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: `cire_org_session=${session}` },
+          body: JSON.stringify({ orgId: ORG_OK }),
+        });
+
+      expect((await consume(first.token)).status).toBe(200);
+      const statements = recordStatements(db2);
+      const limited = await consume(second.token);
+      expect(limited.status).toBe(429);
+      expect(orgChecks).toBe(1);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]!.sql).toContain('"organiser_sessions"');
     });
   });
 
