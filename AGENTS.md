@@ -27,7 +27,7 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 - **It ends with `/prep-pr`, then `/retro`** (`/retro-v2` when the session is short of budget). `/retro` writes the session-metrics card; nothing else does.
 - **Never commit to `main`.** Every change goes through a pull request. Several pull requests for one goal are stacked: `wiki/conventions/stacked-prs.md`.
 - **Start sessions inside a worktree** (`~/.work/osn.git/<dir>`), never in the bare parent, which has no working tree and none of this configuration.
-- **Choose subagents by definition** with the `pick-agent` skill; `.claude/agents/*.md` sets each role's model and effort. Only one code-writing agent per worktree.
+- **Choose subagents by definition** with the `pick-agent` skill; `.claude/agents/*.md` sets each role's model and effort, so a dispatch passes neither. Reviews go to `reviewer`, plan attacks to `attacker`, whole tasks to `implementer` — never `general-purpose`, which runs at whatever settings its parent has. Only one code-writing agent per worktree.
 
 ## Issues
 

@@ -14,7 +14,7 @@
 # the issue is honest, and the pull toward a code-writing agent comes entirely
 # from the subject matter.
 #
-# The fixture plants the five agent names with their one-line descriptions and
+# The fixture plants the six agent names with their one-line descriptions and
 # NOTHING ELSE — no model, no effort level. That is what a dispatcher has
 # without the skill, and it keeps both variants able to answer rather than
 # making the choice a test of whether the plugin was injected.
@@ -84,6 +84,10 @@ cat > AGENTS-AVAILABLE.md <<'AGENTS'
   before the work starts — patch and minor dependency bumps, renames,
   changesets, a pattern applied across files. Not for anything that needs a
   decision.
+- **reviewer** — Reviews one branch through one lens — tests, security,
+  performance, docs, or a plan task's spec and quality — and reports findings.
+  Never fixes what it finds. Dispatched by prep-pr for its review skills, and
+  by any skill or plugin that asks for a review subagent.
 - **shepherd** — Watches a pull request to a terminal state — polls CI and
   reports what went red. Never merges, rebases, pushes or removes a worktree.
   Exists so slow polling does not sit in an expensive context.
