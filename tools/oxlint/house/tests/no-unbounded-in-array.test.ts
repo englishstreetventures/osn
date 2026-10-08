@@ -97,6 +97,25 @@ export const q = inArray(users.id, flag ? ids : ["a"]);
 const pick = (list: string[]) => list;
 export const q = inArray(users.id, pick(ids));
 `,
+  "executed-chain.ts": `import { inArray } from "drizzle-orm";${preamble}
+export const q = inArray(
+  users.id,
+  db.select({ id: guests.id }).from(guests).all().map((r: { id: string }) => r.id),
+);
+`,
+  "awaited-chain.ts": `import { inArray } from "drizzle-orm";${preamble}
+export const q = inArray(
+  users.id,
+  db.select({ id: guests.id }).from(guests).then((rows: { id: string }[]) => rows.map((r) => r.id)),
+);
+`,
+  "nested-sql-join.ts": `import { inArray, sql } from "drizzle-orm";${preamble}
+export const q = inArray(users.id, sql\`(\${sql\`\${sql.join(ids, sql\`, \`)}\`})\`);
+`,
+  "local-json-each.ts": `import { inArray } from "drizzle-orm";${preamble}
+const jsonEachIn = (list: string[]) => list;
+export const q = inArray(users.id, jsonEachIn(ids));
+`,
   "multi-line.ts": `import { inArray } from "drizzle-orm";${preamble}
 export const q = inArray(
   users.id,
@@ -124,6 +143,22 @@ export const q = inArray(users.id, idsJson);
   "const-subquery.ts": `import { inArray } from "drizzle-orm";${preamble}
 const seed = db.select({ id: users.id }).from(users).limit(5);
 export const q = inArray(users.id, seed);
+`,
+  "select-distinct-on.ts": `import { inArray } from "drizzle-orm";${preamble}
+export const q = inArray(users.id, db.selectDistinctOn([users.id], { id: users.id }).from(users));
+`,
+  "subquery-as.ts": `import { inArray } from "drizzle-orm";${preamble}
+export const q = inArray(
+  users.id,
+  db.select({ id: users.id }).from(users).where(users.ok).orderBy(users.id).limit(5).as("recent"),
+);
+`,
+  "sql-join-literal.ts": `import { inArray, sql } from "drizzle-orm";${preamble}
+export const q = inArray(events.status, sql\`(\${sql.join([sql\`'a'\`, sql\`'b'\`], sql\`, \`)})\`);
+`,
+  "json-each-relative.ts": `import { inArray } from "drizzle-orm";
+import { jsonEachIn } from "../src/jsonEach";${preamble}
+export const q = inArray(users.id, jsonEachIn(ids));
 `,
   "select-distinct.ts": `import { inArray } from "drizzle-orm";${preamble}
 export const q = inArray(users.id, db.selectDistinct({ id: users.id }).from(users));
@@ -209,12 +244,16 @@ describe("house/no-unbounded-in-array", () => {
   it("reports every list whose length the source does not fix, and nothing else", () => {
     expect(reportedFiles(diagnostics)).toEqual([
       "aliased.ts",
+      "awaited-chain.ts",
       "call-result.ts",
       "conditional-mixed.ts",
+      "executed-chain.ts",
       "helper-returns-parameter.ts",
       "let-literal.ts",
+      "local-json-each.ts",
       "member.ts",
       "multi-line.ts",
+      "nested-sql-join.ts",
       "not-in-array.ts",
       "pushed-const.ts",
       "spread-map-keys.ts",
@@ -227,7 +266,7 @@ describe("house/no-unbounded-in-array", () => {
   });
 
   it("reports once per call", () => {
-    expect(diagnostics).toHaveLength(15);
+    expect(diagnostics).toHaveLength(19);
   });
 
   it("names the function and the list, and points at jsonEachIn", () => {

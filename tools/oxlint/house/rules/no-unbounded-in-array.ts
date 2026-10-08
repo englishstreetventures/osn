@@ -11,19 +11,22 @@
  * source or is a single parameter:
  *
  *  - an array literal, spreading nothing but a same-file `as const` tuple;
- *  - `jsonEachIn(…)` from `@shared/db-utils`, which binds the whole array as one
- *    JSON parameter;
- *  - a query-builder chain with a `.select(` / `.selectDistinct(` /
- *    `.selectDistinctOn(` in it — a subquery, which binds no list;
- *  - a `sql` template, unless it interpolates `sql.join(…)` over anything but
- *    an array literal;
+ *  - `jsonEachIn(…)` imported from `@shared/db-utils` (or its own `jsonEach`
+ *    module), which binds the whole array as one JSON parameter;
+ *  - a query-builder chain that starts with `.select(` / `.selectDistinct(` /
+ *    `.selectDistinctOn(` and calls only builder steps after it (`.from(`,
+ *    `.where(`, a join, `.limit(`, `.as(` …) — a subquery, which binds no list.
+ *    A chain that runs the query (`.all()`, `.then(`, `.map(` …) is reported;
+ *  - a `sql` template, unless it interpolates, at any depth, `sql.join(…)` over
+ *    anything but an array literal;
  *  - a conditional whose two branches both pass;
  *  - a same-file `const` bound to one of the above or to an `as const` tuple
  *    (a plain `const ids = []` can still be pushed to);
  *  - a call to a same-file `const` arrow function whose expression body passes.
  *
- * Everything else — a parameter, a `let`, `body.ids`, `[...set]`, a call — is
- * reported. Where a cap the code enforces keeps the whole statement under 100,
+ * A name is followed through at most four `const` bindings or helpers; a list
+ * further away than that is reported. Everything else — a parameter, a `let`,
+ * `body.ids`, `[...set]`, a call — is reported. Where a cap the code enforces keeps the whole statement under 100,
  * suppress the line with a reason that states the maximum and names the cap.
  *
  * It cannot see a list built in another module, an array interpolated into a
@@ -43,6 +46,35 @@ const SUBQUERY_METHODS: ReadonlySet<string> = new Set([
   "selectDistinct",
   "selectDistinctOn",
 ]);
+
+/**
+ * Builder steps that leave a select a query rather than running it. A chain
+ * with any other call between the select and the list argument — `.all()`,
+ * `.then(`, `.map(` — has already read the rows into an array.
+ */
+const BUILDER_STEPS: ReadonlySet<string> = new Set([
+  "from",
+  "where",
+  "innerJoin",
+  "leftJoin",
+  "rightJoin",
+  "fullJoin",
+  "crossJoin",
+  "groupBy",
+  "having",
+  "orderBy",
+  "limit",
+  "offset",
+  "as",
+  "$dynamic",
+  "union",
+  "unionAll",
+  "intersect",
+  "except",
+]);
+
+/** Where `jsonEachIn` may come from: the package, or its own module inside it. */
+const JSON_EACH_SOURCE = /^@shared\/db-utils(\/|$)|(^|\/)jsonEach(\.ts)?$/;
 
 /** How many `const` hops a list is followed through before it counts as unknown. */
 const MAX_DEPTH = 4;
@@ -135,44 +167,69 @@ function isFixedTuple(node: Node, depth: number, getScope: GetScope): boolean {
   );
 }
 
-/** The name a callee ends in: `jsonEachIn` for both `jsonEachIn(…)` and `x.jsonEachIn(…)`. */
-function calleeName(callee: Node): string | null {
-  if (callee.type === "Identifier") return callee.name;
-  if (callee.type === "MemberExpression" && callee.property.type === "Identifier") {
-    return callee.property.name;
-  }
-  return null;
+/** A call to `jsonEachIn` imported from `@shared/db-utils`. */
+function isJsonEachIn(call: ESTree.CallExpression, getScope: GetScope): boolean {
+  const { callee } = call;
+  if (callee.type !== "Identifier") return false;
+  const definition = resolve(callee, getScope)?.defs[0];
+  if (definition === undefined || definition.type !== "ImportBinding") return false;
+  const { node: specifier, parent } = definition;
+  if (specifier.type !== "ImportSpecifier" || parent?.type !== "ImportDeclaration") return false;
+  const imported =
+    specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value;
+  return (
+    imported === "jsonEachIn" &&
+    typeof parent.source.value === "string" &&
+    JSON_EACH_SOURCE.test(parent.source.value)
+  );
 }
 
-/** A call chain with a `.select(`-family call somewhere in it. */
+/**
+ * A select still being built: the outermost call and every call down to the
+ * `.select(`-family call that starts it are builder steps.
+ */
 function isSubqueryChain(call: ESTree.CallExpression): boolean {
   let current: Node = call;
   while (current.type === "CallExpression") {
     const callee: Node = current.callee;
-    if (callee.type !== "MemberExpression") return false;
-    if (callee.property.type === "Identifier" && SUBQUERY_METHODS.has(callee.property.name)) {
-      return true;
-    }
+    if (callee.type !== "MemberExpression" || callee.property.type !== "Identifier") return false;
+    const method = callee.property.name;
+    if (SUBQUERY_METHODS.has(method)) return true;
+    if (!BUILDER_STEPS.has(method)) return false;
     current = callee.object;
   }
   return false;
 }
 
-/** `sql.join(x, …)` where `x` is not an array literal — one parameter per element of `x`. */
-function isUnboundedJoin(node: Node): boolean {
-  if (node.type !== "CallExpression") return false;
-  const { callee } = node;
-  if (
-    callee.type !== "MemberExpression" ||
-    callee.object.type !== "Identifier" ||
-    callee.object.name !== "sql" ||
-    callee.property.type !== "Identifier" ||
-    callee.property.name !== "join"
-  ) {
-    return false;
+/**
+ * `sql.join(x, …)` where `x` is not an array literal — one parameter per
+ * element of `x` — anywhere inside an interpolation, nested templates included.
+ */
+function hasUnboundedJoin(node: Node): boolean {
+  switch (node.type) {
+    case "CallExpression": {
+      const { callee } = node;
+      if (
+        callee.type === "MemberExpression" &&
+        callee.object.type === "Identifier" &&
+        callee.object.name === "sql" &&
+        callee.property.type === "Identifier" &&
+        callee.property.name === "join"
+      ) {
+        const [first] = node.arguments;
+        if (first === undefined || unwrap(first).type !== "ArrayExpression") return true;
+      }
+      return node.arguments.some((argument) => hasUnboundedJoin(argument));
+    }
+    case "TaggedTemplateExpression":
+      return node.quasi.expressions.some(hasUnboundedJoin);
+    case "ArrayExpression":
+      return node.elements.some((element) => element !== null && hasUnboundedJoin(element));
+    case "SpreadElement":
+      return hasUnboundedJoin(node.argument);
+    default:
+      return false;
   }
-  const [first] = node.arguments;
-  return first === undefined || unwrap(first).type !== "ArrayExpression";
 }
 
 /** A call to a same-file `const` arrow function whose expression body is bounded. */
@@ -197,15 +254,13 @@ function isBounded(node: Node, depth: number, getScope: GetScope): boolean {
       );
     case "CallExpression":
       return (
-        calleeName(inner.callee) === "jsonEachIn" ||
+        isJsonEachIn(inner, getScope) ||
         isSubqueryChain(inner) ||
         isBoundedHelperCall(inner, depth, getScope)
       );
     case "TaggedTemplateExpression":
       return (
-        inner.tag.type === "Identifier" &&
-        inner.tag.name === "sql" &&
-        !inner.quasi.expressions.some(isUnboundedJoin)
+        inner.tag.type === "Identifier" && inner.tag.name === "sql" && !hasUnboundedJoin(inner)
       );
     case "ConditionalExpression":
       return (

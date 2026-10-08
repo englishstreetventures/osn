@@ -69,13 +69,13 @@ The rule reports the list argument of any `inArray` or `notInArray` imported fro
 
 | Passes | Why |
 |---|---|
-| `jsonEachIn(ids)` from `@shared/db-utils` | One bound JSON parameter, however long the list |
-| A query-builder chain with `.select(`, `.selectDistinct(` or `.selectDistinctOn(` | A subquery binds no list |
+| `jsonEachIn(ids)` imported from `@shared/db-utils` | One bound JSON parameter, however long the list |
+| A chain that starts with `.select(`, `.selectDistinct(` or `.selectDistinctOn(` and calls only builder steps after it (`.from(`, `.where(`, a join, `.limit(`, `.as(`) | A subquery binds no list. A chain that runs the query first — `.all().map(…)`, `.then(…)` — is reported |
 | An array literal, spreading only a same-file `as const` tuple | Its length is written in the source |
-| A `sql` template | Judged as written, unless it interpolates `sql.join(…)` over anything but an array literal |
+| A `sql` template | Judged as written, unless it interpolates `sql.join(…)` over anything but an array literal, at any depth |
 | A same-file `const` bound to one of the above, or to an `as const` tuple | The same value under a name; a plain `const ids = []` can still be pushed to, so it does not pass |
 | A call to a same-file `const` arrow function whose expression body passes | A helper that returns a subquery |
 
-Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
+The rule follows a name through at most four `const` bindings or helpers. Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
 
 The rule cannot see a list built in another module, an array interpolated into a `sql` template by name, or a namespace import (`drizzle.inArray`). It does not cover the multi-row `.values(rows)` insert, which reaches the cap at one parameter per column per row; that rule waits on englishstreetventures/osn#1450.
