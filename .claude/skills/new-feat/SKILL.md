@@ -100,8 +100,10 @@ The plan names:
 ## Step 3 — Attack the plan before building on it
 
 Invoke the `stress-plan` skill with the path to `NEW-FEAT.md`. It hands the plan
-to a second model in a fresh context, and every finding is fixed in the plan or
-rejected in writing before implementation starts.
+to a second model in a fresh context. Every finding is fixed in the plan,
+rejected in writing only when you can name the fact it got wrong, or escalated
+to the owner when its facts stand and the choice is theirs. Implementation starts
+when none is open and every escalation has an answer.
 
 It decides for itself whether the plan is worth attacking — a rename or a flag on
 a value already traced to its reader is skipped, anything touching auth, schema, a
@@ -119,4 +121,5 @@ While implementing, invoke the skill that already encodes the sub-task — UI, C
 
 Summarise the issue and its status, the branch (and worktree path), the plan, and
 what `stress-plan` found — how many findings, how many fixed, how many rejected
-and why. On PERSONAL, `cd` into the worktree before any implementation starts. When the user is happy with the implementation, prompt: "Ready to prepare this branch for a PR? Run `/prep-pr` to validate changesets, run tests, get performance and security reviews, and push the branch."
+and the fact each got wrong, and how many escalated to the owner and their
+answers. On PERSONAL, `cd` into the worktree before any implementation starts. When the user is happy with the implementation, prompt: "Ready to prepare this branch for a PR? Run `/prep-pr` to validate changesets, run tests, get performance and security reviews, and push the branch."
