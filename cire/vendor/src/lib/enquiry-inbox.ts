@@ -1,22 +1,19 @@
 // The vendor's enquiry inbox, a page at a time. The dashboard makes one holder
-// and hands it to the inbox, so the pages a vendor has loaded are still there
-// when they come back from a thread — the inbox itself unmounts while a thread
-// is open.
+// and hands it to the inbox, so a vendor back from a thread is shown as many
+// pages as they had loaded — the inbox itself unmounts while a thread is open.
 import { type Accessor, createSignal } from "solid-js";
 
 import type { VendorEnquiryListItem, VendorEnquiryPage } from "./enquiries-store";
 
 export interface EnquiryInbox {
-  /** The rows loaded so far, newest first; `null` until page one arrives, and after it fails. */
+  /** The rows loaded so far, newest first; `null` until page one arrives, and after a failed read. */
   rows: Accessor<VendorEnquiryListItem[] | null>;
   /** Continues after the last loaded row; `null` once every page is loaded. */
   nextCursor: Accessor<string | null>;
-  /** Page one could not be read. */
+  /** The last read failed and the inbox was cleared. */
   failed: Accessor<boolean>;
   loadingMore: Accessor<boolean>;
-  /** The last next-page request failed; the rows already shown stay. */
-  moreFailed: Accessor<boolean>;
-  /** Read page one again — on every mount of the inbox. */
+  /** Read the inbox again, as many pages as are held — on every mount of the inbox. */
   refresh: () => Promise<void>;
   /** Read the page after the last loaded row. Does nothing with no next page or nothing loaded. */
   loadMore: () => Promise<void>;
@@ -52,11 +49,13 @@ function merge(
 }
 
 /**
- * Re-reading page one keeps deeper pages: a vendor who loaded three pages,
- * opened a thread and came back still has all three, with page one's rows
- * fresh (a quote just sent moves its row to the top). When page one says it is
- * the whole inbox, or nothing beyond it is held, it replaces what is held, so
- * an empty answer (the vendor has left the organisation) empties the inbox.
+ * Every row shown comes from an answer the API gave after the vendor's latest
+ * access check. A re-read on mount reads again as many pages as are held and
+ * replaces them, so a vendor back from a thread keeps their place, and a row
+ * that has left their organisations or belongs to a deleted wedding drops out;
+ * the held rows stay on screen while it runs. A failed read, of page one or of
+ * a next page, clears the inbox: the client cannot tell a dropped connection
+ * from a refusal it has to honour.
  */
 export function createEnquiryInbox(
   fetchPage: (cursor?: string) => Promise<VendorEnquiryPage>,
@@ -65,33 +64,40 @@ export function createEnquiryInbox(
   const [nextCursor, setNextCursor] = createSignal<string | null>(null);
   const [failed, setFailed] = createSignal(false);
   const [loadingMore, setLoadingMore] = createSignal(false);
-  const [moreFailed, setMoreFailed] = createSignal(false);
-  /** Whether the rows hold more than page one. */
-  let beyondPageOne = false;
-  /** Bumped by each read of page one; a next page asked for before it is dropped. */
+  /** Pages behind the rows shown. */
+  let pagesHeld = 0;
+  /** Bumped by each re-read; an answer to a request made before it is dropped. */
   let generation = 0;
+
+  function clear(): void {
+    setRows(null);
+    setNextCursor(null);
+    pagesHeld = 0;
+    setFailed(true);
+  }
 
   async function refresh(): Promise<void> {
     const started = ++generation;
+    const want = Math.max(1, pagesHeld);
     setFailed(false);
-    setMoreFailed(false);
+    let read: VendorEnquiryListItem[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
     try {
-      const page = await fetchPage();
-      if (started !== generation) return;
-      const held = rows();
-      if (held === null || !beyondPageOne || page.nextCursor === null) {
-        setRows(page.enquiries);
-        setNextCursor(page.nextCursor);
-        beyondPageOne = false;
-      } else {
-        setRows(merge(held, page.enquiries));
-      }
+      do {
+        // Sequential by nature: each page's cursor comes from the one before.
+        // eslint-disable-next-line no-await-in-loop
+        const page = await fetchPage(cursor ?? undefined);
+        if (started !== generation) return;
+        read = merge(read, page.enquiries);
+        cursor = page.nextCursor;
+        pages++;
+      } while (cursor !== null && pages < want);
+      setRows(read);
+      setNextCursor(cursor);
+      pagesHeld = pages;
     } catch {
-      if (started !== generation) return;
-      setRows(null);
-      setNextCursor(null);
-      beyondPageOne = false;
-      setFailed(true);
+      if (started === generation) clear();
     }
   }
 
@@ -101,19 +107,18 @@ export function createEnquiryInbox(
     if (cursor === null || held === null || loadingMore()) return;
     const started = generation;
     setLoadingMore(true);
-    setMoreFailed(false);
     try {
       const page = await fetchPage(cursor);
       if (started !== generation) return;
       setRows(merge(rows() ?? held, page.enquiries));
       setNextCursor(page.nextCursor);
-      beyondPageOne = true;
+      pagesHeld++;
     } catch {
-      if (started === generation) setMoreFailed(true);
+      if (started === generation) clear();
     } finally {
       setLoadingMore(false);
     }
   }
 
-  return { rows, nextCursor, failed, loadingMore, moreFailed, refresh, loadMore };
+  return { rows, nextCursor, failed, loadingMore, refresh, loadMore };
 }

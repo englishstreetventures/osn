@@ -161,7 +161,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
             onOpen={setSelectedId}
             hasMore={hasMore()}
             loadingMore={loadingMore()}
-            onLoadMore={() => void handleLoadMore()}
+            onLoadMore={handleLoadMore}
           />
         </div>
 

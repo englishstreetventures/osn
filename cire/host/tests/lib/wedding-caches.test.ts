@@ -203,6 +203,9 @@ describe("dropWeddingCaches — enquiries' next page", () => {
       enquiries: ROW,
       nextCursor: "1.row_1",
     }));
+    // Taken before the drop, as a mounted view holds them.
+    const heldRows = enquiries.enquiriesAccessor("wed_a");
+    const heldCursor = enquiries.enquiriesNextCursor("wed_a");
     const load = heldLoad();
     const pending = enquiries.loadMoreEnquiries("wed_a", async () => ({
       enquiries: await load.fetcher(),
@@ -210,10 +213,12 @@ describe("dropWeddingCaches — enquiries' next page", () => {
     }));
 
     dropWeddingCaches("wed_a");
+    expect(heldCursor()).toBeNull();
     openWeddingCaches("wed_a");
     load.settle();
 
     expect(await pending).toBe(false);
+    expect(heldRows()).toBeNull();
     expect(enquiries.enquiriesAccessor("wed_a")()).toBeNull();
     expect(enquiries.enquiriesNextCursor("wed_a")()).toBeNull();
   });

@@ -130,16 +130,22 @@ describe("EnquiriesView", () => {
 
   it("loads the next page under the first, and stops offering one after the last", async () => {
     const EnquiriesView = await importComponent();
+    // Fixed times, page one's newer than page two's, as the server sends them.
     authFetch.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ enquiries: [makeItem({ id: "enq_new" })], nextCursor: "1784.enq_new" }),
+        JSON.stringify({
+          enquiries: [makeItem({ id: "enq_new", lastMessageAt: 2_000_000 })],
+          nextCursor: "2000.enq_new",
+        }),
         { status: 200 },
       ),
     );
     authFetch.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          enquiries: [makeItem({ id: "enq_old", vendorName: "Old Oak Films" })],
+          enquiries: [
+            makeItem({ id: "enq_old", vendorName: "Old Oak Films", lastMessageAt: 1_000_000 }),
+          ],
           nextCursor: null,
         }),
         { status: 200 },
@@ -150,11 +156,53 @@ describe("EnquiriesView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
 
     expect(await screen.findByText("Old Oak Films")).toBeInTheDocument();
-    expect(screen.getByText("Blue Roses")).toBeInTheDocument();
-    expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/enquiries\?cursor=1784\.enq_new$/);
+    const rows = screen.getAllByRole("button", { name: /Blue Roses|Old Oak Films/ });
+    expect(rows.map((r) => r.textContent?.includes("Old Oak Films"))).toEqual([false, true]);
+    expect(String(authFetch.mock.calls[1]![0])).toMatch(/\/enquiries\?cursor=2000\.enq_new$/);
+    // Neither "Load more enquiries" nor its loading state: no button at all.
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("button", { name: /load more enquiries|loading…/i }),
+      ).not.toBeInTheDocument(),
     );
+  });
+
+  it("shows the next page loading on the button until it lands", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ enquiries: [makeItem()], nextCursor: "1784.enq_1" }), {
+        status: 200,
+      }),
+    );
+    authFetch.mockReturnValueOnce(new Promise(() => {}));
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+
+    expect(await screen.findByRole("button", { name: "Loading…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("sends an organiser whose session has expired to sign in from a next page", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ enquiries: [makeItem()], nextCursor: "1784.enq_1" }), {
+        status: 200,
+      }),
+    );
+    authFetch.mockRejectedValueOnce(
+      Object.assign(new Error("boom"), {
+        toString: () => "(FiberFailure) AuthExpiredError: session gone",
+      }),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it("clears the inbox and says so when the next page is refused", async () => {

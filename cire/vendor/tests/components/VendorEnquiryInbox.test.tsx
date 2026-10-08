@@ -156,25 +156,58 @@ describe("VendorEnquiryInbox", () => {
     );
   });
 
-  it("keeps the rows shown and says so when the next page fails", async () => {
+  it("clears the inbox and says so when the next page fails", async () => {
     mockListEnquiries
       .mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1"))
-      .mockRejectedValueOnce(new Error("network down"));
+      .mockRejectedValueOnce(new Error("forbidden"));
     renderInbox();
 
     fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
 
-    expect(await screen.findByText(/could not load more enquiries/i)).toBeInTheDocument();
-    expect(screen.getByText("Alex & Sam")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Load more enquiries" })).toBeEnabled();
+    expect(await screen.findByText(/could not load enquiries/i)).toBeInTheDocument();
+    expect(screen.queryByText("Alex & Sam")).not.toBeInTheDocument();
+  });
+
+  it("moves focus to the first new row and announces how many arrived", async () => {
+    mockListEnquiries.mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1")).mockResolvedValueOnce(
+      pageOf([
+        { ...baseItem, id: "enq-0", weddingName: "Kim & Lee", lastMessageAt: 1 },
+        { ...baseItem, id: "enq-00", weddingName: "Ana & Bo", lastMessageAt: 0 },
+      ]),
+    );
+    renderInbox();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /Kim & Lee/ })).toHaveFocus());
+    expect(screen.getByRole("status")).toHaveTextContent("2 more enquiries loaded");
+  });
+
+  it("keeps the button focusable while the next page loads", async () => {
+    mockListEnquiries
+      .mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1"))
+      .mockReturnValueOnce(new Promise(() => {}));
+    renderInbox();
+
+    const button = await screen.findByRole("button", { name: "Load more enquiries" });
+    fireEvent.click(button);
+
+    const loading = await screen.findByRole("button", { name: "Loading…" });
+    expect(loading).toHaveAttribute("aria-disabled", "true");
+    expect(loading).not.toBeDisabled();
+    fireEvent.click(loading);
+    expect(mockListEnquiries).toHaveBeenCalledTimes(2);
   });
 
   it("still holds the loaded pages when it mounts again after a thread", async () => {
     mockListEnquiries
       .mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1"))
       .mockResolvedValueOnce(pageOf([{ ...baseItem, id: "enq-0", weddingName: "Kim & Lee" }], null))
-      // Page one, read again on the second mount.
-      .mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1"));
+      // Both pages, read again on the second mount.
+      .mockResolvedValueOnce(pageOf([baseItem], "1700.enq-1"))
+      .mockResolvedValueOnce(
+        pageOf([{ ...baseItem, id: "enq-0", weddingName: "Kim & Lee" }], null),
+      );
     const [shown, setShown] = createSignal(true);
     render(() => {
       const inbox = createEnquiryInbox(mockListEnquiries);
@@ -192,7 +225,7 @@ describe("VendorEnquiryInbox", () => {
 
     // Shown at once from what is held, and still there once page one is back.
     expect(screen.getByText("Kim & Lee")).toBeInTheDocument();
-    await waitFor(() => expect(mockListEnquiries).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mockListEnquiries).toHaveBeenCalledTimes(4));
     expect(screen.getByText("Kim & Lee")).toBeInTheDocument();
     expect(screen.getByText("Alex & Sam")).toBeInTheDocument();
   });

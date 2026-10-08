@@ -427,7 +427,7 @@ describe("enquiries-store paging", () => {
 
   // A page from the old cursor, landing after a fresh page one, would sit
   // below it with the rows between them missing.
-  it("fetches nothing while page one is stale or being read again", async () => {
+  it("fetches nothing while page one is stale", async () => {
     await loadPageOne();
     invalidateEnquiries("wed_1");
     let calls = 0;
@@ -438,6 +438,26 @@ describe("enquiries-store paging", () => {
       }),
     ).toBe(false);
     expect(calls).toBe(0);
+  });
+
+  it("asks for the next page again once a reload has replaced page one", async () => {
+    await loadPageOne();
+    const abandoned = held<EnquiryPage>();
+    void loadMoreEnquiries("wed_1", () => abandoned.promise);
+    invalidateEnquiries("wed_1");
+    await ensureEnquiriesLoaded("wed_1", async () =>
+      page([item({ id: "enq_c", lastMessageAt: 300_000 })], "300.enq_c"),
+    );
+
+    const cursors: string[] = [];
+    await expect(
+      loadMoreEnquiries("wed_1", async (cursor) => {
+        cursors.push(cursor);
+        return page([item({ id: "enq_b", lastMessageAt: 200_000 })]);
+      }),
+    ).resolves.toBe(true);
+    expect(cursors).toEqual(["300.enq_c"]);
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_c", "enq_b"]);
   });
 
   it("drops a page that lands after an invalidation", async () => {

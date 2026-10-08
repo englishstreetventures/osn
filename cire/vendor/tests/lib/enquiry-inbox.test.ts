@@ -69,12 +69,13 @@ describe("createEnquiryInbox", () => {
     expect(api.cursors).toEqual([undefined, "200.b"]);
   });
 
-  it("keeps the pages it loaded when page one is read again, and the place to go on from", async () => {
+  it("reads as many pages again as it holds, so a vendor back from a thread keeps their place", async () => {
     const api = scripted(
       page([row("d", 400), row("c", 300)], "300.c"),
       page([row("b", 200), row("a", 100)], "100.a"),
-      // Back from a thread: `b` gained a message, so it is page one now.
+      // Back from a thread: `b` gained a message, so it is on page one now.
       page([row("b", 500, { status: "quoted" }), row("d", 400)], "400.d"),
+      page([row("c", 300), row("a", 100)], "100.a"),
     );
     const inbox = inboxOver(api.fetchPage);
     await inbox.refresh();
@@ -84,6 +85,24 @@ describe("createEnquiryInbox", () => {
     expect(ids(inbox.rows())).toEqual(["b", "d", "c", "a"]);
     expect(inbox.rows()!.find((r) => r.id === "b")!.status).toBe("quoted");
     expect(inbox.nextCursor()).toBe("100.a");
+    expect(api.cursors).toEqual([undefined, "300.c", undefined, "400.d"]);
+  });
+
+  // An organisation the vendor has left, or a wedding a couple deleted: the API
+  // stops returning its enquiries, and the inbox stops showing them.
+  it("drops held rows the API no longer returns when it reads its pages again", async () => {
+    const api = scripted(
+      page([row("d", 400), row("c", 300)], "300.c"),
+      page([row("b", 200), row("a", 100)], "100.a"),
+      page([row("d", 400), row("b", 200)], null),
+    );
+    const inbox = inboxOver(api.fetchPage);
+    await inbox.refresh();
+    await inbox.loadMore();
+
+    await inbox.refresh();
+    expect(ids(inbox.rows())).toEqual(["d", "b"]);
+    expect(inbox.nextCursor()).toBeNull();
   });
 
   it("takes page one as the whole inbox when it says there is no other", async () => {
@@ -126,16 +145,77 @@ describe("createEnquiryInbox", () => {
     expect(inbox.nextCursor()).toBeNull();
   });
 
-  it("keeps the rows and flags the failure when a next page cannot be read", async () => {
-    const api = scripted(page([row("b", 200)], "200.b"), new Error("network down"));
+  it("clears the inbox and says so when a next page cannot be read", async () => {
+    const api = scripted(page([row("b", 200)], "200.b"), new Error("403"));
     const inbox = inboxOver(api.fetchPage);
     await inbox.refresh();
 
     await inbox.loadMore();
-    expect(ids(inbox.rows())).toEqual(["b"]);
-    expect(inbox.moreFailed()).toBe(true);
+    expect(inbox.rows()).toBeNull();
+    expect(inbox.failed()).toBe(true);
     expect(inbox.loadingMore()).toBe(false);
-    expect(inbox.nextCursor()).toBe("200.b");
+    expect(inbox.nextCursor()).toBeNull();
+  });
+
+  it("clears the error once a re-read succeeds", async () => {
+    const api = scripted(new Error("500"), page([row("a", 100)], null));
+    const inbox = inboxOver(api.fetchPage);
+    await inbox.refresh();
+    expect(inbox.failed()).toBe(true);
+
+    await inbox.refresh();
+    expect(inbox.failed()).toBe(false);
+    expect(ids(inbox.rows())).toEqual(["a"]);
+  });
+
+  it("keeps only the newest of two overlapping re-reads", async () => {
+    const first = held();
+    const answers = [first.promise, Promise.resolve(page([row("new", 200)], null))];
+    const inbox = inboxOver(() => answers.shift()!);
+
+    const older = inbox.refresh();
+    await inbox.refresh();
+    first.resolve(page([row("old", 100)], null));
+    await older;
+
+    expect(ids(inbox.rows())).toEqual(["new"]);
+  });
+
+  it("asks once for a next page however often it is asked while one is on its way", async () => {
+    const next = held();
+    let calls = 0;
+    const inbox = inboxOver(async (cursor) => {
+      calls++;
+      return cursor === undefined ? page([row("b", 200)], "200.b") : next.promise;
+    });
+    await inbox.refresh();
+
+    const both = Promise.all([inbox.loadMore(), inbox.loadMore()]);
+    next.resolve(page([row("a", 100)], null));
+    await both;
+    expect(calls).toBe(2);
+    expect(ids(inbox.rows())).toEqual(["b", "a"]);
+  });
+
+  it("does not clear rows a newer re-read owns when an older next page fails", async () => {
+    let failMore!: (err: unknown) => void;
+    const more = new Promise<VendorEnquiryPage>((_, reject) => (failMore = reject));
+    const pageOnes = [
+      page([row("b", 200)], "200.b"),
+      page([row("c", 300), row("b", 200)], "200.b"),
+    ];
+    const inbox = inboxOver((cursor) =>
+      cursor === undefined ? Promise.resolve(pageOnes.shift()!) : more,
+    );
+    await inbox.refresh();
+
+    const pending = inbox.loadMore();
+    await inbox.refresh();
+    failMore(new Error("network down"));
+    await pending;
+
+    expect(inbox.failed()).toBe(false);
+    expect(ids(inbox.rows())).toEqual(["c", "b"]);
   });
 
   it("asks for nothing when there is no next page or nothing loaded yet", async () => {

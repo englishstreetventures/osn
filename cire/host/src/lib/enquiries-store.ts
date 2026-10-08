@@ -196,9 +196,9 @@ function blank(weddingId: string): void {
 /**
  * The next page, merged into the rows already loaded. Resolves `false`, and
  * fetches nothing, when there is no next page, nothing is loaded yet, the
- * wedding is closed, or page one is being read again: a page fetched from the
- * old cursor would land after the new page one with the rows between them
- * missing.
+ * wedding is closed, or the wedding is stale — page one is due to be read
+ * again, and a page fetched from the old cursor would land after the new page
+ * one with the rows between them missing.
  *
  * The page is merged into the rows as they are when it ARRIVES, so a row
  * written meanwhile (a reply, a new enquiry) survives; where the page and the
@@ -215,7 +215,7 @@ export function loadMoreEnquiries(
   fetcher: (cursor: string) => Promise<EnquiryPage>,
 ): Promise<boolean> {
   if (isWeddingClosed(weddingId)) return Promise.resolve(false);
-  if (stale.has(weddingId) || inflight.has(weddingId)) return Promise.resolve(false);
+  if (stale.has(weddingId)) return Promise.resolve(false);
   const entry = entryFor(weddingId);
   const cursor = entry.nextCursor();
   if (cursor === null || entry.enquiries() === null) return Promise.resolve(false);
