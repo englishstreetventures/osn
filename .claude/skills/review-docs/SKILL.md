@@ -35,7 +35,7 @@ Those three `##` headings are the whole permitted set, in that order. Replace a 
 
 **No step is a stop.** The Obsidian MCP (`mcp__obsidian-wiki__*`) and the `obsidian` CLI exist only on the maintainer's Mac with Obsidian open; in a remote, CI or sandboxed session they are absent. That is expected, not a fault — do not retry, and do not ask for Obsidian to be opened. Every check below has a shell form; use it.
 
-Even when the MCP is there, **it indexes `main`, not this branch.** Any page in `git diff --name-only "$BASE"...HEAD -- 'wiki/**'` is one it shows the pre-branch version of. Use it for a `--full` sweep of `main`; use the shell for a branch diff.
+Even when the MCP is there, **it indexes `main`, not this branch.** Any page in `git diff --name-only "$DIFF_BASE"...HEAD -- 'wiki/**'` is one it shows the pre-branch version of. Use it for a `--full` sweep of `main`; use the shell for a branch diff.
 
 This is a review. Do not edit a page unless the task says to, and then only a `D-L` whose fix is mechanical. A `D-M` or above is surfaced for a decision; rewriting a page while reviewing it is how this family of drift starts. When you do fix, use Edit in this worktree — the MCP write tools and `obsidian create`/`append` write to `main`'s tree.
 
@@ -43,11 +43,13 @@ This is a review. Do not edit a page unless the task says to, and then only a `D
 
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
-git diff --name-only "$BASE"...HEAD -- '*.md' 'wiki/**'
-git diff --name-only "$BASE"...HEAD          # the code the docs have to agree with
+DIFF_BASE=$BASE
+git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git diff --name-only "$DIFF_BASE"...HEAD -- '*.md' 'wiki/**'
+git diff --name-only "$DIFF_BASE"...HEAD          # the code the docs have to agree with
 ```
 
-A stacked branch merges into its parent, not `main`; the config keeps the parent's pages out of this diff. With `--full`, scope is every file under `wiki/` plus the root `AGENTS.md` and `README.md`. If `$ARGUMENTS` names workspaces or paths, scope to the docs relevant to those.
+A stacked branch merges into its parent, not `main`; the config keeps the parent's pages out of this diff. `$DIFF_BASE` is `origin/$BASE` when the local branch is behind it: local `main` lags `origin/main` in the worktree layout, and a diff against it reports other pull requests' pages as this branch's. With `--full`, scope is every file under `wiki/` plus the root `AGENTS.md` and `README.md`. If `$ARGUMENTS` names workspaces or paths, scope to the docs relevant to those.
 
 Write `## Scope` now: the files in scope, and the files out of scope and why.
 
@@ -70,7 +72,7 @@ A claim the code contradicts is **D-C** when a reader would act on it and break 
 **Then check the pages the branch did not touch.** When the code diff changes a constant, a name, a path or a route, the old value usually lives on more than one page:
 
 ```bash
-git diff "$BASE"...HEAD -U0 -- ':!*.md' | grep '^-' | grep -v '^---'   # what the code stopped saying
+git diff "$DIFF_BASE"...HEAD -U0 -- ':!*.md' | grep '^-' | grep -v '^---'   # what the code stopped saying
 git grep -n '<old value>' -- 'wiki/**/*.md' AGENTS.md README.md         # who still says it
 ```
 
@@ -82,7 +84,7 @@ A page in the diff that still carries the old value is a finding. A page outside
 
 ```bash
 comm -23 \
-  <(git diff "$BASE"...HEAD --name-only -- 'wiki/**/*.md' \
+  <(git diff "$DIFF_BASE"...HEAD --name-only -- 'wiki/**/*.md' \
       | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
   <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
 ```
@@ -92,7 +94,7 @@ Two shapes that come out of that pipe and are not findings: a TOML array header 
 **Heading anchors.** `[[page#Heading]]` and a same-page `](#heading)` survive a rename of the page and break silently on a rename of the heading. For every page whose headings the branch renamed, added or removed:
 
 ```bash
-git diff "$BASE"...HEAD -- wiki/ | grep -E '^[-+]#{1,6} '           # which headings moved
+git diff "$DIFF_BASE"...HEAD -- wiki/ | grep -E '^[-+]#{1,6} '           # which headings moved
 git grep -n '\[\[<page>#\|\](#' -- 'wiki/**/*.md' <page>              # who links into them
 ```
 

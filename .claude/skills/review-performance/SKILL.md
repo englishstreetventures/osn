@@ -64,11 +64,13 @@ What each section holds is under **Report shape** at the end of this file.
 
 ## Step 1 — Route the diff
 
-Resolve the base branch first. A stacked branch does not merge into `main`, and diffing against `main` reports the parent branch's files as this branch's:
+Resolve the base branch first. A stacked branch does not merge into `main`, and diffing against `main` reports the parent branch's files as this branch's. Local `main` lags `origin/main` in the worktree layout, so `$DIFF_BASE` takes `origin/$BASE` when the local branch is behind it:
 
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
-git diff --name-only "$BASE"...HEAD
+DIFF_BASE=$BASE
+git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git diff --name-only "$DIFF_BASE"...HEAD
 ```
 
 Keep that file list. Every file on it gets a verdict in the report, including the ones you clear.
@@ -78,7 +80,7 @@ Now grep the diff for the strings below. **A hit makes the named section mandato
 Routing widens attention; it never narrows it. **A grep hit is a reason to open a section, never a reason to stop reading.** Some patterns fire on ordinary code — `.get()` on a `Map`, `for (` on a loop over three constants. When every hit in a section is that kind, write one line under `## Sections checked` naming what matched and why the section does not apply, then move on. Never satisfy a bullet with code that is not in the diff.
 
 ```bash
-git diff "$BASE"...HEAD | grep -nE '<pattern>'
+git diff "$DIFF_BASE"...HEAD | grep -nE '<pattern>'
 ```
 
 | Grep the diff for | Sections that become mandatory |
