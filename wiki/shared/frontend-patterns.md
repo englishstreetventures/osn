@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Frontend Patterns
@@ -208,7 +208,8 @@ with a negative margin" trick inverts on a sticky element: a negative bottom mar
 
 A full-bleed sticky action bar must instead have the scroll container drop its own
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
-— the `flushBottom` prop on `AnimatedModal`, used by cire's `RsvpModal`.
+— the `flushBottom` prop on `AnimatedModal`, which cire's `EventSheet` sets while
+its RSVP form (`RsvpPanel`) is the panel on screen.
 
 For that to work the panel around the scrollport must not itself scroll, which is
 `Modal`'s `frame` — see [[wiki/shared/component-library]] §Overlays, which
@@ -319,6 +320,23 @@ focusable survives it. `1fr` resolves to the content's own height, so nothing is
 measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
+
+### A computed timing function is a list, and `cubic-bezier()` has commas of its own
+
+Reading an animation's timing back from `getComputedStyle` — to run a Web
+Animations API tween in step with a CSS animation — gives a comma-separated
+list, one entry per animation. Split on `,`, the value
+`cubic-bezier(0.22, 1, 0.36, 1)` becomes `cubic-bezier(0.22`, and
+`element.animate()` throws on it. Take the first entry at top level only
+(`firstOfCssList` in cire's `components/EventSheet.tsx`).
+
+Read the duration back the same way rather than writing it twice. The
+reduced-motion clamp in a stylesheet does not reach a WAAPI animation, but a
+duration read from the clamped CSS animation carries the clamp's 0.01ms with it.
+
+The fast tier cannot see either: jsdom computes no animation, so the value is
+empty and no tween runs. `EventSheet.browser.test.tsx` caught the split, where
+the throw also left the arriving panel taking no pointer input.
 
 ## Server-rendered islands
 

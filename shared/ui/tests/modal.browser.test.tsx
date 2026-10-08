@@ -358,6 +358,24 @@ describe("Modal — the exit", () => {
     expect(dialog().open).toBe(false);
   });
 
+  it("closes past an endless animation inside it, such as a loading spinner", async () => {
+    // A spinner loops until whatever it waits on arrives, and an endless
+    // animation's `finished` never settles. Waiting on it would hold the dialog
+    // at `data-closing` — invisible, still modal, the page behind it inert —
+    // for as long as the spinner spins. Only the exit is waited for.
+    const { setOpen, dialog } = mount();
+    const spinner = document.createElement("span");
+    dialog().append(spinner);
+    spinner.animate([{ transform: "rotate(0)" }, { transform: "rotate(1turn)" }], {
+      duration: 1000,
+      iterations: Infinity,
+    });
+
+    setOpen(false);
+    await waitForClosed(dialog());
+    expect(dialog().open).toBe(false);
+  });
+
   it("does not leave the page inert when it unmounts mid-exit", async () => {
     // An exit that is still being awaited when the component goes away must not
     // strand a `showModal()` dialog in the document: every click outside it

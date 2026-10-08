@@ -17,24 +17,16 @@ vi.mock("../../../src/designs/classic/UnlockReveal.motion", () => ({
   unlockRevealSequence: vi.fn(() => Promise.resolve()),
 }));
 
+// The page's sheet, as a capture stub. These tests own the page's wiring into
+// it — which panel it opens on, and what it is handed — and `EventSheet`'s own
+// tests own what it does with that. One stub for both panels, so a prop the
+// page forgets fails whichever button opened the sheet.
 const capturedProps: { value: Record<string, unknown> | null } = { value: null };
 
-vi.mock("../../../src/components/RsvpModal", () => ({
-  RsvpModal: (props: Record<string, unknown>) => {
+vi.mock("../../../src/components/EventSheet", () => ({
+  EventSheet: (props: Record<string, unknown>) => {
     capturedProps.value = props;
-    return <div data-testid="rsvp-modal-stub" />;
-  },
-}));
-
-// Capture-stub DetailsModal too, so the themeVars wiring to BOTH modals is
-// asserted — the two <Show> blocks are edited independently, and a copy-paste
-// slip on one would otherwise pass every test.
-const detailsModalProps: { value: Record<string, unknown> | null } = { value: null };
-
-vi.mock("../../../src/components/DetailsModal", () => ({
-  DetailsModal: (props: Record<string, unknown>) => {
-    detailsModalProps.value = props;
-    return <div data-testid="details-modal-stub" />;
+    return <div data-testid={`${String(props.panel)}-sheet-stub`} />;
   },
 }));
 
@@ -136,6 +128,16 @@ function respondButtonFor(container: HTMLElement, eventName: string) {
   ) as HTMLButtonElement;
 }
 
+/** The Event Details button on the card for `eventName`. */
+function detailsButtonFor(container: HTMLElement, eventName: string) {
+  const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
+    el.textContent?.includes(eventName),
+  ) as HTMLElement;
+  return [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Event Details",
+  ) as HTMLButtonElement;
+}
+
 describe("InvitePage", () => {
   // `EventCard` reaches the tree through a `lazy()` import now, so the first
   // test to render a card pays that chunk's transform inside its own assertion
@@ -154,7 +156,6 @@ describe("InvitePage", () => {
     // clear it so one test's scheme can't leak into the next one's assertions.
     document.documentElement.removeAttribute("style");
     capturedProps.value = null;
-    detailsModalProps.value = null;
     vi.restoreAllMocks();
     window.history.replaceState(null, "", "/");
   });
@@ -230,9 +231,9 @@ describe("InvitePage", () => {
     )) as HTMLButtonElement;
     expect(respond.disabled).toBe(false);
 
-    // Opening it mounts the RSVP modal in preview mode, so submit is a no-op.
+    // Opening it mounts the sheet in preview mode, so submit is a no-op.
     fireEvent.click(respond);
-    await waitFor(() => expect(getByTestId("rsvp-modal-stub")).toBeTruthy());
+    await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
     expect(capturedProps.value?.preview).toBe(true);
 
     // No further network call beyond the original claim — the preview never POSTs.
@@ -309,7 +310,7 @@ describe("InvitePage", () => {
     expect(queryByText("Celebrate With Us")).toBeNull();
   });
 
-  it("threads the details theme into the RSVP modal so the sheet follows the section", async () => {
+  it("threads the details theme into the sheet opened from Respond, so it follows the section", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
         status: 200,
@@ -335,13 +336,13 @@ describe("InvitePage", () => {
       timeout: 2000,
     });
     fireEvent.click(getByRole("button", { name: /Respond/i }));
-    await waitFor(() => expect(getByTestId("rsvp-modal-stub")).toBeTruthy());
+    await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
 
     const themeVars = capturedProps.value?.themeVars as Record<string, string>;
     expect(themeVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
   });
 
-  it("threads the details theme into the event-details modal (both modal consumers)", async () => {
+  it("threads the details theme into the sheet opened from Event Details too", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
         status: 200,
@@ -367,10 +368,50 @@ describe("InvitePage", () => {
       timeout: 2000,
     });
     fireEvent.click(getByRole("button", { name: /Event Details/i }));
-    await waitFor(() => expect(getByTestId("details-modal-stub")).toBeTruthy());
+    await waitFor(() => expect(getByTestId("details-sheet-stub")).toBeTruthy());
 
-    const themeVars = detailsModalProps.value?.themeVars as Record<string, string>;
+    const themeVars = capturedProps.value?.themeVars as Record<string, string>;
     expect(themeVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
+  });
+
+  it("opens the sheet on the panel whose button was pressed, every time", async () => {
+    // One sheet, two ways in. The owner's rule: no memory of the panel the
+    // guest last looked at — each open starts where the button says.
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { container, getByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" siteUrl="https://invite.example.com/w" />
+    ));
+    await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
+
+    fireEvent.click(respondButtonFor(container, "Mehndi"));
+    await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
+    expect(capturedProps.value!.panel).toBe("rsvp");
+    expect((capturedProps.value!.event as { id: string }).id).toBe("event-1");
+    // The details panel stamps its calendar link with the site's origin.
+    expect(capturedProps.value!.siteUrl).toBe("https://invite.example.com/w");
+
+    (capturedProps.value!.onClose as () => void)();
+    await waitFor(() => expect(container.querySelector("[data-testid$='-sheet-stub']")).toBeNull());
+    fireEvent.click(detailsButtonFor(container, "Mehndi"));
+    await waitFor(() => expect(getByTestId("details-sheet-stub")).toBeTruthy());
+    expect(capturedProps.value!.panel).toBe("details");
+
+    (capturedProps.value!.onClose as () => void)();
+    fireEvent.click(respondButtonFor(container, "Mehndi"));
+    await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
+    expect(capturedProps.value!.panel).toBe("rsvp");
   });
 
   it("applies the welcome tone to the code entry + welcome banner", () => {
@@ -923,7 +964,7 @@ describe("InvitePage", () => {
     expect(queryByText(/Welcome back/)).toBeNull();
   });
 
-  it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
+  it("threads existingRsvps, apiUrl, members and onSubmitted into the event sheet", async () => {
     vi.stubGlobal(
       "fetch",
       noSession(
@@ -973,7 +1014,7 @@ describe("InvitePage", () => {
     ];
     (props.onSubmitted as (r: RsvpSummary[]) => void)(updated);
 
-    // Re-open the modal (the previous one is still in the tree per the stub but
+    // Re-open the sheet (the previous one is still in the tree per the stub but
     // we re-open conceptually via state — fire Respond again is a no-op since
     // it's already open. Instead close + reopen by simulating onClose then click.)
     (props.onClose as () => void)();
@@ -1610,6 +1651,23 @@ describe("InvitePage", () => {
       expect(capturedProps.value!.closed).toBe(false);
       expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
     });
+
+    it("opens the sheet on the details after the deadline, told that RSVPs have closed", async () => {
+      // Past the deadline Respond is locked and Event Details is the one way
+      // into the sheet. The details then offer no way into the form — which
+      // they can only do if the page tells the sheet the replies have closed.
+      const { container } = await claimWithDeadline({
+        date: "2020-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2020-09-01T13:59:59.999Z",
+        closed: true,
+      });
+
+      fireEvent.click(detailsButtonFor(container, "Mehndi"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+      expect(capturedProps.value!.closed).toBe(true);
+      expect(capturedProps.value!.closedOn).toBe("Tuesday 1 September 2020");
+    });
   });
 
   describe("session restore", () => {
@@ -1861,16 +1919,16 @@ describe("InvitePage", () => {
   });
 
   describe("recorded-reply confirmation wiring", () => {
-    // Neither `EventCard` nor `RsvpModal` alone can catch a bug in the glue
+    // Neither `EventCard` nor `EventSheet` alone can catch a bug in the glue
     // between them — each is tested in isolation with directly-injected props.
     // These exercise the real (unmocked) `EventCard` behind the mocked
-    // `RsvpModal` stub, the same way the production page composes them.
+    // `EventSheet` stub, the same way the production page composes them.
     beforeEach(() => noteClaimed());
     afterEach(() => {
       document.cookie = "cire_claimed=; Path=/; Max-Age=0";
     });
 
-    it("shows the permanent tick from data alone, with no RsvpModal ever opened", async () => {
+    it("shows the permanent tick from data alone, with no sheet ever opened", async () => {
       vi.stubGlobal(
         "fetch",
         withSession(
@@ -1896,7 +1954,7 @@ describe("InvitePage", () => {
       expect(respondButtonFor(container, "Reception").querySelector("svg")).toBeNull();
     });
 
-    it("plays EventCard's confirmation from RsvpModal's onConfirmed, and resets so a later edit celebrates again", async () => {
+    it("plays EventCard's confirmation from the sheet's onConfirmed, and resets so a later edit celebrates again", async () => {
       vi.useFakeTimers();
       try {
         vi.stubGlobal(
@@ -1938,20 +1996,20 @@ describe("InvitePage", () => {
           },
         ]);
 
-        // …and then, a full `SAVED_DWELL_MS` later, RsvpModal fires the cue and
-        // closes itself, in that order (`RsvpModal.enterSavedState`). Driven as
+        // …and then, a full `SAVED_DWELL_MS` later, the RSVP panel fires the cue and
+        // closes itself, in that order (`RsvpPanel`'s `enterSavedState`). Driven as
         // a pair because production never separates them, and because the order
         // is load-bearing: `onConfirmed` reads `event()` from the very `<Show>`
         // that `onClose` disposes. Keeping them together is also what puts this
         // page in the state production reaches — card celebrating, no sheet over
-        // it. The joint timing itself is `RsvpModal`'s to prove; this pack owns
+        // it. The joint timing itself is `RsvpPanel`'s to prove; this pack owns
         // the wiring, and `rsvp-confirmation.integration.test.tsx` owns the seam.
         const confirmAndClose = () => {
           (capturedProps.value!.onConfirmed as () => void)();
           (capturedProps.value!.onClose as () => void)();
         };
         confirmAndClose();
-        expect(container.querySelector("[data-testid='rsvp-modal-stub']")).toBeNull();
+        expect(container.querySelector("[data-testid='rsvp-sheet-stub']")).toBeNull();
 
         let fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
         expect(fill.className).toContain("scale-x-100");
@@ -2065,6 +2123,44 @@ describe("InvitePage", () => {
       expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);
 
       // Sheet closes: the mark goes up.
+      (capturedProps.value!.onClose as () => void)();
+      await waitFor(() =>
+        expect(respondButtonFor(container, "Mehndi").getAttribute("data-rsvp-confirmed")).toBe(
+          "true",
+        ),
+      );
+    });
+
+    it("holds the mark back just the same when the sheet opened on the details", async () => {
+      // The guest can open the details, move across to the form and save from
+      // there. The sheet covers the card whichever panel it opened on.
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...claim, rsvps: [], householdReplied: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", noSession(fetchMock));
+      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+      const { container } = render(() => <InvitePage apiUrl="https://api.test" />);
+      await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
+
+      fireEvent.click(detailsButtonFor(container, "Mehndi"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+
+      (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
+        {
+          guestId: "guest-1",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
+      ]);
+      expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);
+
       (capturedProps.value!.onClose as () => void)();
       await waitFor(() =>
         expect(respondButtonFor(container, "Mehndi").getAttribute("data-rsvp-confirmed")).toBe(

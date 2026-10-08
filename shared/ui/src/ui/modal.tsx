@@ -454,8 +454,16 @@ export function Modal(props: ModalProps) {
     // close path. Nothing is animating there anyway — the element was never in
     // the top layer — so an empty list is the honest answer rather than a
     // fallback.
+    //
+    // An endless animation is left out. A loading spinner loops until what it
+    // waits on arrives, its `finished` never settles, and waiting on it would
+    // hold the dialog invisible but still modal, with the page behind it inert.
     const running =
-      typeof dialog.getAnimations === "function" ? dialog.getAnimations({ subtree: true }) : [];
+      typeof dialog.getAnimations === "function"
+        ? dialog
+            .getAnimations({ subtree: true })
+            .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        : [];
     await Promise.allSettled(running.map((a) => a.finished));
 
     // A reopen, a second close, or an unmount happened while we waited. Any of

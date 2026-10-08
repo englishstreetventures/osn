@@ -11,7 +11,7 @@ related:
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Plus-ones
 
@@ -249,5 +249,5 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | RSVP table | `cire/host/src/components/RsvpView.tsx`, `cire/host/src/lib/rsvp-filter.ts` |
 | Attestation wording and version | `cire/dietary/src/attestation.ts` |
 | Consent version and "current" | `cire/api/src/services/rsvp.ts` (`dietaryConsentVersionFor`, `isDietaryConsentCurrent`) |
-| Guest capture | `cire/invites/src/components/PlusOnePrompt.tsx`, `plus-one.ts`, `plus-one-updates.ts`, `LoginSection.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Guest capture | `cire/invites/src/components/PlusOnePrompt.tsx`, `plus-one.ts`, `plus-one-updates.ts`, `LoginSection.tsx`, `RsvpPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
 | Privacy notice | `cire/invites/src/pages/privacy.astro` |

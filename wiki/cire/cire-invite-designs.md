@@ -10,7 +10,9 @@ related:
   - "[[cire-consent]]"
   - "[[browser-tests]]"
   - "[[frontend-patterns]]"
-last-reviewed: 2026-10-07
+  - "[[cire-rsvp-deadline]]"
+  - "[[component-library]]"
+last-reviewed: 2026-10-08
 ---
 # Invite design selector
 
@@ -36,9 +38,9 @@ round-trips.
   per-design component tree (`classic/` holds the original layout);
   `resolve.ts` (`resolveDesignId`) falls back to classic on unknown ids so a
   guest invite never 500s. Registry imports `.astro`, so vitest tests target
-  `resolve.ts` only. Truly shared pieces (LoginSection, RsvpModal,
-  DetailsModal, EventCard, PulseAccountLink, invite-theme, invite-images) stay
-  in `components/`.
+  `resolve.ts` only. Truly shared pieces (LoginSection, EventCard, EventSheet
+  with its RsvpPanel and DetailsPanel, PulseAccountLink, invite-theme,
+  invite-images) stay in `components/`.
 - **Organiser** — Design section in `InviteBuilder`; card per catalog entry,
   lock badge on a premium design the wedding cannot use, instant save. The lock
   reads `premium_templates` from the wedding list's `entitlements`, which the
@@ -243,6 +245,64 @@ packs, at phone and desktop width, and the consent prompt over a two-name title
 at 320x568, 375x667, 390x844, 844x390 and 1440x900 ([[browser-tests]]).
 `tests/designs/InviteHeader.ssr.test.tsx` checks the cue is in each pack's
 server HTML, and fails when the catalog gains a pack it does not list.
+
+## The event sheet
+
+Each event card has two buttons, Event Details and Respond. Both open one
+dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
+holding two panels: [`DetailsPanel`](../../cire/invites/src/components/DetailsPanel.tsx)
+(when, where, Add to Calendar, about, dress code, moodboard) and
+[`RsvpPanel`](../../cire/invites/src/components/RsvpPanel.tsx) (the reply
+form). Every pack mounts it the same way, from one `sheet` signal holding the
+event and the panel to open on.
+
+- **It opens on the panel whose button was pressed**, every time. The page
+  clears the sheet on every close, so nothing from an earlier visit carries
+  over. That is the owner's choice over remembering the last panel per event.
+- **A button on each panel leads to the other** without closing the dialog.
+  On the details, "RSVP for this event" sits beside Add to Calendar and takes
+  the call-to-action shape, since answering is the act that matters; Add to
+  Calendar takes its outline. On the form, "View event details" is a quiet
+  link under the heading. It is withdrawn while a save is in flight and while
+  the sheet closes itself on a saved reply.
+- **Nothing typed is lost.** A panel mounts the first time it shows and stays
+  mounted, hidden, until the sheet closes, so the form keeps its answers
+  across a look at the details. A guest who only answers never mounts the
+  details, so the consent-gated map and moodboard ([[cire-consent]]) load only
+  for a guest who asks for them.
+- **Focus moves to the new panel's heading.** Both panels are titled with the
+  event's name, so each heading also carries its panel's name — "Respond,
+  Mehndi", "Details, Mehndi" — and the dialog takes its name from the heading
+  on screen. Closing from either panel hands focus back to the card button
+  that opened the sheet; the platform's `<dialog>` does that.
+- **The scroll goes to the top** of the new panel, so its heading is in view.
+  The form's scroll position is not kept across a visit to the details; its
+  answers are.
+- **Motion.** The arriving panel fades in while sliding the last 1.5rem from
+  its own side — the details from the start, the form from the end, the order
+  of the card's buttons — over 280ms (`animate-panel-from-*` in
+  `src/styles/global.css`). The panel the sheet opens on does not slide; it
+  arrives with the sheet. The sheet's height eases from one panel's to the
+  other's over the same time, through the Web Animations API, timed from the
+  panel's computed animation. Until the slide ends the arriving panel takes no
+  pointer input, so the second tap of a double tap cannot land on a control it
+  has not shown yet, and the panels' wrapper clips sideways overflow, which
+  the sliding form's full-bleed action bar would otherwise cause. Outside a
+  switch nothing is clipped. Under reduced motion the global clamp makes the
+  switch instant, the resize included.
+- **Past the RSVP deadline** the details panel offers no way into the form and
+  says "RSVPs closed on …" in its place, in a live region present from the
+  start so a deadline that passes with the sheet open is announced. If focus
+  was on the RSVP button when it went, focus moves to the details heading
+  ([[cire-rsvp-deadline]]).
+- **The card's mark waits for the sheet.** `covered` holds the Respond
+  button's confirmation back while the sheet is open on either panel.
+
+Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
+takes focus; the deadline), `EventSheet.browser.test.tsx` (in Chromium, see
+[[browser-tests]]), both packs' `InvitePage.test.tsx` (which panel each button
+opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each
+pack, ending with focus on Event Details).
 
 ## Adding a design
 

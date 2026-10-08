@@ -11,7 +11,7 @@ related:
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-08
 ---
 
 # Cire Landing
@@ -128,7 +128,7 @@ the product instead of describing it.
 The **same no-op treatment** was applied to the organiser **host preview** in
 `cire/invites`: the RSVP there used to be greyed out (`disabled` in preview mode).
 It is now fully interactive, with submit short-circuited to a no-op and a "Nothing
-you send here is saved" banner (`RsvpModal`'s `preview` prop). A host can now walk
+you send here is saved" banner (`RsvpPanel`'s `preview` prop). A host can now walk
 the exact guest RSVP flow without adding rows to their own RSVP data.
 
 ## Generative vine backdrop

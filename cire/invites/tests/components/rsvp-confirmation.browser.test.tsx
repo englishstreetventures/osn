@@ -4,17 +4,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
+import { EventSheet } from "../../src/components/EventSheet";
 import {
   hasHouseholdResponded,
   SWEEP_DURATION_MS,
   TOTAL_DURATION_MS,
 } from "../../src/components/rsvp-responded";
 import { SAVED_DWELL_MS } from "../../src/components/rsvp-saved";
-import { RsvpModal } from "../../src/components/RsvpModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
 
 /**
- * The `RsvpModal` → `EventCard` seam, driven end to end on REAL timers with the
+ * The `RsvpPanel` → `EventCard` seam, driven end to end on REAL timers with the
  * REAL stylesheet, and measured rather than class-checked.
  *
  * `rsvp-confirmation.integration.test.tsx` owns the same seam in happy-dom, on
@@ -81,7 +81,7 @@ const row = (guestId: string): RsvpSummary => ({
 /**
  * `InvitePage`'s wiring around the two real components, inside the events
  * section's themed + transformed wrapper. Kept out of `InvitePage` itself
- * because both design packs `vi.mock` `RsvpModal` at module level.
+ * because both design packs `vi.mock` `EventSheet` at module level.
  */
 function Harness(props: { members?: FamilyMember[] }) {
   const members = props.members ?? [priya];
@@ -108,7 +108,9 @@ function Harness(props: { members?: FamilyMember[] }) {
         />
       </div>
       <Show when={open()}>
-        <RsvpModal
+        <EventSheet
+          panel="rsvp"
+          siteUrl="https://invite.test/w"
           event={event}
           members={members}
           existingRsvps={rsvps()}

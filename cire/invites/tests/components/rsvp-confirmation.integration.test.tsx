@@ -4,17 +4,17 @@ import { createSignal, Show } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { EventCard } from "../../src/components/EventCard";
+import { EventSheet } from "../../src/components/EventSheet";
 import { hasHouseholdResponded, TOTAL_DURATION_MS } from "../../src/components/rsvp-responded";
 import { SAVED_DWELL_MS } from "../../src/components/rsvp-saved";
-import { RsvpModal } from "../../src/components/RsvpModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
 
 /**
- * The seam between `RsvpModal` and `EventCard`, owned by one test.
+ * The seam between `RsvpPanel` and `EventCard`, owned by one test.
  *
  * Both components are individually well covered, and that is exactly how the
- * bug this file exists for shipped green: `RsvpModal`'s tests know nothing of
- * `EventCard`, and both `InvitePage` packs mock `RsvpModal` and invoke
+ * bug this file exists for shipped green: `RsvpPanel`'s tests know nothing of
+ * `EventCard`, and both `InvitePage` packs mock `EventSheet` and invoke
  * `onConfirmed` by hand — so the sheet in those tests is a stub that never
  * closes, and the celebration is asserted while it is still mounted. Each side
  * was correct against a contract that was jointly wrong: the cue fired at
@@ -27,8 +27,8 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/componen
  *
  * That statement is what makes this more than a duplicate of the two sides. It
  * fails on a straight revert of the fix, and it also fails on a subtler change
- * neither side can see — `RsvpModal` self-closes by calling `props.onClose()`
- * directly (`RsvpModal.tsx`), deliberately bypassing `AnimatedModal`'s
+ * neither side can see — `RsvpPanel` self-closes by calling `props.onClose()`
+ * directly (`RsvpPanel.tsx`), deliberately bypassing `AnimatedModal`'s
  * `handleClose` and its awaited 200ms `modalExit`. Routing the self-close
  * through the animated path would look like polish and would put the sweep-in
  * back under a fading panel, with every other test in the repo still passing.
@@ -109,7 +109,7 @@ function fieldsetFor(name: string): HTMLElement {
 /**
  * Reproduces `InvitePage`'s wiring around the two real components without
  * `InvitePage` itself — whose test files carry a module-level `vi.mock` of
- * `RsvpModal` that would defeat the entire point of this file.
+ * `EventSheet` that would defeat the entire point of this file.
  *
  * `members` defaults to just Priya (every existing test's fixture); pass both
  * Sharmas to exercise a partial save. `existingRsvps={rsvps()}` threads the
@@ -142,7 +142,9 @@ function Harness(props: { members?: FamilyMember[]; startingRsvps?: RsvpSummary[
         onDetails={() => {}}
       />
       <Show when={open()}>
-        <RsvpModal
+        <EventSheet
+          panel="rsvp"
+          siteUrl="https://invite.test/w"
           event={event}
           members={members}
           existingRsvps={rsvps()}
@@ -165,7 +167,7 @@ async function submit() {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
+describe("RSVP confirmation — RsvpPanel ↔ EventCard", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();

@@ -18,7 +18,7 @@ import { noSession, withSession } from "../test-support/claim-fetch";
  * The whole invite page, in a real browser, with a real RSVP save measured on
  * the Respond button afterwards.
  *
- * `InvitePage.test.tsx` mocks `RsvpModal`, `motion`, `UnlockReveal.motion`,
+ * `InvitePage.test.tsx` mocks `EventSheet`, `motion`, `UnlockReveal.motion`,
  * `@shared/toast` and `PulseAccountLink` — necessarily, to assert the page's
  * wiring in isolation. That leaves nothing anywhere in the suite that exercises
  * the confirmation inside the page it actually ships in: the themed events
@@ -341,6 +341,44 @@ describe.each([
     await wait(TOTAL_DURATION_MS + 2000);
     expect(scaleX(fill())).toBe(1);
     expect(respondButton().querySelector("svg")).not.toBeNull();
+  });
+
+  it("moves between the details and the form in one sheet, and closes back onto Event Details", async () => {
+    // The pack's own wiring of the sheet, in the page it ships in: the card's
+    // Event Details opens the sheet on the details, the guest crosses to the
+    // form and back without the dialog closing, and Escape hands focus back to
+    // the button that opened it.
+    openRestored(Pack, []);
+    await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
+    const card = respondButton().closest("article") as HTMLElement;
+    const opener = [...card.querySelectorAll("button")].find(
+      (b) => b.textContent === "Event Details",
+    ) as HTMLButtonElement;
+
+    await userEvent.click(opener);
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    const sheet = document.querySelector("dialog") as HTMLDialogElement;
+
+    await userEvent.click(
+      [...sheet.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("RSVP for this event"),
+      ) as HTMLButtonElement,
+    );
+    expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
+    answer("Priya");
+
+    await userEvent.click(
+      [...sheet.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("View event details"),
+      ) as HTMLButtonElement,
+    );
+    expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
+    expect(document.querySelector("dialog")).toBe(sheet);
+    expect(sheet.matches(":modal")).toBe(true);
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(document.querySelector("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
   });
 
   /**

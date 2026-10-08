@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RsvpModal } from "../../src/components/RsvpModal";
+import { RsvpPanel } from "../../src/components/RsvpPanel";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
 
 /**
@@ -44,13 +44,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("RsvpModal and the member step", () => {
+describe("RsvpPanel and the member step", () => {
   it("keeps Save disabled, and says why, until the household says who is answering", () => {
     const fetchMock = vi.fn();
     const fetchSpy = () => fetchMock;
     vi.stubGlobal("fetch", fetchMock);
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="http://x"
@@ -75,7 +75,7 @@ describe("RsvpModal and the member step", () => {
     vi.stubGlobal("fetch", fetchMock);
     const onMemberRequired = vi.fn();
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         apiUrl="http://x"
@@ -109,7 +109,7 @@ describe("RsvpModal and the member step", () => {
       },
     ];
     render(() => (
-      <RsvpModal
+      <RsvpPanel
         event={event}
         members={[priya, raj]}
         existingRsvps={replies}

@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Invite Builder
 
@@ -306,8 +306,8 @@ when it is switched on **and** has content:
 | **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
 | **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
 | **FAQ**                       | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`) |
-| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
-| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
+| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsPanel.tsx` (`hasPinterest`)     |
+| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsPanel.tsx` (`hasDressCode`) |
 | **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
 
 Welcome (the code entry) and Events have no switch: a guest needs both to reach
@@ -582,9 +582,9 @@ the instant the timer expired.
 covers both the fill and the tick and that no code path sets back to false.
 It is seeded from `hasHouseholdResponded` at mount, so a reload paints the
 settled state on its first frame, and re-synced whenever a reply lands — but
-never while `covered` is true, i.e. never while that event's RSVP sheet is
-still over the button, because the reply is recorded a full `SAVED_DWELL_MS`
-before the sheet closes and a fill that went up then would be over before
+never while `covered` is true, i.e. never while that event's sheet is still
+over the button, on either of its panels, because the reply is recorded a
+full `SAVED_DWELL_MS` before the sheet closes and a fill that went up then would be over before
 the guest could see it. A second signal (`drawing`) owns the tick's stroke
 keyframe and nothing else; the rule the two earlier attempts broke is that a
 self-cancelling animation must never decide whether a permanent mark exists.
@@ -609,14 +609,14 @@ by stylesheet order, not class-attribute order, so that arrangement was one
 version bump from a fill that never appeared at all.
 
 **Partial saves.** A household no longer has to answer for everybody in one
-sitting: `RsvpModal` sends whichever members have an answer and leaves the
+sitting: `RsvpPanel` sends whichever members have an answer and leaves the
 rest untouched (the API accepts any subset and returns the whole family's
 rows). Every successful save raises a toast, and the toast says only that a
 response was captured — it is the same message for a partial save, a completing
 save and a later edit.
 
 The sweep is much narrower: it marks the **crossing** into a complete response,
-so it plays at most once per household per event. `RsvpModal.handleSubmit`
+so it plays at most once per household per event. `RsvpPanel.handleSubmit`
 compares `nowComplete` (every member the couple invited answered in the form —
 a plus-one's answer is not waited for, as `hasHouseholdResponded` does not wait
 for it; see [[cire-plus-ones#On the invite]]) against
@@ -1131,9 +1131,9 @@ payload, or the island's browser-side retry when the route had none).
 > `transparent` background default), the **events/details** wrapper in
 > `InvitePage` (this is what makes the details accent reach the `EventCard`
 > buttons — previously only the section header was themed), and — via the
-> `AnimatedModal.themeVars` prop — the RSVP + event-details modals, which
-> paint outside any themed section wrapper and would otherwise stay on the
-> built-in tokens.
+> `AnimatedModal.themeVars` prop — the event sheet, one dialog holding the
+> details and the RSVP form, which paints outside any themed section wrapper
+> and would otherwise stay on the built-in tokens.
 
 > **Render-boundary resilience.** `sectionThemeVars` reads the section sub-object
 > defensively (`theme[section]?` → fall back to the built-in tokens) and never
