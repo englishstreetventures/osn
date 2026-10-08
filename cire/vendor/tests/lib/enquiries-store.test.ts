@@ -29,14 +29,31 @@ const baseEnquiry = {
 };
 
 describe("enquiries-store", () => {
-  it("listEnquiries GETs /api/vendor/enquiries and returns body.enquiries", async () => {
-    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries: [baseEnquiry] }));
+  it("listEnquiries GETs /api/vendor/enquiries and returns the page", async () => {
+    const authFetch = vi
+      .fn()
+      .mockResolvedValue(jsonRes({ enquiries: [baseEnquiry], nextCursor: "1700000000.e1" }));
     const result = await listEnquiries(authFetch);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("e1");
+    expect(result.enquiries).toHaveLength(1);
+    expect(result.enquiries[0]!.id).toBe("e1");
     // Assert weddingName passes through
-    expect(result[0]!.weddingName).toBe("Alice & Bob");
-    expect(String(authFetch.mock.calls[0]![0])).toContain("/api/vendor/enquiries");
+    expect(result.enquiries[0]!.weddingName).toBe("Alice & Bob");
+    expect(result.nextCursor).toBe("1700000000.e1");
+    expect(String(authFetch.mock.calls[0]![0])).toMatch(/\/api\/vendor\/enquiries$/);
+  });
+
+  it("listEnquiries asks for the page after a cursor, encoded into the query", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries: [], nextCursor: null }));
+    await listEnquiries(authFetch, "1700000000.e1&x");
+    expect(String(authFetch.mock.calls[0]![0])).toMatch(
+      /\/api\/vendor\/enquiries\?cursor=1700000000\.e1%26x$/,
+    );
+  });
+
+  // The portal can reach production before the API that pages the inbox.
+  it("listEnquiries reads a response with no nextCursor as the last page", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries: [baseEnquiry] }));
+    expect((await listEnquiries(authFetch)).nextCursor).toBeNull();
   });
 
   it("getEnquiryMessages GETs /api/vendor/enquiries/:id/messages and returns body.messages", async () => {

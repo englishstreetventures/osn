@@ -1,12 +1,13 @@
+import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Loading from "@cire/ui/loading";
-import { useAuth } from "@shared/rp-auth/solid";
 import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Notice } from "@shared/ui/ui/notice";
-import { createResource, For, Show } from "solid-js";
+import { For, onMount, Show } from "solid-js";
 
-import { listEnquiries, type VendorEnquiryListItem } from "../lib/enquiries-store";
+import type { VendorEnquiryListItem } from "../lib/enquiries-store";
+import type { EnquiryInbox } from "../lib/enquiry-inbox";
 import { categoryLabel } from "../lib/service-categories";
 /**
  * A status, as a tone.
@@ -43,6 +44,8 @@ function shortDate(epochMs: number): string {
 }
 
 interface VendorEnquiryInboxProps {
+  /** The dashboard's inbox: the pages loaded so far outlive this component. */
+  inbox: EnquiryInbox;
   onOpen: (id: string) => void;
 }
 
@@ -50,9 +53,10 @@ interface VendorEnquiryInboxProps {
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
 export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
-  const { authFetch } = useAuth();
-
-  const [rows] = createResource(() => listEnquiries(authFetch));
+  // Page one again on every mount, so a row a thread just changed is fresh;
+  // the rows already held show meanwhile.
+  onMount(() => void props.inbox.refresh());
+  const rows = () => props.inbox.rows();
 
   return (
     <div class="flex flex-col gap-4">
@@ -61,24 +65,24 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
         <h2 class="font-display text-text text-ui-lg leading-tight font-light">Your inbox</h2>
       </div>
 
-      <Show when={rows.loading}>
+      <Show when={rows() === null && !props.inbox.failed()}>
         <Loading label="Loading enquiries…" />
       </Show>
 
-      <Show when={rows.error}>
+      <Show when={props.inbox.failed()}>
         <Notice tone="danger" alert>
           Could not load enquiries. Please refresh.
         </Notice>
       </Show>
 
-      <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) === 0}>
+      <Show when={rows()?.length === 0}>
         <EmptyState
           title="No enquiries yet"
           description="When a couple asks about one of your listings, their message lands here."
         />
       </Show>
 
-      <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) > 0}>
+      <Show when={(rows()?.length ?? 0) > 0}>
         <ul class="flex list-none flex-col gap-2 p-0">
           <For each={rows()}>
             {(item) => (
@@ -123,6 +127,22 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
             )}
           </For>
         </ul>
+        <Show when={props.inbox.moreFailed()}>
+          <Notice tone="danger" alert>
+            Could not load more enquiries. Please try again.
+          </Notice>
+        </Show>
+        <Show when={props.inbox.nextCursor() !== null}>
+          <Button
+            variant="quiet"
+            size="sm"
+            class="self-start"
+            disabled={props.inbox.loadingMore()}
+            onClick={() => void props.inbox.loadMore()}
+          >
+            {props.inbox.loadingMore() ? "Loading…" : "Load more enquiries"}
+          </Button>
+        </Show>
       </Show>
     </div>
   );
