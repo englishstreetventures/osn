@@ -145,23 +145,32 @@ component was previously reading a container it did not live in.
   nothing left to slide against. Widening to `w-56` at `@5xl/shell`.
   A row for a module the wedding's tier does not include stays on both the rail
   and the sheet, faded to `text-text-faint` and inert: it navigates nowhere, and
-  a three-second pointer dwell, the same delay on keyboard focus, or a click
-  (the only path on touch) opens a popover naming the tier that includes it —
-  "Included with Gold", in `gold-ink` because it is small text that has to be
-  read — with an **Upgrade to Gold** button. The row's accessible name carries
-  the same words, so the lock is heard while tabbing. The popover portals out
-  on both surfaces, because the sheet's nav scrolls and would clip it. For an
-  owner, the Budget, Checklist and Registry popovers add a **Download as CSV** button
-  under the upgrade (`LockedExport.tsx`) when the wedding holds rows there,
-  saying how many ("Your 12 budget lines are still here."). The popover's
-  content mounts only while it is open, so the row count is asked for on the
-  first open and kept per wedding (`module-rows-store.ts`, dropped with the
-  other caches). Kobalte's hover card moves no focus into its portalled
-  content, so a keyboard cannot reach that button; Settings → Profile lists the
-  same downloads for an owner (`LockedModuleDownloads.tsx`), in the page's own
-  tab order. Above them it names the wedding's plan and, below Crimson, offers
-  a **Have a code?** link (`UnlockCodeDialog.tsx`) for an unlock code. See
-  [[cire-entitlements]] and [[cire-upgrades]].
+  a press — click, tap, Enter or Space — opens a card (a Kobalte `Popover`)
+  naming the tier that includes it — "Included with Gold", in `gold-ink` because
+  it is small text that has to be read — with an **Upgrade to Gold** button.
+  The row's accessible name carries the same words, so the lock is heard while
+  tabbing. A press moves focus onto **Upgrade to Gold**, and Escape puts it back
+  on the row. On the rail only, a pointer resting on the row for three seconds
+  also opens the card, as a preview that takes no focus and closes once the
+  pointer has left the row and the card; once focus goes into it, it stays. The
+  sheet has no dwell, because an open card stands down the sheet's focus trap.
+  The card portals out on both surfaces, because the sheet's nav scrolls and
+  would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
+  the open row enters the card, Shift+Tab from its first button returns to the
+  row, and Tab from its last button moves on to the next row. That last step
+  needs a locked row never to be the nav's last, which holds while Guests,
+  Invite and Settings end `MODULE_NAV`. For an owner, the Budget, Checklist and
+  Registry cards add a **Download as CSV** button under the upgrade
+  (`LockedExport.tsx`) when the wedding holds rows there, saying how many ("Your
+  12 budget lines are still here."). The card's content mounts only while it is
+  open, so the row count is asked for on the first open and kept per wedding
+  (`module-rows-store.ts`, dropped with the other caches). Settings → Profile
+  lists the same downloads for an owner in one place (`LockedModuleDownloads.tsx`).
+  Above them it names the wedding's plan and, below Crimson, offers a **Have a
+  code?** link (`UnlockCodeDialog.tsx`) for an unlock code. The keyboard path
+  is pinned in real Chromium by
+  [`ModuleSidebar.keyboard.browser.test.tsx`](../../cire/host/tests/components/ModuleSidebar.keyboard.browser.test.tsx).
+  See [[cire-entitlements]] and [[cire-upgrades]].
 - **Module icons** — every mark for a module is an inline SVG. All but one
   come from `lucide-solid`, imported one icon at a time
   (`lucide-solid/icons/<name>`) so only the icons in use ship. Overview's is
