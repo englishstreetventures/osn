@@ -1,7 +1,7 @@
 import { Effect, Result, Logger } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { makeResendEmailLive } from "../src/resend";
+import { makeResendEmailLive, resendApiUrlProblem } from "../src/resend";
 import { EmailError, EmailService, type SendEmailInput } from "../src/service";
 
 const RESEND_API_KEY = "re_test_SuperSecretApiKey_123";
@@ -255,5 +255,92 @@ describe("ResendEmailLive", () => {
 
     // Nothing logged should contain the key.
     expect(lines.join("\n")).not.toContain(RESEND_API_KEY);
+  });
+});
+
+const sendOne = (layer: ReturnType<typeof makeResendEmailLive>) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const email = yield* EmailService;
+      yield* email.send({
+        template: "otp-registration",
+        to: "alice@example.com",
+        data: { code: "000000", ttlMinutes: 10 },
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+describe("ResendEmailLive apiUrl", () => {
+  it("sends to the Resend API when apiUrl is unset", async () => {
+    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY }));
+    expect(captured!.url).toBe(EXPECTED_URL);
+  });
+
+  it("sends to the Resend API when apiUrl is blank", async () => {
+    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "  " }));
+    expect(captured!.url).toBe(EXPECTED_URL);
+  });
+
+  it("sends to the override's /emails when apiUrl names a local emulator", async () => {
+    await sendOne(makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "http://localhost:4008" }));
+    expect(captured!.url).toBe("http://localhost:4008/emails");
+    expect(captured!.headers.get("authorization")).toBe(`Bearer ${RESEND_API_KEY}`);
+  });
+
+  it("accepts a trailing slash on the override", async () => {
+    await sendOne(
+      makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "http://127.0.0.1:4008/" }),
+    );
+    expect(captured!.url).toBe("http://127.0.0.1:4008/emails");
+  });
+
+  it("refuses to build a layer around an override it would not send to", () => {
+    expect(() =>
+      makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: "https://mail.example.com" }),
+    ).toThrow(/loopback/);
+  });
+
+  it("never puts the refused value in the error", () => {
+    const secretish = "https://user:hunter2@mail.example.com";
+    let message = "";
+    try {
+      makeResendEmailLive({ apiKey: RESEND_API_KEY, apiUrl: secretish });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).not.toBe("");
+    expect(message).not.toContain("hunter2");
+    expect(message).not.toContain("mail.example.com");
+  });
+});
+
+describe("resendApiUrlProblem", () => {
+  it.each([
+    "http://localhost:4008",
+    "https://localhost:4008",
+    "http://127.0.0.1:4008",
+    "http://[::1]:4008",
+    "https://resend.emulate.localhost",
+    "http://localhost:4008/",
+  ])("accepts the loopback origin %s", (raw) => {
+    expect(resendApiUrlProblem(raw)).toBeNull();
+  });
+
+  it.each([
+    ["a non-loopback https host", "https://api.example.com"],
+    ["the real API named explicitly", "https://api.resend.com"],
+    ["a non-loopback http host", "http://example.com:4008"],
+    ["a host that only starts like localhost", "http://localhost.example.com"],
+    ["a host that only ends like localhost", "http://notlocalhost"],
+    ["credentials", "http://user:pass@localhost:4008"],
+    ["a query", "http://localhost:4008?x=1"],
+    ["a fragment", "http://localhost:4008#x"],
+    ["a path", "http://localhost:4008/emails"],
+    ["another scheme", "ftp://localhost:4008"],
+    ["something that is not a URL", "::not-a-url::"],
+  ])("refuses %s", (_label, raw) => {
+    const problem = resendApiUrlProblem(raw);
+    expect(problem).not.toBeNull();
+    expect(problem).not.toContain(raw);
   });
 });

@@ -1,7 +1,9 @@
+import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
 import { createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
+import { resendEmailConfig } from "./lib/resend-email";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
@@ -88,6 +90,17 @@ const appOptions: Parameters<typeof createApp>[1] = {
 // createApp's default parameter and leave the origin empty rather than falling
 // back to it.
 if (organiserOrigin) appOptions.organiserOrigin = organiserOrigin;
+
+// Mail leaves this dev server only for a local Resend emulator: RESEND_API_KEY
+// and RESEND_API_URL both set. A key alone leaves createApp's in-memory
+// recorder in place, so a real key in the environment never sends real mail
+// from here. A refused override stops the server rather than being ignored.
+const resend = resendEmailConfig(
+  { RESEND_API_KEY: process.env.RESEND_API_KEY, RESEND_API_URL: process.env.RESEND_API_URL },
+  false,
+);
+if (resend.problem) throw new Error(resend.problem);
+if (resend.config?.apiUrl) appOptions.emailLayer = makeResendEmailLive(resend.config);
 
 const app = createApp(db, appOptions);
 

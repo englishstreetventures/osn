@@ -98,6 +98,9 @@ export interface Env {
   // ResendEmailLive is selected over Cloudflare email + the degraded opt-in.
   // `wrangler secret put RESEND_API_KEY`. See `lib/email-layer`.
   RESEND_API_KEY?: string;
+  // Local emulation only: a loopback origin for a Resend emulator. Never set in
+  // a deployed tier — osn-api refuses to boot with it there. See `lib/email-layer`.
+  RESEND_API_URL?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   INTERNAL_SERVICE_SECRET?: string;

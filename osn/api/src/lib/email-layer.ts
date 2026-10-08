@@ -6,14 +6,18 @@
  *
  * Selection rules (in priority order):
  *
- *   1. Resend key present (`RESEND_API_KEY`) in a non-local env
- *                                           → ResendEmailLive (preferred real
+ *   1. Resend key present (`RESEND_API_KEY`) in a non-local env, or locally
+ *      together with `RESEND_API_URL`        → ResendEmailLive (preferred real
  *      transport; works on workerd via Resend's HTTP API, no paid Workers plan).
  *      Wins over every lower tier — even if Cloudflare creds and/or the degraded
  *      opt-in are also set — so a correctly-provisioned deploy is never
  *      accidentally downgraded. With Resend configured, `OSN_EMAIL_OPTIONAL` is
  *      no longer needed: a future Resend outage then fails closed like any other
  *      transport misconfig (the no-op degraded path is opt-in only).
+ *
+ *      `RESEND_API_URL` points the transport at a local Resend emulator. It must
+ *      be a loopback origin, and a non-local env refuses it outright (THROW), so
+ *      a deployed osn-api only ever sends to Resend itself.
  *
  *   2. Cloudflare creds present (`CLOUDFLARE_ACCOUNT_ID` +
  *      `CLOUDFLARE_EMAIL_API_TOKEN`)        → CloudflareEmailLive (legacy real
@@ -39,6 +43,7 @@ import {
   makeLogEmailLive,
   makeNoopEmailLive,
   makeResendEmailLive,
+  resendApiUrlProblem,
   type EmailService,
 } from "@shared/email";
 import { Effect, Layer } from "effect";
@@ -53,6 +58,7 @@ type EmailEnv = {
   readonly OSN_EMAIL_FROM?: string;
   readonly OSN_EMAIL_OPTIONAL?: string;
   readonly RESEND_API_KEY?: string;
+  readonly RESEND_API_URL?: string;
   readonly CLOUDFLARE_ACCOUNT_ID?: string;
   readonly CLOUDFLARE_EMAIL_API_TOKEN?: string;
 };
@@ -84,16 +90,32 @@ export function selectEmailLayer(
   observabilityLayer: Layer.Layer<never>,
 ): Layer.Layer<EmailService> {
   const resendApiKey = env.RESEND_API_KEY;
+  const resendApiUrl = env.RESEND_API_URL?.trim() || undefined;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
   const cfEmailToken = env.CLOUDFLARE_EMAIL_API_TOKEN;
 
+  // The emulator override: never in a deployed tier, and only ever a loopback
+  // origin. Neither message repeats the value.
+  if (resendApiUrl !== undefined) {
+    if (isNonLocal(env)) {
+      throw new Error(
+        "RESEND_API_URL is for local emulation only and must not be set in a non-local " +
+          "environment — unset it so osn-api sends through Resend itself.",
+      );
+    }
+    const problem = resendApiUrlProblem(resendApiUrl);
+    if (problem !== null) throw new Error(`RESEND_API_URL ${problem}`);
+  }
+
   // 1. Preferred real transport — Resend wins over everything, unconditionally,
-  //    in any non-local env. (Locally the recorder is preferred so dev/test
-  //    never make a live API call even if a key happens to be present.)
-  if (resendApiKey && isNonLocal(env)) {
+  //    in any non-local env. Locally the recorder is preferred so dev/test never
+  //    make a live API call even if a key happens to be present — unless
+  //    RESEND_API_URL names a local emulator to send to instead.
+  if (resendApiKey && (isNonLocal(env) || resendApiUrl !== undefined)) {
     return makeResendEmailLive({
       apiKey: resendApiKey,
       fromAddress: env.OSN_EMAIL_FROM,
+      apiUrl: resendApiUrl,
     });
   }
 

@@ -17,6 +17,10 @@ import { osnLoggerLayer } from "../../src/observability";
  *                                                 + a loud startup warning.
  *   - no real provider + non-local + opt-in UNSET → throw (the safe default).
  *   - no real provider + local                  → LogEmailLive recorder.
+ *   - RESEND_API_KEY + RESEND_API_URL + local   → ResendEmailLive at the local
+ *                                                 emulator (loopback only).
+ *   - RESEND_API_URL + non-local                → throw (deployed tiers send to
+ *                                                 Resend itself).
  */
 
 describe("isEmailOptionalOptIn", () => {
@@ -151,6 +155,105 @@ describe("selectEmailLayer", () => {
       );
       await sendOnce(layer);
       expect(dispatchedUrl).toBeNull();
+    });
+  });
+
+  describe("RESEND_API_URL (local emulator override)", () => {
+    let dispatchedUrl: string | null;
+
+    beforeEach(() => {
+      dispatchedUrl = null;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          dispatchedUrl = typeof input === "string" ? input : input.toString();
+          return new Response(JSON.stringify({ id: "x" }), { status: 200 });
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const sendOnce = (layer: ReturnType<typeof selectEmailLayer>) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const email = yield* EmailService;
+          yield* email.send({
+            template: "otp-step-up",
+            to: "alice@example.com",
+            data: { code: "222222", ttlMinutes: 10 },
+          });
+        }).pipe(Effect.provide(layer)),
+      );
+
+    it("local + key + override → Resend at the emulator", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_KEY: "re_local", RESEND_API_URL: "http://localhost:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBe("http://localhost:4008/emails");
+    });
+
+    it("OSN_ENV unset counts as local: key + override → Resend at the emulator", async () => {
+      const layer = selectEmailLayer(
+        { RESEND_API_KEY: "re_local", RESEND_API_URL: "http://127.0.0.1:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBe("http://127.0.0.1:4008/emails");
+    });
+
+    it("local + override without a key → recorder (no call)", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_URL: "http://localhost:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBeNull();
+    });
+
+    it("local + blank override → recorder, as with no override", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_KEY: "re_local", RESEND_API_URL: " " },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBeNull();
+    });
+
+    it("local + key + a non-loopback override → throws at selection, without the value", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          {
+            OSN_ENV: "local",
+            RESEND_API_KEY: "re_local",
+            RESEND_API_URL: "https://mail.example.com",
+          },
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/loopback/);
+      expect(message).not.toContain("mail.example.com");
+    });
+
+    it("non-local + any override → throws naming the var, even with a valid loopback value", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          nonLocal({ RESEND_API_KEY: "re_live", RESEND_API_URL: "http://localhost:4008" }),
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).not.toContain("localhost:4008");
     });
   });
 

@@ -60,6 +60,26 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
     expect(error).toContain("DB");
   });
 
+  it("returns 503 naming RESEND_API_URL when a deployed tier carries the emulator override", async () => {
+    // Every edge check and the Upstash gate pass, so the build reaches email
+    // selection, which refuses the override in any non-local tier.
+    const env = {
+      OSN_ENV: "production",
+      DB: {} as Env["DB"],
+      OSN_ISSUER_URL: "https://id.osn.test",
+      OSN_CORS_ORIGIN: "https://osn.test",
+      OSN_RP_ID: "osn.test",
+      UPSTASH_REDIS_REST_URL: "https://redis.osn.test",
+      UPSTASH_REDIS_REST_TOKEN: "token",
+      RESEND_API_KEY: "re_live",
+      RESEND_API_URL: "http://localhost:4008",
+    } as Env;
+    const { error } = await read503(await handler.fetch(req(), env));
+    expect(error).toContain("Worker misconfigured");
+    expect(error).toContain("RESEND_API_URL");
+    expect(error).not.toContain("localhost:4008");
+  });
+
   it("does NOT require the issuer/CORS/RP vars in a local tier", async () => {
     // OSN_ENV unset ⇒ local: only DB is required. With DB absent the 503 body
     // must NOT mention the non-local-only vars.

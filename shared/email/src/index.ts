@@ -2,7 +2,7 @@ export { EmailService, EmailError, type EmailServiceImpl, type SendEmailInput } 
 
 export { makeCloudflareEmailLive, type CloudflareEmailConfig } from "./cloudflare";
 
-export { makeResendEmailLive, type ResendEmailConfig } from "./resend";
+export { makeResendEmailLive, resendApiUrlProblem, type ResendEmailConfig } from "./resend";
 
 export { makeLogEmailLive, type LogEmailTransport, type RecordedEmail } from "./log";
 

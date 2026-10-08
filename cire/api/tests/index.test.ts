@@ -753,4 +753,45 @@ describe("D1 session routing at the entry points", () => {
     expect(result?.pending).toHaveLength(10);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   }, 30_000);
+
+  it("sends no cron mail, and logs why, when a deployed tier carries RESEND_API_URL", async () => {
+    // Everything the digest needs is present except a transport it may use:
+    // the override is refused in a deployed tier, so no mail goes anywhere and
+    // every sweep still runs.
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    let result: Awaited<ReturnType<typeof runCron>> | undefined;
+    const logs = await captureLogs(async () => {
+      result = await runCron({
+        RESEND_API_KEY: "re_test",
+        RESEND_API_URL: "http://localhost:4008",
+        OSN_API_URL: "https://osn.example.test",
+        CIRE_API_ARC_PRIVATE_KEY: jwk,
+        CIRE_API_ARC_KEY_ID: "kid_test",
+      });
+    });
+    expect(result?.pending).toHaveLength(10);
+    expect(logs).toContain("email disabled: Resend misconfigured");
+    expect(logs).toContain("RESEND_API_URL");
+    expect(logs).not.toContain("localhost:4008");
+  }, 30_000);
+
+  it("still serves, and logs why mail is off, when a deployed tier carries RESEND_API_URL", async () => {
+    // A fresh binding forces a fresh app build, which is where the reason is
+    // logged. cire's email is fail-soft: a refused override costs mail, never
+    // the Worker.
+    const probe = probeD1();
+    const env = {
+      ...BASE_ENV,
+      RESEND_API_KEY: "re_test",
+      RESEND_API_URL: "http://localhost:4008",
+      DB: probe.binding,
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    let status: number | undefined;
+    const logs = await captureLogs(async () => {
+      status = (await handler.fetch!(inviteRequest(), env, ctx)).status;
+    });
+    expect(status).toBe(404);
+    expect(logs).toContain("email disabled: Resend misconfigured");
+    expect(logs).not.toContain("localhost:4008");
+  });
 });
