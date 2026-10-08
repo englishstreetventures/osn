@@ -94,8 +94,8 @@ describe("hostConflictReason", () => {
 
 describe("hostAddFailure", () => {
   it("reads the unique violation off the cause, where D1 puts it under a wrapped statement", () => {
-    // drizzle wraps a failed single statement on D1: its own message names the
-    // statement only, and the database's reason is the cause.
+    // drizzle wraps a failed single statement on D1, so its own message names
+    // the statement only, and the database's reason is the cause.
     const wrapped = new DrizzleQueryError(
       'insert into "wedding_hosts" select ?',
       ["whost_x"],

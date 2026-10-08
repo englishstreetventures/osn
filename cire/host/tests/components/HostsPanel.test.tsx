@@ -28,12 +28,12 @@ vi.mock("../../src/lib/api", async () => {
 // here it only has to open, selling the tier the panel names.
 vi.mock("../../src/components/UpgradeDialog", () => ({
   default: (props: { tier: string; module: string; onClose: () => void }) => (
-    <div role="dialog" aria-label="Upgrade">
+    <dialog open aria-label="Upgrade">
       Upgrade dialog for {props.tier} from {props.module}
       <button type="button" onClick={() => props.onClose()}>
         Close upgrade
       </button>
-    </div>
+    </dialog>
   ),
 }));
 

@@ -601,9 +601,12 @@ export const hostsService = {
       );
       const first = rows[0];
       return {
-        hosts: rows.map(({ total: _total, people: _people, tier: _tier, ...row }) => ({
-          ...row,
+        hosts: rows.map((row) => ({
+          id: row.id,
+          osnProfileId: row.osnProfileId,
           role: normaliseHostRole(row.role),
+          createdAt: row.createdAt,
+          addedByOsnProfileId: row.addedByOsnProfileId,
         })),
         // No row means no seat, so the count is 0. Every live wedding holds an
         // owner seat, so the Ivory fallback is never what a gated caller sees.
