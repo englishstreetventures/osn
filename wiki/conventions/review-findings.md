@@ -10,7 +10,7 @@ last-reviewed: 2026-10-08
 
 # Review Finding IDs
 
-All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussions, PR comments, and issue titles.
+All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussion and in tracker issue titles. Where an ID may and may not appear is in [[#Where a finding ID may appear]].
 
 ## Prefix Table
 
@@ -121,8 +121,8 @@ Labels, exactly one of each:
 Rules:
 
 - **Close a finding, never delete it** -- the history matters, and a closed issue keeps the body, the fix commit, and the discussion. Deleting an issue is out of bounds for every script and command in this repo.
-- A finding fixed on the branch that found it gets no issue of its own: put `Closes englishstventures/osn-tracker#<n>` in the PR body, or if no issue existed, open one and close it with a comment naming the PR.
-- Reference tracker issues from a public PR by number and finding ID only -- never the title, the file:line, or the body.
+- A finding fixed on a branch is closed by that branch's merge: its pull request carries a bare `Closes englishstreetventures/osn-tracker#<n>` line. A finding found and fixed on the same branch is filed first, in `/prep-pr` Step 7, so the merge has an issue to close and the tracker keeps the record. A finding dismissed as no defect is filed and closed as not planned, its reasoning in the body.
+- A public pull request -- its title, body, comments and commits -- carries a tracker issue only as that bare reference: never the finding ID, the title, the file and line, or a word about the defect. The `write-pr` skill (`.claude/skills/write-pr/SKILL.md`) holds the rule and what to do when the reference itself is refused.
 - Sorting is a filter now, not a file convention: `gh issue list --repo englishstventures/osn-tracker --label severity:high --state open`.
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
 - Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
@@ -157,19 +157,23 @@ gh issue list --repo englishstventures/osn-tracker --label needs:decision --stat
 
 Remove the label once the decision is recorded in a comment; the issue then goes back to being ordinary work.
 
-## Usage in PR Comments
+## Where a finding ID may appear
 
-Finding IDs make PR discussions precise:
+The ID of a real `S-`, `P-` or `C-` finding names a defect, so it appears only where the tracker's readers are (the IDs on this page are made-up examples): the tracker issue's title, the local `/prep-pr` report, and discussion with the owner. It never appears in the public repository -- not in a pull request's title, body, comments or commits, not in a code comment, not on a wiki page.
 
-- "Fix S-H1 before merging"
-- "P-C2 still open -- needs the batch query"
-- "S-M34 is a known limitation, tracked in osn-tracker#412"
-- "T-U3 -- this export has no test coverage"
+| Where | `S-`, `P-`, `C-` | `T-` |
+|---|---|---|
+| Tracker issue title and body | Yes | Not filed |
+| Local `/prep-pr` report, talk with the owner | Yes | Yes |
+| Public pull request, its comments and commits | No -- the bare `englishstreetventures/osn-tracker#<n>` reference only | Yes |
+| Code comments, wiki pages | No | No |
 
-Because the ID leads the title, the ID is also how you find the issue again:
+`T-` IDs name coverage gaps, not defects, and nothing files them, so a public pull request may use them: "T-U3 -- this export has no test coverage".
+
+Because the ID leads the tracker title, the ID is how you find the issue again:
 
 ```bash
-gh issue list --repo englishstventures/osn-tracker --search "S-M34 in:title" --state all
+gh issue list --repo englishstreetventures/osn-tracker --search "S-M34 in:title" --state all
 ```
 
 ## Related
