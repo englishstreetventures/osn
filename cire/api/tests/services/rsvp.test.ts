@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
-import { rsvpService } from "../../src/services/rsvp";
+import { isAttestedNameRefusal, rsvpService } from "../../src/services/rsvp";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -539,5 +539,117 @@ describe("rsvpService.getRsvpsForFamily", () => {
         "submittedBy",
       ].toSorted(),
     );
+  });
+});
+
+describe("rsvpService.submitRsvpsAndList with an attested name", () => {
+  const setUp = () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam", lastName: "Park" });
+    const attested = (attestedName: string, status: "attending" | "declined" = "attending") => ({
+      guestId: samId,
+      eventId: HINDU_ID,
+      status,
+      dietary: "",
+      dietaryPresets: ["nuts" as const],
+      dietaryConsent: true,
+      consentSource: "inviter_attested" as const,
+      attestedName,
+    });
+    const stored = () =>
+      db
+        .select({ status: rsvpsTable.status })
+        .from(rsvpsTable)
+        .where(eq(rsvpsTable.guestId, samId))
+        .all();
+    const rename = (firstName: string) =>
+      db.update(guests).set({ firstName }).where(eq(guests.id, samId)).run();
+    return { db, run, bo, samId, attested, stored, rename };
+  };
+
+  it("writes the reply while the row carries the name, trimmed either side", async () => {
+    const { run, bo, attested, stored } = setUp();
+    await run(rsvpService.submitRsvpsAndList([attested("  Sam Park ")], bo.familyId));
+    expect(stored()).toEqual([{ status: "attending" }]);
+  });
+
+  it("refuses a reply attested for a name the row no longer carries", async () => {
+    const { run, bo, attested, stored, rename } = setUp();
+    rename("Alex");
+    const refused = await run(
+      Effect.flip(rsvpService.submitRsvpsAndList([attested("Sam Park")], bo.familyId)),
+    );
+    expect(refused._tag).toBe("PlusOneChanged");
+    expect(stored()).toEqual([]);
+  });
+
+  it("refuses it over a stored reply too, leaving that reply as it was", async () => {
+    const { run, bo, attested, stored, rename } = setUp();
+    await run(rsvpService.submitRsvpsAndList([attested("Sam Park")], bo.familyId));
+    rename("Alex");
+    const refused = await run(
+      Effect.flip(rsvpService.submitRsvpsAndList([attested("Sam Park", "declined")], bo.familyId)),
+    );
+    expect(refused._tag).toBe("PlusOneChanged");
+    expect(stored()).toEqual([{ status: "attending" }]);
+  });
+
+  it("stores the last reply a body gives for a pair, as before", async () => {
+    const { run, bo, attested, stored } = setUp();
+    const statusOnly = {
+      guestId: attested("").guestId,
+      eventId: HINDU_ID,
+      status: "declined" as const,
+      dietary: "",
+      dietaryPresets: [],
+      dietaryConsent: false,
+      consentSource: "inviter_attested" as const,
+    };
+    await run(
+      rsvpService.submitRsvpsAndList([statusOnly, attested("Sam Park", "attending")], bo.familyId),
+    );
+    expect(stored()).toEqual([{ status: "attending" }]);
+    await run(
+      rsvpService.submitRsvpsAndList([attested("Sam Park", "attending"), statusOnly], bo.familyId),
+    );
+    expect(stored()).toEqual([{ status: "declined" }]);
+  });
+});
+
+describe("isAttestedNameRefusal", () => {
+  it("knows the refusal as bun:sqlite and D1 each report it", () => {
+    expect(isAttestedNameRefusal(new Error("NOT NULL constraint failed: rsvps.status"))).toBe(true);
+    expect(
+      isAttestedNameRefusal(
+        new Error(
+          "D1_ERROR: NOT NULL constraint failed: rsvps.status: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("reads it under a wrapper that keeps the database's text in its cause", () => {
+    const wrapped = new Error("Failed query: insert into rsvps …", {
+      cause: new Error("D1_ERROR: NOT NULL constraint failed: rsvps.status: SQLITE_CONSTRAINT"),
+    });
+    expect(isAttestedNameRefusal(wrapped)).toBe(true);
+  });
+
+  it("does not take any other failure for it", () => {
+    for (const error of [
+      new Error("NOT NULL constraint failed: rsvps.dietary"),
+      new Error("NOT NULL constraint failed: guests.status"),
+      new Error("UNIQUE constraint failed: rsvps.guest_id, rsvps.event_id"),
+      new Error("FOREIGN KEY constraint failed"),
+      "NOT NULL constraint failed: rsvps.status",
+      null,
+      undefined,
+    ]) {
+      expect(isAttestedNameRefusal(error)).toBe(false);
+    }
   });
 });

@@ -10,15 +10,21 @@ import {
 import { eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias } from "drizzle-orm/sqlite-core";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import type { Db, ReturningTail } from "../db";
-import { DbService, dbQuery, commitGroupedBatches, commitGroupedBatchesReturning } from "../db";
+import {
+  DbService,
+  dbQuery,
+  commitGroupedBatches,
+  commitGroupedBatchesReturning,
+  driverErrorText,
+} from "../db";
 import { metricRsvpUpserted } from "../metrics";
 import type { RsvpWriter } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
-import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
+import { buildRecordStatement, pairKey, type RsvpChangeInput } from "./rsvp-changes";
 
 /** RSVP consent provenance = who recorded the row AND on whose consent
  *  authority the dietary free-text is held (migration 0037). `guest` — the
@@ -28,6 +34,33 @@ import { buildRecordStatement, type RsvpChangeInput } from "./rsvp-changes";
  *  of the plus-one it brought (migration 0066). Defaults to `guest` for the
  *  invite write path. Read off the column, so the enum has one home. */
 export type ConsentSource = (typeof rsvps.$inferSelect)["consentSource"];
+
+/** Dietary data on a plus-one's reply attested for a name the row no longer
+ *  carries: the page or the portal showed the box for someone the household
+ *  has since renamed (or removed). 409-class, so the writer reloads rather than
+ *  attest for someone else. Raised by the organiser's write and the
+ *  household's alike. */
+export class PlusOneChanged extends Data.TaggedError("PlusOneChanged") {}
+
+/**
+ * True while guest `guestId`'s row carries `name`: first and last name joined
+ * by a space, compared trimmed. Evaluated inside the statement it sits in, so
+ * it reads the row as that statement finds it. Stored names are trimmed on
+ * write, so SQLite's `trim()` only ever meets the joining space.
+ */
+function namedNow(guestId: string, name: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${guests} WHERE ${guests.id} = ${guestId} AND trim(${guests.firstName} || ' ' || ${guests.lastName}) = ${name.trim()})`;
+}
+
+/**
+ * Whether a failed write is a reply refused by its attested name (see
+ * `RsvpInput.attestedName`): the guard writes NULL into the NOT NULL
+ * `rsvps.status`, and nothing else ever does — every other write takes the
+ * status from a validated literal.
+ */
+export function isAttestedNameRefusal(error: unknown): boolean {
+  return driverErrorText(error).includes("NOT NULL constraint failed: rsvps.status");
+}
 
 /**
  * The consent version a reply is stamped with, chosen by who recorded it and,
@@ -115,6 +148,12 @@ export interface RsvpInput {
   // organiser writer, and also names the attester of an organiser's consent
   // record.
   recordedByOsnProfileId?: string | null;
+  // The full name the household attested this reply's dietary data for. Set,
+  // the reply is written only while the guest's row carries that name, tested
+  // inside the reply's own statement: otherwise the statement fails, and with
+  // it the D1 batch it rides in. Only `submitRsvpsAndList` answers that as
+  // `PlusOneChanged`; no other caller sets it.
+  attestedName?: string;
 }
 
 /**
@@ -178,9 +217,17 @@ function buildRsvpUpsertStatements(
 ): BatchItem<"sqlite">[] {
   return inputs.map((input) => {
     const { values, set } = rsvpUpsertRow(input, now);
+    // An attested reply carries its name test in the VALUES row: NULL for the
+    // NOT NULL status when the name has moved. SQLite checks NOT NULL before it
+    // looks for a conflict, and an upsert does not step in for NOT NULL, so the
+    // statement fails whether or not a reply is already stored.
+    const status =
+      input.attestedName === undefined
+        ? values.status
+        : sql`CASE WHEN ${namedNow(input.guestId, input.attestedName)} THEN ${values.status} ELSE NULL END`;
     return db
       .insert(rsvps)
-      .values(values)
+      .values({ ...values, status })
       .onConflictDoUpdate({ target: [rsvps.guestId, rsvps.eventId], set });
   });
 }
@@ -347,7 +394,7 @@ export const rsvpService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { values, set } = rsvpUpsertRow(input, new Date());
-      const named = sql`EXISTS (SELECT 1 FROM ${guests} WHERE ${guests.id} = ${input.guestId} AND trim(${guests.firstName} || ' ' || ${guests.lastName}) = ${name.trim()})`;
+      const named = namedNow(input.guestId, name);
 
       // The SELECT lists its values in the table's column order, which is the
       // column list drizzle writes for an INSERT … SELECT. Raw values skip the
@@ -511,6 +558,15 @@ export const rsvpService = {
    * upserts fill earlier batches and the change row rides the last, so a
    * failure there loses the log entry, never invents one for a reply that did
    * not land.
+   *
+   * A body naming one pair twice stores its last reply, so only that one is
+   * written. Replies carrying an `attestedName` are written first: up to 50 of
+   * them all ride the first D1 batch, so a name that has moved fails that batch
+   * before any reply or change row of the save commits, and the save fails
+   * {@link PlusOneChanged}. Past 50 attested replies, one refused in a later
+   * batch leaves the earlier batches committed and the change row unwritten —
+   * the ceiling's trade above. bun:sqlite runs the statements one at a time
+   * with no transaction, so there the refusal undoes nothing already written.
    */
   submitRsvpsAndList(
     inputs: readonly RsvpInput[],
@@ -520,21 +576,40 @@ export const rsvpService = {
       changes: readonly RsvpChangeInput[];
       actorGuestId?: string | null;
     },
-  ): Effect.Effect<RsvpRecord[], never, DbService> {
+  ): Effect.Effect<RsvpRecord[], PlusOneChanged, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
+      const lastByPair = new Map<string, RsvpInput>();
+      for (const input of inputs) {
+        const key = pairKey(input.guestId, input.eventId);
+        lastByPair.delete(key);
+        lastByPair.set(key, input);
+      }
+      const replies = [...lastByPair.values()];
+      const ordered = [
+        ...replies.filter((r) => r.attestedName !== undefined),
+        ...replies.filter((r) => r.attestedName === undefined),
+      ];
+
       const now = new Date();
-      const groups = buildRsvpUpsertStatements(db, inputs, now).map((s) => [s]);
+      const groups = buildRsvpUpsertStatements(db, ordered, now).map((s) => [s]);
       const record = changeLog ? buildRecordStatement(db, { ...changeLog, familyId }, now) : null;
       if (record) groups.push([record]);
       const tail = buildFamilyRsvpsQuery(db, familyId) as ReturningTail<RsvpRow>;
 
-      const rows = yield* dbQuery(() => commitGroupedBatchesReturning<RsvpRow>(db, groups, tail));
+      const rows = yield* Effect.tryPromise({
+        try: () => commitGroupedBatchesReturning<RsvpRow>(db, groups, tail),
+        catch: (error) => error,
+      }).pipe(
+        Effect.catch((error) =>
+          isAttestedNameRefusal(error) ? Effect.fail(new PlusOneChanged()) : Effect.die(error),
+        ),
+      );
 
-      for (const input of inputs) {
-        const writer = writerOf(input.consentSource ?? "guest");
-        yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
+      for (const reply of replies) {
+        const writer = writerOf(reply.consentSource ?? "guest");
+        yield* Effect.sync(() => metricRsvpUpserted(reply.status, writer, "ok"));
       }
 
       return rows.map(toRsvpRecord);

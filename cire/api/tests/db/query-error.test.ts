@@ -5,7 +5,7 @@ import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Cause, Effect, Exit } from "effect";
 import { Miniflare } from "miniflare";
 
-import { createD1Db, dbQuery, type Db } from "../../src/db/index";
+import { createD1Db, dbQuery, driverErrorText, type Db } from "../../src/db/index";
 import { runCire } from "../../src/observability";
 import { captureLogs } from "../test-helpers/capture-logs";
 
@@ -79,6 +79,21 @@ describe("a real D1 failure", () => {
     // The operator still gets the statement and the database's reason.
     expect(String(defect)).toContain("insert into people");
     expect(Cause.pretty(exit.cause)).toContain("UNIQUE constraint failed");
+  });
+
+  it("keeps the database's reason in the cause, where driverErrorText reads it", async () => {
+    // The first write may already have run in the test above; either way the
+    // second one meets the unique index.
+    await Effect.runPromiseExit(insert());
+    const exit = await Effect.runPromiseExit(insert());
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const defect = Cause.squash(exit.cause);
+    // drizzle's own message names only the statement.
+    expect(String(defect)).not.toContain("UNIQUE constraint failed");
+    expect(driverErrorText(defect)).toContain("UNIQUE constraint failed: people.name");
+    expect(driverErrorText(defect)).not.toContain(NAME);
   });
 
   it("logs the failure without the bound name", async () => {
