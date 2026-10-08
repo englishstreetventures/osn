@@ -1642,9 +1642,44 @@ describe("GET /registry/image/:name", () => {
     const res = await req(app, "GET", `${base}/image/${nameOf(key)}`, VIEWER);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    // Organiser-only bytes: no shared cache may keep a copy.
-    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    // Organiser-only bytes: no shared cache may keep a copy, and the browser
+    // keeps its own for an hour, because the gates in front of it can close.
+    expect(res.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(res.headers.get("etag")).toBeTruthy();
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+  });
+
+  // After the hour the browser asks again with the ETag it kept, and only a
+  // caller every gate still admits gets the 304.
+  it("revalidates a kept copy through the member and tier gates", async () => {
+    let db: ReturnType<typeof createDb> | undefined;
+    const app = buildApp({
+      tier: "gold",
+      assets: createAssetsStub(),
+      seed: (handle) => {
+        db = handle;
+      },
+    });
+    const path = `${base}/image/${nameOf(await uploadOne(app))}`;
+    const first = await req(app, "GET", path, VIEWER);
+    const etag = first.headers.get("etag") ?? "";
+    expect(etag).not.toBe("");
+
+    const revalidate = async (profileId: string | undefined) => {
+      const headers: Record<string, string> = { "If-None-Match": etag };
+      if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+      return appRequest(app, path, { headers });
+    };
+
+    const kept = await revalidate(VIEWER);
+    expect(kept.status).toBe(304);
+    expect(kept.headers.get("cache-control")).toBe("private, max-age=3600");
+
+    // Regression guards: the gates answer before the 304.
+    expect((await revalidate(undefined)).status).toBe(401);
+    expect((await revalidate(STRANGER)).status).toBe(403);
+    setTier(db!, BOOTSTRAP_WEDDING_ID, "ivory");
+    expect((await revalidate(VIEWER)).status).toBe(402);
   });
 
   it("404s a name that is not a registry key, and never leaves the wedding's prefix", async () => {
