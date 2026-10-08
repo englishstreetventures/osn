@@ -1,3 +1,4 @@
+import { jsonEachIn } from "@shared/db-utils";
 import { chatMembers, chats, messages } from "@zap/db/schema";
 import { DbLive, Db, type Db as DbType } from "@zap/db/service";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -62,7 +63,7 @@ const loadChatMemberships = (
             joinedAt: chatMembers.joinedAt,
           })
           .from(chatMembers)
-          .where(inArray(chatMembers.profileId, [...profileIds])) as Promise<
+          .where(inArray(chatMembers.profileId, jsonEachIn(profileIds))) as Promise<
           { chatId: string; role: string; joinedAt: Date | null }[]
         >,
     );
@@ -99,8 +100,8 @@ const loadC2bMessages = (
     // Single 3-table join replaces the old two-query pair (c2b chat ids for
     // the profiles, then messages by `inArray(messages.chatId, c2bChatIds)`)
     // — the second query's `IN` list was unbounded in parameters, so a
-    // profile in more than ~100 c2b chats failed the export outright. Only
-    // `profileIds` is bound here.
+    // profile in more than ~100 c2b chats failed the export outright.
+    // `profileIds` is bound as one JSON parameter.
     // Read only `body` — never `ciphertext` or `nonce`.
     // isNotNull(body): defence-in-depth — only c2b bodies, never a stray null.
     // groupBy(messages.id), not DISTINCT: the join duplicates a message row
@@ -123,7 +124,9 @@ const loadC2bMessages = (
           .from(messages)
           .innerJoin(chatMembers, eq(chatMembers.chatId, messages.chatId))
           .innerJoin(chats, and(eq(chats.id, messages.chatId), eq(chats.class, "c2b")))
-          .where(and(inArray(chatMembers.profileId, [...profileIds]), isNotNull(messages.body)))
+          .where(
+            and(inArray(chatMembers.profileId, jsonEachIn(profileIds)), isNotNull(messages.body)),
+          )
           .groupBy(messages.id)
           .orderBy(desc(messages.createdAt))
           .limit(MAX_EXPORT_C2B_MESSAGES) as Promise<
@@ -240,10 +243,10 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
           );
           if (!caller) return { error: "Unauthorized" };
 
-          // Bound at the boundary rather than letting D1 fail the export: each
-          // profile id is one bound parameter in the `inArray(...)` clauses
-          // both loaders below build, so an unbounded list risks D1's
-          // ~100-bound-parameter ceiling per query.
+          // Bound at the boundary so one request cannot make the export read
+          // without limit. The loaders bind the whole list as one JSON
+          // parameter, so the cap is not what keeps them under D1's
+          // 100-parameter limit.
           if (body.profile_ids.length > MAX_EXPORT_PROFILE_IDS) {
             set.status = 400;
             return { error: `profile_ids exceeds max of ${MAX_EXPORT_PROFILE_IDS}` };
