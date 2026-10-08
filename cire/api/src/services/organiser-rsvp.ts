@@ -46,7 +46,7 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import type { ConsentSource } from "./rsvp";
-import { rsvpService } from "./rsvp";
+import { PlusOneChanged, rsvpService } from "./rsvp";
 
 /** The guest isn't a `kind='guest'` family member under `weddingId` (missing,
  *  another wedding's guest, or a host-preview family). 404-class. */
@@ -65,12 +65,6 @@ export class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToE
  *  attestation speaks of "the guest", so a tick against it is no evidence the
  *  plus-one consented. 422-class. */
 export class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
-
-/** Dietary data on a plus-one's reply attested for a name the row no longer
- *  carries: the portal showed the box for someone the household has since
- *  renamed. 409-class, so the portal reloads rather than attest for someone
- *  else. */
-export class PlusOneChanged extends Data.TaggedError("PlusOneChanged") {}
 
 /** Dietary data on a guest's reply attested with the plus-one wording, which
  *  speaks of someone else. 422-class. */

@@ -15,6 +15,7 @@ import { hostCodeService } from "../../src/services/host-code";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { jsonBody } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { seedPlusOne } from "../test-helpers/plus-one";
@@ -191,6 +192,53 @@ describe("POST /api/account/link", () => {
     const restored = await restore(`cire_session=${newToken}`);
     expect(restored.status).toBe(200);
     expect(((await jsonBody(restored)) as { member: unknown }).member).toEqual({ guestId });
+  });
+
+  // The OSN check accepts the organiser session cookie first and falls back to
+  // a bearer token; anything else is the plugin's own 401, not the handler's.
+  describe("OSN credentials", () => {
+    const linkWith = async (osn: (db: TestDb) => Promise<{ cookie?: string; bearer?: string }>) => {
+      const { db, app } = buildApp();
+      const guestCookie = await claimCookie(app, SAMPLETON);
+      const { cookie, bearer } = await osn(db);
+      const res = await postLink(app, {
+        cookie: cookie ? `${guestCookie}; ${cookie}` : guestCookie,
+        bearer,
+        guestId: guestIdByName(db, "Bo"),
+      });
+      return { db, res };
+    };
+
+    it("links on a live organiser session cookie alone", async () => {
+      const { db, res } = await linkWith(async (appDb) => ({
+        cookie: `cire_org_session=${await seedOrganiserSession(appDb, "usr_alice")}`,
+      }));
+      expect(res.status).toBe(201);
+      expect(db.select().from(guestAccountLinks).all()[0]?.osnProfileId).toBe("usr_alice");
+    });
+
+    it("falls through a dead organiser cookie to a valid bearer token", async () => {
+      const { db, res } = await linkWith(async () => ({
+        cookie: "cire_org_session=not-a-live-session-token",
+        bearer: await auth.sign("usr_alice"),
+      }));
+      expect(res.status).toBe(201);
+      expect(db.select().from(guestAccountLinks).all()[0]?.osnProfileId).toBe("usr_alice");
+    });
+
+    it("refuses a dead organiser cookie, an expired token and a foreign audience", async () => {
+      for (const osn of [
+        async () => ({ cookie: "cire_org_session=not-a-live-session-token" }),
+        async () => ({ bearer: await auth.sign("usr_alice", { expiresIn: "-120s" }) }),
+        async () => ({ bearer: await auth.sign("usr_alice", { audience: "some-other-aud" }) }),
+      ]) {
+        const { db, res } = await linkWith(osn);
+        expect(res.status).toBe(401);
+        // The plugin's body, so it was the OSN check that refused.
+        expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
+        expect(db.select().from(guestAccountLinks).all()).toEqual([]);
+      }
+    });
   });
 
   it("returns 401 without an OSN token (guest cookie alone is not enough)", async () => {

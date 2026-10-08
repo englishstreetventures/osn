@@ -5,7 +5,7 @@ import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Cause, Effect, Exit } from "effect";
 import { Miniflare } from "miniflare";
 
-import { createD1Db, dbQuery, type Db } from "../../src/db/index";
+import { createD1Db, dbQuery, driverErrorText, type Db } from "../../src/db/index";
 import { runCire } from "../../src/observability";
 import { captureLogs } from "../test-helpers/capture-logs";
 
@@ -46,6 +46,30 @@ describe("DrizzleQueryError, as patched", () => {
   });
 });
 
+describe("driverErrorText", () => {
+  it("reads a message and its causes by shape, from any realm", () => {
+    expect(driverErrorText({ message: "outer", cause: { message: "inner" } })).toBe("outer\ninner");
+    expect(driverErrorText(new Error("a", { cause: new Error("b") }))).toBe("a\nb");
+  });
+
+  it("skips a message that is not text and still reads the cause", () => {
+    expect(driverErrorText({ message: 42, cause: { message: "x" } })).toBe("x");
+  });
+
+  it("ends on a cause chain that loops back on itself", () => {
+    const looped = new Error("again");
+    looped.cause = looped;
+    const text = driverErrorText(looped);
+    expect(text.split("\n").length).toBeLessThanOrEqual(8);
+    expect(text.startsWith("again")).toBe(true);
+  });
+
+  it("reads nothing from a value that is not an error", () => {
+    expect(driverErrorText("NOT NULL constraint failed")).toBe("");
+    expect(driverErrorText(undefined)).toBe("");
+  });
+});
+
 describe("a real D1 failure", () => {
   let mf: Miniflare;
   let db: Db;
@@ -79,6 +103,21 @@ describe("a real D1 failure", () => {
     // The operator still gets the statement and the database's reason.
     expect(String(defect)).toContain("insert into people");
     expect(Cause.pretty(exit.cause)).toContain("UNIQUE constraint failed");
+  });
+
+  it("keeps the database's reason in the cause, where driverErrorText reads it", async () => {
+    // The first write may already have run in the test above; either way the
+    // second one meets the unique index.
+    await Effect.runPromiseExit(insert());
+    const exit = await Effect.runPromiseExit(insert());
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const defect = Cause.squash(exit.cause);
+    // drizzle's own message names only the statement.
+    expect(String(defect)).not.toContain("UNIQUE constraint failed");
+    expect(driverErrorText(defect)).toContain("UNIQUE constraint failed: people.name");
+    expect(driverErrorText(defect)).not.toContain(NAME);
   });
 
   it("logs the failure without the bound name", async () => {
