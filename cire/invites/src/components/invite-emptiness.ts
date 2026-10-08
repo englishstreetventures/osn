@@ -12,7 +12,7 @@
  *
  * These are the single source of truth for which invite segments render on the
  * guest site (InviteHeader hero + story, the packs' FAQ section, InviteClosing,
- * DetailsModal inspiration + dress code). The organiser builder mirrors the
+ * DetailsPanel inspiration + dress code). The organiser builder mirrors the
  * content predicates and the four state functions in
  * `cire/host/src/lib/invite-emptiness.ts`, so its
  * badges always match what a guest actually sees. The switch vocabulary and

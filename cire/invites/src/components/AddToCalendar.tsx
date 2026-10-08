@@ -7,20 +7,15 @@ import type { EventSummary } from "./types";
 interface AddToCalendarProps {
   event: EventSummary;
   siteUrl: string;
-  /**
-   * Visual weight of the trigger. `"outline"` (default) matches the secondary
-   * card buttons; `"primary"` is a filled-gold call-to-action for the details
-   * view, where Add-to-Calendar is the headline action.
-   */
-  variant?: "outline" | "primary";
 }
 
-const TRIGGER_CLASS = {
-  outline:
-    "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink rounded-sm border bg-transparent px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200",
-  primary:
-    "border-gold bg-gold text-bg font-body hover:bg-transparent hover:text-gold-ink inline-flex items-center gap-2 rounded-sm border px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200",
-} satisfies Record<NonNullable<AddToCalendarProps["variant"]>, string>;
+/**
+ * The trigger: an outlined secondary button, like the card's quieter action.
+ * In the details panel it sits beside "RSVP for this event", the call to
+ * action, so it matches that button's 44px height to share its row evenly.
+ */
+const TRIGGER_CLASS =
+  "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink inline-flex min-h-11 items-center rounded-sm border bg-transparent px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200";
 
 interface PopoverPosition {
   top: number;
@@ -197,28 +192,12 @@ export function AddToCalendar(props: AddToCalendarProps) {
       <button
         ref={buttonRef}
         type="button"
-        class={TRIGGER_CLASS[props.variant ?? "outline"]}
+        class={TRIGGER_CLASS}
         aria-haspopup="menu"
         aria-expanded={open()}
         aria-controls={popoverId}
         onClick={toggle}
       >
-        <Show when={props.variant === "primary"}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
-        </Show>
         Add to Calendar
       </button>
       <Show when={open()}>

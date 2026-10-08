@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-07
+last-reviewed: 2026-10-08
 ---
 
 # Component Library (Zaidan)
@@ -443,6 +443,10 @@ So `Modal` sets `data-closing`, lets its own stylesheet run the exit, and calls
 `getAnimations({ subtree: true })` rather than a named transition, so an app
 animating the panel with Motion One or the Web Animations API is waited out the
 same way — the hook is animation-library-agnostic without naming a library.
+It leaves out endless animations: a loading spinner inside the dialog loops
+until whatever it waits on arrives, its `finished` never settles, and waiting
+on it would hold the dialog invisible but still modal, with the page behind it
+inert.
 
 Timing is two custom properties, so an app retimes rather than restyles:
 

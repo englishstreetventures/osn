@@ -15,14 +15,13 @@ import {
   type Accessor,
 } from "solid-js";
 
-import { AnimatedModal } from "./AnimatedModal";
 import { isPlusOne } from "./plus-one";
 import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 import { formatNames, isValidRsvpSaveResponse } from "./utils";
 
-interface RsvpModalProps {
+export interface RsvpPanelProps {
   event: EventSummary;
   members: ReadonlyArray<FamilyMember>;
   existingRsvps?: ReadonlyArray<RsvpSummary>;
@@ -38,20 +37,31 @@ interface RsvpModalProps {
    * The wedding's RSVP deadline has passed — the sheet becomes a read-only view
    * of whatever this household already answered: every control is disabled and
    * the submit button is gone, so there is nothing to send. The events section
-   * disables "Respond" too, so this normally can't be opened; it exists because
-   * the deadline can pass with the sheet ALREADY open, and because the server
-   * would refuse the write anyway (403 `rsvp_closed`).
+   * disables "Respond" and the details panel offers no way here once it has
+   * passed, so this normally can't be opened; it exists because the deadline
+   * can pass with the sheet ALREADY open, and because the server would refuse
+   * the write anyway (403 `rsvp_closed`).
    */
   closed?: boolean;
   /** The deadline day in words, for the closed banner ("RSVPs closed on …"). */
   closedOn?: string;
-  /**
-   * "Details"-section tone map (`sectionVars(theme, "details")`) so the
-   * RSVP sheet follows the events section it belongs to — see
-   * AnimatedModal.themeVars.
-   */
-  themeVars?: Record<string, string>;
+  /** Closes the whole sheet: Cancel, and the end of the saved dwell. */
   onClose: () => void;
+  /**
+   * Whether this panel is the one on screen. Default true. `EventSheet` keeps a
+   * panel mounted, hidden, after the guest moves to the other one; a hidden
+   * panel must not take focus for itself (see the deadline focus rescue).
+   */
+  active?: boolean;
+  /** `id` for the heading, which names the sheet while this panel shows. */
+  titleId?: string;
+  /** Receives the heading, which takes focus when the guest switches here. */
+  headingRef?: (el: HTMLHeadingElement) => void;
+  /**
+   * Moves the sheet to the event's details. Absent ⇒ no "View event details"
+   * button (a panel rendered on its own).
+   */
+  onShowDetails?: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
    * Fired as this sheet closes itself after the save that CROSSES INTO a
@@ -188,22 +198,30 @@ interface MemberState {
   hadConsent: boolean;
 }
 
-export function RsvpModal(props: RsvpModalProps) {
+/**
+ * The RSVP form for one event: a fieldset per invited member, the dietary
+ * consent boxes, and a sticky Cancel / Save bar. One of `EventSheet`'s two
+ * panels; the sheet supplies the dialog, its theme and its close.
+ */
+export function RsvpPanel(props: RsvpPanelProps) {
   const eventMembers = createMemo(() =>
     props.members.filter((m) => m.eventIds.includes(props.event.id)),
   );
 
   /**
-   * The household's rows as they stood when this sheet opened, captured ONCE.
+   * The household's rows as they stood when this panel mounted, captured ONCE.
+   *
+   * The panel mounts the first time its sheet shows it — as the sheet opens, or
+   * at the guest's first move over from the details — and stays mounted until
+   * the sheet closes, so this is one snapshot per visit to the sheet.
    *
    * Both the per-member prefill (`initialResponses`) and the celebration gate
    * (`handleSubmit`'s `wasComplete`) read from this rather than from the live
-   * prop, so the two are provably the same data. Reading the live prop at submit
-   * time was safe only by way of three unrelated invariants — the confirmed
-   * state being terminal, `AnimatedModal`'s focus trap keeping the cards behind
-   * the backdrop unreachable, and the parent's `<Show when={rsvpEvent()}>` being
-   * unkeyed so an event swap remounts rather than reuses this instance. A
-   * snapshot is cheaper than that reasoning and cannot drift from the prefill.
+   * prop, so the two are provably the same data. Reading the live prop at
+   * submit time would rest on unrelated guarantees — the confirmed state being
+   * terminal, the modal sheet keeping the cards behind it unreachable, and the
+   * page mounting a fresh sheet for every open. A snapshot is cheaper than that
+   * reasoning and cannot drift from the prefill.
    */
   const priorRsvps = props.existingRsvps ?? [];
 
@@ -279,7 +297,7 @@ export function RsvpModal(props: RsvpModalProps) {
   // Terminal success state: the reply is recorded, the Save button is filling
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
   const [saved, setSaved] = createSignal(false);
-  const titleId = createUniqueId();
+  const titleId = props.titleId ?? createUniqueId();
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
   // setError / setLoading writes from landing on a disposed instance.
@@ -376,13 +394,17 @@ export function RsvpModal(props: RsvpModalProps) {
   // condition worth fixing. Focus resting on any real element means the guest
   // is somewhere deliberate and we leave them there. The closed banner is
   // `role="status"`, so the change itself is announced either way.
+  //
+  // Only while this panel is the one on screen. Hidden behind the details
+  // panel, it holds no focus to lose, and a rescue here would pull focus into
+  // a panel the guest cannot see.
   let dismissRef: HTMLButtonElement | undefined;
   let wasClosed = props.closed ?? false;
   createEffect(() => {
     const nowClosed = props.closed ?? false;
     const justClosed = nowClosed && !wasClosed;
     wasClosed = nowClosed;
-    if (!justClosed || !dismissRef) return;
+    if (!justClosed || !dismissRef || props.active === false) return;
     const active = document.activeElement;
     if (!active || active === document.body) dismissRef.focus();
   });
@@ -619,27 +641,51 @@ export function RsvpModal(props: RsvpModalProps) {
     }
   }
 
+  // The action bar at the foot of the form is a full-bleed sticky footer that
+  // owns the sheet's bottom edge (and its safe-area padding), so the sheet
+  // drops its own bottom padding while this panel shows (`EventSheet`'s
+  // `flushBottom`).
   return (
-    <AnimatedModal
-      onClose={props.onClose}
-      labelledBy={titleId}
-      themeVars={props.themeVars}
-      // The action bar below is a full-bleed sticky footer that owns the
-      // sheet's bottom edge (and its safe-area padding), so the panel must not
-      // add its own bottom padding underneath it.
-      flushBottom
-    >
-      <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">Respond</p>
-      <h3
-        id={titleId}
-        class="font-display text-text text-ui-xl font-light italic"
+    <>
+      <header
         classList={{
           "mb-6": !props.preview && !props.closed,
           "mb-3": props.preview || props.closed,
         }}
       >
-        {props.event.name}
-      </h3>
+        {/* The eyebrow is part of the heading, not a paragraph above it. The
+            sheet moves focus here when the guest switches panels, and both
+            panels' titles are the event's name — so "Respond" is what tells a
+            screen-reader user which panel they have arrived on. The comma is
+            for the ear only. */}
+        <h3
+          id={titleId}
+          ref={(el) => props.headingRef?.(el)}
+          tabindex="-1"
+          class="font-display text-text text-ui-xl font-light italic"
+        >
+          <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
+            Respond
+            <span class="sr-only">,</span>
+          </span>{" "}
+          {props.event.name}
+        </h3>
+        <Show when={props.onShowDetails}>
+          {(showDetails) => (
+            // Not while a save is in flight or the sheet is already closing
+            // itself on a saved reply: there is nothing to come back to.
+            <Button
+              variant="touchLink"
+              class="mt-1 min-h-11"
+              onClick={() => showDetails()()}
+              disabled={loading() || saved()}
+            >
+              <span aria-hidden="true">←</span>
+              View event details
+            </Button>
+          )}
+        </Show>
+      </header>
 
       <Show when={props.closed}>
         <p
@@ -878,7 +924,7 @@ export function RsvpModal(props: RsvpModalProps) {
           </p>
         </Show>
 
-        {/* Sits flush on the sheet's bottom edge — the panel drops its own
+        {/* Sits flush on the sheet's bottom edge — the sheet drops its own
             bottom padding (`flushBottom`) rather than this bar cancelling it
             with a negative margin: `bottom: 0` resolves against the scrollport,
             so a negative bottom margin lifts the bar up over the last card
@@ -953,6 +999,6 @@ export function RsvpModal(props: RsvpModalProps) {
           </Show>
         </div>
       </form>
-    </AnimatedModal>
+    </>
   );
 }

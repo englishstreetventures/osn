@@ -2,7 +2,7 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../src/styles/global.css";
-import { RsvpModal } from "../../src/components/RsvpModal";
+import { EventSheet } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /**
@@ -19,7 +19,7 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
  *   > invisible to the test tier (jsdom/happy-dom compute no layout), so pin the
  *   > class contract in tests and measure the real thing in a browser.
  *
- * `RsvpModal.test.tsx` does the first half — it pins `pb-0`, `-mx-6`, `px-6`,
+ * `RsvpPanel.test.tsx` does the first half — it pins `pb-0`, `-mx-6`, `px-6`,
  * `sticky`, and the absence of any `-mb-*`. This is the second half. The class
  * contract cannot catch a regression that arrives through `AnimatedModal`
  * (dropping `flushBottom`, or making the panel a scroll container), through a
@@ -70,7 +70,14 @@ const members: FamilyMember[] = Array.from({ length: 12 }, (_, i) => ({
  */
 async function open() {
   const view = render(() => (
-    <RsvpModal event={event} members={members} apiUrl="https://api.test" onClose={() => {}} />
+    <EventSheet
+      panel="rsvp"
+      siteUrl="https://invite.test/w"
+      event={event}
+      members={members}
+      apiUrl="https://api.test"
+      onClose={() => {}}
+    />
   ));
   const panel = document.querySelector("dialog") as HTMLElement;
   await new Promise(requestAnimationFrame);

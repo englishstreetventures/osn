@@ -188,6 +188,17 @@ describe("AnimatedModal", () => {
     expect(scroller.className).toContain("scroll-pt-14");
   });
 
+  it("hands the scroll container to scrollRef", () => {
+    let received: HTMLDivElement | undefined;
+    const { getByRole } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details" scrollRef={(el) => (received = el)}>
+        <p>body</p>
+      </AnimatedModal>
+    ));
+
+    expect(received).toBe(scrollerOf(getByRole("dialog")));
+  });
+
   it("keeps its own bottom padding by default, and drops it for flushBottom", () => {
     const { getByRole, unmount } = render(() => (
       <AnimatedModal onClose={() => {}} label="Default">

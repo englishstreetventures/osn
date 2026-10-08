@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
-import { RsvpModal } from "../../src/components/RsvpModal";
+import { EventSheet } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
 
 /*
@@ -57,7 +57,9 @@ afterEach(async () => {
 
 function mount(existingRsvps?: readonly RsvpSummary[]) {
   const utils = render(() => (
-    <RsvpModal
+    <EventSheet
+      panel="rsvp"
+      siteUrl="https://invite.test/w"
       event={event}
       members={[priya]}
       existingRsvps={existingRsvps}

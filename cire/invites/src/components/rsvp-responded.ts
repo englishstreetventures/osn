@@ -4,14 +4,14 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 /**
  * True once every member of the household invited to this event has an RSVP
  * row on file for it. RSVP submission is no longer atomic per event —
- * `RsvpModal` lets a household save with only SOME visible members answered,
+ * `RsvpPanel` lets a household save with only SOME visible members answered,
  * sending just that subset — so this is the check that has to run the full
  * `.every(...)` walk rather than trusting any one row to stand in for the
  * whole party.
  *
  * This is the source of the PERMANENT mark on Respond: `EventCard` seeds its
  * `confirmed` state from this at mount and re-syncs whenever it becomes true
- * (once the sheet is no longer covering the button). `RsvpModal` computes the
+ * (once the sheet is no longer covering the button). `RsvpPanel` computes the
  * equivalent fact for itself (`handleSubmit`'s `nowComplete` — every visible member's LOCAL form state is non-null,
  * counting a prior reply prefilled by `initialResponses` as answered) rather
  * than calling this function, since it needs the answer synchronously from
@@ -46,7 +46,7 @@ export function hasHouseholdResponded(
  * closes itself over it. Moving it here puts the confirmation on the control
  * that is still on screen afterwards).
  *
- * The cue that starts it (`RsvpModal`'s `onConfirmed`) fires as the sheet
+ * The cue that starts it (`RsvpPanel`'s `onConfirmed`) fires as the sheet
  * closes, not when the reply is recorded — the two are one dwell apart
  * (`savedDwellMs`), and this whole choreography outlasts that dwell. Started at
  * record-time it would play its first few hundred ms under a sheet that is

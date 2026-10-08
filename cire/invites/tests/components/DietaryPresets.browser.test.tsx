@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
-import { RsvpModal } from "../../src/components/RsvpModal";
+import { EventSheet } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /*
@@ -22,7 +22,7 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
  * Modal, whose dialog is `overflow-clip`. `@shared/ui`'s popover mounts its
  * panel into the open dialog — which is what clears the top layer a
  * `showModal()` dialog occupies — and inside a `frame` dialog that puts it in
- * the clip instead. `RsvpModal` therefore imports `@cire/ui/dietary-presets`,
+ * the clip instead. `RsvpPanel` therefore imports `@cire/ui/dietary-presets`,
  * the entry point with no popover in it, rather than the popover shell the host
  * portal uses. This is where that is checked against a real viewport rather than
  * a stubbed `matchMedia`.
@@ -103,7 +103,14 @@ afterEach(async () => {
  */
 function openAttending(members: readonly FamilyMember[] = [priya]) {
   const utils = render(() => (
-    <RsvpModal event={event} members={members} apiUrl="https://api.test" onClose={() => {}} />
+    <EventSheet
+      panel="rsvp"
+      siteUrl="https://invite.test/w"
+      event={event}
+      members={members}
+      apiUrl="https://api.test"
+      onClose={() => {}}
+    />
   ));
   const fieldset = screen.getByRole("group", { name: /priya sharma/i }) as HTMLElement;
   fireEvent.click(within(fieldset).getByText("Attending"));
@@ -223,7 +230,9 @@ describe("a stored key this build does not know", () => {
     it(`is reachable at the end of the track and unticks in place, on ${name}`, async () => {
       await page.viewport(...size);
       render(() => (
-        <RsvpModal
+        <EventSheet
+          panel="rsvp"
+          siteUrl="https://invite.test/w"
           event={event}
           members={[priya]}
           existingRsvps={[

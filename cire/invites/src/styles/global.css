@@ -520,6 +520,18 @@
   --animate-scroll-cue:
     scroll-cue-in 600ms ease-out 1s backwards, scroll-cue-drift 2s ease-in-out 1.6s 2;
 
+  /* An event sheet's panel arriving (`components/EventSheet`): it fades in
+     while sliding the last 1.5rem from the side it lives on — the details from
+     the start, the RSVP form from the end, the order of their buttons on the
+     card. Same curve as the sheet's own entry. `EventSheet` reads the computed
+     duration and curve back to resize the sheet in step, so these two values
+     are the only place the timing is written.
+
+     Reduced motion needs no special case: the global clamp plays it out in
+     0.01ms, and the resize reads that clamped duration too. */
+  --animate-panel-from-start: panel-from-start 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-panel-from-end: panel-from-end 280ms cubic-bezier(0.22, 1, 0.36, 1);
+
   /* Content caps, in real pixels rather than on the spacing scale.
      This app steps its root font-size 16px → 17px at 1024px (the `@media`
      block further down), so every rem grows at once on desktop. A cap written
@@ -567,6 +579,28 @@
   }
   50% {
     transform: translateY(6px);
+  }
+}
+
+@keyframes panel-from-start {
+  from {
+    opacity: 0;
+    transform: translateX(-1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes panel-from-end {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

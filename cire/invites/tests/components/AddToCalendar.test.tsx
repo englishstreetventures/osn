@@ -161,15 +161,15 @@ describe("AddToCalendar", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(created);
   });
 
-  it("renders a filled primary trigger when variant is primary", () => {
-    const { getByRole } = render(() => (
-      <AddToCalendar event={baseEvent} siteUrl={SITE_URL} variant="primary" />
-    ));
+  it("draws an outlined trigger, never a filled one, at the RSVP button's height", () => {
+    // It sits beside "RSVP for this event" in the details panel. A fill here
+    // would make the calendar the thing to do, and the shorter box would sit
+    // unevenly in the row beside that button's 44px.
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });
-    // The primary variant fills with the gold token; the outline variant is
-    // transparent. Asserting the class keeps the two visually distinct.
-    expect(button.className).toContain("bg-gold");
-    // Still behaves as a menu trigger regardless of variant.
+    expect(button.className).toContain("bg-transparent");
+    expect(button.className).not.toContain("bg-gold");
+    expect(button.className.split(/\s+/)).toContain("min-h-11");
     expect(button.getAttribute("aria-haspopup")).toBe("menu");
   });
 });

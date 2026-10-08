@@ -6,7 +6,8 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
   - "[[cire-budget]]"
-last-reviewed: 2026-09-27
+  - "[[cire-invite-designs]]"
+last-reviewed: 2026-10-08
 ---
 # RSVP deadline
 
@@ -135,7 +136,7 @@ One verdict drives **four** surfaces, in both the `classic` and `gala` designs:
 
    `RsvpDeadlineNotice` (`cire/invites/src/components/RsvpDeadlineNotice.tsx`) owns the state-to-treatment mapping for all four call sites, so the packs cannot drift on which state looks like what. **Placement is still each pack's own** — spacing and alignment are passed in, and each pack's tests pin its own.
 3. **Each card's Respond button** — relabelled "RSVPs closed" and marked `aria-disabled`. Relabelled rather than removed: a vanished button reads as a broken invite. **`aria-disabled`, not the native `disabled`** (C-M2): the native attribute takes the control out of the tab order, which would make the one per-card explanation of why the action is gone unreachable by keyboard, and would drop focus to `<body>` if the deadline passed while it was focused. The click handler enforces it, and `aria-describedby` points at the notice above via the shared `RSVP_NOTICE_ID`. Losing the native attribute also loses WCAG 1.4.3's inactive-component exemption, so the closed state reuses the **outlined** treatment already shipped beside it rather than dimming the filled button. *Event Details stays open* — only the answer locks.
-4. **The RSVP sheet** — read-only: every control disabled, no submit button at all, the dismiss button says "Close". Normally unreachable (Respond can't be activated), but reachable if the deadline passes with the sheet already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button *when nothing else holds it* (C-L2).
+4. **The event sheet** ([[cire-invite-designs#The event sheet]]) — its RSVP form goes read-only: every control disabled, no submit button at all, the dismiss button says "Close". Normally unreachable: Respond can't be activated, and the details panel offers no way in — in place of its "RSVP for this event" button it says "RSVPs closed on …", in a live region present from the start. Reachable only if the deadline passes with the form already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button *when nothing else holds it* (C-L2). The details panel does the same for its own button, moving focus to its heading. Each rescue acts only in the panel on screen: the other one is kept mounted but hidden, and focus moved into it would be invisible.
 
 The dates render in the **wedding's** zone, so a guest abroad sees the date the couple wrote, not the one their own clock rolls it to.
 
@@ -187,4 +188,4 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 | Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
 | Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
 | Organiser UI | `cire/host/src/components/SettingsPanel.tsx` |
-| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `PlusOnePrompt.tsx`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `PlusOnePrompt.tsx`, `EventCard.tsx`, `EventSheet.tsx`, `RsvpPanel.tsx`, `DetailsPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

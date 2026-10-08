@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-08
 ---
 # Turnstile bot protection
 
@@ -41,7 +41,7 @@ successful `/api/claim`, which mints the `cire_session` cookie behind the
 Turnstile gate above — so the unauthenticated bot surface is already covered at
 claim. A second challenge on every RSVP added friction alone (it put an
 interactive widget in the middle of the flow), so `app.ts` wires `createRsvpRoutes(db)` with **no
-verifier** and `RsvpModal` renders no widget. The `rsvp.ts` route keeps the
+verifier** and `RsvpPanel` renders no widget. The `rsvp.ts` route keeps the
 key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
 ever appears. Removed in the RSVP-friction fix (2026-06-19).
 

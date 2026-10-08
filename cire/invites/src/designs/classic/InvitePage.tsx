@@ -15,6 +15,7 @@ import {
 import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
+import type { EventPanel } from "../../components/EventSheet";
 import { faqEntries } from "../../components/faq-entries";
 import { memberRequired } from "../../components/household-member";
 import { faqState } from "../../components/invite-emptiness";
@@ -46,16 +47,13 @@ import { Z_CLASS } from "../../lib/z-index";
 // preloaded hero image (the LCP element) on exactly the phones that made this a
 // bug. `lazy` moves them to their own chunk, and `onMount` warms that chunk at
 // idle (see the prefetch below) so the split never costs the guest a wait at
-// the moment a modal opens.
+// the moment the event sheet opens.
 //
 // `.then` adapters because `lazy` wants a default export and these are all
 // named. Declared at module scope, not inside the component, so the promise —
 // and therefore the chunk — is shared across every render.
-const RsvpModal = lazy(() =>
-  import("../../components/RsvpModal").then((m) => ({ default: m.RsvpModal })),
-);
-const DetailsModal = lazy(() =>
-  import("../../components/DetailsModal").then((m) => ({ default: m.DetailsModal })),
+const EventSheet = lazy(() =>
+  import("../../components/EventSheet").then((m) => ({ default: m.EventSheet })),
 );
 const EventCard = lazy(() =>
   import("../../components/EventCard").then((m) => ({ default: m.EventCard })),
@@ -112,8 +110,10 @@ interface InvitePageProps {
 
 export default function InvitePage(props: InvitePageProps) {
   const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null);
-  const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null);
-  const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(null);
+  // The event whose sheet is open, and the panel it opened on: the one whose
+  // button the guest pressed. Cleared on every close, so each open starts on
+  // the pressed button's panel and nothing from an earlier visit carries over.
+  const [sheet, setSheet] = createSignal<{ event: EventSummary; panel: EventPanel } | null>(null);
   // Which event's Respond button should play the recorded-reply confirmation
   // right now (see `EventCard`'s `justResponded`/`onCelebrated` and
   // `rsvp-responded.ts`). Reset to null once that card reports the
@@ -150,8 +150,7 @@ export default function InvitePage(props: InvitePageProps) {
   onMount(() => {
     const cancels = [
       prefetchOnIdle(() => import("./UnlockReveal.motion")),
-      prefetchOnIdle(() => RsvpModal.preload()),
-      prefetchOnIdle(() => DetailsModal.preload()),
+      prefetchOnIdle(() => EventSheet.preload()),
       prefetchOnIdle(() => EventCard.preload()),
     ];
     onCleanup(() => cancels.forEach((cancel) => cancel()));
@@ -210,7 +209,7 @@ export default function InvitePage(props: InvitePageProps) {
   // from the palette applied at the document root, so every descendant — event
   // cards, buttons, hover/focus states, modal contents — already resolves the
   // organiser's scheme; a section only chooses its background.
-  // Memoised: each map has several consumers (section wrapper + both modals),
+  // Memoised: each map has several consumers (section wrapper + the event sheet),
   // so compute once per theme change and share a stable object identity.
   const detailsVars = createMemo(() => sectionVars(liveInvite().theme, "details"));
   const welcomeVars = createMemo(() => sectionVars(liveInvite().theme, "welcome"));
@@ -425,10 +424,10 @@ export default function InvitePage(props: InvitePageProps) {
                           // card holds its mark back until the sheet is gone — otherwise
                           // the fill would sweep in behind the sheet, where nobody can
                           // see it. See `EventCard`'s `covered`.
-                          covered={rsvpEvent()?.id === event.id}
+                          covered={sheet()?.event.id === event.id}
                           onCelebrated={() => setJustRespondedEventId(null)}
-                          onRespond={setRsvpEvent}
-                          onDetails={setDetailsEvent}
+                          onRespond={(e) => setSheet({ event: e, panel: "rsvp" })}
+                          onDetails={(e) => setSheet({ event: e, panel: "details" })}
                         />
                       </div>
                     )}
@@ -491,26 +490,31 @@ export default function InvitePage(props: InvitePageProps) {
         )}
       </Show>
 
-      <Show when={rsvpEvent()}>
-        {(event) => (
+      {/* The event sheet: the details and the RSVP form as two panels of one
+          dialog, opened on the panel whose button was pressed. */}
+      <Show when={sheet()} keyed>
+        {(open) => (
           <Suspense fallback={null}>
-            <RsvpModal
-              event={event()}
+            <EventSheet
+              event={open.event}
+              panel={open.panel}
+              siteUrl={siteUrl()}
               members={claimResult()!.members}
               existingRsvps={claimResult()!.rsvps}
               apiUrl={props.apiUrl}
               // Host preview keeps the RSVP interactive but makes submit a no-op.
               preview={claimResult()!.preview}
-              // Past the deadline the sheet is a read-only view of the reply
-              // already on file — normally unreachable (Respond is disabled), but
-              // the deadline can pass with the sheet open.
+              // Past the deadline the RSVP panel is a read-only view of the reply
+              // already on file, and the details offer no way into it — normally
+              // unreachable (Respond is disabled), but the deadline can pass with
+              // the sheet open.
               closed={rsvpClosed()}
               closedOn={rsvpDeadline() ? formatDeadlineDay(rsvpDeadline()!) : undefined}
-              // The RSVP dialog is the events section's expanded surface — it
-              // follows the "details" theme (the modal renders outside the themed
+              // The sheet is the events section's expanded surface — it follows
+              // the "details" theme (the modal renders outside the themed
               // section wrapper, so the vars must be re-applied on its panel).
               themeVars={detailsVars()}
-              onClose={() => setRsvpEvent(null)}
+              onClose={() => setSheet(null)}
               onSubmitted={(updated: RsvpSummary[]) => {
                 const current = claimResult();
                 if (!current) return;
@@ -518,7 +522,7 @@ export default function InvitePage(props: InvitePageProps) {
               }}
               // Fires for the preview no-op too, which never touches
               // `claimResult` — see `respondedEventIds`'s comment.
-              onConfirmed={() => setJustRespondedEventId(event().id)}
+              onConfirmed={() => setJustRespondedEventId(open.event.id)}
               // Save waits until the household says who is answering.
               memberRequired={memberRequired(claimResult())}
               // The write asked for a member the payload did not: show the
@@ -527,21 +531,6 @@ export default function InvitePage(props: InvitePageProps) {
                 const current = claimResult();
                 if (current) setClaimResult({ ...current, member: null });
               }}
-            />
-          </Suspense>
-        )}
-      </Show>
-
-      <Show when={detailsEvent()}>
-        {(event) => (
-          <Suspense fallback={null}>
-            <DetailsModal
-              event={event()}
-              siteUrl={siteUrl()}
-              // Same reasoning as RsvpModal — the event-details sheet follows the
-              // "details" section theme.
-              themeVars={detailsVars()}
-              onClose={() => setDetailsEvent(null)}
             />
           </Suspense>
         )}

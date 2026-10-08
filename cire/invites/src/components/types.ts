@@ -186,7 +186,7 @@ export interface ClaimResult {
   familyName: string;
   /**
    * True for the organiser host preview session. The RSVP stays interactive but
-   * submit is a no-op (nothing is saved) — see RsvpModal's `preview` prop.
+   * submit is a no-op (nothing is saved) — see RsvpPanel's `preview` prop.
    */
   preview?: boolean;
   members: FamilyMember[];
