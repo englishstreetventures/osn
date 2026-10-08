@@ -172,6 +172,11 @@ function lint(configPath: string, cwd: string, target: string): Diagnostic[] {
   return parsed.diagnostics ?? [];
 }
 
+/** The diagnostic for the fixture file called exactly `name`. */
+function forFile(diagnostics: Diagnostic[], name: string): Diagnostic | undefined {
+  return diagnostics.find((d) => d.filename.split("/").at(-1) === name);
+}
+
 /** The fixture file names the rule reported, deduplicated and sorted. */
 function reportedFiles(diagnostics: Diagnostic[]): string[] {
   return [...new Set(diagnostics.map((d) => d.filename.split("/").at(-1) ?? ""))].toSorted();
@@ -226,16 +231,16 @@ describe("house/no-unbounded-in-array", () => {
   });
 
   it("names the function and the list, and points at jsonEachIn", () => {
-    const message = diagnostics.find((d) => d.filename.endsWith("variable.ts"))?.message;
+    const message = forFile(diagnostics, "variable.ts")?.message;
     expect(message).toContain("`inArray`");
     expect(message).toContain("`familyIds`");
     expect(message).toContain("jsonEachIn(familyIds)");
-    const notIn = diagnostics.find((d) => d.filename.endsWith("not-in-array.ts"))?.message;
+    const notIn = forFile(diagnostics, "not-in-array.ts")?.message;
     expect(notIn).toContain("`notInArray`");
   });
 
   it("reports on the list argument, so a directive goes on the line above the list", () => {
-    const hit = diagnostics.find((d) => d.filename.endsWith("multi-line.ts"));
+    const hit = forFile(diagnostics, "multi-line.ts");
     const listLine = fixtures["multi-line.ts"].split("\n").findIndex((l) => l.trim() === "ids,");
     expect(hit?.labels[0]?.span.line).toBe(listLine + 1);
   });

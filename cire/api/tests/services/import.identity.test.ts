@@ -569,8 +569,9 @@ describe("diffAgainstDb — a re-import carrying many claim codes", () => {
     // may hold thousands of households, and D1 refuses a statement over 100
     // parameters.
     const { db, layer } = freshDb();
-    const desired: ParsedFamily[] = Array.from({ length: 150 }, (_, i) => ({
-      publicId: `CARRY-${String(i).padStart(4, "0")}`,
+    const codes = Array.from({ length: 150 }, (_, i) => `CARRY-${String(i).padStart(4, "0")}`);
+    const desired: ParsedFamily[] = codes.map((publicId, i) => ({
+      publicId,
       familyName: `Household ${i}`,
       guests: [guest(`Guest${i}`, "Carried")],
     }));
@@ -580,7 +581,7 @@ describe("diffAgainstDb — a re-import carrying many claim codes", () => {
       diffAgainstDb([{ ...CEREMONY }], desired, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
     );
 
-    expect(plan.familyCreates.map((f) => f.publicId)).toEqual(desired.map((f) => f.publicId));
+    expect(plan.familyCreates.map((f) => f.publicId)).toEqual(codes);
     const reads = statements.filter((s) => s.sql.includes('"families"."public_id" in ('));
     expect(reads).toHaveLength(1);
     expect(boundParameterCount(reads[0]!.sql)).toBe(1);
