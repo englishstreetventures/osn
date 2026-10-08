@@ -245,6 +245,11 @@ describe("paying", () => {
     expect(String(toastInfo.mock.calls[0]?.[0])).toMatch(/still being confirmed/i);
     expect(navigateTo).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
+    // Closed first: a modal makes the page behind it inert, toaster included,
+    // so a toast raised while it is open is painted and never announced.
+    expect(PROPS.onClose.mock.invocationCallOrder[0]).toBeLessThan(
+      toastInfo.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("reports an ordinary failure without leaving the page", async () => {
@@ -254,10 +259,26 @@ describe("paying", () => {
     );
 
     fireEvent.click(button);
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    // Said inside the dialog: the dialog stays open, and the page behind it,
+    // toaster included, is inert while it does.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not start checkout/i);
+    expect(toastError).not.toHaveBeenCalled();
     expect(navigateTo).not.toHaveBeenCalled();
     // Still offering the button: a 502 is Stripe's problem and may pass.
     expect(screen.getByRole("button", { name: /continue to payment/i })).toBeEnabled();
+  });
+
+  it("clears the failure when the organiser tries again", async () => {
+    const button = await opened();
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "payment_provider_unavailable" }), { status: 502 }),
+    );
+    fireEvent.click(button);
+    await screen.findByRole("alert");
+
+    authFetch.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: /continue to payment/i }));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("bounces to sign-in on an expired session", async () => {

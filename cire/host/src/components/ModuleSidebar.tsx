@@ -1,13 +1,14 @@
 import Button from "@cire/ui/button";
 import { Dialog } from "@kobalte/core/dialog";
-import { HoverCard } from "@kobalte/core/hover-card";
+import { Popover } from "@kobalte/core/popover";
 import Menu from "lucide-solid/icons/menu";
-import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, Show, untrack } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/locked-exports";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
+import { createPointerDwell } from "../lib/pointer-dwell";
 import { createSlidingPill } from "../lib/sliding-pill";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
 import LockedExport from "./LockedExport";
@@ -52,35 +53,50 @@ const railActive = "text-gold-ink";
  */
 const rowLocked = "text-text-faint cursor-default";
 
-/** How long a pointer has to rest on a locked row before its upgrade popover
- *  opens. Kobalte's own default is 700ms, which is short enough to fire while
- *  the pointer is merely crossing the rail. */
+/** How long a pointer has to rest on a locked row before its card opens. Long
+ *  enough that a pointer merely crossing the rail opens nothing. */
 const DWELL_MS = 3000;
+
+/** How long a pointer may be off both a previewed card and its row before the
+ *  card closes — Kobalte's own hover-card default, long enough to cross the
+ *  8px gutter between them. */
+const LEAVE_MS = 300;
+
+/** What Tab stops on inside a card, in document order. */
+const CARD_CONTROLS = "button:not(:disabled), a[href]";
 
 /**
  * A nav row for a module this wedding's tier does not include.
  *
  * The row itself looks like every other row and carries the same content; what
  * changes is that it navigates nowhere, reads as locked to assistive tech, and
- * opens a popover naming the tier that includes it and offering the upgrade.
+ * opens a card naming the tier that includes it and offering the upgrade.
  *
- * Three ways in, because no one of them covers every surface:
+ * Two ways in:
  *
- * - A pointer resting on it for {@link DWELL_MS}, which is Kobalte's own
- *   `openDelay`.
- * - Keyboard focus held for the same delay (Kobalte's trigger treats focus and
- *   pointer-enter alike).
- * - A click or a tap, which is the only path a touch user has — Kobalte's
- *   trigger ignores touch pointers outright, so a hover-only row would be
- *   silently dead on the phone surface. That is also what makes the row a
- *   no-op rather than an unresponsive control: the click opens the offer
- *   instead of opening the module. It toggles, because a touch user has no
- *   pointer-leave to close the card with and tapping the row again is the
- *   obvious way out.
+ * - **A press** — a click, a tap, Enter or Space. This is the row's action: it
+ *   opens the offer instead of the module, and focus moves into the card, onto
+ *   "Upgrade to …". Escape closes it and puts focus back on the row; a click
+ *   outside closes it. Pressing the row again closes it too, which is the
+ *   obvious way out for a touch user, who has no pointer to move away.
+ * - **A pointer resting on the row** for {@link DWELL_MS}, on the rail only.
+ *   That card is a preview: it takes no focus, and it closes once the pointer
+ *   has been off the row and the card for {@link LEAVE_MS}. The moment focus
+ *   goes into it, it is a card someone is using, and the pointer leaving no
+ *   longer closes it. The sheet has no dwell: it is the phone's surface, and an
+ *   open card stands down the sheet's focus trap, so a preview opened under a
+ *   keyboard user would hand them a way out of the modal.
+ *
+ * The card is portalled, so in the document it sits at the end of `<body>`,
+ * nowhere near its row. Two key handlers put it back in the tab order straight
+ * after the row: Tab on the open row goes into the card, Shift+Tab on the
+ * card's first control comes back to the row, and Tab on its last control goes
+ * to the row and lets the browser's own Tab carry on from there, to the next
+ * row. That last step relies on a locked row never being the nav's last row —
+ * Guests, Invite and Settings end `MODULE_NAV` and no tier locks them.
  *
  * The lock, and the tier that lifts it, are announced in the accessible name,
- * not only in the popover, so a screen-reader user hears both while tabbing
- * rather than having to dwell.
+ * not only in the card, so a screen-reader user hears both while tabbing.
  *
  * For an owner, the Budget, Checklist and Registry cards also offer the rows
  * the wedding holds there, as a CSV download ({@link LockedExport}).
@@ -89,9 +105,11 @@ function LockedRow(props: {
   mod: ModuleDef;
   rowClass: string;
   placement: "right-start" | "bottom-start";
-  /** Opens the upgrade dialog. Lifted to the sidebar so there is ONE dialog
-   *  rather than one per locked row. */
-  onUpgrade: () => void;
+  /** Whether a pointer resting on the row opens the card. */
+  dwell: boolean;
+  /** Opens the upgrade dialog, given the row that asked. Lifted to the sidebar
+   *  so there is ONE dialog rather than one per locked row. */
+  onUpgrade: (row: HTMLElement) => void;
   weddingId: string;
   weddingSlug: string;
   /** The module's download, when the card should offer one: an owner's
@@ -100,65 +118,139 @@ function LockedRow(props: {
   children: JSX.Element;
 }) {
   const [open, setOpen] = createSignal(false);
+  /** The open card is a pointer's preview: opened by a dwell, and not yet
+   *  used. Only a preview closes when the pointer leaves. */
+  const [preview, setPreview] = createSignal(false);
+  /** The close in flight is the pointer leaving a preview, so focus stays
+   *  wherever it is rather than jumping to the row. */
+  let closingOnLeave = false;
+  let row: HTMLButtonElement | undefined;
+  let card: HTMLDivElement | undefined;
   const lock = () => props.mod.lock!;
 
+  const dwell = createPointerDwell({
+    openDelay: DWELL_MS,
+    closeDelay: LEAVE_MS,
+    onDwell: () => {
+      if (open()) return;
+      setPreview(true);
+      setOpen(true);
+    },
+    onLeave: () => {
+      if (!open() || !preview()) return;
+      closingOnLeave = true;
+      setOpen(false);
+    },
+  });
+
+  const controls = () => (card ? [...card.querySelectorAll<HTMLElement>(CARD_CONTROLS)] : []);
+
+  const onRowKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Tab" || event.shiftKey || !open()) return;
+    const first = controls()[0];
+    if (!first) return;
+    event.preventDefault();
+    first.focus();
+  };
+
+  const onCardKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Tab") return;
+    const list = controls();
+    const edge = event.shiftKey ? list[0] : list.at(-1);
+    if (!edge || document.activeElement !== edge) return;
+    row?.focus();
+    // Backwards, the row is where focus stops. Forwards, the row is where the
+    // browser's Tab starts from, so the default is left to run.
+    if (event.shiftKey) event.preventDefault();
+  };
+
   return (
-    <HoverCard
+    <Popover
       open={open()}
-      onOpenChange={setOpen}
-      openDelay={DWELL_MS}
+      onOpenChange={(next) => {
+        dwell.cancel();
+        setPreview(false);
+        setOpen(next);
+      }}
       placement={props.placement}
       gutter={8}
-      // The safe corridor between trigger and card costs two forced layouts per
-      // document `pointermove` for as long as a card is open, and across an
-      // 8px gutter it protects a gap the pointer crosses in one frame.
-      ignoreSafeArea
     >
-      {/* Never Kobalte's `disabled`: its trigger drops both the pointer-enter
-          and the focus handler on a disabled trigger, so the card could not be
-          opened by any path, and a disabled button takes no focus either.
+      {/* A real `<button>`, and never `disabled`: a disabled button takes no
+          focus and answers no press, so the card could not be opened at all.
           `aria-disabled` is wrong for the same reason it is tempting — the row
-          *is* operable, it opens this card; a control that answers a click must
-          not tell assistive tech it does nothing. What it does not do is
-          navigate, and that is what the accessible name says.
-
-          `role` is explicit because the trigger renders Kobalte's link, which
-          would otherwise call a `<button>` a link. */}
-      <HoverCard.Trigger
-        as="button"
+          *is* operable, it opens this card; a control that answers a press
+          must not tell assistive tech it does nothing. What it does not do is
+          navigate, and that is what the accessible name says. */}
+      <Popover.Trigger
+        ref={row}
         type="button"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="button"
-        aria-expanded={open()}
         aria-label={`${props.mod.label} — locked. Included with ${TIER_LABEL[lock().tier]}.`}
-        onClick={() => setOpen((was) => !was)}
+        onKeyDown={onRowKeyDown}
+        onPointerEnter={(event: PointerEvent) => {
+          if (props.dwell) dwell.enterTrigger(event);
+        }}
+        onPointerLeave={(event: PointerEvent) => {
+          if (props.dwell) dwell.leave(event);
+        }}
         class={props.rowClass}
       >
         {props.children}
-      </HoverCard.Trigger>
+      </Popover.Trigger>
 
       {/* Portalled on both surfaces: the sheet's nav scrolls and would clip an
           in-flow card, and on the rail it keeps the card's own button out of
           the nav's control list. */}
-      <HoverCard.Portal>
-        <HoverCard.Content class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none">
+      <Popover.Portal>
+        <Popover.Content
+          ref={card}
+          // The sheet is a modal Dialog, which hides from assistive tech every
+          // node added to `<body>` outside it; this marks the card as one to
+          // leave visible.
+          data-kb-top-layer=""
+          onOpenAutoFocus={(event) => {
+            // Untracked: Kobalte dispatches this inside its focus scope's own
+            // effect, so a tracked read would rerun that effect when the
+            // preview ends — and its cleanup hands focus back to the row.
+            if (untrack(preview)) event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            if (!closingOnLeave) return;
+            closingOnLeave = false;
+            event.preventDefault();
+          }}
+          onFocusIn={() => setPreview(false)}
+          onPointerEnter={(event: PointerEvent) => {
+            if (props.dwell) dwell.enterCard(event);
+          }}
+          onPointerLeave={(event: PointerEvent) => {
+            if (props.dwell) dwell.leave(event);
+          }}
+          onKeyDown={onCardKeyDown}
+          class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none"
+        >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}
           <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
             Included with {TIER_LABEL[lock().tier]}
           </p>
-          <p class="font-display text-text text-ui-md leading-tight font-light">{lock().title}</p>
-          <p class="text-text-muted text-ui-sm leading-snug">{lock().blurb}</p>
+          {/* Title and description name the card's `role="dialog"`; `as="p"`
+              keeps a heading out of the end of `<body>`. */}
+          <Popover.Title as="p" class="font-display text-text text-ui-md leading-tight font-light">
+            {lock().title}
+          </Popover.Title>
+          <Popover.Description as="p" class="text-text-muted text-ui-sm leading-snug">
+            {lock().blurb}
+          </Popover.Description>
           <Button
             variant="quiet"
             size="sm"
             type="button"
             onClick={() => {
-              // Close the popover first: it is anchored to a row that the
-              // dialog is about to cover, and two layers of overlay on a phone
-              // leaves the card floating over the scrim.
+              // Close the card first: it is anchored to a row that the dialog
+              // is about to cover, and two layers of overlay on a phone leaves
+              // the card floating over the scrim.
               setOpen(false);
-              props.onUpgrade();
+              if (row) props.onUpgrade(row);
             }}
             class="mt-1"
           >
@@ -173,9 +265,9 @@ function LockedRow(props: {
               />
             )}
           </Show>
-        </HoverCard.Content>
-      </HoverCard.Portal>
-    </HoverCard>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover>
   );
 }
 
@@ -221,6 +313,23 @@ export default function ModuleSidebar(props: {
   // every locked row would otherwise mount its own, and each would price itself
   // on open.
   const [upgrading, setUpgrading] = createSignal<ModuleDef | null>(null);
+  /** Where focus goes when the upgrade dialog closes: the row that asked, or
+   *  the sheet's trigger when the row went with the sheet. A plain variable
+   *  rather than part of `upgrading`, because it is read as the dialog's
+   *  `Show` tears down. */
+  let upgradeOpener: HTMLElement | undefined;
+  let sheetTrigger: HTMLButtonElement | undefined;
+
+  const offerUpgrade = (mod: ModuleDef, opener: HTMLElement | undefined) => {
+    upgradeOpener = opener;
+    setUpgrading(mod);
+  };
+
+  const endUpgrade = () => {
+    setUpgrading(null);
+    upgradeOpener?.focus();
+    upgradeOpener = undefined;
+  };
 
   const current = () => moduleDef(props.active);
 
@@ -321,7 +430,8 @@ export default function ModuleSidebar(props: {
                   mod={mod}
                   placement="right-start"
                   rowClass={`${railRow} ${rowLocked}`}
-                  onUpgrade={() => setUpgrading(mod)}
+                  dwell
+                  onUpgrade={(row) => offerUpgrade(mod, row)}
                   weddingId={props.weddingId}
                   weddingSlug={props.weddingSlug}
                   lockedExport={lockedExport(mod.id)}
@@ -349,6 +459,7 @@ export default function ModuleSidebar(props: {
           }}
         >
           <Dialog.Trigger
+            ref={sheetTrigger}
             aria-label={`Open wedding navigation, currently ${current().label}`}
             class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
           >
@@ -421,14 +532,17 @@ export default function ModuleSidebar(props: {
                           mod={mod}
                           placement="bottom-start"
                           rowClass={`${sheetRow} ${rowLocked}`}
+                          dwell={false}
                           weddingId={props.weddingId}
                           weddingSlug={props.weddingSlug}
                           lockedExport={lockedExport(mod.id)}
                           onUpgrade={() => {
                             // The sheet is a modal; leaving it open behind the
-                            // dialog would trap focus in the wrong layer.
+                            // dialog would trap focus in the wrong layer. Its
+                            // rows go with it, so focus comes back to the
+                            // trigger that opens it.
                             setSheetOpen(false);
-                            setUpgrading(mod);
+                            offerUpgrade(mod, sheetTrigger);
                           }}
                         >
                           <Body />
@@ -443,11 +557,11 @@ export default function ModuleSidebar(props: {
         </Dialog>
       </div>
 
-      {/* One dialog for the whole nav, driven by which row asked for it. Keyed
-          on the module so switching offers remounts rather than reusing a
-          dialog still holding the previous module's submitting state. It sells
-          the tier the row's lock names, and sends the organiser back to the
-          module they asked for. */}
+      {/* One dialog for the whole nav, driven by which row asked for it.
+          Mounted per offer: closing clears `upgrading`, so every open starts
+          a fresh dialog rather than one still holding the last offer's
+          submitting state. It sells the tier the row's lock names, and sends
+          the organiser back to the module they asked for. */}
       <Show when={upgrading()}>
         {(mod) => (
           <UpgradeDialog
@@ -457,7 +571,7 @@ export default function ModuleSidebar(props: {
             module={mod().id}
             title={TIER_LABEL[mod().lock!.tier]}
             blurb={mod().lock!.blurb}
-            onClose={() => setUpgrading(null)}
+            onClose={endUpgrade}
           />
         )}
       </Show>

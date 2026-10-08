@@ -276,10 +276,12 @@ describe("ModuleSidebar", () => {
   /**
    * A module the wedding's tier does not include.
    *
-   * The row stays in the nav, faded and inert, and offers the upgrade three
-   * ways: a three-second pointer dwell, the same delay on keyboard focus, and a
-   * click — which is the only path a touch user has, because Kobalte's hover
-   * card ignores touch pointers outright.
+   * The row stays in the nav, faded and inert, and offers the upgrade on a
+   * press — a click, a tap, Enter or Space — and, on the rail, on a pointer
+   * resting on it for three seconds. A touch has no hover, so the press is the
+   * only path a touch user has. The keyboard path itself (Tab, Enter, Escape,
+   * the tab order through the portalled card) needs a real Tab key and lives
+   * in `ModuleSidebar.keyboard.browser.test.tsx`.
    */
   describe("a locked module", () => {
     /** Kobalte's popper is floating-ui, which observes its reference and
@@ -322,8 +324,8 @@ describe("ModuleSidebar", () => {
       // they reach a screen reader while tabbing rather than only after a
       // three-second dwell.
       expect(row.getAttribute("aria-label")).toBe("Registry — locked. Included with Gold.");
-      // Never `disabled`: Kobalte's trigger drops its pointer and focus
-      // handlers on a disabled trigger, so the card could never open.
+      // Never `disabled`: a disabled button takes no focus and answers no
+      // press, so the card could never open.
       expect(row.hasAttribute("disabled")).toBe(false);
       // And never `aria-disabled`: the row answers a click by opening the
       // offer, so claiming it is inoperable would be a lie to assistive tech.
@@ -455,11 +457,10 @@ describe("ModuleSidebar", () => {
       expect(dialog).toBeTruthy();
     });
 
-    it("opens after a three-second keyboard focus, not on focus alone", async () => {
-      // Kobalte's trigger treats focus like pointer-enter, so this is the whole
-      // keyboard path to the card — and it is why the row carries
-      // `aria-disabled` rather than `disabled`, which would take the row out of
-      // the tab order and drop the handler with it.
+    it("opens nothing on keyboard focus alone", async () => {
+      // A keyboard opens the card with Enter or Space, which moves focus into
+      // it. A card appearing a few seconds after focus, holding no focus, is a
+      // card a keyboard cannot use.
       vi.useFakeTimers();
       render(() => (
         <ModuleSidebar
@@ -473,11 +474,78 @@ describe("ModuleSidebar", () => {
       ));
       fireEvent.focus(lockedRow());
 
-      await vi.advanceTimersByTimeAsync(2900);
+      await vi.advanceTimersByTimeAsync(6000);
       expect(screen.queryByText("Gift registry")).toBeNull();
+    });
 
-      await vi.advanceTimersByTimeAsync(200);
-      expect(screen.getByText("Gift registry")).toBeTruthy();
+    it("closes a card the pointer opened once the pointer has left it", async () => {
+      vi.useFakeTimers();
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          weddingSlug="test-wedding"
+          canManage={false}
+          active="overview"
+          tier="ivory"
+          onSelect={vi.fn()}
+        />
+      ));
+      const row = lockedRow();
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.pointerLeave(row, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(400);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("keeps a card the pointer opened while the pointer is on the card", async () => {
+      // The row and its card sit 8px apart; crossing that gap is staying.
+      vi.useFakeTimers();
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          weddingSlug="test-wedding"
+          canManage={false}
+          active="overview"
+          tier="ivory"
+          onSelect={vi.fn()}
+        />
+      ));
+      const row = lockedRow();
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(3000);
+      const card = screen.getByRole("dialog", { name: "Gift registry" });
+
+      fireEvent.pointerLeave(row, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(100);
+      fireEvent.pointerEnter(card, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("keeps a pressed card when the pointer leaves", async () => {
+      // A press is a request for the card, not a preview of it: it stays until
+      // it is dismissed.
+      vi.useFakeTimers();
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          weddingSlug="test-wedding"
+          canManage={false}
+          active="overview"
+          tier="ivory"
+          onSelect={vi.fn()}
+        />
+      ));
+      const row = lockedRow();
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      fireEvent.click(row);
+      fireEvent.pointerLeave(row, { pointerType: "mouse" });
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("true");
     });
 
     it("opens nothing when the pointer leaves before the dwell is up", async () => {
@@ -507,8 +575,8 @@ describe("ModuleSidebar", () => {
     });
 
     it("opens nothing for a touch pointer, which is why the click path exists", async () => {
-      // Kobalte drops touch pointers in both handlers. Asserting it keeps the
-      // click path from being read as redundant and quietly removed.
+      // The dwell drops touch pointers in both directions. Asserting it keeps
+      // the press path from being read as redundant and quietly removed.
       vi.useFakeTimers();
       render(() => (
         <ModuleSidebar
@@ -527,10 +595,10 @@ describe("ModuleSidebar", () => {
     });
 
     it("closes the card on a second tap", async () => {
-      // `open` is this component's own signal, so both halves of the round-trip
-      // are our code rather than Kobalte's. It has to toggle: a touch user has
-      // no pointer-leave, so without this the first tap opens a card that never
-      // goes away, and on the sheet that card sits over the nav.
+      // It has to toggle: a touch user has no pointer-leave, so without this
+      // the first tap opens a card that never goes away, and on the sheet that
+      // card sits over the nav. The toggle is Kobalte's trigger, reported
+      // through `onOpenChange`; a second toggle of our own would cancel it.
       render(() => (
         <ModuleSidebar
           weddingId="wed_test"
@@ -582,6 +650,32 @@ describe("ModuleSidebar", () => {
       // The sheet stays open: nothing was navigated to, so there is nothing to
       // close it for.
       expect(screen.getByRole("dialog", { name: /Wedding modules/i })).toBeTruthy();
+    });
+
+    it("opens nothing in the sheet for a resting pointer", async () => {
+      // An open card stands down the sheet's focus trap, so a card opened
+      // under a keyboard user by a pointer resting nearby would give them a
+      // way out of the modal. The sheet opens its cards on a press only.
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          weddingSlug="test-wedding"
+          canManage={false}
+          active="overview"
+          tier="ivory"
+          onSelect={vi.fn()}
+        />
+      ));
+      fireEvent.click(
+        screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
+      );
+      const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
+      vi.useFakeTimers();
+      const row = within(sheet).getByRole("button", { name: /Registry/ });
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(row.getAttribute("aria-expanded")).toBe("false");
     });
 
     it("unlocks the row when the tier rises, without a remount", () => {

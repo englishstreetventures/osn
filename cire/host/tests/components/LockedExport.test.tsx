@@ -50,7 +50,7 @@ afterEach(() => cleanup());
 
 /**
  * The download a locked card offers its owner, on its own: the branches the
- * card's tests in `ModuleSidebar.test.tsx` do not reach through the hover card.
+ * card's tests in `ModuleSidebar.test.tsx` do not reach through the nav card.
  */
 describe("LockedExport", () => {
   describe("a session that has ended", () => {
