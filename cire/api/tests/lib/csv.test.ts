@@ -58,6 +58,24 @@ describe("sanitiseCsvCell", () => {
     expect(sanitiseCsvCell('x;"=1')).toBe("x;\"'=1");
   });
 
+  // East Asian builds of Excel can read a full-width marker as a formula start.
+  it("guards the full-width markers too", () => {
+    expect(sanitiseCsvCell("\uff1d1+1")).toBe("'\uff1d1+1");
+    expect(sanitiseCsvCell("x;\uff0bA1")).toBe("x;'\uff0bA1");
+    expect(sanitiseCsvCell("\n\uff0d1")).toBe("\n'\uff0d1");
+    expect(sanitiseCsvCell("\uff20SUM(A1)")).toBe("'\uff20SUM(A1)");
+  });
+
+  // Tab, CR and LF are both segment breaks and skipped characters, so a long
+  // run of them must be walked once, not once per break: a guest's note made
+  // of line breaks would otherwise cost the whole export its CPU budget.
+  it("guards a long run of line breaks and tabs in time linear in its length", () => {
+    const run = "\n\t\r".repeat(100_000);
+    expect(sanitiseCsvCell(`${run}=x`)).toBe(`${run}'=x`);
+    expect(unguardCsvCell(`${run}'=x`)).toBe(`${run}=x`);
+    expect(sanitiseCsvCell(run)).toBe(run);
+  }, 1_000);
+
   it("adds one more quote to a value that already starts its segment with quotes and a marker", () => {
     expect(sanitiseCsvCell("'=x")).toBe("''=x");
     expect(sanitiseCsvCell("x;''@y")).toBe("x;'''@y");
@@ -210,6 +228,8 @@ describe("sanitiseCsvCell and unguardCsvCell over generated values", () => {
     "\u{E0041}",
     "\ud800",
     "\u00e9",
+    "\uff1d",
+    "\uff0d",
   ];
   // A seeded generator, so a failure names a value that reproduces.
   function random(seed: number) {
@@ -222,7 +242,7 @@ describe("sanitiseCsvCell and unguardCsvCell over generated values", () => {
     };
   }
   const SKIPPED = /^[\s\p{Cc}\p{Cf}"]*/u;
-  const startsBare = (segment: string) => /^[=+\-@]/.test(segment.replace(SKIPPED, ""));
+  const startsBare = (segment: string) => /^[=+\-@＝＋－＠]/.test(segment.replace(SKIPPED, ""));
 
   it("leaves no segment starting with a bare marker, and round-trips", () => {
     const next = random(20261008);

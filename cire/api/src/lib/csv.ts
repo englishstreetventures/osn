@@ -36,53 +36,71 @@ function skippedLength(value: string, at: number): number {
   return match ? match[0].length : 0;
 }
 
-/** `=`, `+`, `-` or `@` — the characters that start a formula. */
+/**
+ * The characters that start a formula: `=`, `+`, `-`, `@`, and their
+ * full-width forms (U+FF1D, U+FF0B, U+FF0D, U+FF20), which East Asian builds
+ * of Excel can read as a formula start too.
+ */
 const isFormulaMarker = (code: number): boolean =>
-  code === 0x3d || code === 0x2b || code === 0x2d || code === 0x40;
+  code === 0x3d ||
+  code === 0x2b ||
+  code === 0x2d ||
+  code === 0x40 ||
+  code === 0xff1d ||
+  code === 0xff0b ||
+  code === 0xff0d ||
+  code === 0xff20;
+
+/** The index just past the run of skipped characters that starts at `start`. */
+function pastSkipped(value: string, start: number): number {
+  const end = value.length;
+  let at = start;
+  for (let skip = 0; at < end && (skip = skippedLength(value, at)) > 0;) at += skip;
+  return at;
+}
 
 /**
- * Where the segment starting at `start` takes its guard: just past the skipped
- * run, when what follows is zero or more `'` and then a formula marker. `-1`
- * when the segment does not start a formula.
+ * Whether zero or more `'` and then a formula marker start at `at`.
  *
  * The `'` run is part of the pattern so the guard can be undone exactly: a
  * value that already reads `'=x` is written `''=x`, and the import takes one
  * quote off either.
  */
-function guardIndex(value: string, start: number): number {
-  const end = value.length;
-  let at = start;
-  for (let skip = 0; at < end && (skip = skippedLength(value, at)) > 0;) at += skip;
+function startsFormula(value: string, at: number): boolean {
   let marker = at;
-  while (marker < end && value.charCodeAt(marker) === 0x27) marker++;
-  return marker < end && isFormulaMarker(value.charCodeAt(marker)) ? at : -1;
+  while (marker < value.length && value.charCodeAt(marker) === 0x27) marker++;
+  return marker < value.length && isFormulaMarker(value.charCodeAt(marker));
 }
 
 const NO_INDEXES: readonly number[] = [];
 
 /**
- * Every index the guard writes a `'` at, ascending, each once. A skipped run
- * can hold several segment breaks (`\r\n`, a blank line), and each of them
- * reaches the same marker, which still takes one quote.
+ * Every index the guard writes a `'` at, ascending, each once: the end of the
+ * skipped run of every segment that then starts a formula.
+ *
+ * Tab, CR and LF are both segment breaks and skipped characters, so a skipped
+ * run can hold many breaks (`\r\n`, blank lines), and each of them reaches the
+ * same marker. The search for the next break therefore starts past the run,
+ * which takes that marker one quote and keeps the walk linear in the value's
+ * length: a cell of nothing but line breaks costs one pass, not one per break.
  */
 function guardIndexes(value: string): readonly number[] {
   let indexes: number[] | undefined;
-  let last = guardIndex(value, 0);
-  if (last >= 0) indexes = [last];
-  SEGMENT_BREAK.lastIndex = 0;
-  while (SEGMENT_BREAK.test(value)) {
-    const at = guardIndex(value, SEGMENT_BREAK.lastIndex);
-    if (at > last) {
-      (indexes ??= []).push(at);
-      last = at;
-    }
+  let start = 0;
+  for (;;) {
+    const at = pastSkipped(value, start);
+    if (startsFormula(value, at)) (indexes ??= []).push(at);
+    SEGMENT_BREAK.lastIndex = at;
+    if (!SEGMENT_BREAK.test(value)) break;
+    start = SEGMENT_BREAK.lastIndex;
   }
   return indexes ?? NO_INDEXES;
 }
 
 /**
  * Defuse CSV formula injection. A cell whose start, or the start of any `;`,
- * tab, CR or LF segment inside it, is a formula marker (`= + - @`) after any
+ * tab, CR or LF segment inside it, is a formula marker (`= + - @`, or a
+ * full-width form of one) after any
  * whitespace, control or format characters gets a `'` immediately before that
  * marker, so a spreadsheet reads the segment as text whatever separator it
  * splits on. Everything else in the value is kept, so what the organiser sees

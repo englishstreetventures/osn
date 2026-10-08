@@ -98,7 +98,7 @@ Budget card — see [[cire-entitlements]].
 
 - One row per line, in the portal's order (category in `SERVICE_CATEGORIES` order, then `sortOrder`), each followed by its payments (oldest first, ties by id). A **Kind** column says `Budget line` or `Payment`; a payment row repeats its line's category and item.
 - Columns: Kind, Category, Item, Estimate, Quoted, Actual, Price Per Guest, Guests, Payment, Amount, Due, Paid At, Currency, Notes. Category prints its label; money prints as a bare decimal in the wedding's currency (`minorToDecimal`); **Guests** is the headcount a per-head line priced.
-- Every cell goes through `serialiseCsv`, so a `=`, `+`, `-` or `@` that starts a cell, or starts any `;`, tab or line-break segment of it (a dash list in Notes, say), gets a `'` before it.
+- Every cell goes through `serialiseCsv`, so a `=`, `+`, `-` or `@` (or a full-width form of one) that starts a cell, or starts any `;`, tab or line-break segment of it (a dash list in Notes, say), gets a `'` before it.
 - Capped at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows, payments included; a longer budget is cut and logs a warning. The cut happens in D1, not the Worker: `exportSnapshot` orders lines by category position (`displayRank` in `cire/api/src/lib/display-rank.ts`) and reads at most one line and one payment past the ceiling, so the Worker never receives a row it will not print. The comment on the constant gives the CPU reasoning.
 - `GET …/module-rows` answers `{ budgetLines, tasks, gifts }`, counted in one statement, for the locked Budget, Checklist and Registry cards and the Settings list, which offer a download only when there is something in it.
 

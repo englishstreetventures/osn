@@ -25,8 +25,9 @@ import type { PaletteSwatch } from "../schemas/import";
 // ── Formula-injection markers ─────────────────────────────────────────────────
 
 /** A cell that (after trimming) begins with one of these is run as a formula
- *  by Excel and Google Sheets. */
-const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
+ *  by Excel and Google Sheets — the full-width forms by East Asian builds of
+ *  Excel. The download guard (`lib/csv.ts`) uses the same eight. */
+const FORMULA_MARKERS = new Set(["=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20"]);
 
 /**
  * Does an uploaded cell start a formula? The upload scan refuses such a cell.

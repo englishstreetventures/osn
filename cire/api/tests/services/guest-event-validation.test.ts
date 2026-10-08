@@ -22,8 +22,8 @@ const isIsoTimestamp = (s: string) => parseWallTime(s) !== null;
 // ── Unit: each rule in isolation ──────────────────────────────────────────────
 
 describe("guest-event-validation rules", () => {
-  it("isFormulaCell flags = + - @ (trimming leading whitespace first)", () => {
-    for (const marker of ["=", "+", "-", "@"]) {
+  it("isFormulaCell flags = + - @ and their full-width forms (trimming leading whitespace first)", () => {
+    for (const marker of ["=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20"]) {
       expect(isFormulaCell(`${marker}SUM(A1)`)).toBe(true);
       expect(isFormulaCell(`   ${marker}SUM(A1)`)).toBe(true); // leading-ws bypass
     }
