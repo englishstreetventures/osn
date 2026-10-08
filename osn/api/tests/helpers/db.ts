@@ -31,5 +31,29 @@ export function createTestLayerWithSqlite() {
   return { layer: Layer.merge(dbLayer, email.layer), sqlite, db, email };
 }
 
+/** One statement drizzle sent to the driver, with the values it bound. */
+export interface CapturedStatement {
+  sql: string;
+  params: readonly unknown[];
+}
+
+/**
+ * The same layer as `createTestLayer`, plus every statement drizzle sends to
+ * the database, through drizzle's own `logger` hook. D1 refuses a statement
+ * over 100 bound parameters and bun:sqlite does not, so a test asserts on
+ * `params` instead of waiting for a query to fail.
+ */
+export function createCapturingTestLayer() {
+  const captured: CapturedStatement[] = [];
+  const sqlite = new Database(":memory:");
+  applySchema(sqlite);
+  const db = drizzle(sqlite, {
+    schema,
+    logger: { logQuery: (sql, params) => captured.push({ sql, params }) },
+  });
+  const email = makeLogEmailLive();
+  return { layer: Layer.merge(Layer.succeed(Db, { db }), email.layer), db, captured };
+}
+
 // Re-export for tests that want to build their own capture recorder.
 export { EmailService, makeLogEmailLive };

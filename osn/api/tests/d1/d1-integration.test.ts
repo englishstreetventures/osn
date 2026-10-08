@@ -11,6 +11,8 @@ import {
   passkeys,
   recoveryCodes,
   securityEvents,
+  serviceAccountKeys,
+  serviceAccounts,
   sessions,
   totpCredentials,
   users,
@@ -18,12 +20,19 @@ import {
 import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
+import {
+  clearPublicKeyCache,
+  createArcToken,
+  exportKeyToJwk,
+  generateArcKeyPair,
+} from "@shared/crypto";
 import { commitBatch, createD1Db, rowsChanged } from "@shared/db-utils";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
 import { UNIQUE_CONSTRAINT_ERROR } from "../../src/lib/unique-constraint";
+import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import {
   cancelErasure,
   getDeletionStatus,
@@ -1075,5 +1084,77 @@ describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
     // The credential is still there. Without atomicity the account would be one
     // credential down with nothing to show for it.
     expect(rows.map((r) => r.id)).toContain("pk_d1_solo");
+  });
+});
+
+/** `count` profiles on the seeded account, handles `<prefix>000`…, inserted one statement each. */
+const seedProfiles = async (prefix: string, count: number): Promise<string[]> => {
+  const ts = new Date();
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const id = `usr_${prefix}_${i}`;
+    ids.push(id);
+    await rawDb.insert(users).values({
+      id,
+      accountId: ACCOUNT_ID,
+      handle: `${prefix}${String(i).padStart(3, "0")}`,
+      displayName: null,
+      avatarUrl: null,
+      isDefault: false,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+  }
+  return ids;
+};
+
+describe("id lists past D1's 100-parameter cap, over real D1 (Miniflare)", () => {
+  it("POST /graph/internal/profile-displays returns every profile for 150 ids", async () => {
+    const ids = await seedProfiles("disp", 150);
+    clearPublicKeyCache();
+    const keyPair = await generateArcKeyPair();
+    const keyId = crypto.randomUUID();
+    const serviceId = `d1-displays-${keyId.slice(0, 8)}`;
+    const now = new Date();
+    await rawDb
+      .insert(serviceAccounts)
+      .values({ serviceId, allowedScopes: "graph:read", createdAt: now, updatedAt: now });
+    await rawDb.insert(serviceAccountKeys).values({
+      keyId,
+      serviceId,
+      publicKeyJwk: await exportKeyToJwk(keyPair.publicKey),
+      registeredAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    });
+    const token = await createArcToken(keyPair.privateKey, {
+      iss: serviceId,
+      aud: "osn-api",
+      scope: "graph:read",
+      kid: keyId,
+    });
+
+    const res = await createInternalGraphRoutes(layer).handle(
+      new Request("http://localhost/graph/internal/profile-displays", {
+        method: "POST",
+        headers: { Authorization: `ARC ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ profileIds: ids }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { profiles: { id: string }[] };
+    expect(body.profiles.map((p) => p.id).toSorted()).toEqual(ids.toSorted());
+  });
+
+  it("searchProfiles answers at limit 20 when the handle prefix matches 60 profiles", async () => {
+    // The prefix pass returns 60 candidates at limit 20, and the block and
+    // connection probes name the candidate list twice.
+    const [caller] = await seedProfiles("caller", 1);
+    await seedProfiles("pat", 61);
+
+    const result = await run(createRecommendationService().searchProfiles(caller!, "pat", 20));
+
+    expect(result).toHaveLength(20);
   });
 });

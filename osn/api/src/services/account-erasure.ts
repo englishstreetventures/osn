@@ -17,7 +17,7 @@ import {
 } from "@osn/db/schema";
 import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
 import { and, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
@@ -537,21 +537,21 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
                   .delete(connections)
                   .where(
                     or(
-                      inArray(connections.requesterId, profileIds),
-                      inArray(connections.addresseeId, profileIds),
+                      inArray(connections.requesterId, jsonEachIn(profileIds)),
+                      inArray(connections.addresseeId, jsonEachIn(profileIds)),
                     ),
                   ),
                 db
                   .delete(blocks)
                   .where(
                     or(
-                      inArray(blocks.blockerId, profileIds),
-                      inArray(blocks.blockedId, profileIds),
+                      inArray(blocks.blockerId, jsonEachIn(profileIds)),
+                      inArray(blocks.blockedId, jsonEachIn(profileIds)),
                     ),
                   ),
                 db
                   .delete(organisationMembers)
-                  .where(inArray(organisationMembers.profileId, profileIds)),
+                  .where(inArray(organisationMembers.profileId, jsonEachIn(profileIds))),
                 // OIDC provider records (Art. 17). Both are account-scoped and
                 // PII-bearing: `oauth_consents` names every relying party the
                 // user linked, `oauth_authorization_codes` is a live grant in
